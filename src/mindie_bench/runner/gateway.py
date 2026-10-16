@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import http.client
 import http.server
+import ipaddress
 import json
 import os
 import re
+import socket
 import socketserver
 import threading
 import time
@@ -15,9 +18,13 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from mindie_bench.io import read_json, safe_relative
-from mindie_bench.models import HarnessConfig, TaskSpec
+from mindie_bench.io import read_json, safe_relative, write_json
+from mindie_bench.models import HarnessConfig, TaskSpec, UnknownExternalEffects
 from mindie_bench.runner.usage import UsageMeter, sum_usage
+
+
+class RemoteBudgetExhausted(ValueError):
+    pass
 
 
 class Gateway(AbstractContextManager):
@@ -35,6 +42,8 @@ class Gateway(AbstractContextManager):
         self.harness, self.task, self.task_root = harness, task, task_root
         self.workspace, self.journal = workspace, journal
         self.lock = threading.RLock()
+        self.model_idle = threading.Condition(self.lock)
+        self.models_sealed = False
         self.model_calls = self.replay_calls = 0
         self.stop_reason: str | None = None
         self.unknown = False
@@ -47,20 +56,29 @@ class Gateway(AbstractContextManager):
         self.unix_socket = unix_socket
         self.remote = remote
         self.remote_test_calls = 0
+        self.stream_input: dict[str, bytes] = {}
+        self.remote_result_count = 0
+        self.remote_delivery_failures: list[dict] = []
         self.api_key = os.environ.get(harness.api_key_env or "", "")
         if harness.name != "fixture" and not self.api_key:
             raise ValueError(f"missing explicitly selected credential: {harness.api_key_env}")
         if harness.provider_url:
             parsed = urlsplit(harness.provider_url)
+            try:
+                loopback = ipaddress.ip_address(parsed.hostname or "").is_loopback
+            except ValueError:
+                loopback = False
             if (
-                parsed.scheme != "https"
+                not (parsed.scheme == "https" or parsed.scheme == "http" and loopback)
                 or not parsed.hostname
                 or parsed.username
                 or parsed.password
                 or parsed.query
                 or parsed.fragment
             ):
-                raise ValueError("model provider_url must be a credential-free HTTPS URL")
+                raise ValueError(
+                    "model provider_url requires HTTPS, or numeric loopback HTTP for a local relay"
+                )
         self.server = None
         self.thread = None
 
@@ -109,6 +127,86 @@ class Gateway(AbstractContextManager):
             exit_code=int(outcome["exit_code"]),
         )
 
+    def ssh_stream(self, request: dict) -> dict:
+        """Bridge remote-dev's existing NDJSON RPC without waiting for stdin EOF."""
+        from mindie_bench.scorer.metrics import NPU_TEST
+
+        action = request["action"]
+        if action == "open":
+            command = request["command"]
+            if not isinstance(command, str) or not command or len(command.encode()) > 8 * 1024 * 1024:
+                raise ValueError("invalid remote stream command")
+            test_run = bool(NPU_TEST.search(command))
+            with self.lock:
+                if test_run and self.remote_test_calls >= self.task.budget.max_npu_runs:
+                    self.stop_reason = "max_npu_runs"
+                    raise RemoteBudgetExhausted("benchmark NPU test budget exhausted")
+                self.remote_test_calls += int(test_run)
+            try:
+                result = self.remote.open_stream(command)
+            except Exception as exc:
+                self.unknown = True
+                self.record("remote_unknown", action=action, error=type(exc).__name__, message=str(exc))
+                raise UnknownExternalEffects("remote stream creation has unknown effects") from exc
+            identity = result["stream_id"]
+            if not isinstance(identity, str) or identity in self.stream_input:
+                self.unknown = True
+                raise UnknownExternalEffects("invalid remote stream creation receipt")
+            self.stream_input[identity] = b""
+            self.record("remote_stream_open", stream_id=identity, test_run=test_run)
+            return result
+        if action != "exchange":
+            raise ValueError("unsupported remote stream action")
+        identity, eof = request["stream_id"], request.get("eof", False)
+        data = base64.b64decode(request.get("stdin_b64", ""), validate=True)
+        if type(eof) is not bool or len(data) > 8 * 1024 * 1024:
+            raise ValueError("invalid remote stream input")
+        with self.lock:
+            pending = self.stream_input[identity] + data
+            if len(pending) > 8 * 1024 * 1024:
+                raise ValueError("remote RPC frame exceeds evidence bound")
+            lines = pending.split(b"\n")
+            remainder = lines.pop()
+            if eof and remainder:
+                lines.append(remainder)
+                remainder = b""
+            # Count commands in RPC payloads, never the worker's uploaded source.
+            # Buffer partial frames so admission happens before any RPC submission.
+            tests = 0
+            for line in lines:
+                message = json.loads(line)
+                payload = message.get("payload", {})
+                if not isinstance(payload, dict):
+                    raise ValueError("invalid remote RPC payload")
+                spec = payload.get("spec", {})
+                if not isinstance(spec, dict):
+                    raise ValueError("invalid remote job specification")
+                command = payload.get("command", payload.get("cmd", spec.get("command", "")))
+                tests += int(isinstance(command, str) and bool(NPU_TEST.search(command)))
+            if self.remote_test_calls + tests > self.task.budget.max_npu_runs:
+                self.stop_reason = "max_npu_runs"
+                raise RemoteBudgetExhausted("benchmark NPU test budget exhausted")
+            self.remote_test_calls += tests
+            self.stream_input[identity] = remainder
+        submitted = b"".join(line + b"\n" for line in lines)
+        try:
+            result = self.remote.exchange_stream(identity, base64.b64encode(submitted).decode(), eof=eof)
+        except Exception as exc:
+            self.unknown = True
+            self.record("remote_unknown", action=action, error=type(exc).__name__, message=str(exc))
+            raise UnknownExternalEffects("remote stream exchange has unknown effects") from exc
+        if submitted or eof or result.get("exit_code") is not None:
+            self.record(
+                "remote_stream_exchange",
+                stream_id=identity,
+                submitted_bytes=len(submitted),
+                submitted_sha256=hashlib.sha256(submitted).hexdigest(),
+                test_runs=tests,
+                eof=eof,
+                exit_code=result.get("exit_code"),
+            )
+        return result
+
     def __enter__(self):
         gateway = self
 
@@ -126,6 +224,44 @@ class Gateway(AbstractContextManager):
                 self.end_headers()
                 self.wfile.write(payload)
 
+            def remote_response(
+                self, result, *, request_body, uncertain_on_delivery, persist_result=True
+            ):
+                identity = None
+                if persist_result:
+                    with gateway.lock:
+                        gateway.remote_result_count += 1
+                        identity = f"{gateway.remote_result_count:08d}"
+                        directory = gateway.journal.parent / "remote-results"
+                        directory.mkdir(exist_ok=True)
+                        write_json(
+                            directory / f"{identity}.json",
+                            dict(
+                                request_sha256=hashlib.sha256(request_body).hexdigest(),
+                                result=result,
+                            ),
+                            exclusive=True,
+                        )
+                payload = json.dumps(result).encode()
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    self.wfile.flush()
+                except OSError as exc:
+                    # A completed one-shot result is already authoritative and
+                    # durable. A lost RPC stream frame can still hide a submission.
+                    gateway.unknown = gateway.unknown or uncertain_on_delivery
+                    failure = dict(
+                        receipt_id=identity,
+                        error=type(exc).__name__,
+                        external_effects="unknown" if uncertain_on_delivery else "completed",
+                    )
+                    gateway.remote_delivery_failures.append(failure)
+                    gateway.record("remote_delivery_failed", **failure)
+                    self.close_connection = True
+
             def do_POST(self):
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
@@ -141,6 +277,32 @@ class Gateway(AbstractContextManager):
                         self.end_headers()
                         self.wfile.write(payload)
                         return
+                    if self.path == "/bench/ssh-stream":
+                        if gateway.remote is None:
+                            return self.reject(403, "no remote slot is assigned")
+                        if gateway.unknown or gateway.closed or gateway.infrastructure_error:
+                            return self.reject(409, "prior remote effects require reconciliation")
+                        try:
+                            request = json.loads(body)
+                            result = gateway.ssh_stream(request)
+                        except RemoteBudgetExhausted as exc:
+                            return self.reject(429, str(exc))
+                        except UnknownExternalEffects:
+                            return self.reject(502, "remote stream has unknown effects; no retry")
+                        pure_poll = (
+                            request["action"] == "exchange"
+                            and not request.get("stdin_b64")
+                            and not request.get("eof")
+                            and not result.get("stdout_b64")
+                            and not result.get("stderr_b64")
+                            and result.get("exit_code") is None
+                        )
+                        return self.remote_response(
+                            result,
+                            request_body=body,
+                            uncertain_on_delivery=not pure_poll,
+                            persist_result=not pure_poll,
+                        )
                     if self.path == "/bench/ssh":
                         if gateway.remote is None:
                             return self.reject(403, "no remote slot is assigned")
@@ -155,6 +317,11 @@ class Gateway(AbstractContextManager):
                             return self.reject(400, "invalid remote command")
                         test_run = bool(NPU_TEST.search(command + "\n" + stdin.decode(errors="replace")))
                         with gateway.lock:
+                            if gateway.unknown or gateway.closed or gateway.infrastructure_error:
+                                return self.reject(
+                                    409,
+                                    "a prior operation has unknown effects; remote writes are stopped",
+                                )
                             if (
                                 test_run
                                 and gateway.remote_test_calls >= gateway.task.budget.max_npu_runs
@@ -175,12 +342,9 @@ class Gateway(AbstractContextManager):
                             exit_code=result["exit_code"],
                             test_run=test_run,
                         )
-                        payload = json.dumps(result).encode()
-                        self.send_response(200)
-                        self.send_header("Content-Length", str(len(payload)))
-                        self.end_headers()
-                        self.wfile.write(payload)
-                        return
+                        return self.remote_response(
+                            result, request_body=body, uncertain_on_delivery=False
+                        )
                     if self.path not in {"/v1/responses", "/responses", "/v1/messages", "/messages"}:
                         return self.reject(403, "egress endpoint is not permitted")
                     if gateway.harness.name == "fixture":
@@ -190,7 +354,7 @@ class Gateway(AbstractContextManager):
                         return self.reject(403, gateway.infrastructure_error)
                     request_hash = hashlib.sha256(body).hexdigest()
                     with gateway.lock:
-                        if gateway.closed or gateway.unknown:
+                        if gateway.closed or gateway.unknown or gateway.models_sealed:
                             return self.reject(409, "prior request is unknown; no retry")
                         if request_hash in gateway.seen:
                             return self.reject(409, "duplicate paid request; no replay")
@@ -204,9 +368,12 @@ class Gateway(AbstractContextManager):
                         gateway.usage_meters[ordinal] = UsageMeter()
                     gateway.record("model_start", ordinal=ordinal, request_sha256=request_hash)
                     endpoint = urlsplit(gateway.harness.provider_url)
-                    connection = http.client.HTTPSConnection(
-                        endpoint.hostname, endpoint.port, timeout=120
+                    connection_type = (
+                        http.client.HTTPSConnection
+                        if endpoint.scheme == "https"
+                        else http.client.HTTPConnection
                     )
+                    connection = connection_type(endpoint.hostname, endpoint.port, timeout=120)
                     with gateway.lock:
                         gateway.connections.add(connection)
                     target = endpoint.path.rstrip("/") + "/" + self.path.removeprefix("/v1/").lstrip("/")
@@ -259,6 +426,7 @@ class Gateway(AbstractContextManager):
                         with gateway.lock:
                             gateway.connections.discard(connection)
                             gateway.active -= 1
+                            gateway.model_idle.notify_all()
                 except (ValueError, KeyError, OSError) as exc:
                     gateway.record("broker_error", error=type(exc).__name__, message=str(exc))
                     gateway.infrastructure_error = f"{type(exc).__name__}: {exc}"
@@ -292,11 +460,29 @@ class Gateway(AbstractContextManager):
         with self.lock:
             return sum_usage(self.usage_meters, self.model_calls)
 
+    def finish_inference(self, timeout=1.0):
+        """Seal model admission before deciding the trial's terminal status."""
+        with self.model_idle:
+            if self.models_sealed:
+                return
+            self.models_sealed = True
+            if not self.model_idle.wait_for(lambda: self.active == 0, timeout=timeout):
+                self.unknown = True
+                self.record("model_calls_unsettled", active=self.active)
+
     def __exit__(self, *args):
+        self.finish_inference()
         self.closed = True
         with self.lock:
-            for connection in tuple(self.connections):
-                connection.close()
+            connections = tuple(self.connections)
+        for connection in connections:
+            transport = getattr(connection, "sock", None)
+            if transport is not None:
+                try:
+                    transport.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            connection.close()
         if self.server:
             self.server.shutdown()
             self.server.server_close()

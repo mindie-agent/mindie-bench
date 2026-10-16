@@ -1,0 +1,2 @@
+# Preserve upstream patch context prefixes, including blank context lines.
+tasks/**/oracle/*.diff -whitespace

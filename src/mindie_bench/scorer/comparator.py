@@ -18,6 +18,7 @@ CONTROL_KEYS = (
     "harness_binary_sha256",
     "base_model",
     "reasoning_effort",
+    "model_catalog_sha256",
     "provider_url",
     "backend",
     "budget",
@@ -97,6 +98,9 @@ def comparison(baseline: list[TrialReceipt], candidate: list[TrialReceipt], *, k
             bv = b.environment_fingerprint.get("component_revisions", {}).get(component)
             if not av or av != bv:
                 raise ValueError(f"shared component revision changed or missing: {component}")
+        skills = [row.environment_fingerprint.get("skills_sha256") for row in (a, b)]
+        if all(skills) and skills[0] != skills[1]:
+            raise ValueError("shared skill snapshot changed")
     a, b = summarize(baseline, k=k), summarize(candidate, k=k)
     valid = {TerminalStatus.PASS, TerminalStatus.FAIL}
     paired = [
@@ -125,7 +129,14 @@ def comparison(baseline: list[TrialReceipt], candidate: list[TrialReceipt], *, k
         if total_baseline:
             saved_npu_fraction = 1 - sum(y for _, y in npu_values) / total_baseline
     localization = []
+    observed_localization = []
     for x, y in paired:
+        observed = (
+            x.primary_metrics.get("turns_to_first_localization"),
+            y.primary_metrics.get("turns_to_first_localization"),
+        )
+        if all(value is not None for value in observed):
+            observed_localization.append(observed)
         localization.append(
             (
                 x.primary_metrics.get("turns_to_first_localization")
@@ -167,8 +178,17 @@ def comparison(baseline: list[TrialReceipt], candidate: list[TrialReceipt], *, k
         wall_clock_speedup_on_mutual_success=ratio("delivery_wall_clock_sec", solved_pairs),
         mutually_solved_pairs=len(solved_pairs),
         saved_npu_test_run_fraction=saved_npu_fraction,
-        localization_speedup=(
+        # Shell-only hosts do not emit typed Read/Grep/Edit observations.
+        # Preserve the required null penalty, but do not advertise asymmetric
+        # observation coverage as an engineering speedup.
+        localization_penalized_turns_ratio=(
             sum(x for x, _ in localization) / sum(y for _, y in localization) if localization else None
+        ),
+        localization_observed_pairs=len(observed_localization),
+        localization_speedup=(
+            sum(x for x, _ in observed_localization) / sum(y for _, y in observed_localization)
+            if observed_localization and len(observed_localization) == len(paired)
+            else None
         ),
         funnel=funnel,
     )
@@ -210,7 +230,13 @@ def markdown(result: dict) -> str:
         f"Time speedup on mutually solved pairs: {fmt(result['wall_clock_speedup_on_mutual_success'])}; "
         f"pairs: {result['mutually_solved_pairs']}.",
         f"Saved NPU test-run fraction: {fmt(result['saved_npu_test_run_fraction'])}.",
-        f"Localization speedup (missing penalized by max_turns): {fmt(result['localization_speedup'])}.",
+        f"Localization speedup with complete typed observations: "
+        f"{fmt(result['localization_speedup'])}; "
+        f"observed pairs: {result['localization_observed_pairs']}/{result['matched_valid_pairs']}.",
+        f"Descriptive localization-turn ratio (missing penalized by max_turns): "
+        f"{fmt(result['localization_penalized_turns_ratio'])}. "
+        "A missing typed observation can reflect shell-only source access; "
+        "it is not proof that the agent failed to locate the target.",
         "",
         "Pass^k is a per-task plug-in estimate requiring at least k valid repetitions; "
         "it is not an observed guarantee. Cost includes all attempts; incomplete metering "
@@ -258,6 +284,20 @@ def grouped_summaries(receipts):
             evaluation = result["/".join(key)]
             evaluation["seed_setup_attempts"] = seed["attempts"]
             evaluation["seed_setup_cost_usd_lower_bound"] = seed["observed_cost_usd_lower_bound"]
+            evaluation["observed_tokens_including_seed_lower_bound"] = {
+                field: value + seed["observed_tokens_lower_bound"][field]
+                for field, value in evaluation["observed_tokens_lower_bound"].items()
+            }
+            evaluation["token_metering_including_seed_complete"] = (
+                evaluation["token_metering_complete"] and seed["token_metering_complete"]
+            )
+            evaluation["observed_delivery_sec_including_seed_lower_bound"] = (
+                evaluation["observed_delivery_wall_clock_sec_lower_bound"]
+                + seed["observed_delivery_wall_clock_sec_lower_bound"]
+            )
+            evaluation["delivery_timing_including_seed_complete"] = (
+                evaluation["delivery_timing_complete"] and seed["delivery_timing_complete"]
+            )
             evaluation["cost_per_resolved_task_including_seed"] = (
                 (evaluation["observed_cost_usd_lower_bound"] + seed["observed_cost_usd_lower_bound"])
                 / evaluation["completed_pass"]

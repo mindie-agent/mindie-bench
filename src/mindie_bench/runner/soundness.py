@@ -55,21 +55,32 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
                 config.remote.devices[: environment.npu_count],
                 task.budget.verifier_timeout_sec,
                 artifact_dir=output,
-            ).prepare()
+            )
+            remote.prepare()
             remote.upload_public(task_root / "environment")
         paths = runtime_paths(config, profile)
 
-        def verify():
+        def verify(stage: str):
             if remote:
                 result = remote.verify((task_root / "verifier/test.sh").read_bytes())
-                return parse_verifier(
-                    result["exit_code"], base64.b64decode(result["stdout_b64"]).decode()
+                # Preserve the received bytes before decoding or validating the judge.
+                write_json(output / f"verifier_{stage}.remote.json", result, exclusive=True)
+                stdout = base64.b64decode(result["stdout_b64"], validate=True)
+                stderr = base64.b64decode(result["stderr_b64"], validate=True)
+                (output / f"verifier_{stage}.stdout").write_bytes(stdout)
+                (output / f"verifier_{stage}.stderr").write_bytes(stderr)
+                value = parse_verifier(result["exit_code"], stdout.decode())
+                write_json(
+                    output / f"verifier_{stage}.verdict.json",
+                    dict(returncode=result["exit_code"], result=value.model_dump()),
+                    exclusive=True,
                 )
+                return value
             return local_verifier(
                 task_root, workspace, profile, output, task.budget.verifier_timeout_sec, paths
             )[0]
 
-        before = verify()
+        before = verify("before")
         for name in ["stdout", "stderr"]:
             path = output / f"verifier.{name}"
             if path.exists():
@@ -92,7 +103,7 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
                 capture_output=True,
                 timeout=20,
             )
-        after = verify()
+        after = verify("after")
         for name in ["stdout", "stderr"]:
             path = output / f"verifier.{name}"
             if path.exists():

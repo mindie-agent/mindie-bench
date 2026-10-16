@@ -155,6 +155,7 @@ class HarnessConfig(StrictModel):
     model: str
     expected_version: str
     reasoning_effort: str | None = None
+    model_catalog_path: str | None = None
     provider_url: str | None = None
     api_key_env: str | None = None
     input_usd_per_million: float | None = Field(default=None, ge=0)
@@ -249,6 +250,7 @@ class Trajectory(StrictModel):
     human_interventions: int | None = None
     native_completed: bool = False
     native_error: str | None = None
+    native_session_id: str | None = None
     public_messages: list[dict[str, str]] = Field(default_factory=list)
 
 

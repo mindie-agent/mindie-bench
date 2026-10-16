@@ -1,12 +1,74 @@
+import hashlib
 import json
+import subprocess
+import sys
 
 import pytest
 from pydantic import ValidationError
 
 from mindie_bench.io import read_json, safe_relative, tree_hash, write_json
 from mindie_bench.models import Group, GroupConfig, MCPServer, VerifierResult
-from mindie_bench.runner.profile_builder import build_profile, filtered_corpus
+from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profile, filtered_corpus
 from mindie_bench.runner.verifier import parse_verifier
+
+
+def test_component_python_keeps_its_virtual_environment(case, tmp_path):
+    runtime = tmp_path / "component-runtime"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(runtime)], check=True)
+    python = runtime / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    case["config"].groups[Group.G1] = GroupConfig(
+        mcp_servers={"remote": MCPServer(command=str(python), component="remote-dev")}
+    )
+    destination = tmp_path / "trial"
+    destination.mkdir()
+    profile = build_profile(destination, case["spec"], Group.G1, case["config"])
+    invocation = json.loads((profile.root / "mcp.json").read_text())["mcpServers"]["remote"]["command"]
+    observed = subprocess.check_output(
+        [invocation, "-I", "-c", "import sys;print(sys.prefix)"], text=True
+    ).strip()
+    assert observed == str(runtime)
+
+
+def test_mcp_transport_explicitly_survives_native_environment_filtering(case, monkeypatch):
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "must-not-inherit")
+    case["config"].groups[Group.G1] = GroupConfig(
+        mcp_servers={"remote": MCPServer(command="/usr/bin/true", component="remote-dev")}
+    )
+    destination = case["root"] / "transport"
+    destination.mkdir()
+    profile = build_profile(destination, case["spec"], Group.G1, case["config"])
+    profile.env["PATH"] = str(profile.root / "bin") + ":" + profile.env["PATH"]
+    profile.env["MINDIE_BENCH_GATEWAY"] = "http://127.0.0.1:12345"
+    bind_mcp_transport(profile)
+    server = json.loads((profile.root / "mcp.json").read_text())["mcpServers"]["remote"]
+    assert server["env"] == {
+        "PATH": profile.env["PATH"],
+        "MINDIE_BENCH_GATEWAY": "http://127.0.0.1:12345",
+    }
+    assert "AWS_SECRET_ACCESS_KEY" not in server["env"]
+
+
+def test_explicit_model_metadata_is_frozen_and_fingerprinted(case):
+    source = case["root"] / "catalog.json"
+    source.write_text(json.dumps({"models": [{"slug": case["config"].harness.model}]}))
+    original = source.read_bytes()
+    case["config"].harness.model_catalog_path = str(source)
+    destination = case["root"] / "metadata"
+    destination.mkdir()
+    profile = build_profile(destination, case["spec"], Group.G0, case["config"])
+    source.write_text("{}")
+    assert (profile.root / "model-catalog.json").read_bytes() == original
+    assert profile.fingerprint["model_catalog_sha256"] == hashlib.sha256(original).hexdigest()
+
+
+def test_ambiguous_native_model_metadata_is_rejected_before_a_trial(case):
+    source = case["root"] / "catalog.json"
+    source.write_text(json.dumps({"models": [{"slug": case["config"].harness.model}] * 2}))
+    case["config"].harness.model_catalog_path = str(source)
+    destination = case["root"] / "metadata"
+    destination.mkdir()
+    with pytest.raises(ValueError, match="explicitly selected model"):
+        build_profile(destination, case["spec"], Group.G0, case["config"])
 
 
 @pytest.mark.parametrize("path", ["../secret", "/tmp/secret", "a/../../b", "a\\b", ""])

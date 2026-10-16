@@ -1,6 +1,8 @@
 """Codex exec JSONL: completed native items and explicit usage only."""
 
 import json
+import shlex
+import sys
 from pathlib import Path
 
 from mindie_bench.models import Tokens, ToolCall, Trajectory
@@ -21,6 +23,15 @@ class CodexDriver:
             f"model = {json.dumps(config.model)}",
             'model_provider = "benchmark"',
             'approval_policy = "never"',
+            "allow_login_shell = false",
+            # The source snapshot has no Git history. Keep native instruction
+            # discovery inside its cwd instead of probing private ancestors.
+            "project_root_markers = []",
+            "[features]",
+            "shell_snapshot = false",
+            "[shell_environment_policy]",
+            'inherit = "all"',
+            f"set = {{ PATH = {json.dumps(profile.env['PATH'])} }}",
             "[model_providers.benchmark]",
             'name = "Benchmark model broker"',
             f"base_url = {json.dumps(profile.env['MINDIE_BENCH_GATEWAY'] + '/v1')}",
@@ -31,6 +42,10 @@ class CodexDriver:
         ]
         if config.reasoning_effort:
             lines.insert(1, f"model_reasoning_effort = {json.dumps(config.reasoning_effort)}")
+        if config.model_catalog_path:
+            lines.insert(
+                1, f"model_catalog_json = {json.dumps(str(profile.root / 'model-catalog.json'))}"
+            )
         mcp = json.loads((profile.root / "mcp.json").read_text())["mcpServers"]
         for name, server in mcp.items():
             lines += [
@@ -42,6 +57,20 @@ class CodexDriver:
                 lines.append(f"[mcp_servers.{json.dumps(name)}.env]")
                 lines += [f"{json.dumps(k)} = {json.dumps(v)}" for k, v in server["env"].items()]
         (Path(profile.env["CODEX_HOME"]) / "config.toml").write_text("\n".join(lines) + "\n")
+        capture_hook = profile.fingerprint.get("group") == "G3"
+        if capture_hook:
+            hook = [
+                sys.executable,
+                "-I",
+                "-m",
+                "mindie_bench.integrations.codex_stop",
+                str(profile.root / "native-stop.json"),
+            ]
+            (Path(profile.env["CODEX_HOME"]) / "hooks.json").write_text(
+                json.dumps(
+                    {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": shlex.join(hook)}]}]}}
+                )
+            )
         if (profile.root / "skills").exists():
             import shutil
 
@@ -51,6 +80,7 @@ class CodexDriver:
         return [
             config.executable,
             "exec",
+            *(["--dangerously-bypass-hook-trust", "-c", "features.hooks=true"] if capture_hook else []),
             "--json",
             "--skip-git-repo-check",
             "--dangerously-bypass-approvals-and-sandbox",
@@ -61,6 +91,11 @@ class CodexDriver:
 
     def consume(self, event, elapsed, generation):
         kind = event.get("type")
+        if kind == "thread.started":
+            identity = event.get("thread_id")
+            if not isinstance(identity, str) or not identity:
+                raise ValueError("Codex thread.started has no native thread identity")
+            self.result.native_session_id = identity
         if kind in {"error", "turn.failed"}:
             self.result.native_error = str(event.get("error", event.get("message", kind)))
         if kind == "turn.completed":

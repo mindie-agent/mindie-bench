@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -21,6 +22,19 @@ class Profile:
     corpus: Path | None
     fingerprint: dict
     runtime_paths: list[Path]
+
+
+def bind_mcp_transport(profile: Profile):
+    # Native hosts filter the environment inherited by MCP subprocesses.
+    path = profile.root / "mcp.json"
+    configured = json.loads(path.read_text())
+    for server in configured["mcpServers"].values():
+        server["env"].update(
+            PATH=profile.env["PATH"],
+            MINDIE_BENCH_GATEWAY=profile.env["MINDIE_BENCH_GATEWAY"],
+        )
+    write_json(path, configured)
+    profile.fingerprint["mcp_config"] = configured
 
 
 def filtered_corpus(source: Path, destination: Path, excluded: set[str]) -> str:
@@ -133,9 +147,29 @@ def build_profile(
         MINDIE_BENCH_LOCAL_KNOWLEDGE_REMOTE=str(local_bare), MINDIE_BENCH_PUBLICATION_POLICY="local-only"
     )
     runtime_paths = []
+    model_catalog_sha256 = None
+    if config.harness.model_catalog_path:
+        catalog = Path(config.harness.model_catalog_path).resolve(strict=True)
+        content = catalog.read_bytes()
+        parsed = json.loads(content)
+        entries = parsed["models"]
+        if (
+            not isinstance(entries, list)
+            or sum(
+                isinstance(entry, dict) and entry.get("slug") == config.harness.model
+                for entry in entries
+            )
+            != 1
+        ):
+            raise ValueError("native model catalog does not contain the explicitly selected model")
+        model_catalog_sha256 = hashlib.sha256(content).hexdigest()
+        (root / "model-catalog.json").write_bytes(content)
     mcp = {}
     for name, server in servers.items():
-        command = Path(server.command).resolve(strict=True)
+        # Python discovers its virtual environment from the invoked executable
+        # path. Resolving that symlink here silently selects the base runtime.
+        command = Path(server.command).absolute()
+        command.resolve(strict=True)
         runtime_paths.append(command)
         replacements = {
             "{corpus}": str(corpus or ""),
@@ -154,12 +188,16 @@ def build_profile(
             "env": {key: expand(value) for key, value in server.env.items()},
         }
     write_json(root / "mcp.json", {"mcpServers": mcp})
+    skills_fingerprint = None
     if group_config and group_config.skills_path:
         source = Path(group_config.skills_path).resolve(strict=True)
-        tree_hash(source)
+        skills_fingerprint = tree_hash(source)
         shutil.copytree(source, root / "skills")
     write_json(root / "settings.json", {"disableAllHooks": True, "autoUpdatesChannel": "stable"})
     fingerprint = {
+        "group": group.value,
+        "model_catalog_sha256": model_catalog_sha256,
+        "skills_sha256": skills_fingerprint,
         "corpus_commit": corpus_commit,
         "corpus_view_sha256": corpus_fingerprint,
         "excluded_task_hashes": sorted(excluded),

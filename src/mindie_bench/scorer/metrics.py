@@ -8,7 +8,14 @@ import re
 from collections import Counter, defaultdict
 from statistics import mean
 
-from mindie_bench.models import HarnessConfig, TaskSpec, TerminalStatus, Trajectory, TrialReceipt
+from mindie_bench.models import (
+    HarnessConfig,
+    TaskSpec,
+    TerminalStatus,
+    ToolCall,
+    Trajectory,
+    TrialReceipt,
+)
 
 NPU_TEST = re.compile(
     r"(?<![\w-])(pytest\b|vllm\s+serve\b|python3?\s+-m\s+unittest\b|"
@@ -31,18 +38,23 @@ def tool_name(name: str) -> str:
     return name.rsplit("__", 1)[-1].rsplit(".", 1)[-1]
 
 
+def remote_execution(call: ToolCall) -> bool:
+    name = tool_name(call.name)
+    command = call.arguments.get("command", call.arguments.get("cmd", ""))
+    return name in REMOTE or (
+        name.lower() in {"bash", "exec_command", "shell"}
+        and isinstance(command, str)
+        and bool(re.search(r"(?<!\w)ssh(?:\s|$)", command))
+    )
+
+
 def npu_test_runs(trajectory: Trajectory) -> int:
     count = 0
     for call in trajectory.calls:
-        name = tool_name(call.name)
         command = call.arguments.get("command", call.arguments.get("cmd", ""))
         if not isinstance(command, str):
             continue
-        remote = name in REMOTE or (
-            name.lower() in {"bash", "exec_command", "shell"}
-            and re.search(r"(?<!\w)ssh(?:\s|$)", command)
-        )
-        if remote and NPU_TEST.search(command):
+        if remote_execution(call) and NPU_TEST.search(command):
             count += 1
     return count
 
@@ -62,11 +74,11 @@ def first_localization(trajectory: Trajectory, targets: list[str]) -> int | None
 def trajectory_metrics(
     trajectory: Trajectory, task: TaskSpec, harness: HarnessConfig, wall_clock: float, *, tier: str
 ) -> tuple[dict, dict]:
-    remote = [c for c in trajectory.calls if tool_name(c.name) in REMOTE]
+    remote = [c for c in trajectory.calls if remote_execution(c)]
     all_remote = [
         c
         for c in trajectory.calls
-        if c.component == "remote-dev" or tool_name(c.name).startswith("remote_")
+        if c.component == "remote-dev" or tool_name(c.name).startswith("remote_") or remote_execution(c)
     ]
     knowledge = [
         c for c in trajectory.calls if tool_name(c.name) in {"knowledge_query", "knowledge_explain"}
@@ -195,6 +207,12 @@ def summarize(receipts: list[TrialReceipt], *, k: int = 3, fast_p: float = 1.15)
     interventions = [r.primary_metrics.get("zero_human_intervention") for r in valid]
     performance = [r.primary_metrics.get("performance_metrics", {}).get("speedup_ratio") for r in valid]
     speedup_known = all(v is not None for v in performance) and bool(valid)
+    token_fields = ["input_uncached", "input_cached", "output", "indexer_small_model_total"]
+    observed_tokens = {
+        field: sum(r.primary_metrics.get("tokens", {}).get(field, 0) for r in receipts)
+        for field in token_fields
+    }
+    delivery_all = [r.primary_metrics.get("delivery_wall_clock_sec") for r in receipts]
     return dict(
         attempts=len(receipts),
         statuses={s.value: statuses[s.value] for s in TerminalStatus},
@@ -220,6 +238,11 @@ def summarize(receipts: list[TrialReceipt], *, k: int = 3, fast_p: float = 1.15)
         observed_cost_usd_lower_bound=total_cost,
         cost_complete=cost_complete,
         cost_per_resolved_task=total_cost / passed if passed and cost_complete else None,
+        observed_tokens_lower_bound=observed_tokens,
+        token_metering_complete=bool(receipts)
+        and all(r.primary_metrics.get("tokens", {}).get("complete") is True for r in receipts),
+        observed_delivery_wall_clock_sec_lower_bound=sum(t for t in delivery_all if t is not None),
+        delivery_timing_complete=bool(receipts) and all(t is not None for t in delivery_all),
         fast_p_threshold=fast_p,
         fast_p=(
             sum(

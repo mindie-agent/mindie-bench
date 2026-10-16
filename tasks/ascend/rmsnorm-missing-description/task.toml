@@ -1,0 +1,27 @@
+schema_version = "1.0"
+[task]
+instance_id = "rmsnorm-missing-description"
+domain_category = "model_adaptation"
+difficulty = "easy"
+evidence = "verified"
+cluster = "rmsnorm-quant-description"
+role = "seed"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "fb5533a6869f8b02e61811933569661fc055850c"
+issue = "14704"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = ["0bc94d24162470fe8ce3fc189b7eb239aa868d074ff53c78706cad0c5c608243", "86d720a6d7f7c8a78d990265dfdcbdafa091e1a9a68d503961fbca15cf3c98b2", "f092f9e3168c5347b94f74c82a9f4c0a717d2a8b74c85196dbe62a52c6470209"]
+target_files = ["vllm_ascend/ops/layernorm.py"]
+[budget]
+max_turns = 40
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l3]
+repo_path = "../../../repositories/vllm-ascend-rmsnorm"
+base_commit = "740e7b9f821230fb1ead96c2ab805cb6018928a9"
+npu_model = "Ascend910"
+npu_count = 1

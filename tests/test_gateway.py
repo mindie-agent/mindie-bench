@@ -1,4 +1,8 @@
+import base64
 import json
+import socket
+import struct
+import threading
 import urllib.error
 import urllib.request
 
@@ -106,3 +110,230 @@ def test_agent_cannot_change_the_controlled_model(case, monkeypatch):
         assert failure.value.code == 403
         assert gateway.model_calls == 0
         assert gateway.infrastructure_error
+
+
+@pytest.mark.parametrize(
+    "url,accepted",
+    [
+        ("http://127.0.0.1:3425/v1", True),
+        ("http://[::1]:3425/v1", True),
+        ("http://localhost:3425/v1", False),
+        ("http://192.168.13.153/v1", False),
+        ("http://127.0.0.1@example.com/v1", False),
+        ("https://example.com/v1", True),
+    ],
+)
+def test_cleartext_relay_is_restricted_to_numeric_loopback(case, monkeypatch, url, accepted):
+    monkeypatch.setenv("BENCH_TEST_KEY", "local-relay-placeholder")
+    harness = HarnessConfig(
+        name="codex",
+        executable="/usr/bin/true",
+        model="test",
+        expected_version="test",
+        api_key_env="BENCH_TEST_KEY",
+        provider_url=url,
+    )
+    args = (harness, case["spec"], case["task"], case["repo"], case["root"] / "journal")
+    if accepted:
+        Gateway(*args)
+    else:
+        with pytest.raises(ValueError, match="HTTPS"):
+            Gateway(*args)
+
+
+def test_unknown_remote_write_stops_later_distinct_commands(case):
+    calls = []
+
+    class LostReceipt:
+        def execute(self, command, stdin):
+            calls.append(command)
+            raise TimeoutError("remote acknowledgement was lost")
+
+    with Gateway(
+        case["config"].harness,
+        case["spec"],
+        case["task"],
+        case["repo"],
+        case["root"] / "journal",
+        remote=LostReceipt(),
+    ) as gateway:
+        with pytest.raises(urllib.error.HTTPError) as first:
+            post(gateway.url, "/bench/ssh", {"command": "write first", "stdin_b64": ""})
+        assert first.value.code == 502
+        with pytest.raises(urllib.error.HTTPError) as second:
+            post(gateway.url, "/bench/ssh", {"command": "write second", "stdin_b64": ""})
+        assert second.value.code == 409
+        assert calls == ["write first"]
+
+
+def test_stream_rpc_admission_precedes_forwarding_and_ignores_worker_source(case):
+    case["spec"].budget.max_npu_runs = 1
+    exchanges = []
+
+    class Remote:
+        def open_stream(self, command):
+            return {"stream_id": "owned"}
+
+        def exchange_stream(self, identity, stdin, *, eof):
+            exchanges.append(base64.b64decode(stdin))
+            return {"stdout_b64": "", "stderr_b64": "", "exit_code": None}
+
+    with Gateway(
+        case["config"].harness,
+        case["spec"],
+        case["task"],
+        case["repo"],
+        case["root"] / "journal",
+        remote=Remote(),
+    ) as gateway:
+        with post(gateway.url, "/bench/ssh-stream", {"action": "open", "command": "rpc worker"}):
+            pass
+        source = (
+            json.dumps(
+                {
+                    "id": 1,
+                    "kind": "python",
+                    "code": "pytest worker source",
+                    "payload": {"path": "test.py"},
+                }
+            ).encode()
+            + b"\n"
+        )
+        request = (
+            json.dumps(
+                {
+                    "id": 2,
+                    "kind": "python",
+                    "payload": {"spec": {"command": "python3 -I test_rmsnorm.py"}},
+                }
+            ).encode()
+            + b"\n"
+        )
+
+        def exchange(data):
+            return post(
+                gateway.url,
+                "/bench/ssh-stream",
+                {
+                    "action": "exchange",
+                    "stream_id": "owned",
+                    "stdin_b64": base64.b64encode(data).decode(),
+                    "eof": False,
+                },
+            )
+
+        with exchange(source):
+            pass
+        with exchange(request[:10]):
+            pass
+        assert gateway.remote_test_calls == 0
+        assert exchanges == [source, b""]
+        with exchange(request[10:]):
+            pass
+        assert exchanges[-1] == request
+        assert gateway.remote_test_calls == 1
+        with pytest.raises(urllib.error.HTTPError) as failure:
+            exchange(request.replace(b'"id": 2', b'"id": 3'))
+        assert failure.value.code == 429
+        assert len(exchanges) == 3
+
+
+def test_unknown_stream_blocks_even_a_distinct_later_ssh_request(case):
+    class Remote:
+        def open_stream(self, command):
+            raise TimeoutError("lost open acknowledgement")
+
+        def execute(self, *args):
+            raise AssertionError("must not send after unknown")
+
+    with Gateway(
+        case["config"].harness,
+        case["spec"],
+        case["task"],
+        case["repo"],
+        case["root"] / "journal",
+        remote=Remote(),
+    ) as gateway:
+        with pytest.raises(urllib.error.HTTPError) as failure:
+            post(gateway.url, "/bench/ssh-stream", {"action": "open", "command": "worker"})
+        assert failure.value.code == 502
+        with pytest.raises(urllib.error.HTTPError) as later:
+            post(gateway.url, "/bench/ssh", {"command": "new write", "stdin_b64": ""})
+        assert later.value.code == 409
+        assert gateway.unknown
+
+
+@pytest.mark.parametrize("kind", ["one-shot", "stream-open", "empty-poll"])
+def test_delivery_disconnect_preserves_known_results_and_unknown_stream_boundary(case, kind):
+    entered, release, observed = threading.Event(), threading.Event(), threading.Event()
+
+    class Remote:
+        def execute(self, command, stdin):
+            entered.set()
+            assert release.wait(5)
+            return {"stdout_b64": "", "stderr_b64": "", "exit_code": 0}
+
+        def open_stream(self, command):
+            if kind == "stream-open":
+                entered.set()
+                assert release.wait(5)
+            return {"stream_id": "owned"}
+
+        def exchange_stream(self, identity, stdin, *, eof):
+            entered.set()
+            assert release.wait(5)
+            return {"stdout_b64": "", "stderr_b64": "", "exit_code": None}
+
+    with Gateway(
+        case["config"].harness,
+        case["spec"],
+        case["task"],
+        case["repo"],
+        case["root"] / "journal",
+        remote=Remote(),
+    ) as gateway:
+        original = gateway.record
+
+        def record(kind, **values):
+            original(kind, **values)
+            if kind == "remote_delivery_failed":
+                observed.set()
+
+        gateway.record = record
+        if kind == "empty-poll":
+            with post(gateway.url, "/bench/ssh-stream", {"action": "open", "command": "worker"}):
+                pass
+        route = "/bench/ssh" if kind == "one-shot" else "/bench/ssh-stream"
+        request = (
+            {"command": "read source", "stdin_b64": ""}
+            if kind == "one-shot"
+            else {"action": "open", "command": "worker"}
+            if kind == "stream-open"
+            else {"action": "exchange", "stream_id": "owned", "stdin_b64": "", "eof": False}
+        )
+        body = json.dumps(request).encode()
+        connection = socket.create_connection(("127.0.0.1", gateway.port), timeout=5)
+        try:
+            connection.sendall(
+                f"POST {route} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {len(body)}\r\n\r\n".encode()
+                + body
+            )
+            assert entered.wait(5)
+            connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        finally:
+            connection.close()
+            release.set()
+        assert observed.wait(5)
+        assert gateway.unknown is (kind == "stream-open")
+        failure = gateway.remote_delivery_failures[0]
+        if kind == "empty-poll":
+            assert failure["receipt_id"] is None
+        else:
+            durable = json.loads(
+                (case["root"] / "remote-results" / f"{failure['receipt_id']}.json").read_text()
+            )
+            assert durable["result"] == (
+                {"stdout_b64": "", "stderr_b64": "", "exit_code": 0}
+                if kind == "one-shot"
+                else {"stream_id": "owned"}
+            )

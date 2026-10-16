@@ -1,8 +1,11 @@
-"""One SSH-owned bubblewrap slot with cooperative per-device flock leases.
+"""One SSH-owned PID/network namespace with cooperative per-device leases.
 
 Only the public source snapshot reaches the remote slot. The worker lives for
 the whole trial, so remote-dev jobs survive individual one-shot tool calls.
 Destroying the namespace kills its descendants, including detached jobs.
+The native Ascend driver requires the dedicated container's privileged device
+view. This backend runs trusted evaluation tasks; it is not a hostile-tenant
+security boundary. Source history and local personal profiles are not mounted.
 """
 
 from __future__ import annotations
@@ -18,22 +21,128 @@ import time
 from pathlib import Path, PurePosixPath
 
 from mindie_bench.models import RemoteConfig, SourceEnvironment
+from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, PROJECTOR
 
 WORKER = r"""
-import base64, json, os, queue, subprocess, sys, threading
+import base64, json, os, queue, select, subprocess, sys, threading, uuid
+MAX_STREAM_BYTES=8*1024*1024
+MAX_REQUEST_BYTES=96*1024*1024
 requests=queue.Queue()
+streams={}
 def read_owner():
-    for line in sys.stdin:
+    while True:
+        line=sys.stdin.buffer.readline(MAX_REQUEST_BYTES+1)
+        if not line:
+            break
+        if len(line)>MAX_REQUEST_BYTES:
+            requests.put({"frame_error":"remote request exceeds evidence bound"})
+            while line and not line.endswith(b"\n"):
+                line=sys.stdin.buffer.readline(MAX_REQUEST_BYTES+1)
+            continue
         requests.put(line)
     # EOF is owner loss, including while a command is running. Exiting the
     # PID-namespace leader lets bubblewrap kill all its detached descendants.
     os._exit(0)
+def write_stream(state):
+    try:
+        while True:
+            data=state["input"].get()
+            if data is None:
+                state["process"].stdin.close()
+                return
+            try:
+                remaining=memoryview(data)
+                while remaining:
+                    size=os.write(state["process"].stdin.fileno(),remaining[:65536])
+                    if not size:
+                        raise BrokenPipeError("remote stream accepted no input bytes")
+                    remaining=remaining[size:]
+            finally:
+                with state["lock"]:
+                    state["pending"]-=len(data)
+    except Exception as exc:
+        with state["lock"]:
+            state["write_error"]=type(exc).__name__+": "+str(exc)
+def open_stream(command):
+    if not isinstance(command,str) or len(command.encode())>1024*1024:
+        raise ValueError("invalid remote stream command")
+    if len(streams)>=32:
+        raise ValueError("remote stream process bound exceeded")
+    process=subprocess.Popen(["/bin/bash","-c",command],stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,stderr=subprocess.PIPE,bufsize=0)
+    state=dict(process=process,input=queue.Queue(maxsize=32),lock=threading.Lock(),
+        pending=0,eof=False,write_error=None,pipes={})
+    for name in ["stdout","stderr"]:
+        pipe=getattr(process,name)
+        os.set_blocking(pipe.fileno(),False)
+        state["pipes"][pipe.fileno()]=(name,pipe)
+    identity=uuid.uuid4().hex
+    streams[identity]=state
+    threading.Thread(target=write_stream,args=(state,),daemon=True).start()
+    return {"stream_id":identity}
+def exchange_stream(request):
+    identity=request["stream_id"]
+    state=streams[identity]
+    data=base64.b64decode(request.get("stdin_b64",""),validate=True)
+    eof=request.get("eof",False)
+    if type(eof) is not bool or len(data)>MAX_STREAM_BYTES:
+        raise ValueError("invalid or oversized remote stream input")
+    with state["lock"]:
+        if state["write_error"]:
+            raise RuntimeError(state["write_error"])
+        if state["eof"] and (data or eof):
+            raise ValueError("remote stream input is already closed")
+        needed=int(bool(data))+int(eof)
+        if (state["pending"]+len(data)>MAX_STREAM_BYTES
+                or state["input"].qsize()+needed>32):
+            raise ValueError("remote stream pending input bound exceeded")
+        state["pending"]+=len(data)
+        if data:
+            state["input"].put_nowait(data)
+        if eof:
+            state["eof"]=True
+            state["input"].put_nowait(None)
+    output={"stdout":[],"stderr":[]}
+    size=0
+    while state["pipes"] and size<MAX_STREAM_BYTES:
+        ready,_,_=select.select(list(state["pipes"]),[],[],.05 if not size else 0)
+        if not ready:
+            break
+        for fd in ready:
+            try:
+                chunk=os.read(fd,min(65536,MAX_STREAM_BYTES-size))
+            except BlockingIOError:
+                continue
+            if chunk:
+                output[state["pipes"][fd][0]].append(chunk)
+                size+=len(chunk)
+            else:
+                state["pipes"].pop(fd)[1].close()
+            if size>=MAX_STREAM_BYTES:
+                break
+    with state["lock"]:
+        if state["write_error"]:
+            raise RuntimeError(state["write_error"])
+    code=state["process"].poll()
+    if state["pipes"]:
+        code=None
+    elif code is not None:
+        with state["lock"]:
+            if not state["eof"] and not state["pending"]:
+                state["eof"]=True
+                state["input"].put_nowait(None)
+        streams.pop(identity)
+    return dict(exit_code=code,
+        stdout_b64=base64.b64encode(b"".join(output["stdout"])).decode(),
+        stderr_b64=base64.b64encode(b"".join(output["stderr"])).decode())
 threading.Thread(target=read_owner, daemon=True).start()
 print(json.dumps({"ready": True}), flush=True)
 while True:
     line=requests.get()
-    request = json.loads(line)
     try:
+        if isinstance(line,dict):
+            raise ValueError(line["frame_error"])
+        request = json.loads(line)
         if request.get("control")=="quiesce":
             for item in os.listdir("/proc"):
                 if item.isdigit() and int(item) not in {os.getpid(),os.getppid()}:
@@ -43,11 +152,16 @@ while True:
                         pass
             print(json.dumps({"quiesced":True}),flush=True)
             continue
-        result = subprocess.run(["/bin/bash", "-c", request["command"]],
-            input=base64.b64decode(request["stdin_b64"]), stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, timeout=request["timeout"])
-        value = dict(exit_code=result.returncode, stdout_b64=base64.b64encode(result.stdout).decode(),
-            stderr_b64=base64.b64encode(result.stderr).decode())
+        if request.get("control")=="open_stream":
+            value=open_stream(request["command"])
+        elif request.get("control")=="exchange_stream":
+            value=exchange_stream(request)
+        else:
+            result = subprocess.run(["/bin/bash", "-c", request["command"]],
+                input=base64.b64decode(request["stdin_b64"]), stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, timeout=request["timeout"])
+            value = dict(exit_code=result.returncode, stdout_b64=base64.b64encode(result.stdout).decode(),
+                stderr_b64=base64.b64encode(result.stderr).decode())
     except Exception as exc:
         value = dict(error=type(exc).__name__, message=str(exc))
     print(json.dumps(value), flush=True)
@@ -58,6 +172,7 @@ import base64, json, os, pathlib, signal, subprocess, sys, time
 cfg=json.loads(sys.argv[1])
 path=pathlib.Path(cfg["path"])
 errors=[]
+diff_paths=["--",".",*[":(exclude)"+name for name in cfg["source_projection"]]]
 token=("MINDIE_BENCH_SLOT_ID="+path.name).encode()
 # Only this allocated slot's exact environment token is eligible for cleanup.
 for proc in pathlib.Path("/proc").iterdir():
@@ -109,11 +224,12 @@ if path.is_dir():
             raise RuntimeError("agent created an unexpected .git directory")
         gitfile.write_text("gitdir: "+str(matches[0])+"\n")
         patch=subprocess.run(["git","-C",str(path),"diff","--binary","--no-ext-diff","--no-textconv",
-            "HEAD"],check=True,capture_output=True).stdout
+            "HEAD",*diff_paths],check=True,capture_output=True).stdout
         if len(patch)>32*1024*1024:
             raise RuntimeError("remote final patch exceeds artifact bound")
         final["patch_b64"]=base64.b64encode(patch).decode()
-        untracked=subprocess.run(["git","-C",str(path),"ls-files","--others","--exclude-standard","-z"],
+        untracked=subprocess.run(["git","-C",str(path),"ls-files","--others","--exclude-standard","-z",
+            *diff_paths],
             check=True,capture_output=True).stdout.split(b"\0")
         final["untracked"]={}
         size=0
@@ -161,6 +277,7 @@ class RemoteSlot:
         self.cleanup_receipt = None
         self.stderr_file = None
         self.read_buffer = b""
+        self.operation_unknown = False
 
     def command(self, command: list[str]) -> list[str]:
         return [
@@ -168,6 +285,8 @@ class RemoteSlot:
             "-T",
             "-o",
             "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=yes",
             "-o",
             "ConnectTimeout=20",
             self.config.host,
@@ -221,12 +340,18 @@ class RemoteSlot:
         bind = " ".join(
             "--ro-bind " + quote(path) + " " + quote(path) for path in self.config.runtime_read_paths
         )
+        device_bind = (
+            "for device in /dev/davinci[0-9]* /dev/davinci_manager /dev/devmm_svm /dev/hisi_hdc; do\n"
+            ' test ! -e "$device" || device_args+=(--dev-bind "$device" "$device")\n'
+            "done"
+        )
         cleanup_config = dict(
             path=self.path,
             repo_path=self.config.repo_path,
             devices=self.devices,
             memory_limit_mb=self.config.memory_limit_mb,
             probe_command=self.config.probe_command,
+            source_projection=HARNESS_CONFIG_PATHS,
         )
         cleanup = shlex.join(["python3", "-I", "-c", POSTFLIGHT, json.dumps(cleanup_config)])
         command = f"""set -eu
@@ -239,12 +364,17 @@ git -C {quote(self.config.repo_path)} cat-file -e {quote(self.environment.base_c
 mkdir -p {quote(self.config.slots_root)}
 git -C {quote(self.config.repo_path)} worktree add --detach {quote(self.path)} {quote(self.environment.base_commit)} >/dev/null 2>&1
 rm {quote(self.path + "/.git")}
+{shlex.join(["python3", "-I", "-c", PROJECTOR, self.path])}
 mkdir {quote(self.path + "/.bench-home")}
 export MINDIE_BENCH_SLOT_ID={quote(PurePosixPath(self.path).name)}
 export ASCEND_RT_VISIBLE_DEVICES={quote(",".join(map(str, self.devices)))}
-bwrap --die-with-parent --unshare-all --new-session --proc /proc --dev-bind /dev /dev \\
- --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --ro-bind /lib64 /lib64 \\
- --ro-bind /etc /etc --tmpfs /tmp {bind} --bind {quote(self.path)} {quote(self.path)} \\
+device_args=()
+{device_bind}
+bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts \\
+ --cap-add ALL --new-session --proc /proc --dev /dev "${{device_args[@]}}" \\
+ --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \\
+ --ro-bind /etc /etc --bind /sys /sys --tmpfs /tmp --tmpfs /var {bind} \\
+ --bind {quote(self.path)} {quote(self.path)} \\
  --chdir {quote(self.path)} --setenv HOME {quote(self.path + "/.bench-home")} \\
  -- python3 -I -u -c {quote(WORKER)}
 """
@@ -287,24 +417,90 @@ bwrap --die-with-parent --unshare-all --new-session --proc /proc --dev-bind /dev
         line, self.read_buffer = self.read_buffer.split(b"\n", 1)
         return json.loads(line)
 
-    def execute(self, command: str, stdin_b64: str = "") -> dict:
-        with self.lock:
-            if self.closed:
-                raise RuntimeError("remote slot is closed")
-            request = dict(command=command, stdin_b64=stdin_b64, timeout=self.timeout)
-            self.process.stdin.write((json.dumps(request) + "\n").encode())
-            self.process.stdin.flush()
-            result = self._read(self.timeout + 5)
+    def _send_frame(self, frame: bytes, deadline: float):
+        descriptor = self.process.stdin.fileno()
+        # A stalled SSH peer can fill this pipe before _read's timeout starts.
+        # All writes use this method; leave the owned, unbuffered pipe nonblocking.
+        os.set_blocking(descriptor, False)
+        remaining = memoryview(frame)
+        while remaining:
+            wait = deadline - time.monotonic()
+            if wait <= 0 or not select.select([], [descriptor], [], wait)[1]:
+                raise TimeoutError("remote worker submission incomplete; effects unknown")
+            try:
+                written = os.write(descriptor, remaining[:65536])
+            except BlockingIOError:
+                continue
+            if not written:
+                raise BrokenPipeError("remote worker accepted no request bytes")
+            remaining = remaining[written:]
+
+    def _request(self, request, timeout, *, expected=None):
+        # Every caller holds the same lock, including stream control frames.
+        if self.closed:
+            raise RuntimeError("remote slot is closed")
+        if self.operation_unknown:
+            raise RuntimeError("a prior remote operation is unknown; do not submit another command")
+        deadline = time.monotonic() + timeout
+        frame = (json.dumps(request) + "\n").encode()
+        if len(frame) > 96 * 1024 * 1024:
+            raise ValueError("remote request exceeds evidence bound")
+        try:
+            self._send_frame(frame, deadline)
+            result = self._read(max(0, deadline - time.monotonic()))
+            if not isinstance(result, dict):
+                raise RuntimeError("remote worker returned an invalid acknowledgement")
             if "error" in result:
                 raise RuntimeError(f"remote operation uncertain: {result['error']}: {result['message']}")
+            if expected is not None and not expected(result):
+                raise RuntimeError("remote worker returned an invalid acknowledgement")
             return result
+        except Exception:
+            self.operation_unknown = True
+            raise
+
+    def execute(self, command: str, stdin_b64: str = "") -> dict:
+        with self.lock:
+            return self._request(
+                dict(command=command, stdin_b64=stdin_b64, timeout=self.timeout),
+                self.timeout + 5,
+            )
+
+    def open_stream(self, command: str) -> dict:
+        with self.lock:
+            return self._request(
+                dict(control="open_stream", command=command),
+                10,
+                expected=lambda value: (
+                    isinstance(value.get("stream_id"), str) and bool(value["stream_id"])
+                ),
+            )
+
+    def exchange_stream(self, stream_id: str, stdin_b64: str = "", eof: bool = False) -> dict:
+        with self.lock:
+            return self._request(
+                dict(
+                    control="exchange_stream",
+                    stream_id=stream_id,
+                    stdin_b64=stdin_b64,
+                    eof=eof,
+                ),
+                10,
+                expected=lambda value: (
+                    isinstance(value.get("stdout_b64"), str)
+                    and isinstance(value.get("stderr_b64"), str)
+                    and "exit_code" in value
+                    and (value["exit_code"] is None or type(value["exit_code"]) is int)
+                ),
+            )
 
     def quiesce(self):
         with self.lock:
-            self.process.stdin.write(b'{"control":"quiesce"}\n')
-            self.process.stdin.flush()
-            if self._read(10) != {"quiesced": True}:
-                raise RuntimeError("remote jobs could not be quiesced before verification")
+            self._request(
+                dict(control="quiesce"),
+                10,
+                expected=lambda value: value == {"quiesced": True},
+            )
 
     def upload_public(self, source: Path):
         if not source.exists():
@@ -342,7 +538,14 @@ bwrap --die-with-parent --unshare-all --new-session --proc /proc --dev-bind /dev
             self.process.stdin.close()
             try:
                 if self.cleanup_receipt is None:
-                    self.cleanup_receipt = self._read(40)
+                    deadline = time.monotonic() + 40
+                    while self.cleanup_receipt is None:
+                        receipt = self._read(max(0, deadline - time.monotonic()))
+                        if "cleanup" in receipt:
+                            self.cleanup_receipt = receipt
+                        elif self.artifact_dir:
+                            with (self.artifact_dir / "remote_late_results.jsonl").open("a") as stream:
+                                stream.write(json.dumps(receipt) + "\n")
                 self.process.wait(timeout=5)
             except (TimeoutError, subprocess.TimeoutExpired, RuntimeError):
                 os.killpg(self.process.pid, 9)

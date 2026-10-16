@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import select
 import signal
 import subprocess
 import sys
@@ -81,8 +82,8 @@ def stream_process(
             thread = threading.Thread(target=reader, args=(stream, kind), daemon=True)
             thread.start()
             readers.append(thread)
-        process.stdin.write(prompt.encode())
-        process.stdin.close()
+        pending_prompt = memoryview(prompt.encode())
+        os.set_blocking(process.stdin.fileno(), False)
         ended = 0
         with output.open("x", encoding="utf-8") as raw, stderr.open("xb") as err:
             while ended < 2:
@@ -102,8 +103,26 @@ def stream_process(
                 if elapsed >= timeout:
                     result.stop_reason = "timeout"
                     break
+                # Submit incrementally while still draining output and checking
+                # cancellation/deadlines. A native CLI may stop reading stdin.
+                for _ in range(16):
+                    if not pending_prompt or not select.select([], [process.stdin], [], 0)[1]:
+                        break
+                    try:
+                        written = os.write(process.stdin.fileno(), pending_prompt[:65536])
+                    except BlockingIOError:
+                        break
+                    if not written:
+                        raise BrokenPipeError("native process accepted no prompt bytes")
+                    pending_prompt = pending_prompt[written:]
+                    if time.monotonic() - started >= timeout:
+                        break
+                if not pending_prompt and not process.stdin.closed:
+                    process.stdin.close()
                 try:
-                    kind, chunk, observed = events.get(timeout=min(0.1, timeout - elapsed))
+                    kind, chunk, observed = events.get(
+                        timeout=min(0.01 if pending_prompt else 0.1, timeout - elapsed)
+                    )
                 except queue.Empty:
                     if process.poll() is not None and all(not t.is_alive() for t in readers):
                         break
@@ -134,6 +153,8 @@ def stream_process(
                     raise ValueError("native JSONL event is not an object")
                 consume(event, observed - started, gateway.model_calls)
         if result.stop_reason is None:
+            if pending_prompt:
+                raise BrokenPipeError("native process ended before receiving the complete prompt")
             result.returncode = process.wait(timeout=2)
     except Exception as exc:
         result.errors.append(dict(stage="agent", type=type(exc).__name__, message=str(exc)))
@@ -163,7 +184,7 @@ def stream_process(
                 )
             for thread in readers:
                 thread.join(timeout=1)
-            for stream in [process.stdout, process.stderr]:
+            for stream in [process.stdin, process.stdout, process.stderr]:
                 stream.close()
         os.close(owner_fd)
     return result

@@ -1,7 +1,7 @@
 import pytest
 
 from mindie_bench.models import Tokens, ToolCall, Trajectory, TrialReceipt
-from mindie_bench.scorer.comparator import CONTROL_KEYS, comparison
+from mindie_bench.scorer.comparator import CONTROL_KEYS, comparison, grouped_summaries
 from mindie_bench.scorer.metrics import (
     first_localization,
     npu_test_runs,
@@ -101,6 +101,60 @@ def test_overlap_never_produces_negative_llm_time(case):
     assert primary["llm_and_exploration_sec"] is None
 
 
+def test_native_ssh_and_mcp_execution_have_comparable_wait_metrics(case):
+    calls = [
+        ToolCall(
+            id="ssh",
+            name="bash",
+            arguments={"command": "ssh bench-slot pytest"},
+            turn=1,
+            started_sec=1,
+            ended_sec=4,
+        ),
+        ToolCall(id="mcp", name="remote_bash", turn=2, started_sec=5, ended_sec=7),
+        ToolCall(
+            id="local",
+            name="bash",
+            arguments={"command": "pytest"},
+            turn=3,
+            started_sec=7,
+            ended_sec=8,
+        ),
+    ]
+    primary, auxiliary = trajectory_metrics(
+        Trajectory(calls=calls), case["spec"], case["config"].harness, 10, tier="l3"
+    )
+    assert primary["npu_execution_wait_sec"] == 5
+    assert primary["llm_and_exploration_sec"] == 5
+    assert auxiliary["remote_tool_calls_count"] == 2
+
+
+def test_g3_reports_seed_and_failed_attempt_resource_costs():
+    seed = receipt("completed_pass", identity="seed", group="G3")
+    seed.task_role = "seed"
+    evaluation = receipt("completed_fail", identity="eval", group="G3")
+    for row, amount, seconds in [(seed, 10, 20), (evaluation, 30, 40)]:
+        row.primary_metrics["tokens"] = dict(
+            input_uncached=amount,
+            input_cached=2,
+            output=3,
+            indexer_small_model_total=5,
+            complete=True,
+        )
+        row.primary_metrics["delivery_wall_clock_sec"] = seconds
+    result = grouped_summaries([seed, evaluation])["l2/synthetic/G3"]
+    assert result["observed_tokens_including_seed_lower_bound"] == dict(
+        input_uncached=40, input_cached=4, output=6, indexer_small_model_total=10
+    )
+    assert result["observed_delivery_sec_including_seed_lower_bound"] == 60
+    assert result["token_metering_including_seed_complete"]
+    assert result["cost_per_resolved_task_including_seed"] is None
+    evaluation.primary_metrics["tokens"]["complete"] = False
+    assert not grouped_summaries([seed, evaluation])["l2/synthetic/G3"][
+        "token_metering_including_seed_complete"
+    ]
+
+
 def test_infra_and_unknown_visible_but_excluded_from_valid_pass_denominator():
     rows = [
         receipt(status, identity=str(i))
@@ -180,3 +234,20 @@ def test_no_survivorship_time_speedup_or_mixed_tier():
     right.tier = "l3"
     with pytest.raises(ValueError):
         comparison([left], [right])
+
+
+def test_missing_typed_localization_is_not_reported_as_speedup():
+    left = receipt("completed_pass", turns_to_first_localization=None)
+    right = receipt("completed_pass", group="G2", turns_to_first_localization=2)
+    result = comparison([left], [right])
+    assert result["localization_speedup"] is None
+    assert result["localization_observed_pairs"] == 0
+    assert result["localization_penalized_turns_ratio"] == 12.5
+
+
+def test_localization_speedup_requires_all_matched_pairs_observed():
+    left = receipt("completed_pass", turns_to_first_localization=6)
+    right = receipt("completed_pass", group="G2", turns_to_first_localization=2)
+    result = comparison([left], [right])
+    assert result["localization_speedup"] == 3
+    assert result["localization_observed_pairs"] == 1

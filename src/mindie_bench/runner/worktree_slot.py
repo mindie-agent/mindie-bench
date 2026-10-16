@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
 from mindie_bench.io import tree_hash
 from mindie_bench.models import SourceEnvironment
+from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, diff_paths, project_source
 
 
 class WorktreeSlot:
@@ -33,9 +35,14 @@ class WorktreeSlot:
             capture_output=True,
         )
         self.created = True
+        # Git records the symlink-resolved worktree path in its admin metadata;
+        # resolve here too so destinations reached through symlinked prefixes
+        # (for example /tmp on macOS) still match during reattach_metadata.
+        self.destination = self.destination.resolve(strict=True)
         # The agent gets a plain snapshot. Hiding .git closes both the oracle
         # history leak and the worktree metadata pointer back to the source repo.
         (self.destination / ".git").unlink()
+        project_source(self.destination)
         public = self.task_root / "environment"
         if public.exists():
             tree_hash(public)
@@ -47,7 +54,7 @@ class WorktreeSlot:
                     shutil.copytree(item, target)
                 else:
                     shutil.copy2(item, target)
-        for reserved in ["oracle", "verifier", ".git", ".codex", ".claude", ".mcp.json"]:
+        for reserved in ["oracle", "verifier", ".git", *HARNESS_CONFIG_PATHS]:
             if (self.destination / reserved).exists():
                 raise ValueError(f"source contains reserved evaluation/configuration path: {reserved}")
         return self.destination
@@ -84,24 +91,31 @@ class WorktreeSlot:
         try:
             command = ["git", "-c", "core.fsmonitor=false", "-C", str(self.destination)]
             patch = subprocess.run(
-                [*command, "diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD"],
+                [*command, "diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD", *diff_paths()],
                 check=True,
                 capture_output=True,
             ).stdout
             (output / "final_patch.diff").write_bytes(patch)
             changed = subprocess.run(
-                [*command, "diff", "--name-only", "--no-ext-diff", "--no-textconv", "HEAD"],
+                [
+                    *command,
+                    "diff",
+                    "--name-only",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "HEAD",
+                    *diff_paths(),
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
             ).stdout.splitlines()
             untracked = subprocess.run(
-                [*command, "ls-files", "--others", "--exclude-standard"],
+                [*command, "ls-files", "--others", "--exclude-standard", "-z", *diff_paths()],
                 check=True,
                 capture_output=True,
-                text=True,
-            ).stdout.splitlines()
-            return sorted(set(changed + untracked))
+            ).stdout.split(b"\0")
+            return sorted(set(changed + [os.fsdecode(name) for name in untracked if name]))
         finally:
             (self.destination / ".git").unlink()
 

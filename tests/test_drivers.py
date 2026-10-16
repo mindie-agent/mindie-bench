@@ -32,6 +32,12 @@ def test_codex_native_failure_is_visible():
     assert not driver.trajectory().native_completed
 
 
+def test_codex_capture_identity_comes_from_native_event():
+    driver = CodexDriver()
+    driver.consume({"type": "thread.started", "thread_id": "native-trial-123"}, 0, 0)
+    assert driver.trajectory().native_session_id == "native-trial-123"
+
+
 def test_claude_repeated_message_usage_is_deduplicated():
     driver = ClaudeCodeDriver()
     message = dict(

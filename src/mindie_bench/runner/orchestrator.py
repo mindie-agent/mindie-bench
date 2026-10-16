@@ -31,9 +31,10 @@ from mindie_bench.runner.drivers import driver_for
 from mindie_bench.runner.gateway import Gateway
 from mindie_bench.runner.mcp_probe import probe_servers
 from mindie_bench.runner.process import stream_process
-from mindie_bench.runner.profile_builder import build_profile, filtered_corpus
+from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profile, filtered_corpus
 from mindie_bench.runner.remote_slot import RemoteSlot
 from mindie_bench.runner.sandbox import native_command
+from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS
 from mindie_bench.runner.verifier import local_verifier, parse_verifier
 from mindie_bench.runner.worktree_slot import WorktreeSlot
 from mindie_bench.scorer.comparator import grouped_summaries
@@ -121,6 +122,7 @@ def run_trial(
         benchmark_source_sha256=implementation_digest(),
         component_revisions=config.component_revisions,
         evidence=task.task.evidence,
+        source_projection=list(HARNESS_CONFIG_PATHS),
     )
     environment = task.environment.get(tier)
     fingerprint.update(
@@ -147,6 +149,7 @@ def run_trial(
     wall_clock = 0.0
     verifier_record = None
     verifier_seconds = None
+    capture_started = None
     try:
         if environment is None:
             raise ValueError(f"task has no {tier} environment")
@@ -238,6 +241,8 @@ def run_trial(
                 ANTHROPIC_API_KEY="broker-only",
                 ANTHROPIC_BASE_URL=gateway.url,
             )
+            bind_mcp_transport(profile)
+            fingerprint["mcp_config"] = profile.fingerprint["mcp_config"]
             if config.backend == "native":
                 for component in profile.fingerprint["components"]:
                     if not config.component_revisions.get(component):
@@ -264,7 +269,10 @@ def run_trial(
                 prompt += (
                     f"\n\nWork on the isolated SSH endpoint bench-slot. "
                     f"Remote workspace: {remote.path}. "
-                    f"Assigned NPU devices: {','.join(map(str, devices))}.\n"
+                    f"Assigned NPU devices: {','.join(map(str, devices))}. "
+                    'For remote-dev tools select host="bench-slot", port=22. '
+                    "The local and remote workspaces are plain source snapshots without Git history; "
+                    "apply the repair in the remote workspace that the NPU verifier will inspect.\n"
                 )
             phase = "agent"
             auxiliary["preflight_wall_clock_sec"] = time.monotonic() - trial_started
@@ -282,6 +290,7 @@ def run_trial(
                 cancelled=cancelled,
             )
             wall_clock = result.elapsed
+            gateway.finish_inference()
             errors.extend(result.errors)
             auxiliary["native_process"] = dict(
                 returncode=result.returncode, stop_reason=result.stop_reason
@@ -292,7 +301,7 @@ def run_trial(
             # for corrections; interventions are known, not inferred from prose.
             trajectory.human_interventions = 0
             budget_stop = result.stop_reason in {"timeout", "max_turns", "max_npu_runs"}
-            if gateway.infrastructure_error:
+            if gateway.infrastructure_error and not gateway.unknown:
                 status, reason = TerminalStatus.INFRA, gateway.infrastructure_error
             elif (
                 gateway.unknown
@@ -351,6 +360,7 @@ def run_trial(
         phase = "postflight"
         if group == Group.G3 and status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
             phase = "capture"
+            capture_started = time.monotonic()
             auxiliary["business_terminal_status"] = status.value
             group_config = config.groups[group]
             if not group_config.capture_command:
@@ -367,6 +377,22 @@ def run_trial(
                 "instance_id": task.task.instance_id,
                 "cluster": task.task.cluster,
             }
+            if config.harness.name == "codex":
+                identity = trajectory.native_session_id
+                if not identity:
+                    raise ValueError("G3 Codex capture requires the actual native thread identity")
+                transcripts = list(
+                    (Path(profile.env["CODEX_HOME"]) / "sessions").rglob(f"*-{identity}.jsonl")
+                )
+                if len(transcripts) != 1:
+                    raise ValueError("G3 cannot identify exactly one native task transcript")
+                public["native"] = {
+                    "harness": "codex",
+                    "session_id": identity,
+                    "transcript_path": str(transcripts[0]),
+                    "cwd": str(workspace),
+                    "stop_event_path": str(profile.root / "native-stop.json"),
+                }
             corpus_before_capture = tree_hash(profile.corpus)
             capture_harness = config.harness.model_copy(
                 update={"model": group_config.capture_model or config.harness.model}
@@ -408,12 +434,21 @@ def run_trial(
                     consume=lambda event, *_: records.append(event),
                     gateway=capture_gateway,
                 )
+                capture_gateway.finish_inference()
                 errors.extend(captured.errors)
                 auxiliary["capture_model_calls"] = capture_gateway.model_calls
                 auxiliary["capture_model"] = capture_harness.model
                 auxiliary["capture_provider_tokens"] = capture_gateway.metered_tokens().model_dump()
-                if capture_gateway.unknown:
+                if (
+                    capture_gateway.unknown
+                    or any(record.get("status") == "unknown" for record in records)
+                    or (capture_gateway.model_calls and not capture_gateway.metered_tokens().complete)
+                ):
                     raise UnknownExternalEffects("capture inference result is unknown; no retry")
+                if capture_gateway.model_calls and (captured.stop_reason or captured.errors):
+                    raise UnknownExternalEffects(
+                        "capture interrupted after model admission; reconcile its original receipts"
+                    )
                 if (
                     captured.returncode != 0
                     or captured.errors
@@ -458,6 +493,9 @@ def run_trial(
             status = TerminalStatus.INFRA
         reason = reason if status == TerminalStatus.PASS else f"{phase}: {type(exc).__name__}: {exc}"
     finally:
+        auxiliary["capture_wall_clock_sec"] = (
+            time.monotonic() - capture_started if capture_started is not None else None
+        )
         try:
             trajectory = driver.trajectory()
             if result:
@@ -513,6 +551,7 @@ def run_trial(
         if gateway:
             auxiliary["replay_test_runs"] = gateway.replay_calls
             auxiliary["remote_test_budget_invocations"] = gateway.remote_test_calls
+            auxiliary["remote_delivery_failures"] = gateway.remote_delivery_failures
         if remote:
             try:
                 remote.close()
@@ -577,13 +616,31 @@ def run_matrix(
 ) -> list[TrialReceipt]:
     if concurrency < 1 or repetitions < 1 or not groups or len(set(groups)) != len(groups):
         raise ValueError("positive concurrency/repetitions and unique groups are required")
+    specs = {path: TaskSpec.load(path) for path in task_roots}
+    lineages = {}
     if Group.G3 in groups:
-        # Seed->capture->eval is ordered within each repetition/cluster, never
-        # mixed across independent repetitions. Parallel ordinary groups remain.
-        if not any(TaskSpec.load(p).task.role == "seed" for p in task_roots):
+        if not any(spec.task.role == "seed" for spec in specs.values()):
             raise ValueError(
                 "G3 requires seed tasks followed by eval tasks, not an unproven warm snapshot"
             )
+        for path, spec in specs.items():
+            cluster, corpus_id = spec.task.cluster, spec.mindie_knowledge.corpus_id
+            if not cluster or corpus_id not in config.corpora:
+                raise ValueError("G3 requires explicit transfer clusters and corpus IDs")
+            lineages.setdefault((cluster, corpus_id), []).append(path)
+        if not lineages or any(
+            not any(specs[path].task.role == "seed" for path in paths) for paths in lineages.values()
+        ):
+            raise ValueError("G3 requires seed tasks in each lineage, not an unproven warm snapshot")
+        for paths in lineages.values():
+            paths.sort(key=lambda path: specs[path].task.role != "seed")
+    if tier == "l3":
+        if not config.remote:
+            raise ValueError("L3 requires explicit remote configuration")
+        for spec in specs.values():
+            count = spec.environment[tier].npu_count
+            if count < 1 or count > len(config.remote.devices):
+                raise ValueError("each L3 task must fit the explicitly configured NPU device pool")
     output.mkdir(parents=True, exist_ok=False)
     output.chmod(0o700)
     write_json(
@@ -601,38 +658,27 @@ def run_matrix(
         exclusive=True,
     )
     receipts = []
-    jobs = [
-        (p, group, repetition)
-        for p in task_roots
-        for group in groups
-        for repetition in range(1, repetitions + 1)
-        if group != Group.G3
-    ]
-    if tier == "l3":
-        if not config.remote:
-            raise ValueError("L3 requires explicit remote configuration")
-        # Local allocation complements remote per-device flock. Different
-        # independent runner processes are still protected by remote leases.
-        for path in task_roots:
-            count = TaskSpec.load(path).environment[tier].npu_count
-            if count < 1 or count > len(config.remote.devices):
-                raise ValueError("each L3 task must fit the explicitly configured NPU device pool")
+    receipt_lock = threading.Lock()
     device_condition = threading.Condition()
     cancelled = threading.Event()
     available_devices = set(config.remote.devices) if tier == "l3" else set()
+    excluded = {
+        identity for spec in specs.values() for identity in spec.mindie_knowledge.same_origin_task_hashes
+    }
 
-    def execute_cell(path, group, repetition):
+    def execute_cell(path, group, repetition, *, corpus_override=None):
         devices = []
-        if tier == "l3":
-            count = TaskSpec.load(path).environment[tier].npu_count
-            with device_condition:
+        with device_condition:
+            if tier == "l3":
+                count = specs[path].environment[tier].npu_count
                 device_condition.wait_for(lambda: cancelled.is_set() or len(available_devices) >= count)
-                if cancelled.is_set():
-                    raise RuntimeError("matrix cancelled before this trial was admitted")
+            if cancelled.is_set():
+                raise RuntimeError("matrix cancelled before this trial was admitted")
+            if tier == "l3":
                 devices = sorted(available_devices)[:count]
                 available_devices.difference_update(devices)
         try:
-            return run_trial(
+            receipt = run_trial(
                 path,
                 config,
                 tier=tier,
@@ -640,77 +686,91 @@ def run_matrix(
                 repetition=repetition,
                 run_root=output,
                 devices=devices or None,
+                corpus_override=corpus_override,
                 cancelled=cancelled,
             )
+            # Retain completed cells even when a later capture in this lineage fails.
+            with receipt_lock:
+                receipts.append(receipt)
+            return receipt
         finally:
             with device_condition:
                 available_devices.update(devices)
                 device_condition.notify_all()
 
-    with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        futures = []
-        for path, group, repetition in jobs:
-            futures.append(pool.submit(execute_cell, path, group, repetition))
-        try:
-            for future in as_completed(futures):
-                receipts.append(future.result())
-        except BaseException:
-            cancelled.set()
-            for future in futures:
-                future.cancel()
-            with device_condition:
-                device_condition.notify_all()
-            raise
-    if Group.G3 in groups:
-        for repetition in range(1, repetitions + 1):
-            warm_by_cluster = {}
-            initial_views = {}
-            for path in task_roots:
-                spec = TaskSpec.load(path)
-                cluster = spec.task.cluster
-                corpus_id = spec.mindie_knowledge.corpus_id
-                key = (cluster, corpus_id)
-                if not cluster or corpus_id not in config.corpora:
-                    raise ValueError("G3 requires explicit transfer clusters and corpus IDs")
-                if key not in initial_views:
-                    excluded = {
-                        identity
-                        for source in task_roots
-                        for identity in TaskSpec.load(source).mindie_knowledge.same_origin_task_hashes
-                    }
-                    initial = output / "warm-initial" / str(repetition) / cluster / corpus_id
-                    initial.parent.mkdir(parents=True, exist_ok=True)
-                    filtered_corpus(Path(config.corpora[corpus_id].path), initial, excluded)
-                    initial_views[key] = initial
-            ordered = sorted(task_roots, key=lambda p: TaskSpec.load(p).task.role != "seed")
-            for path in ordered:
-                spec = TaskSpec.load(path)
-                cluster = spec.task.cluster
-                if not cluster:
-                    raise ValueError("G3 tasks require a declared transfer cluster")
-                cluster_key = (cluster, spec.mindie_knowledge.corpus_id)
-                if spec.task.role == "eval" and cluster_key not in warm_by_cluster:
-                    raise ValueError(f"missing successful seed capture for cluster: {cluster}")
-                count = spec.environment[tier].npu_count
-                devices = config.remote.devices[:count] if tier == "l3" else None
-                receipt = run_trial(
-                    path,
-                    config,
-                    tier=tier,
-                    group=Group.G3,
-                    repetition=repetition,
-                    run_root=output,
-                    devices=devices,
-                    corpus_override=warm_by_cluster.get(cluster_key, initial_views[cluster_key]),
-                )
-                receipts.append(receipt)
+    def execute_lineage(key, paths, repetition):
+        cluster, corpus_id = key
+        warm = output / "warm-initial" / str(repetition) / cluster / corpus_id
+        warm.parent.mkdir(parents=True, exist_ok=True)
+        filtered_corpus(Path(config.corpora[corpus_id].path), warm, excluded)
+        for path in paths:
+            receipt = execute_cell(path, Group.G3, repetition, corpus_override=warm)
+            if specs[path].task.role == "seed":
                 if (
-                    receipt.terminal_status != TerminalStatus.PASS
+                    receipt.terminal_status not in {TerminalStatus.PASS, TerminalStatus.FAIL}
                     or receipt.auxiliary_metrics.get("capture", {}).get("status") != "completed"
                 ):
-                    raise RuntimeError("G3 capture failed; dependent evals were not started")
-                warm_by_cluster[cluster_key] = (
-                    Path(receipt.artifacts["private_trial_dir"]) / "profile/corpus"
-                )
-    write_json(output / "summary.json", grouped_summaries(receipts), exclusive=True)
+                    raise RuntimeError(
+                        "G3 capture failed; dependent evals were not started "
+                        f"(cluster={cluster}, corpus={corpus_id}, repetition={repetition}, "
+                        f"status={receipt.terminal_status.value})"
+                    )
+                # Failed engineering attempts are still valid reference experience.
+                # Held-out evaluations never become input to later evaluations.
+                warm = Path(receipt.artifacts["private_trial_dir"]) / "profile/corpus"
+
+    jobs = [
+        (path, group, repetition)
+        for path in task_roots
+        for group in groups
+        for repetition in range(1, repetitions + 1)
+        if group != Group.G3
+    ]
+    lineage_jobs = [
+        (key, paths, repetition)
+        for repetition in range(1, repetitions + 1)
+        for key, paths in lineages.items()
+    ]
+    matrix_error = None
+    try:
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            futures = []
+            try:
+                # Interleave independent lineages and cells so neither class waits
+                # behind the complete queue of the other before it can start.
+                for index in range(max(len(jobs), len(lineage_jobs))):
+                    if index < len(jobs):
+                        futures.append(pool.submit(execute_cell, *jobs[index]))
+                    if index < len(lineage_jobs):
+                        futures.append(pool.submit(execute_lineage, *lineage_jobs[index]))
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as error:
+                        # A failed lineage stops its dependents. Independent
+                        # admitted trials can still finish their paid work.
+                        if matrix_error is None:
+                            matrix_error = error
+                        else:
+                            matrix_error.add_note(
+                                f"another independent matrix job failed: {type(error).__name__}: {error}"
+                            )
+            except BaseException:
+                cancelled.set()
+                for future in futures:
+                    future.cancel()
+                with device_condition:
+                    device_condition.notify_all()
+                raise
+    except BaseException as error:
+        matrix_error = error
+    try:
+        write_json(output / "summary.json", grouped_summaries(receipts), exclusive=True)
+    except Exception as error:
+        if matrix_error is not None:
+            matrix_error.add_note(f"matrix summary write also failed: {error}")
+            raise matrix_error from error
+        raise
+    if matrix_error is not None:
+        raise matrix_error
     return receipts
