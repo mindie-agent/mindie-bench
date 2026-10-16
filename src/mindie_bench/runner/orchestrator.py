@@ -713,9 +713,10 @@ def run_matrix(
                     or receipt.auxiliary_metrics.get("capture", {}).get("status") != "completed"
                 ):
                     raise RuntimeError(
-                        "G3 capture failed; dependent evals were not started "
+                        "G3 seed prerequisites failed; dependent evals were not started "
                         f"(cluster={cluster}, corpus={corpus_id}, repetition={repetition}, "
-                        f"status={receipt.terminal_status.value})"
+                        f"status={receipt.terminal_status.value}, "
+                        f"capture={receipt.auxiliary_metrics.get('capture', {}).get('status')})"
                     )
                 # Failed engineering attempts are still valid reference experience.
                 # Held-out evaluations never become input to later evaluations.

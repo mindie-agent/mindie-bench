@@ -223,7 +223,11 @@ def test_l3_cells_and_g3_share_device_allocator_and_cancellation(case, corpus, m
 
 @pytest.mark.parametrize(
     "status,capture",
-    [(TerminalStatus.UNKNOWN, "unknown"), (TerminalStatus.PASS, "failed")],
+    [
+        (TerminalStatus.UNKNOWN, "unknown"),
+        (TerminalStatus.PASS, "failed"),
+        (TerminalStatus.INFRA, "completed"),
+    ],
 )
 def test_g3_failed_capture_preserves_receipt_and_partial_summary_without_retry(
     case, corpus, monkeypatch, status, capture
@@ -239,7 +243,7 @@ def test_g3_failed_capture_preserves_receipt_and_partial_summary_without_retry(
 
     monkeypatch.setattr(orchestrator, "run_trial", run_trial)
     output = case["root"] / "failed-capture"
-    with pytest.raises(RuntimeError, match="G3 capture failed"):
+    with pytest.raises(RuntimeError, match="G3 seed prerequisites failed") as failed:
         orchestrator.run_matrix(
             [seed, evaluation],
             configure(case, corpus),
@@ -249,6 +253,7 @@ def test_g3_failed_capture_preserves_receipt_and_partial_summary_without_retry(
             concurrency=2,
             output=output,
         )
+    assert f"status={status.value}, capture={capture}" in str(failed.value)
     assert calls == [seed]
     receipt_path = output / "seed-G3-1/trial_receipt.json"
     assert json.loads(receipt_path.read_text())["terminal_status"] == status.value
@@ -333,7 +338,7 @@ def test_failed_lineage_does_not_cancel_independent_admitted_work(case, corpus, 
     monkeypatch.setattr(orchestrator, "run_trial", run_trial)
     monkeypatch.setattr(orchestrator, "as_completed", lineage_first)
     output = case["root"] / "independent-failure"
-    with pytest.raises(RuntimeError, match="G3 capture failed"):
+    with pytest.raises(RuntimeError, match="G3 seed prerequisites failed"):
         orchestrator.run_matrix(
             [seed],
             configure(case, corpus),
