@@ -1,0 +1,59 @@
+{
+  "discovery_score": 5,
+  "domain_candidates": [
+    "graph_and_kernel_debugging",
+    "distributed_communication",
+    "numerical_accuracy",
+    "performance",
+    "model_adaptation"
+  ],
+  "evidence": "candidate",
+  "instance_id": "candidate-05691d983bfe13a0a58a12abafa238b323f3b7b783e8f136958082dc03105f66",
+  "missing_acceptance": [
+    "exact failing source revision",
+    "bounded public instruction",
+    "external verifier",
+    "gold fix",
+    "fail-before/pass-after proof",
+    "analogical/stale/compositional transfer labels"
+  ],
+  "package_sha256": "23ca61479e08da01a3b826eeb4a313177a1ec36ca1eafb690422a3b83b9c0f90",
+  "same_origin_task_hashes": [
+    "05691d983bfe13a0a58a12abafa238b323f3b7b783e8f136958082dc03105f66"
+  ],
+  "source_blocks": [
+    {
+      "path": "tasks/05691d983bfe13a0a58a12abafa238b323f3b7b783e8f136958082dc03105f66/blocks/146e0937be44ba4e22a94c0f10165221cefd76f129b0e98ec7a5b39b981b430e.md",
+      "sha256": "777444c5080fe382ec0cbd580c8d2460fed4554ce0ccac249f7a385cfe4119bf"
+    },
+    {
+      "path": "tasks/05691d983bfe13a0a58a12abafa238b323f3b7b783e8f136958082dc03105f66/blocks/1f18384ab6848d7efef33c1a4e15ca2125d93df5fa42396d141aaa13367df08f.md",
+      "sha256": "fe9357abb4f21c7524e007ea5167901485a0e05c8c6e5c9623f9840866dd54cc"
+    },
+    {
+      "path": "tasks/05691d983bfe13a0a58a12abafa238b323f3b7b783e8f136958082dc03105f66/blocks/63514e34ff5715f017eb64dc1998168e93bfdd765a0275b842941802a2eab484.md",
+      "sha256": "adbb29094e0e7d6c8bed596b9f07d113e660fe788cd616722667a5b4c83b5327"
+    },
+    {
+      "path": "tasks/05691d983bfe13a0a58a12abafa238b323f3b7b783e8f136958082dc03105f66/blocks/7c4e8eff5f42f736121d643ed63021400c73a298f34eb73fee9407c9c5749484.md",
+      "sha256": "84ef9114caed14ddfbb9cf074ce6f61f92d8ee82a85e7c89c5925c9a1cdbf948"
+    },
+    {
+      "path": "tasks/05691d983bfe13a0a58a12abafa238b323f3b7b783e8f136958082dc03105f66/blocks/a30237791810236310fe0e00ddec5077c5dad1bbbc664bb44ca862e8cd8ff6ba.md",
+      "sha256": "49c18b0f8bb234d45acaae2b9e04d7fa68d259c1068e08c0e938d6543effa715"
+    },
+    {
+      "path": "tasks/05691d983bfe13a0a58a12abafa238b323f3b7b783e8f136958082dc03105f66/blocks/9b723ce096cb42cd606a5c643a28d1ff206513072b8554e035ac1f91fd2f5f57.md",
+      "sha256": "e630aad5fbb006339806cb2d9d8912599f8b972ecd1719e5d3c4c079ae18b0f2"
+    },
+    {
+      "path": "tasks/05691d983bfe13a0a58a12abafa238b323f3b7b783e8f136958082dc03105f66/blocks/54c6088987a0c34d91ab62c22fffe48c7f2519844aa7fe5fe41ec6da6251f45d.md",
+      "sha256": "c790826f3656dd9d33defe2c18ce11fae28c8a22f838326b08de241499ea7f7f"
+    }
+  ],
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "source_layout": "published-index-blocks",
+  "source_package": "05691d983bfe13a0a58a12abafa238b323f3b7b783e8f136958082dc03105f66",
+  "source_status": "complete",
+  "title": "当前任务导航：验证 dummy 空转造成的跨 step Mamba 状态腐化"
+}

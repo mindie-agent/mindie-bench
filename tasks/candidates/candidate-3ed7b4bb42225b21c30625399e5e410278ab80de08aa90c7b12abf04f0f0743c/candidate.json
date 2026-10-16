@@ -1,0 +1,75 @@
+{
+  "discovery_score": 5,
+  "domain_candidates": [
+    "graph_and_kernel_debugging",
+    "distributed_communication",
+    "numerical_accuracy",
+    "performance",
+    "model_adaptation"
+  ],
+  "evidence": "candidate",
+  "instance_id": "candidate-3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c",
+  "missing_acceptance": [
+    "exact failing source revision",
+    "bounded public instruction",
+    "external verifier",
+    "gold fix",
+    "fail-before/pass-after proof",
+    "analogical/stale/compositional transfer labels"
+  ],
+  "package_sha256": "9fa9efdfd691168e5b0811561e3a9f11ab8a6e823c66b02a201d8ed61fef7654",
+  "same_origin_task_hashes": [
+    "3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c"
+  ],
+  "source_blocks": [
+    {
+      "path": "tasks/3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c/blocks/1b6f497342735590872f9e1df01cd14f5e6fc7f1ba7385488b17e2ac47dd818c.md",
+      "sha256": "7fd6f676fb3be964f3a71f719808ea5c5f2614eb8a18b9d163a7833fb103934c"
+    },
+    {
+      "path": "tasks/3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c/blocks/8f48f059f37975f07481338b589ab2e818e99cd7464d6ceb2ecc8936389ec975.md",
+      "sha256": "10e5e22586cb5ed20d66c540330a80c29c5f86862cf84fa4fbff28962ddf2cee"
+    },
+    {
+      "path": "tasks/3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c/blocks/8e7a596c03e664264f99238e365df3a72a8ffd99bf495923d7d0a3ed61da761f.md",
+      "sha256": "96b993de3c1885c3e3213e9820cadcb596a007bb5168a13f6eefe7e21b5c0277"
+    },
+    {
+      "path": "tasks/3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c/blocks/2a7d62d3909930ee710249c67fa982a8072e157d6b67d20971ad6be2b9204b3f.md",
+      "sha256": "348e760b047c83eead1c8885daa72f7b1cc00d6359a479530b220f1b788e17b3"
+    },
+    {
+      "path": "tasks/3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c/blocks/b3aab110ca6eb2c7bf890b11ec35eca62878fca0428606b6e4223b1c576c538b.md",
+      "sha256": "5437f1c574a2063ccd3c762afb0f082dc6b8f16f2412907dc23d445027ff818d"
+    },
+    {
+      "path": "tasks/3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c/blocks/9c4c47ba46ebc359e6e4d8ac97d65964d6ddb9e4160ab5fc818c052151c1e9e0.md",
+      "sha256": "3aac0d624da0d3729604f3d988ee4acf1bddcbfb9202985184b6878182ecc5de"
+    },
+    {
+      "path": "tasks/3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c/blocks/3aaea4e15ecb0af728ee2eaa47645bc86bd0e1c1c90ab41df0976a86e8f36272.md",
+      "sha256": "faaceba449d1a8c93e68541ed364c907702a599ac76bffd9a796daf80d6c9b71"
+    },
+    {
+      "path": "tasks/3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c/blocks/1cc3ae55647435ebe601d7648c997d6ed95cad6d1d1090bdfa47740951e72a5c.md",
+      "sha256": "de962f654be811dfc945443ac4f725f1629e9dd9adb3c191ba1f32fb5908523d"
+    },
+    {
+      "path": "tasks/3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c/blocks/62a86930f7c83daf055d4cdf2f4f8713a764fdb5c393691921078d0bf10a0697.md",
+      "sha256": "38387fb787dcaeb0302a0798ab168a33ca0c333ebb416bfb6626f20ae6471103"
+    },
+    {
+      "path": "tasks/3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c/blocks/60fd02bfbd4b792b76b4c45810f77262d525220b75d58abe80f30db9b23dd09c.md",
+      "sha256": "69f3f596cc9f8f92f2e8f0c0bf644b83fb0acddeee2f62ff390becce94e08116"
+    },
+    {
+      "path": "tasks/3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c/blocks/c0d949ad00782f0807c0bcb4301d5a842f0da4ac826c6e227dd7fe831221b5d3.md",
+      "sha256": "98793173e682b377957a03d8da871fec6201c81af0e4184f7fc3c44b676b2bad"
+    }
+  ],
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "source_layout": "published-index-blocks",
+  "source_package": "3ed7b4bb42225b21c30625399e5e410278ab80de08aa90c7b12abf04f0f0743c",
+  "source_status": "complete",
+  "title": "当前任务导航：mypy 据报告通过，设备用例与最终状态仍待核验"
+}

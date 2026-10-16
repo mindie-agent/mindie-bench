@@ -1,0 +1,70 @@
+{
+  "discovery_score": 5,
+  "domain_candidates": [
+    "graph_and_kernel_debugging",
+    "distributed_communication",
+    "performance",
+    "model_adaptation"
+  ],
+  "evidence": "candidate",
+  "instance_id": "candidate-2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3",
+  "missing_acceptance": [
+    "exact failing source revision",
+    "bounded public instruction",
+    "external verifier",
+    "gold fix",
+    "fail-before/pass-after proof",
+    "analogical/stale/compositional transfer labels"
+  ],
+  "package_sha256": "79b93239e502d04cc5b4d63bdda3a27fbfa74efb3b488378839fe37cd8e31461",
+  "same_origin_task_hashes": [
+    "2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3"
+  ],
+  "source_blocks": [
+    {
+      "path": "tasks/2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3/blocks/b16d8c460df500b1d762ae63208b438877e5f59ccb1fe6caec1c19fe62890e25.md",
+      "sha256": "6a532c3e4deafba38c3407cc639963f7fa3404fe6b7de763a21e35085f0e0747"
+    },
+    {
+      "path": "tasks/2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3/blocks/e55641bd4ee698cdd3c77d6bcae1b9cdb8a3cdd5869fcbe8bb4a15d0d031a71f.md",
+      "sha256": "0cc5fa59426b02f45393c85162c8635c3f58f0c0acfd5bf3b66c66a338c26d7b"
+    },
+    {
+      "path": "tasks/2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3/blocks/c45a3f6b88477453cd2bd4f5144a2ebc0914b2d5ba2dd05695a108901f7977ba.md",
+      "sha256": "2ec14a721159556a63df5643ad342e83124c6a3f710da90f14a37a1ec49da940"
+    },
+    {
+      "path": "tasks/2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3/blocks/af4699c5c93b87387d253468b07d0930ad9cefeae395b0c37154029e60e2e542.md",
+      "sha256": "eb8c2d8086741822d9039799c070a3d5a6c7ed349fb9f511197eee1cc1bbec89"
+    },
+    {
+      "path": "tasks/2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3/blocks/1fa8fd9de7f021382efe9fcb5106f880986c9f57a2b94f92300cada948d95d1d.md",
+      "sha256": "9802dfbf5c7f161f9a8e1692f3bd53ca1b8c36b259ce83e0479df97ae7ba29a7"
+    },
+    {
+      "path": "tasks/2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3/blocks/48d4b8ff434194027c517410fd95fe9308bfb050f1f569a813e90cd6aac1637a.md",
+      "sha256": "cd0356dcb0f742309ad5dc651ba82ccee83e83d92926355cee6479349631c697"
+    },
+    {
+      "path": "tasks/2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3/blocks/2703af6a587ad299938c312692d687c2edaf3d08e3157d09e2da9defa26c7d96.md",
+      "sha256": "6ca60ffa3400f5271506349c9681178b78a8eee186a13c8895880b941a4a3f40"
+    },
+    {
+      "path": "tasks/2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3/blocks/859f602f0786faab70d4ab02e7161897ff06e7b71983b0ea493408afb69f85b4.md",
+      "sha256": "449fccc84453c129743b89c3a8cb1b19bb21ac2653513dc860e23df55a3c849f"
+    },
+    {
+      "path": "tasks/2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3/blocks/c30057660e91d6ac100fe0aa57cd5870441655c0bcd29e20f865e6a328148766.md",
+      "sha256": "ee76f54874704c46357282ea939b1e03da611927456b489832562d0f0866640c"
+    },
+    {
+      "path": "tasks/2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3/blocks/c9ca0360fbc0f2141d9fc5a81efd26593b375fa3edcbcbd35aec44bc2ea0f9ff.md",
+      "sha256": "9009b6d72787bf7102e656e6474edc18eb5e37b74f5ea018446d5aeaaa37540e"
+    }
+  ],
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "source_layout": "published-index-blocks",
+  "source_package": "2705748425696563531abd0205465c9c5f9c3dd6c169aaa510818f6e28220dc3",
+  "source_status": "complete",
+  "title": "PR #66 VAWS 生命周期、监督回收与客户端验收边界"
+}

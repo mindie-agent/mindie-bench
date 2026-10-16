@@ -1,0 +1,111 @@
+{
+  "discovery_score": 5,
+  "domain_candidates": [
+    "graph_and_kernel_debugging",
+    "distributed_communication",
+    "numerical_accuracy",
+    "performance",
+    "model_adaptation"
+  ],
+  "evidence": "candidate",
+  "instance_id": "candidate-1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62",
+  "missing_acceptance": [
+    "exact failing source revision",
+    "bounded public instruction",
+    "external verifier",
+    "gold fix",
+    "fail-before/pass-after proof",
+    "analogical/stale/compositional transfer labels"
+  ],
+  "package_sha256": "06dfced1369b2c023cc454d85fb6de0417aa7b17be5fe98af1c1e30af7a742cf",
+  "same_origin_task_hashes": [
+    "1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62"
+  ],
+  "source_blocks": [
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/8f9a663be8f8ea8a810065be9609d75d52efdaa593d395dcbd22db241e744b42.md",
+      "sha256": "dddbf99eaaa23f0b03f63945b7310054de7442b679b011cb7484fffbae81a2e9"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/81ab101e3815e60342085c6a3eca2154e453b82ee5a1fe2c53bdce125b05ffcb.md",
+      "sha256": "14055b9ae5d3256fe25992e3225370bc579dc9fdecdf4bd5c4f0fde1cf8220ab"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/8b89bb4a17e2cddf3e0f9150f742bbc311d5824a88e60364437d78a75b33a353.md",
+      "sha256": "2e3bbb383a6f6ed260a6cbb14c84006e1873369dfc5a990497015ed02e5c08bc"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/d5ab553e6a7d58b8bc3d22601942829535a2d874bb31bf959d2cf9d5b7f1f2c9.md",
+      "sha256": "d4fd4fb8d340f784811791e60d7e908ec08acf6647837ad7b7732a8d4595cc60"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/f4e999313d35ba0ded4f9d537bb976bfc527cfb8d45fddd26d43a5a6d5643383.md",
+      "sha256": "eb37cfbeee9e40df2f41ac2a9f433bf305aa04cf75f6d1bc3407cf9b3c3bfc9e"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/8d185c30cb2dca9c61fbfe17ea4eefa2ccd96b0ec35c50618462e4e9aeca7d08.md",
+      "sha256": "cb754ddf9328f1cbad90955dc350de183a893fcf2aa564342550c22327050573"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/d8de432376ac648c0d8be0c714b13c0b3e7aa78d26a034ef34d1e15e2024c985.md",
+      "sha256": "2f9aff0f3db211795eadf895922a56d5bcfd8e816323f541c58fbc7fafd694a6"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/de5b40637146a0671d9894c1e1702e948ec5d629215024936283d26e7ff9ad0d.md",
+      "sha256": "3c155e8c4d1feceafa65f41c4218aeb9bc08ec590d8fa3d23214a3c3b3954828"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/1a9828e462fc7d721400d46260d905d252f42a98b375764776a4fcacde0b1b05.md",
+      "sha256": "3260b1ab328cb7ebb420c5399c9e4256a93f5d536df4925677488e7aa3bb7c64"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/7885abbddccd7e8029087384e1ea51bdf72a43d691559d789bc6240548e137e7.md",
+      "sha256": "fcf4b46e834438f06ff3a1834fede8755194f10ab8ef0810561d59e7590692a6"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/0fade73b264d99678c6cacd34a217eaf8b404158219bc5c359df44dc719c6e5a.md",
+      "sha256": "4985400ed339522fe3fc0976de83b0a80b08e8e3830d5103b2cfbbba97235c0f"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/7bbf76c3c56fc8b9986c8c76ade8d4eca1b99624d87811527e6dbc7f925d1f54.md",
+      "sha256": "28426e79d78bfd58be6f3e99415d88b77d670cf9f057e4abeed204803edad046"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/b57b4a0ca02f6324eafea73623132529089b1341a6e0ec0c89efb8757f0a9032.md",
+      "sha256": "aee6943750f95c6c9257002adb2b467c7ff847ed144ac950d52ee3fdb12cfc79"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/1ec7e1afdf57a8ddacca568cbb0208facbdf5032412533a34703cfbe1727d56a.md",
+      "sha256": "af7a27ec1d79ed761cad3e8340df46edd4ddc612da5f17e11d6145f00b64f665"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/e0b70e3ad1d4d347f7a3ac0fcc2b043be5b178503d3758184d10aa59386bf2b1.md",
+      "sha256": "78d0bfdef52a527250c5abf5e275a6f224c9909e24d030cc97250588a60aebf2"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/659bfd5ee290e8ce587ad5aa72cc6c596e5f32da197dbbd004d8253bb7217d63.md",
+      "sha256": "ba87f1f5c202e75ca34316bd704e7b70d888c47026dd4f2eb1b61e8755161dc7"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/de1df7b7766fe4f763eb6e8469ef7c9e8e9edeee1c08690b88a5f7530952e696.md",
+      "sha256": "56720f0828f166821ab87ec4e43d7a2abacfa95b3b6a5fde7d8abfa25c5f3e1b"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/7c32352eaf2145da49d3bd9f1bb651b85c0d95326c60a94d57219d83c21d681b.md",
+      "sha256": "f461d3345aecc7b1d055f7e0072f708829086cc008097ead5617fdbc0517b31b"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/593398367e0af774ed182e0d3b269c89c24c08a030f9ef6792f8a5f1b94323d4.md",
+      "sha256": "fb2e5efba0627821aea38e9bff956f926abae4fff392390d9a8a5495950d6f34"
+    },
+    {
+      "path": "tasks/1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62/blocks/eb494aeed43ae8939248648f9635c21e1c280a52147222f32c74b8e346b76f38.md",
+      "sha256": "0c75964024c86b5d9b75db2e7d1c467477880aecdf7e0b0e6805f24bb2ca9a0e"
+    }
+  ],
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "source_layout": "published-index-blocks",
+  "source_package": "1eaa7d14da6a06415789f1ab54f198644624762ba39781c9adcfd6947e5a1d62",
+  "source_status": "complete",
+  "title": "当前任务导航：主线缺陷修复、客户端范围与待独立核验的合入状态"
+}

@@ -1,0 +1,34 @@
+{
+  "discovery_score": 5,
+  "domain_candidates": [
+    "graph_and_kernel_debugging",
+    "numerical_accuracy",
+    "performance",
+    "model_adaptation"
+  ],
+  "evidence": "candidate",
+  "instance_id": "candidate-40fd4789f8c5706d39fce27e2fe6da9b72e38c3afd28b9adbfe4eb4eee2e8a6c",
+  "missing_acceptance": [
+    "exact failing source revision",
+    "bounded public instruction",
+    "external verifier",
+    "gold fix",
+    "fail-before/pass-after proof",
+    "analogical/stale/compositional transfer labels"
+  ],
+  "package_sha256": "a572badf9df35f979425c375a26ed5f7c9f0516d27ba0f6122f1ef57e4b6025b",
+  "same_origin_task_hashes": [
+    "40fd4789f8c5706d39fce27e2fe6da9b72e38c3afd28b9adbfe4eb4eee2e8a6c"
+  ],
+  "source_blocks": [
+    {
+      "path": "tasks/40fd4789f8c5706d39fce27e2fe6da9b72e38c3afd28b9adbfe4eb4eee2e8a6c/blocks/06458b34bfa08c3d09686688cbb241d70bee8b1640002f76312eb1a1bfafbbd1.md",
+      "sha256": "f79edc4740371acb3ac24c586903fc545ebf31191d9f4999e27beaee425ea1c7"
+    }
+  ],
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "source_layout": "published-index-blocks",
+  "source_package": "40fd4789f8c5706d39fce27e2fe6da9b72e38c3afd28b9adbfe4eb4eee2e8a6c",
+  "source_status": "complete",
+  "title": "Full v2 PR #15320 当前导航"
+}

@@ -1,0 +1,55 @@
+{
+  "discovery_score": 5,
+  "domain_candidates": [
+    "graph_and_kernel_debugging",
+    "distributed_communication",
+    "numerical_accuracy",
+    "performance",
+    "model_adaptation"
+  ],
+  "evidence": "candidate",
+  "instance_id": "candidate-061f6320b291045cfccfba33e62a2f06f1f4175c6ce9ca3e3d04bc0ef30ad530",
+  "missing_acceptance": [
+    "exact failing source revision",
+    "bounded public instruction",
+    "external verifier",
+    "gold fix",
+    "fail-before/pass-after proof",
+    "analogical/stale/compositional transfer labels"
+  ],
+  "package_sha256": "eeabba2f915ec1b2221b6782875f0dcc196b7a3777addb9fcf25932855936930",
+  "same_origin_task_hashes": [
+    "061f6320b291045cfccfba33e62a2f06f1f4175c6ce9ca3e3d04bc0ef30ad530"
+  ],
+  "source_blocks": [
+    {
+      "path": "tasks/061f6320b291045cfccfba33e62a2f06f1f4175c6ce9ca3e3d04bc0ef30ad530/blocks/bf17564823c38dbdd1cba19c2de1e910c0f3d0f52abb14e2b53d9089e09488bf.md",
+      "sha256": "d6bec62188bc275500611e129d6ed4d83d66b892461c0b4bafaf60ae07cfbd97"
+    },
+    {
+      "path": "tasks/061f6320b291045cfccfba33e62a2f06f1f4175c6ce9ca3e3d04bc0ef30ad530/blocks/e4b19184296d9b8f722fda2a49f285f932b899daf94a0407bdd21f87f47e773c.md",
+      "sha256": "5c05f1acd54bb6246fa0ec806017bf2baa797c74da4cbfc9abc9ef54f5fc4d7c"
+    },
+    {
+      "path": "tasks/061f6320b291045cfccfba33e62a2f06f1f4175c6ce9ca3e3d04bc0ef30ad530/blocks/72d26e86a527c15c43ae2870324328e3ce6fe0f96a8394a01a103d6a2e2daca6.md",
+      "sha256": "0327f4f52d160020482a27f99f62d9c6a771eec6d4f4901e4724478e4f775f07"
+    },
+    {
+      "path": "tasks/061f6320b291045cfccfba33e62a2f06f1f4175c6ce9ca3e3d04bc0ef30ad530/blocks/eb27d4f5e217513aec14733977f36b6b5f0376365b9402689d20f2211c7531b7.md",
+      "sha256": "c7e590c4cbcea61d586e77a1789d399265a25297a80696a0044c92766d1e961b"
+    },
+    {
+      "path": "tasks/061f6320b291045cfccfba33e62a2f06f1f4175c6ce9ca3e3d04bc0ef30ad530/blocks/e39fc3e707995a4a8345a0587ca0923ec19b95fd05a24326e8f56a2de11cf646.md",
+      "sha256": "3977ffff2a15f0159ac79a1d6e3a12b3fbf8537b1af2463ff4cdb356d8f70761"
+    },
+    {
+      "path": "tasks/061f6320b291045cfccfba33e62a2f06f1f4175c6ce9ca3e3d04bc0ef30ad530/blocks/e015367b00ca9331342470894fc710b6e25995cdc3c2b7af1abc476e8cd58bb5.md",
+      "sha256": "758fa754a3879ae290d259003ece80a524ba1f44b77ffb47868cedfb36ce0868"
+    }
+  ],
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "source_layout": "published-index-blocks",
+  "source_package": "061f6320b291045cfccfba33e62a2f06f1f4175c6ce9ca3e3d04bc0ef30ad530",
+  "source_status": "complete",
+  "title": "当前任务导航：PR #10 已完成graph-padding算子修复与单机门禁"
+}

@@ -1,0 +1,67 @@
+{
+  "discovery_score": 5,
+  "domain_candidates": [
+    "graph_and_kernel_debugging",
+    "distributed_communication",
+    "numerical_accuracy",
+    "performance",
+    "model_adaptation"
+  ],
+  "evidence": "candidate",
+  "instance_id": "candidate-50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79",
+  "missing_acceptance": [
+    "exact failing source revision",
+    "bounded public instruction",
+    "external verifier",
+    "gold fix",
+    "fail-before/pass-after proof",
+    "analogical/stale/compositional transfer labels"
+  ],
+  "package_sha256": "d68fbec4532ef0bac758805aaa3f26063fe111f14bef4f9f315f8cbd940841ae",
+  "same_origin_task_hashes": [
+    "50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79"
+  ],
+  "source_blocks": [
+    {
+      "path": "tasks/50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79/blocks/c05d4d8ae191f57c6f51b360b7ccca0432241255d1fc44ef5e4783d9d5b6a808.md",
+      "sha256": "42814aa7f3aed1fa3edf0a47c42d3d2c00435a4fa0a4b1290924252cd09f13db"
+    },
+    {
+      "path": "tasks/50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79/blocks/d4b0cd0f2634ccb05532f4d21a87d3e7ff45c4fb492cd1fed8e405ef7a92ff33.md",
+      "sha256": "9157f9c5606cddfd4a0e60af0231267838e429560ae0b4bc20ee1bd74fe08a1e"
+    },
+    {
+      "path": "tasks/50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79/blocks/f51d5313318d1606b2e680ef6e0722d2cbde2512753225b8d25198616f98b573.md",
+      "sha256": "62f8457cd5ab86e5b74292b1dd9656409ca7842d3e1624af4af9389e6ee9ffd8"
+    },
+    {
+      "path": "tasks/50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79/blocks/ebd1a50ec4fe144e406c7e6b11dd5a70f9b30be4608ad4551b4dbef445b120c0.md",
+      "sha256": "4e9d10ebbe5d95652a10c59af165f43758131df3dff019f83a99942a39889ab8"
+    },
+    {
+      "path": "tasks/50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79/blocks/1ac71ab0ca44ebb889822060e75a93a7b1ab01c6b5ba3e967f0a75e70855f366.md",
+      "sha256": "3b62eda183996b55c394c325e6ea04354face13456c0a01cdcdd4e6081e5f17c"
+    },
+    {
+      "path": "tasks/50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79/blocks/ca6ee71b8f41f6c9d6469b35b3e6a8a30ec04bbd162233259db5da80102e9fe3.md",
+      "sha256": "4543651f9ae3983ee91e139cab18c1a8ee410e64a92b42dfbde0d88907b5647d"
+    },
+    {
+      "path": "tasks/50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79/blocks/d4af10358122b12e2715c046852d95458289a1620e30ccb43363c8c92c5f57a8.md",
+      "sha256": "c6fa542bdff6769f2f306b8faa501a9bf91ec9a1d6c7e03e5d853631d016d387"
+    },
+    {
+      "path": "tasks/50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79/blocks/efc3f39f55e3de1dbeff3976fc03bf93bcdf8070c80f21fd8c542312a4386f2e.md",
+      "sha256": "edc423bd0518ab1af074882915f8e8af704b191b3e631dd983e6141e9e94969f"
+    },
+    {
+      "path": "tasks/50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79/blocks/1e2c95ce73d56f45d086b58398d960fa1aefcc8306b85d21c13d6d48fc645509.md",
+      "sha256": "a2eb08ae5219e12dc9de2fc1ebdb8f24df610c6369644d818bccb7ad6a2d54ca"
+    }
+  ],
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "source_layout": "published-index-blocks",
+  "source_package": "50809f1fefde44f4671b682248b8a55c32debd931359dd887585022e0a68fa79",
+  "source_status": "complete",
+  "title": "0.26 QLI v2 三方案对比：序列确认与并发缓存效应"
+}

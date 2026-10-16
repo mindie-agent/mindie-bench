@@ -1,0 +1,31 @@
+schema_version = "1.0"
+backend = "native"
+runtime_read_paths = []
+
+[harness]
+name = "codex"
+executable = "/absolute/path/to/codex"
+expected_version = "REPLACE_WITH_EXACT_ISOLATED_VERSION_OUTPUT"
+model = "REPLACE_WITH_PINNED_MODEL_OR_DEPLOYMENT"
+provider_url = "https://api.openai.com/v1"
+api_key_env = "MINDIE_BENCH_OPENAI_KEY"
+reasoning_effort = "medium"
+
+# Add explicit group MCP adapters and exact component provenance before G1-G3.
+# Never put credentials or production profile paths in this file.
+#
+# [component_revisions]
+# remote-dev = "EXACT_COMPONENT_COMMIT"
+# knowledge = "EXACT_COMPONENT_COMMIT"
+#
+# [corpora.ascend]
+# path = "/absolute/clean/public/corpus"
+# commit = "EXACT_40_HEX_CORPUS_COMMIT"
+#
+# [groups.G1.mcp_servers.remote]
+# command = "/absolute/component/runtime/bin/python"
+# args = ["/absolute/component/mcp_adapter.py", "--profile", "{profile}"]
+# component = "remote-dev"
+# required_tools = ["remote_bash"]
+#
+# Configure G2/G3 explicitly; each must include remote-dev and knowledge.

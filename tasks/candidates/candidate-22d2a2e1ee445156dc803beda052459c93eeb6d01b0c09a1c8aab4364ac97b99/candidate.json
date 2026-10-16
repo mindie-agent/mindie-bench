@@ -1,0 +1,83 @@
+{
+  "discovery_score": 5,
+  "domain_candidates": [
+    "graph_and_kernel_debugging",
+    "distributed_communication",
+    "numerical_accuracy",
+    "performance",
+    "model_adaptation"
+  ],
+  "evidence": "candidate",
+  "instance_id": "candidate-22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99",
+  "missing_acceptance": [
+    "exact failing source revision",
+    "bounded public instruction",
+    "external verifier",
+    "gold fix",
+    "fail-before/pass-after proof",
+    "analogical/stale/compositional transfer labels"
+  ],
+  "package_sha256": "5939cb48e4d3fcbfe9d0182a150c43356ff975ad91a60095c33866946d21b466",
+  "same_origin_task_hashes": [
+    "22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99"
+  ],
+  "source_blocks": [
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/1d8f59e3882c25ae62dfdd532f637c60c6fc001469435abfd343a20c1246fef0.md",
+      "sha256": "a1fded0516b32fb6f35bd7e12030bfa221a78b4de24d83af23f42d10ba287c8e"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/e55950694e42f1b0031807979ef13c5a44afcf8e52ffcb972c139e3d8829f581.md",
+      "sha256": "9ef40e6b187be6501f0db9dd49b1732840592fdd6643b809483f1bd3c69fd588"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/88b5fca3a28d303bcaec4e6a5a7923db6e7a0c6d9286a22e1f376da5e5534e92.md",
+      "sha256": "ccae78f86e7f031aef65231b30140acce378ab9495dfc02c25cf1d17ed22f4da"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/c6d801d676046cfda90bdcd0340f63714f3dcdfafb4401129378e1791bd46309.md",
+      "sha256": "5cc94d66e95bc4cc65e68c3660878e5cf2ddecfe88c4484031097fdebdb41dac"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/a8c5690c0695189f91c7f30aed0607ddcee3a7117b65a06eabf893bf57ef29a6.md",
+      "sha256": "456447b0b0a331feefb4b63ae66d523b5e16cb2037dd7fd1bf8736cc709ba82f"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/204a9f439d71b06d36165721d035cbe14b8626369827aabe5da85f85a9142f54.md",
+      "sha256": "b456c3382700b0e97f1d93d9e5be3e25b2d5b18ea88dc72cb1b527e26aa3ca0d"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/02a7a61ceccd802075b3cf8d2f5575fe37dbeb0a8fa934a5043a30543f520028.md",
+      "sha256": "ce37a507981ab841e2e3d524cb518241cf9d71d26afc6aff1dd79e62cc852dfc"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/08f5f3e2d5fc62720dba9edbc43c7c0084df6df386c2dfd2c39cce71f427876d.md",
+      "sha256": "aec93e4cbf05da127d9254ebac11357631ad03ef4c846c76854538cb5719be4e"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/630b66b2c1f090597c59412785512db7d3305d5363034b50cf24f0532d33f876.md",
+      "sha256": "7a76f9b0ab76105e69a6768ff9056368439675a1437ef7a7b797f6a95dc90ef1"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/bf13934bf18bc2eae74f95b09998eea8a0cbbfb09b157cdb80cfe435702e1c70.md",
+      "sha256": "be169588ddc7008196f5584c2b3581fc427b4d6247623b94294d94a8bb222f72"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/e8691316a5f2fbd8218fd19dee312b4323882814330811a4e80b66839d6bbd14.md",
+      "sha256": "f2feb245569d9376ca9c7902c56de3aafae1f06b5becf3cec3dd2e0400cc0c4b"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/8b1047b1135597be3d23a069e03b0d9c79de73b21ac38e2d001cf0335c48e9de.md",
+      "sha256": "008975a2f57e3a02bf44a6392fd94d5efcf6456da2040f625c256eeba477cfa2"
+    },
+    {
+      "path": "tasks/22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99/blocks/1a53a964b4507bd0144129b2bcc877b4da0f21abc3f3fe07280115d6af1e9f95.md",
+      "sha256": "ad899a153898b07c2dce9d29f29a580edb9612fd5da91bb910e4297397fd45d5"
+    }
+  ],
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "source_layout": "published-index-blocks",
+  "source_package": "22d2a2e1ee445156dc803beda052459c93eeb6d01b0c09a1c8aab4364ac97b99",
+  "source_status": "complete",
+  "title": "DSpark/K3：r10 early-wait 候选未解决 hot-rank 并发问题，继续定位状态生命周期"
+}

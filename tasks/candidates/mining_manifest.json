@@ -1,0 +1,8 @@
+{
+  "candidates": 12,
+  "matching_packages": 497,
+  "scanned_packages": 661,
+  "schema_version": "1.0",
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "warning": "Historical narratives do not establish reproducibility or NPU acceptance."
+}

@@ -1,0 +1,30 @@
+name: benchmark-contracts
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: astral-sh/setup-uv@v6
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - run: uv sync --locked --all-extras
+      - run: uv run ruff check .
+      - run: uv run pytest
+      - run: uv run mindie-bench demo --output reports/ci-synthetic
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: synthetic-failure-${{ matrix.os }}
+          path: reports/ci-synthetic/

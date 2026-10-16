@@ -1,0 +1,38 @@
+{
+  "discovery_score": 5,
+  "domain_candidates": [
+    "graph_and_kernel_debugging",
+    "distributed_communication",
+    "numerical_accuracy",
+    "performance"
+  ],
+  "evidence": "candidate",
+  "instance_id": "candidate-18422f0dd7f43926dad662941f58138f45fc4e6662548c8b8b293eff5449a8ad",
+  "missing_acceptance": [
+    "exact failing source revision",
+    "bounded public instruction",
+    "external verifier",
+    "gold fix",
+    "fail-before/pass-after proof",
+    "analogical/stale/compositional transfer labels"
+  ],
+  "package_sha256": "2a3033a160a7eebef757bef0068a4fe5cfac947d691678a12128432de0d79a1d",
+  "same_origin_task_hashes": [
+    "18422f0dd7f43926dad662941f58138f45fc4e6662548c8b8b293eff5449a8ad"
+  ],
+  "source_blocks": [
+    {
+      "path": "tasks/18422f0dd7f43926dad662941f58138f45fc4e6662548c8b8b293eff5449a8ad/blocks/b091e0c75aabccce4574e4d884a0dae6645029dd398c7a316b883d79acf800fc.md",
+      "sha256": "ddb4cd463144a6a79043872483d3cbb81381f6cea490ea8916922db92ff931d4"
+    },
+    {
+      "path": "tasks/18422f0dd7f43926dad662941f58138f45fc4e6662548c8b8b293eff5449a8ad/blocks/1a2d127451fd54f0421492a82b0717a4cf2c18140212b25b506032a435b3bf58.md",
+      "sha256": "6dfd4a6dd8e3de5334f66d6af0866a30ee5006b56d64f84ed435047233a0ad64"
+    }
+  ],
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "source_layout": "published-index-blocks",
+  "source_package": "18422f0dd7f43926dad662941f58138f45fc4e6662548c8b8b293eff5449a8ad",
+  "source_status": "complete",
+  "title": "K3 四卡缩减验证与 PR #15403"
+}

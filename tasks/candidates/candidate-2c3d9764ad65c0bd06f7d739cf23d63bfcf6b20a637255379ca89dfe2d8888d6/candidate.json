@@ -1,0 +1,65 @@
+{
+  "discovery_score": 5,
+  "domain_candidates": [
+    "graph_and_kernel_debugging",
+    "numerical_accuracy",
+    "model_adaptation"
+  ],
+  "evidence": "candidate",
+  "instance_id": "candidate-2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6",
+  "missing_acceptance": [
+    "exact failing source revision",
+    "bounded public instruction",
+    "external verifier",
+    "gold fix",
+    "fail-before/pass-after proof",
+    "analogical/stale/compositional transfer labels"
+  ],
+  "package_sha256": "38ccdfb28c863fac9b98c5020815a8939a506c3e88b2c532da78645e2511f3d0",
+  "same_origin_task_hashes": [
+    "2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6"
+  ],
+  "source_blocks": [
+    {
+      "path": "tasks/2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6/blocks/9055f5072c864c0948be3b069e26da8dc174f6afa170d40b333746842ed2fb3a.md",
+      "sha256": "7828a7c8cdd300f4958109899880af9b192a7701faf1825df876f44071089a3b"
+    },
+    {
+      "path": "tasks/2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6/blocks/0e179e5962ef5f2c9a00b35e2fe36c9279b61ff84efe1212368fbe7de9d3c5bc.md",
+      "sha256": "8528957769dafd3978cecf2ec5fa79c9497e951c3c9cee98b5dc82b5f44f752c"
+    },
+    {
+      "path": "tasks/2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6/blocks/cd93f0e159193037c6c3c48839ecc9d332642c2b5f059cc45f0bdf5512c07928.md",
+      "sha256": "534058628c00739dffe56c59bdd433cab385869cca033cd7b381d138b9503ffa"
+    },
+    {
+      "path": "tasks/2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6/blocks/93f1fad8b9cec6623c3cd81602abd31190525be0849c69d58e21957f9b91430c.md",
+      "sha256": "5091c5b042e8bb42ffc91ebf1d56c31d280344fdabd9a0da787f5a9815e4aaf6"
+    },
+    {
+      "path": "tasks/2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6/blocks/a5f46fec3922a65eaff0c153ac67de40501adbedaaf335e0fb163381a530ca92.md",
+      "sha256": "46bb040bdb4d28dfab09dce439a66612e8ed000f5df95aae2fa92d6072de67a2"
+    },
+    {
+      "path": "tasks/2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6/blocks/034184e8632ca84b75fce1f686b6e87b3e881c29065e59d8c3cefe1826c9c25e.md",
+      "sha256": "b20e7c87e5c14c7aabff0c25d98782b3560edc3ffd67426bd1fabbb24e90b1f2"
+    },
+    {
+      "path": "tasks/2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6/blocks/78468172b90a66839d1990a0769decd6115a13ba38c0b5eb4ad2dae22aa58877.md",
+      "sha256": "7fbc483031a454b3675f51a557d96dd7967b72295a1be22bfcd5f2860e88aee2"
+    },
+    {
+      "path": "tasks/2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6/blocks/2bb4acd83d59d58f4407267a9c856a5abf2262da76137dec66d656ba86276feb.md",
+      "sha256": "f863e9f25a2960e02230bc09cf33803b11da3e42be21b3a3da416ccb59251933"
+    },
+    {
+      "path": "tasks/2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6/blocks/d54c3e3284337341fefed84c74aec5bd4f1756a59f234532d6195be2825779e5.md",
+      "sha256": "d1bbad381b55e773971fdb774fa6638a6bcb53bfaf31f3d1d511d9abbc6acce7"
+    }
+  ],
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "source_layout": "published-index-blocks",
+  "source_package": "2c3d9764ad65c0bd06f7d739cf23d63bfcf6b20a637255379ca89dfe2d8888d6",
+  "source_status": "complete",
+  "title": "FIA/CANN 验证、PR 提交历史与状态"
+}

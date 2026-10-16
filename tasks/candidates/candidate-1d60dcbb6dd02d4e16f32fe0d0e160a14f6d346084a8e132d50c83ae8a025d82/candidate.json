@@ -1,0 +1,40 @@
+{
+  "discovery_score": 5,
+  "domain_candidates": [
+    "performance",
+    "model_adaptation"
+  ],
+  "evidence": "candidate",
+  "instance_id": "candidate-1d60dcbb6dd02d4e16f32fe0d0e160a14f6d346084a8e132d50c83ae8a025d82",
+  "missing_acceptance": [
+    "exact failing source revision",
+    "bounded public instruction",
+    "external verifier",
+    "gold fix",
+    "fail-before/pass-after proof",
+    "analogical/stale/compositional transfer labels"
+  ],
+  "package_sha256": "2066ff8f466361792e2ab31c3b70a19a0772763cb60ff801de2597321bb3c575",
+  "same_origin_task_hashes": [
+    "1d60dcbb6dd02d4e16f32fe0d0e160a14f6d346084a8e132d50c83ae8a025d82"
+  ],
+  "source_blocks": [
+    {
+      "path": "tasks/1d60dcbb6dd02d4e16f32fe0d0e160a14f6d346084a8e132d50c83ae8a025d82/blocks/21b1de05e114345d70a60f0ca52a455f69dbf087a2f3402874b46c2c77856d38.md",
+      "sha256": "8000513987bc36d669383a444d90ea77393c226b729bb482c962b8487ecc3d61"
+    },
+    {
+      "path": "tasks/1d60dcbb6dd02d4e16f32fe0d0e160a14f6d346084a8e132d50c83ae8a025d82/blocks/54ae0ccea809d5b8c4fd0f56a3791651e1eb317c835c507b90698f13129c90f7.md",
+      "sha256": "9c2bb3975336c8f578c437d2043b6a14036f14721d3418abd2753c5ae374f829"
+    },
+    {
+      "path": "tasks/1d60dcbb6dd02d4e16f32fe0d0e160a14f6d346084a8e132d50c83ae8a025d82/blocks/12e2db25d7ba74c0cd9b562c329527b55e429b6785a485769e02cc2e1b4ca2f3.md",
+      "sha256": "c4ed5b60ccda55bad4160d8968a0ae940c1ad963e964e07b7530e65f1788b340"
+    }
+  ],
+  "source_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "source_layout": "published-index-blocks",
+  "source_package": "1d60dcbb6dd02d4e16f32fe0d0e160a14f6d346084a8e132d50c83ae8a025d82",
+  "source_status": "complete",
+  "title": "修下13277的ci问题，顺便整理一下description和评论，不要暴露机器路径和ip"
+}

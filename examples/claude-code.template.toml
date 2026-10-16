@@ -1,0 +1,13 @@
+schema_version = "1.0"
+backend = "native"
+runtime_read_paths = []
+
+[harness]
+name = "claude-code"
+executable = "/absolute/path/to/claude"
+expected_version = "REPLACE_WITH_EXACT_ISOLATED_VERSION_OUTPUT"
+model = "REPLACE_WITH_PINNED_MODEL"
+provider_url = "https://api.anthropic.com/v1"
+api_key_env = "MINDIE_BENCH_ANTHROPIC_KEY"
+
+# See docs/usage.md for MCP, corpus, offline capture and L3 worker contracts.
