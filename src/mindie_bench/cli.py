@@ -136,8 +136,9 @@ def main(argv=None):
             result = score_slices(args.input, kind=args.kind, k=args.k)
         elif args.command == "compare":
             result = comparison(
-                [row for row in load_receipts(args.baseline) if row.task_role == args.role],
-                [row for row in load_receipts(args.candidate) if row.task_role == args.role],
+                load_receipts(args.baseline),
+                load_receipts(args.candidate),
+                role=args.role,
             )
             args.output.mkdir(parents=True, exist_ok=False)
             write_json(args.output / "comparison.json", result, exclusive=True)

@@ -108,7 +108,7 @@ def export_hf(source: Path, output: Path, *, knowledge_python: Path, gitleaks: P
         # Use the installed first-party deterministic redactor, not a new,
         # weaker regex implementation or a summarizing model.
         result = subprocess.run(
-            [str(knowledge_python), "-c", REDACT],
+            [str(knowledge_python), "-I", "-c", REDACT],
             input=json.dumps(request),
             capture_output=True,
             text=True,

@@ -35,6 +35,11 @@ def native_command(
             "(allow sysctl*)",
             "(allow signal (target same-sandbox))",
             "(allow ipc-posix*)",
+            "(allow pseudo-tty)",
+            '(allow file-read* file-write* file-ioctl (literal "/dev/ptmx"))',
+            # Native PTY extensions grant only newly allocated slave terminals.
+            '(allow file-read* file-write* file-ioctl (require-all (regex #"^/dev/ttys[0-9]+$") '
+            '(extension "com.apple.sandbox.pty")))',
             "(allow file-map-executable)",
             "(allow file-read-metadata)",
             '(allow file-read* (subpath "/System") (subpath "/usr") '

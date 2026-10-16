@@ -67,7 +67,19 @@ def load_receipts(root: Path) -> list[TrialReceipt]:
     return receipts
 
 
-def comparison(baseline: list[TrialReceipt], candidate: list[TrialReceipt], *, k: int = 3) -> dict:
+def comparison(
+    baseline: list[TrialReceipt],
+    candidate: list[TrialReceipt],
+    *,
+    k: int = 3,
+    role: str = "eval",
+) -> dict:
+    if role not in {"seed", "eval"}:
+        raise ValueError("comparison role must be seed or eval")
+    complete_inputs = baseline, candidate
+    baseline = [row for row in baseline if row.task_role == role]
+    candidate = [row for row in candidate if row.task_role == role]
+
     def indexed(rows):
         if len({r.ablation_group for r in rows}) != 1:
             raise ValueError("compare exactly one ablation group per input")
@@ -103,6 +115,78 @@ def comparison(baseline: list[TrialReceipt], candidate: list[TrialReceipt], *, k
             raise ValueError("shared skill snapshot changed")
     a, b = summarize(baseline, k=k), summarize(candidate, k=k)
     valid = {TerminalStatus.PASS, TerminalStatus.FAIL}
+    for rows, selected, summary in zip(complete_inputs, (baseline, candidate), (a, b), strict=True):
+        required = role == "eval" and selected[0].ablation_group.value == "G3"
+
+        def lineage(row):
+            return row.tier, row.evidence, row.cluster, row.repetition
+
+        needed = {lineage(row) for row in selected} if required else set()
+        seeds = [
+            row
+            for row in rows
+            if row.task_role == "seed"
+            and row.ablation_group == selected[0].ablation_group
+            and row.cluster
+            and lineage(row) in needed
+        ]
+        if len({(row.instance_id, row.tier, row.repetition) for row in seeds}) != len(seeds):
+            raise ValueError("duplicate seed setup cells")
+        observed = {lineage(row) for row in seeds}
+        missing = needed - observed
+        setup_complete = not missing and all(
+            row.terminal_status in valid
+            and row.auxiliary_metrics.get("capture", {}).get("status") == "completed"
+            for row in seeds
+        )
+        resources = summarize(selected + seeds, k=k)
+        costs = [
+            row.primary_metrics.get("estimated_cost_usd")
+            for row in selected + seeds
+            if row.primary_metrics.get("estimated_cost_usd") is not None
+        ]
+        seed_costs = [
+            row.primary_metrics.get("estimated_cost_usd")
+            for row in seeds
+            if row.primary_metrics.get("estimated_cost_usd") is not None
+        ]
+        # A zero lower bound from absent prices is not a dollar observation.
+        if not any(row.primary_metrics.get("estimated_cost_usd") is not None for row in selected):
+            summary["observed_cost_usd_lower_bound"] = None
+        cost_complete = (
+            setup_complete and resources["cost_complete"] and len(costs) == len(selected + seeds)
+        )
+        summary.update(
+            seed_setup_required=required,
+            seed_setup_attempts=len(seeds),
+            seed_setup_lineages_required=len(needed),
+            seed_setup_lineages_observed=len(observed),
+            seed_setup_missing_lineages=[
+                dict(tier=tier, evidence=evidence, cluster=cluster, repetition=repetition)
+                for tier, evidence, cluster, repetition in sorted(missing, key=str)
+            ],
+            seed_setup_receipts_complete=not missing,
+            seed_setup_complete=setup_complete,
+            seed_setup_statuses=summarize(seeds, k=k)["statuses"],
+            seed_setup_cost_usd_lower_bound=sum(seed_costs) if seed_costs else None,
+            observed_cost_usd_including_seed_lower_bound=sum(costs) if costs else None,
+            cost_including_seed_complete=cost_complete,
+            cost_per_resolved_task_including_seed=(
+                sum(costs) / summary["completed_pass"]
+                if cost_complete and summary["completed_pass"]
+                else None
+            ),
+            observed_tokens_including_seed_lower_bound=resources["observed_tokens_lower_bound"],
+            token_metering_including_seed_complete=(
+                setup_complete and resources["token_metering_complete"]
+            ),
+            observed_delivery_sec_including_seed_lower_bound=resources[
+                "observed_delivery_wall_clock_sec_lower_bound"
+            ],
+            delivery_timing_including_seed_complete=(
+                setup_complete and resources["delivery_timing_complete"]
+            ),
+        )
     paired = [
         (left[key], right[key])
         for key in left
@@ -167,6 +251,7 @@ def comparison(baseline: list[TrialReceipt], candidate: list[TrialReceipt], *, k
         else None
     )
     return dict(
+        comparison_role=role,
         baseline_group=baseline[0].ablation_group.value,
         candidate_group=candidate[0].ablation_group.value,
         tier=baseline[0].tier,
@@ -196,6 +281,8 @@ def comparison(baseline: list[TrialReceipt], candidate: list[TrialReceipt], *, k
 
 def markdown(result: dict) -> str:
     def fmt(value):
+        if type(value) is bool:
+            return str(value).lower()
         return "unmeasured" if value is None else f"{value:.4g}"
 
     rows = [
@@ -203,6 +290,7 @@ def markdown(result: dict) -> str:
         "",
         f"Evidence: **{result['tier']} / {result['evidence']}**. "
         "Replay and synthetic results are not live-NPU acceptance.",
+        f"Matched task role: `{result['comparison_role']}`.",
         "",
         "| Metric | Baseline | Candidate |",
         "| --- | ---: | ---: |",
@@ -222,12 +310,45 @@ def markdown(result: dict) -> str:
         )
     rows += [
         "",
+        "## Resources including required G3 seed setup",
+        "",
+        "| Measurement | Baseline | Candidate |",
+        "| --- | ---: | ---: |",
+    ]
+    for field in (
+        "seed_setup_required",
+        "seed_setup_attempts",
+        "seed_setup_lineages_required",
+        "seed_setup_lineages_observed",
+        "seed_setup_receipts_complete",
+        "seed_setup_complete",
+        "observed_cost_usd_including_seed_lower_bound",
+        "cost_including_seed_complete",
+        "cost_per_resolved_task_including_seed",
+        "observed_delivery_sec_including_seed_lower_bound",
+        "delivery_timing_including_seed_complete",
+        "token_metering_including_seed_complete",
+    ):
+        rows.append(
+            f"| {field} | {fmt(result['baseline'][field])} | {fmt(result['candidate'][field])} |"
+        )
+    rows += [
+        "",
+        "Observed token lower bounds including required seed setup: "
+        f"baseline `{result['baseline']['observed_tokens_including_seed_lower_bound']}`; "
+        f"candidate `{result['candidate']['observed_tokens_including_seed_lower_bound']}`.",
+        "Seed coverage requires a captured seed in each selected cluster/repetition; "
+        "complete run manifests or frozen receipt hashes must still detect missing individual cells. "
+        "Resource lower bounds include observed failed and unknown attempts. "
+        "Missing setup receipts withhold completeness, never establish zero setup cost.",
+        "",
         f"All baseline terminal counts: `{result['baseline']['statuses']}`.",
         f"All candidate terminal counts: `{result['candidate']['statuses']}`.",
         "",
         f"Matched valid pairs: {result['matched_valid_pairs']}; "
         f"paired completion lift: {fmt(result['paired_completion_lift'])}.",
-        f"Time speedup on mutually solved pairs: {fmt(result['wall_clock_speedup_on_mutual_success'])}; "
+        f"Selected-role time speedup on mutually solved pairs (seed setup listed separately): "
+        f"{fmt(result['wall_clock_speedup_on_mutual_success'])}; "
         f"pairs: {result['mutually_solved_pairs']}.",
         f"Saved NPU test-run fraction: {fmt(result['saved_npu_test_run_fraction'])}.",
         f"Localization speedup with complete typed observations: "
