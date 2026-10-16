@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -53,11 +54,27 @@ PUBLIC_FINGERPRINT = {
     "evidence",
 }
 
+PUBLIC_IDENTITY = (
+    "schema_version",
+    "trial_id",
+    "instance_id",
+    "repetition",
+    "tier",
+    "ablation_group",
+    "knowledge_gradient",
+    "task_role",
+    "cluster",
+    "evidence",
+    "terminal_status",
+    "task_digest",
+    "experiment_digest",
+)
+
 
 def public_row(receipt):
     return dict(
         schema_version=receipt.schema_version,
-        trial_id=receipt.trial_id,
+        trial_id=hashlib.sha256(receipt.trial_id.encode("utf-8")).hexdigest(),
         instance_id=receipt.instance_id,
         repetition=receipt.repetition,
         tier=receipt.tier,
@@ -79,6 +96,28 @@ def public_row(receipt):
         # payloads, home paths, and profile configs are never exported.
         error_stages=sorted({error["stage"] for error in receipt.errors}),
     )
+
+
+def validate_redacted_receipts(data, expected_rows):
+    rows = data.get("receipts") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or len(rows) != len(expected_rows):
+        raise ValueError("redaction changed receipt count; no export was published")
+    expected = {row["trial_id"]: row for row in expected_rows}
+    if len(expected) != len(expected_rows):
+        raise ValueError("public receipt ID collision; no export was published")
+    seen = set()
+    for row in rows:
+        identity = row.get("trial_id") if isinstance(row, dict) else None
+        if not isinstance(identity, str) or identity in seen or identity not in expected:
+            raise ValueError("redaction changed or duplicated receipt IDs; no export was published")
+        original = expected[identity]
+        # Preserve the typed trial contract without restoring any redacted value.
+        if any(
+            key not in row or type(row[key]) is not type(original[key]) or row[key] != original[key]
+            for key in PUBLIC_IDENTITY
+        ):
+            raise ValueError("redaction changed receipt identity or contract; no export was published")
+        seen.add(identity)
 
 
 def export_hf(source: Path, output: Path, *, knowledge_python: Path, gitleaks: Path) -> dict:
@@ -118,6 +157,7 @@ def export_hf(source: Path, output: Path, *, knowledge_python: Path, gitleaks: P
             raise RuntimeError("required mindie_knowledge redaction failed; no export was published")
         clean = json.loads(result.stdout)
         data = json.loads(clean["clean"])
+        validate_redacted_receipts(data, payload["receipts"])
         write_json(staging / "receipts.json", data["receipts"], exclusive=True)
         write_json(staging / "leaderboard.json", data["leaderboard"], exclusive=True)
         (staging / "index.html").write_text(render(data["leaderboard"]))
@@ -164,6 +204,7 @@ def export_hf(source: Path, output: Path, *, knowledge_python: Path, gitleaks: P
             dict(
                 schema_version="1.0",
                 attempts=len(rows),
+                public_trial_id_scheme="sha256-utf8-native-trial-id",
                 redaction_rules=clean["rules"],
                 gitleaks_gate="passed",
                 payload_sha256=digest(data),
