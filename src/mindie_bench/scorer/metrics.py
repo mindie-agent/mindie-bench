@@ -49,6 +49,7 @@ def remote_execution(call: ToolCall) -> bool:
 
 
 def npu_test_runs(trajectory: Trajectory) -> int:
+    """Count reported command-pattern attempts, including failed or unfinished calls."""
     count = 0
     for call in trajectory.calls:
         command = call.arguments.get("command", call.arguments.get("cmd", ""))

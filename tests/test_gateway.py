@@ -69,7 +69,12 @@ def test_unknown_paid_request_not_retried_and_key_stays_parent(case, monkeypatch
     attempts = []
 
     class BrokenProvider:
+        sock = None
+
         def __init__(self, *args, **kwargs):
+            pass
+
+        def connect(self):
             pass
 
         def request(self, method, path, body, headers):

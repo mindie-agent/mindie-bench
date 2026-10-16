@@ -22,6 +22,8 @@ from mindie_bench.io import read_json, safe_relative, write_json
 from mindie_bench.models import HarnessConfig, TaskSpec, UnknownExternalEffects
 from mindie_bench.runner.usage import UsageMeter, sum_usage
 
+MODEL_SETTLEMENT_GRACE_SEC = 10.0
+
 
 class RemoteBudgetExhausted(ValueError):
     pass
@@ -44,6 +46,7 @@ class Gateway(AbstractContextManager):
         self.lock = threading.RLock()
         self.model_idle = threading.Condition(self.lock)
         self.models_sealed = False
+        self.model_settlement_expired = False
         self.model_calls = self.replay_calls = 0
         self.stop_reason: str | None = None
         self.unknown = False
@@ -51,8 +54,9 @@ class Gateway(AbstractContextManager):
         self.seen: set[str] = set()
         self.active = 0
         self.closed = False
-        self.connections = set()
+        self.connections = {}
         self.usage_meters = {}
+        self.model_delivery_failures: list[dict] = []
         self.unix_socket = unix_socket
         self.remote = remote
         self.remote_test_calls = 0
@@ -315,7 +319,8 @@ class Gateway(AbstractContextManager):
                         stdin = base64.b64decode(stdin_b64, validate=True)
                         if not isinstance(command, str) or len(stdin) > 8 * 1024 * 1024:
                             return self.reject(400, "invalid remote command")
-                        test_run = bool(NPU_TEST.search(command + "\n" + stdin.decode(errors="replace")))
+                        # Stdin is opaque input, including patch and file bodies.
+                        test_run = bool(NPU_TEST.search(command))
                         with gateway.lock:
                             if gateway.unknown or gateway.closed or gateway.infrastructure_error:
                                 return self.reject(
@@ -374,8 +379,11 @@ class Gateway(AbstractContextManager):
                         else http.client.HTTPConnection
                     )
                     connection = connection_type(endpoint.hostname, endpoint.port, timeout=120)
+                    # A concurrent settlement close must never make request()
+                    # silently reconnect and submit after the deadline.
+                    connection.auto_open = 0
                     with gateway.lock:
-                        gateway.connections.add(connection)
+                        gateway.connections[connection] = None
                     target = endpoint.path.rstrip("/") + "/" + self.path.removeprefix("/v1/").lstrip("/")
                     headers = {
                         "Content-Type": "application/json",
@@ -391,6 +399,12 @@ class Gateway(AbstractContextManager):
                         if self.headers.get("anthropic-beta"):
                             headers["anthropic-beta"] = self.headers["anthropic-beta"]
                     try:
+                        connection.connect()
+                        transport = connection.sock
+                        with gateway.lock:
+                            gateway.connections[connection] = transport
+                            if gateway.closed or gateway.model_settlement_expired:
+                                raise TimeoutError("model settlement deadline expired before submission")
                         connection.request("POST", target, body=body, headers=headers)
                         response = connection.getresponse()
                         if response.status >= 400:
@@ -401,17 +415,51 @@ class Gateway(AbstractContextManager):
                             else:
                                 gateway.unknown = True
                             gateway.record("model_error", ordinal=ordinal, http_status=response.status)
-                        self.send_response(response.status)
-                        self.send_header(
-                            "Content-Type", response.getheader("Content-Type", "application/json")
-                        )
-                        self.end_headers()
-                        while chunk := response.read1(65536):
+                        delivery_deadline = None
+
+                        def delivery_failed(exc):
+                            nonlocal delivery_deadline
+                            delivery_deadline = time.monotonic() + MODEL_SETTLEMENT_GRACE_SEC
+                            failure = dict(ordinal=ordinal, error=type(exc).__name__)
+                            gateway.model_delivery_failures.append(failure)
+                            gateway.record("model_delivery_failed", **failure)
+                            self.close_connection = True
+
+                        try:
+                            self.send_response(response.status)
+                            self.send_header(
+                                "Content-Type", response.getheader("Content-Type", "application/json")
+                            )
+                            self.end_headers()
+                        except OSError as exc:
+                            delivery_failed(exc)
+                        while True:
+                            if delivery_deadline is not None:
+                                remaining = delivery_deadline - time.monotonic()
+                                if remaining <= 0:
+                                    raise TimeoutError("model delivery drain deadline expired")
+                                transport.settimeout(remaining)
+                            chunk = response.read1(65536)
+                            if not chunk:
+                                break
                             gateway.usage_meters[ordinal].feed(chunk)
-                            self.wfile.write(chunk)
-                            self.wfile.flush()
-                        gateway.record("model_end", ordinal=ordinal, http_status=response.status)
+                            if delivery_deadline is None:
+                                try:
+                                    self.wfile.write(chunk)
+                                    self.wfile.flush()
+                                except OSError as exc:
+                                    # Losing the native client does not cancel an
+                                    # already submitted provider request or its bill.
+                                    delivery_failed(exc)
+                        if response.length not in {None, 0}:
+                            raise http.client.IncompleteRead(b"", response.length)
                         gateway.usage_meters[ordinal].finish()
+                        if response.status < 400 and not gateway.usage_meters[ordinal].tokens.complete:
+                            gateway.unknown = True
+                            gateway.record(
+                                "model_error", ordinal=ordinal, error="IncompleteProviderUsage"
+                            )
+                        gateway.record("model_end", ordinal=ordinal, http_status=response.status)
                     except (OSError, http.client.HTTPException) as exc:
                         gateway.unknown = True
                         gateway.record("model_error", ordinal=ordinal, error=type(exc).__name__)
@@ -424,7 +472,7 @@ class Gateway(AbstractContextManager):
                         )
                         connection.close()
                         with gateway.lock:
-                            gateway.connections.discard(connection)
+                            gateway.connections.pop(connection, None)
                             gateway.active -= 1
                             gateway.model_idle.notify_all()
                 except (ValueError, KeyError, OSError) as exc:
@@ -460,29 +508,42 @@ class Gateway(AbstractContextManager):
         with self.lock:
             return sum_usage(self.usage_meters, self.model_calls)
 
-    def finish_inference(self, timeout=1.0):
-        """Seal model admission before deciding the trial's terminal status."""
-        with self.model_idle:
-            if self.models_sealed:
-                return
-            self.models_sealed = True
-            if not self.model_idle.wait_for(lambda: self.active == 0, timeout=timeout):
-                self.unknown = True
-                self.record("model_calls_unsettled", active=self.active)
-
-    def __exit__(self, *args):
-        self.finish_inference()
-        self.closed = True
+    def _close_model_connections(self):
         with self.lock:
-            connections = tuple(self.connections)
-        for connection in connections:
-            transport = getattr(connection, "sock", None)
+            connections = tuple(self.connections.items())
+        for connection, transport in connections:
+            # HTTPResponse can own the socket after getresponse() clears
+            # HTTPConnection.sock for a Connection: close response.
+            transport = transport or getattr(connection, "sock", None)
             if transport is not None:
                 try:
                     transport.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
             connection.close()
+        return bool(connections)
+
+    def finish_inference(self, timeout=MODEL_SETTLEMENT_GRACE_SEC):
+        """Seal model admission before deciding the trial's terminal status."""
+        with self.model_idle:
+            if self.models_sealed:
+                return
+            self.models_sealed = True
+            self.model_idle.notify_all()
+            if not self.model_idle.wait_for(lambda: self.active == 0, timeout=timeout):
+                self.unknown = True
+                self.model_settlement_expired = True
+                self.record("model_calls_unsettled", active=self.active)
+            else:
+                return
+        if self._close_model_connections():
+            with self.model_idle:
+                self.model_idle.wait_for(lambda: self.active == 0, timeout=min(timeout, 0.25))
+
+    def __exit__(self, *args):
+        self.finish_inference()
+        self.closed = True
+        self._close_model_connections()
         if self.server:
             self.server.shutdown()
             self.server.server_close()

@@ -439,6 +439,7 @@ def run_trial(
                 auxiliary["capture_model_calls"] = capture_gateway.model_calls
                 auxiliary["capture_model"] = capture_harness.model
                 auxiliary["capture_provider_tokens"] = capture_gateway.metered_tokens().model_dump()
+                auxiliary["capture_model_delivery_failures"] = capture_gateway.model_delivery_failures
                 if (
                     capture_gateway.unknown
                     or any(record.get("status") == "unknown" for record in records)
@@ -552,6 +553,7 @@ def run_trial(
             auxiliary["replay_test_runs"] = gateway.replay_calls
             auxiliary["remote_test_budget_invocations"] = gateway.remote_test_calls
             auxiliary["remote_delivery_failures"] = gateway.remote_delivery_failures
+            auxiliary["model_delivery_failures"] = gateway.model_delivery_failures
         if remote:
             try:
                 remote.close()
