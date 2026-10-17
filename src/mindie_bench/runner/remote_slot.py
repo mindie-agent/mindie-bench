@@ -18,6 +18,7 @@ import shlex
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path, PurePosixPath
 
 from mindie_bench.io import safe_relative
@@ -137,7 +138,15 @@ def exchange_stream(request):
         stdout_b64=base64.b64encode(b"".join(output["stdout"])).decode(),
         stderr_b64=base64.b64encode(b"".join(output["stderr"])).decode())
 threading.Thread(target=read_owner, daemon=True).start()
-print(json.dumps({"ready": True}), flush=True)
+ready={"ready":True}
+marker=os.environ.get("REMOTE_DEV_JOB_TOKEN")
+if os.environ.get("MINDIE_BENCH_COMPONENT_GUARD")=="1":
+    boot_id=open("/proc/sys/kernel/random/boot_id").read().strip()
+    fields=open("/proc/self/stat").read().rsplit(") ",1)[1].split()
+    guard=dict(marker=marker,boot_id=boot_id,retain_until_release=True)
+    ready["owner_receipt"]=dict(pid=os.getpid(),start_ticks=fields[19],
+        boot_id=boot_id,process_guard=guard,pid_namespace=os.readlink("/proc/self/ns/pid"))
+print(json.dumps(ready), flush=True)
 while True:
     line=requests.get()
     try:
@@ -237,17 +246,23 @@ if path.is_dir():
             check=True,capture_output=True).stdout.split(b"\0")
         final["untracked"]={}
         size=0
+        ignored_parts={"__pycache__",".pytest_cache",".ruff_cache",".mypy_cache"}
+        ignored_suffixes={".pyc",".pyo"}
         for name in untracked:
             if not name or name.startswith(b".bench-home/"):
                 continue
-            item=path/os.fsdecode(name)
+            rel_str=os.fsdecode(name)
+            rel_path=pathlib.PurePosixPath(rel_str)
+            if ignored_parts.intersection(rel_path.parts) or rel_path.suffix.lower() in ignored_suffixes:
+                continue
+            item=path/rel_str
             if item.is_symlink() or not item.resolve().is_relative_to(path.resolve()):
                 raise RuntimeError("untracked artifact escapes slot")
             data=item.read_bytes()
             size+=len(data)
             if size>32*1024*1024:
                 raise RuntimeError("remote untracked artifact bound exceeded")
-            final["untracked"][os.fsdecode(name)]=base64.b64encode(data).decode()
+            final["untracked"][rel_str]=base64.b64encode(data).decode()
         final["files_modified"]=sorted(set(
             [os.fsdecode(name) for name in changed if name]+list(final["untracked"])))
         subprocess.run(["git","-C",cfg["repo_path"],"worktree","remove","--force",str(path)],
@@ -257,6 +272,74 @@ if path.is_dir():
 artifact=str(path)+".final.json"
 pathlib.Path(artifact).write_text(json.dumps(final))
 print(json.dumps({"cleanup":final,"remote_artifact":artifact}),flush=True)
+"""
+
+KDA_BUILD_CACHE_HELPER = r"""
+import hashlib, json, os, pathlib, shutil, subprocess, sys
+GENERATED = {"build", "build_out", "output"}
+def sha256(p):
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+def current_sources(root):
+    res = {}
+    for p in sorted(root.rglob("*")):
+        rel = p.relative_to(root)
+        if rel.parts[0] in GENERATED or p.is_symlink():
+            continue
+        if p.is_file():
+            res[rel.as_posix()] = sha256(p)
+    return res
+receipt_path = pathlib.Path("../build-receipt.json")
+csrc = pathlib.Path("csrc")
+cache_dir = None
+if receipt_path.is_file() and csrc.is_dir():
+    try:
+        rec = json.loads(receipt_path.read_text())
+        if (
+            rec.get("schema") == "mindie-bench-kda-source-build/1"
+            and rec.get("status") == "prepared"
+            and current_sources(csrc) == rec.get("source_files_sha256")
+        ):
+            identity = {
+                "source_files_sha256": rec["source_files_sha256"],
+                "input_archives_sha256": rec.get("input_archives_sha256"),
+                "generic_dependency": rec.get("generic_dependency"),
+                "command": rec.get("command"),
+                "args": sys.argv[1:],
+            }
+            key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+            cache_dir = pathlib.Path(os.environ["HOME"]) / "cache" / "kda_build_out" / key
+            manifest_path = cache_dir / "manifest.json"
+            if manifest_path.is_file():
+                manifest = json.loads(manifest_path.read_text())
+                cached_pkg = cache_dir / manifest["name"]
+                if cached_pkg.is_file() and sha256(cached_pkg) == manifest["sha256"]:
+                    build_out = csrc / "build_out"
+                    build_out.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(cached_pkg, build_out / manifest["name"])
+                    raise SystemExit(0)
+    except SystemExit:
+        raise
+    except Exception:
+        cache_dir = None
+res = subprocess.run(["/bin/bash", *sys.argv[1:]])
+if res.returncode == 0 and cache_dir is not None:
+    try:
+        pkgs = list((csrc / "build_out").glob("*.run"))
+        if len(pkgs) == 1:
+            pkg = pkgs[0]
+            tmp_dir = cache_dir.with_suffix(".tmp-" + str(os.getpid()))
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(pkg, tmp_dir / pkg.name)
+            (tmp_dir / "manifest.json").write_text(
+                json.dumps({"name": pkg.name, "sha256": sha256(pkg)})
+            )
+            if not cache_dir.exists():
+                tmp_dir.rename(cache_dir)
+            else:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+    except Exception:
+        pass
+raise SystemExit(res.returncode)
 """
 
 
@@ -286,6 +369,9 @@ class RemoteSlot:
         self.stderr_file = None
         self.read_buffer = b""
         self.operation_unknown = False
+        self.component_runtime = None
+        self.slot_environment = None
+        self.tmpdir_backing = None
 
     def command(self, command: list[str]) -> list[str]:
         return [
@@ -341,6 +427,48 @@ class RemoteSlot:
 
     def prepare(self):
         quote = shlex.quote
+        runtime_config = getattr(self.config, "component_runtime", None)
+        extra_environment = {}
+        if runtime_config is not None:
+            from mindie_bench.integrations.component_runtime import ComponentRuntime
+
+            self.component_runtime = ComponentRuntime(
+                runtime_config,
+                PurePosixPath(self.path).name,
+                self.config.container,
+                self.devices,
+                self.config.memory_limit_mb,
+                self.artifact_dir,
+            )
+            extra_environment = self.component_runtime.acquire()
+            extra_environment["MINDIE_BENCH_COMPONENT_GUARD"] = "1"
+        cache_root = self.path + "/.bench-home"
+        self.tmpdir_backing = cache_root + "/tmp"
+        self.slot_environment = {
+            "ASCEND_CACHE_PATH": cache_root + "/cache/ascend",
+            "CCACHE_DIR": cache_root + "/cache/ccache",
+            "TORCH_EXTENSIONS_DIR": cache_root + "/cache/torch_extensions",
+            "TORCHINDUCTOR_CACHE_DIR": cache_root + "/cache/torchinductor",
+            "TRITON_CACHE_DIR": cache_root + "/cache/triton",
+            # Native TP uses Unix sockets with fixed-length paths. This short
+            # namespace-private mount still writes to the slot's owned home.
+            "TMPDIR": "/tmp/bench-" + uuid.uuid4().hex[:12],
+            **extra_environment,
+        }
+        environment_exports = "\n".join(
+            f"export {name}={quote(value)}" for name, value in self.slot_environment.items()
+        )
+        cache_directories = " ".join(
+            quote(self.tmpdir_backing if name == "TMPDIR" else self.slot_environment[name])
+            for name in (
+                "ASCEND_CACHE_PATH",
+                "CCACHE_DIR",
+                "TORCH_EXTENSIONS_DIR",
+                "TORCHINDUCTOR_CACHE_DIR",
+                "TRITON_CACHE_DIR",
+                "TMPDIR",
+            )
+        )
         locks = "\n".join(
             f"exec {10 + i}>/tmp/mindie-bench-device-{device}.lock\nflock -n {10 + i}"
             for i, device in enumerate(self.devices)
@@ -362,6 +490,14 @@ class RemoteSlot:
             source_projection=HARNESS_CONFIG_PATHS,
         )
         cleanup = shlex.join(["python3", "-I", "-c", POSTFLIGHT, json.dumps(cleanup_config)])
+        slot_bin = cache_root + "/bin"
+        bash_shim = (
+            "#!/bin/bash\n"
+            'if [ "${1:-}" = "csrc/build.sh" ] && [ -f "../build-receipt.json" ]; then\n'
+            f'  exec python3 -I -B {quote(slot_bin + "/kda_build_cache.py")} "$@"\n'
+            "fi\n"
+            'exec /bin/bash "$@"\n'
+        )
         command = f"""set -eu
 {locks}
 python3 -I -c 'import os,signal; fd=os.pidfd_open(os.getpid()); os.close(fd); assert hasattr(signal,"pidfd_send_signal")'
@@ -374,8 +510,12 @@ git -C {quote(self.config.repo_path)} worktree add --detach {quote(self.path)} {
 rm {quote(self.path + "/.git")}
 {shlex.join(["python3", "-I", "-c", PROJECTOR, self.path])}
 mkdir {quote(self.path + "/.bench-home")}
+mkdir -p {cache_directories} {quote(slot_bin)}
+python3 -I -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); p.write_text(sys.argv[2]); (p.parent/"bash").write_text(sys.argv[3]); (p.parent/"bash").chmod(0o755)' {quote(slot_bin + "/kda_build_cache.py")} {quote(KDA_BUILD_CACHE_HELPER)} {quote(bash_shim)}
+export PATH={quote(slot_bin)}:"$PATH"
 export MINDIE_BENCH_SLOT_ID={quote(PurePosixPath(self.path).name)}
 export ASCEND_RT_VISIBLE_DEVICES={quote(",".join(map(str, self.devices)))}
+{environment_exports}
 device_args=()
 {device_bind}
 bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts \\
@@ -383,6 +523,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
  --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \\
  --ro-bind /etc /etc --bind /sys /sys --tmpfs /tmp --tmpfs /var {bind} \\
  --bind {quote(self.path)} {quote(self.path)} \\
+ --bind {quote(self.tmpdir_backing)} {quote(self.slot_environment["TMPDIR"])} \\
  --chdir {quote(self.path)} --setenv HOME {quote(self.path + "/.bench-home")} \\
  -- python3 -I -u -c {quote(WORKER)}
 """
@@ -401,10 +542,35 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         ready = self._read(40)
         if "cleanup" in ready:
             self.cleanup_receipt = ready
-        if ready != {"ready": True}:
+        if not isinstance(ready, dict) or ready.get("ready") is not True:
             raise RuntimeError("remote worker failed to enter its isolated slot")
         self.created = True
         self.preflight = self.probe()
+        if self.component_runtime:
+
+            def stop_owned_worker():
+                self.operation_unknown = True
+                try:
+                    self.process.stdin.close()
+                except OSError as exc:
+                    self.component_runtime.failure += f"; owner-pipe close: {exc}"
+
+            self.component_runtime.activate(ready.get("owner_receipt", {}), stop_owned_worker)
+        if self.artifact_dir:
+            # The guard marker remains parent-private; the cache/port receipt
+            # contains only settings shared by every process in this slot.
+            (self.artifact_dir / "slot_isolation.json").write_text(
+                json.dumps(
+                    {
+                        "TMPDIR_BACKING_PATH": self.tmpdir_backing,
+                        **{
+                            name: value
+                            for name, value in self.slot_environment.items()
+                            if name not in {"REMOTE_DEV_JOB_TOKEN", "MINDIE_BENCH_COMPONENT_GUARD"}
+                        },
+                    }
+                )
+            )
         return self
 
     def _read(self, timeout):
@@ -449,6 +615,8 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             raise RuntimeError("remote slot is closed")
         if self.operation_unknown:
             raise RuntimeError("a prior remote operation is unknown; do not submit another command")
+        if self.component_runtime:
+            self.component_runtime.assert_healthy()
         deadline = time.monotonic() + timeout
         frame = (json.dumps(request) + "\n").encode()
         if len(frame) > 96 * 1024 * 1024:
@@ -458,6 +626,9 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             result = self._read(max(0, deadline - time.monotonic()))
             if not isinstance(result, dict):
                 raise RuntimeError("remote worker returned an invalid acknowledgement")
+            if "cleanup" in result:
+                self.cleanup_receipt = result
+                raise RuntimeError("remote worker entered cleanup before its business acknowledgement")
             if "error" in result:
                 raise RuntimeError(f"remote operation uncertain: {result['error']}: {result['message']}")
             if expected is not None and not expected(result):
@@ -467,18 +638,25 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             self.operation_unknown = True
             raise
 
-    def execute(self, command: str, stdin_b64: str = "") -> dict:
+    def execute(self, command: str, stdin_b64: str = "", *, timeout: float | None = None) -> dict:
+        limit = self.timeout if timeout is None else timeout
+        if (
+            not isinstance(limit, (int, float))
+            or isinstance(limit, bool)
+            or not 0 < limit <= self.timeout
+        ):
+            raise ValueError("command timeout must be positive and cannot exceed the slot budget")
         with self.lock:
             return self._request(
-                dict(command=command, stdin_b64=stdin_b64, timeout=self.timeout),
-                self.timeout + 5,
+                dict(command=command, stdin_b64=stdin_b64, timeout=limit),
+                limit + 5,
             )
 
     def open_stream(self, command: str) -> dict:
         with self.lock:
             return self._request(
                 dict(control="open_stream", command=command),
-                10,
+                30,
                 expected=lambda value: (
                     isinstance(value.get("stream_id"), str) and bool(value["stream_id"])
                 ),
@@ -493,7 +671,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                     stdin_b64=stdin_b64,
                     eof=eof,
                 ),
-                10,
+                30,
                 expected=lambda value: (
                     isinstance(value.get("stdout_b64"), str)
                     and isinstance(value.get("stderr_b64"), str)
@@ -506,20 +684,20 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         with self.lock:
             self._request(
                 dict(control="quiesce"),
-                10,
+                30,
                 expected=lambda value: value == {"quiesced": True},
             )
 
     def upload_public(self, source: Path):
         if not source.exists():
             return
-        from mindie_bench.io import tree_hash
+        from mindie_bench.io import is_ignored_cache_path, tree_hash
 
         tree_hash(source)
         files = {
             p.relative_to(source).as_posix(): base64.b64encode(p.read_bytes()).decode()
             for p in source.rglob("*")
-            if p.is_file()
+            if p.is_file() and not is_ignored_cache_path(p.relative_to(source))
         }
         code = (
             "import base64,json,pathlib,sys; data=json.load(sys.stdin); root=pathlib.Path.cwd(); "
@@ -537,14 +715,60 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             raise RuntimeError("could not stage public task assets in the remote slot")
         self.public_files = files
 
-    def verify(self, script: bytes):
-        return self.execute("/bin/bash -s", base64.b64encode(script).decode())
+    def verify(self, script: bytes, *, env: dict | None = None, timeout: float | None = None):
+        variables = {}
+        for name, value in (env or {}).items():
+            if (
+                not isinstance(name, str)
+                or not name.isidentifier()
+                or not name.isascii()
+                or not isinstance(value, str)
+                or "\0" in value
+                or name
+                in {
+                    "REMOTE_DEV_JOB_TOKEN",
+                    "MINDIE_BENCH_SLOT_ID",
+                    "ASCEND_RT_VISIBLE_DEVICES",
+                    "ASCEND_CACHE_PATH",
+                    "CCACHE_DIR",
+                    "TORCH_EXTENSIONS_DIR",
+                    "TORCHINDUCTOR_CACHE_DIR",
+                    "TRITON_CACHE_DIR",
+                    "TMPDIR",
+                    "HCCL_IF_BASE_PORT",
+                    "MASTER_PORT",
+                    "MINDIE_BENCH_COMPONENT_GUARD",
+                }
+            ):
+                raise ValueError("invalid verifier environment or reserved slot isolation variable")
+            variables[name] = value
+        command = (
+            shlex.join(
+                ["env", *[f"{name}={value}" for name, value in variables.items()], "/bin/bash", "-s"]
+            )
+            if variables
+            else "/bin/bash -s"
+        )
+        if self.component_runtime:
+            self.component_runtime.assert_healthy()
+            self.component_runtime.observe("verifier_before", idle=False)
+        if timeout is None:
+            return self.execute(command, base64.b64encode(script).decode())
+        return self.execute(command, base64.b64encode(script).decode(), timeout=timeout)
 
     def close(self):
         self.closed = True
         errors = []
+        if self.component_runtime:
+            try:
+                self.component_runtime.stop_monitor()
+            except Exception as exc:
+                errors.append(f"remote monitor settlement: {type(exc).__name__}: {exc}")
         if self.process:
-            self.process.stdin.close()
+            try:
+                self.process.stdin.close()
+            except OSError as exc:
+                errors.append(f"remote owner-pipe close: {type(exc).__name__}: {exc}")
             try:
                 if self.cleanup_receipt is None:
                     deadline = time.monotonic() + 40
@@ -556,14 +780,24 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                             with (self.artifact_dir / "remote_late_results.jsonl").open("a") as stream:
                                 stream.write(json.dumps(receipt) + "\n")
                 self.process.wait(timeout=5)
-            except (TimeoutError, subprocess.TimeoutExpired, RuntimeError):
-                os.killpg(self.process.pid, 9)
-                self.process.wait(timeout=5)
-                errors.append(
-                    "remote SSH worker required forced termination; remote cleanup unconfirmed"
-                )
+            except (TimeoutError, subprocess.TimeoutExpired, RuntimeError) as exc:
+                errors.append(f"remote worker cleanup unconfirmed: {type(exc).__name__}: {exc}")
+                if self.process.poll() is None:
+                    try:
+                        os.killpg(self.process.pid, 9)
+                    except ProcessLookupError:
+                        pass
+                    except OSError as cleanup:
+                        errors.append(f"remote local process-group cleanup: {cleanup}")
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired as cleanup:
+                    errors.append(f"remote local process wait: {cleanup}")
         if self.stderr_file:
-            self.stderr_file.close()
+            try:
+                self.stderr_file.close()
+            except OSError as exc:
+                errors.append(f"remote stderr close: {exc}")
         if self.cleanup_receipt:
             final = self.cleanup_receipt.get("cleanup", {})
             errors.extend(final.get("errors", []))
@@ -601,5 +835,15 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             errors.append(
                 "no remote cleanup receipt; do not reuse this slot without read-only reconciliation"
             )
+        if self.component_runtime:
+            try:
+                self.component_runtime.finish(
+                    cleanup_confirmed=(
+                        (self.process is None and not self.created)
+                        or (self.cleanup_receipt is not None and not errors)
+                    )
+                )
+            except Exception as exc:
+                errors.append(f"components: {type(exc).__name__}: {exc}")
         if errors:
             raise RuntimeError("; ".join(errors))

@@ -63,6 +63,11 @@ def parser():
     run.add_argument("--groups", default="G0")
     run.add_argument("--concurrency", type=int, default=1)
     run.add_argument("--repetitions", type=int, default=1)
+    run.add_argument(
+        "--canary-first",
+        action="store_true",
+        help="validate one initial cell before admitting the rest of a multi-cell matrix",
+    )
     run.add_argument("--output", type=Path, required=True)
     score = commands.add_parser("score")
     score.add_argument("--input", type=Path, required=True)
@@ -86,12 +91,14 @@ def parser():
     mine.add_argument("--limit", type=int, default=12)
     mine.add_argument("--recipe", type=Path, help="compile an explicit L2 recipe instead of discovery")
     export = commands.add_parser(
-        "export-hf", help="redact, scan, and stage Parquet locally; never upload"
+        "export-hf", help="redact, scan, and stage Parquet locally; optionally upload to Hugging Face"
     )
     export.add_argument("--input", type=Path, required=True)
     export.add_argument("--output", type=Path, required=True)
     export.add_argument("--knowledge-python", type=Path, required=True)
     export.add_argument("--gitleaks", type=Path, required=True)
+    export.add_argument("--tasks-root", "--tasks", dest="tasks_root", type=Path, default=None)
+    export.add_argument("--upload-repo", dest="upload_repo", type=str, default=None)
     return root
 
 
@@ -166,6 +173,7 @@ def main(argv=None):
                     repetitions=args.repetitions,
                     concurrency=args.concurrency,
                     output=args.output.resolve(),
+                    canary_first=args.canary_first,
                 )
                 print(json.dumps(grouped_summaries(rows), indent=2))
                 return (
@@ -213,7 +221,12 @@ def main(argv=None):
             from mindie_bench.hf_sync.exporter import export_hf
 
             result = export_hf(
-                args.input, args.output, knowledge_python=args.knowledge_python, gitleaks=args.gitleaks
+                args.input,
+                args.output,
+                knowledge_python=args.knowledge_python,
+                gitleaks=args.gitleaks,
+                tasks_root=args.tasks_root,
+                upload_repo=args.upload_repo,
             )
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0

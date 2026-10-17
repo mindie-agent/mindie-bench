@@ -433,7 +433,14 @@ class Gateway(AbstractContextManager):
                         return self.remote_response(
                             result, request_body=body, uncertain_on_delivery=False
                         )
-                    if self.path not in {"/v1/responses", "/responses", "/v1/messages", "/messages"}:
+                    if self.path not in {
+                        "/v1/responses",
+                        "/responses",
+                        "/v1/messages",
+                        "/messages",
+                        "/v1/messages?beta=true",
+                        "/messages?beta=true",
+                    }:
                         return self.reject(403, "egress endpoint is not permitted")
                     if gateway.harness.name == "fixture":
                         return self.reject(403, "fixture trials cannot call a paid model")

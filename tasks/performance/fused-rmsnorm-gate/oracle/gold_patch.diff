@@ -1,0 +1,91 @@
+diff --git a/vllm_ascend/ops/kimi_kda.py b/vllm_ascend/ops/kimi_kda.py
+index 5ef2694c8..10e78e8b9 100644
+--- a/vllm_ascend/ops/kimi_kda.py
++++ b/vllm_ascend/ops/kimi_kda.py
+@@ -560,9 +560,8 @@ class AscendKimiK3DeltaAttention(KimiK3DeltaAttention):
+         elif core_non_spec is not None:
+             core_attn_out[:, :num_actual_tokens] = core_non_spec
+ 
+-        # Let vLLM's CustomOp dispatch select FusedRMSNormGated.forward_native
+-        # on Ascend. Calling the CUDA/Triton helper directly bypasses platform
+-        # dispatch.
++        # The registered Ascend FusedRMSNormGated uses the fused norm-gate
++        # kernel while preserving the upstream parameter/loading contract.
+         normalized = self.o_norm(core_attn_out[:, :num_actual_tokens], g2)
+         # Mask again after the norm gate: zero * sigmoid(NaN) is still NaN in
+         # static padding rows whose captured gate values are not live.
+diff --git a/vllm_ascend/ops/triton/kda/kda.py b/vllm_ascend/ops/triton/kda/kda.py
+index fc09fde39..313b3b894 100644
+--- a/vllm_ascend/ops/triton/kda/kda.py
++++ b/vllm_ascend/ops/triton/kda/kda.py
+@@ -411,6 +411,7 @@ def rms_norm_gated(
+         activation=activation,
+         eps=eps,
+         residual=residual,
++        out_dtype=x.dtype,  # Preserve the input, as in the v0.26 K3 fused norm gate.
+         residual_dtype=residual_dtype,
+         is_rms_norm=True,
+     )
+diff --git a/vllm_ascend/utils.py b/vllm_ascend/utils.py
+index 8841b2458..26e1ef72a 100644
+--- a/vllm_ascend/utils.py
++++ b/vllm_ascend/utils.py
+@@ -674,7 +674,7 @@ def register_ascend_customop(vllm_config: VllmConfig | None = None):
+     from vllm_ascend.ops.fused_moe.fused_moe import AscendMoERunner
+     from vllm_ascend.ops.fused_moe.routed_experts import AscendRoutedExperts
+     from vllm_ascend.ops.gdn import AscendGatedDeltaNetAttention
+-    from vllm_ascend.ops.layernorm import AscendGemmaRMSNorm, AscendRMSNorm, AscendRMSNormGated
++    from vllm_ascend.ops.layernorm import AscendFusedRMSNormGated, AscendGemmaRMSNorm, AscendRMSNorm, AscendRMSNormGated
+     from vllm_ascend.ops.linear import (
+         AscendColumnParallelLinear,
+         AscendMergedColumnParallelLinear,
+@@ -722,6 +722,7 @@ def register_ascend_customop(vllm_config: VllmConfig | None = None):
+         "MMEncoderAttention": AscendMMEncoderAttention,
+         "ApplyRotaryEmb": AscendApplyRotaryEmb,
+         "RMSNormGated": AscendRMSNormGated,
++        "FusedRMSNormGated": AscendFusedRMSNormGated,
+         "Conv3dLayer": AscendConv3dLayer,
+         "RelPosAttention": AscendRelPosAttention,
+         "CustomQwen2Decoder": AscendCustomQwen2Decoder,
+--- a/vllm_ascend/ops/layernorm.py
++++ b/vllm_ascend/ops/layernorm.py
+@@ -19,8 +19,10 @@
+ from torch import nn
+ from vllm.config import get_current_vllm_config
+ from vllm.model_executor.layers.layernorm import GemmaRMSNorm, RMSNorm, RMSNormGated
++from vllm.third_party.flash_linear_attention.ops.kda import FusedRMSNormGated
+ 
+ from vllm_ascend.device.device_op import DeviceOperator
++from vllm_ascend.ops.triton.kda.kda import rms_norm_gated
+ from vllm_ascend.ops.triton.layernorm_gated import layer_norm_fwd_npu
+ from vllm_ascend.utils import enable_custom_op
+ 
+@@ -194,3 +196,28 @@
+     def forward_oot(self, x, z=None):
+         """If z is not None, we do norm(x) * silu(z) if norm_before_gate, else norm(x * silu(z))"""
+         return LayerNormFn.apply(x, self.weight, self.bias, z, self.eps, self.group_size, self.norm_before_gate, True)
++
++
++class AscendFusedRMSNormGated(FusedRMSNormGated):
++    """Use Ascend's fused kernel at the upstream FLA CustomOp boundary."""
++
++    def forward_oot(self, x, g, residual=None, prenorm=False, residual_in_fp32=False):
++        # Avoid per-call Triton specialization/packing overhead in the
++        # residual-free inference path; keep the general historical contract.
++        if residual is None and not prenorm and self.weight is not None and self.bias is None:
++            import torch_npu
++
++            normalized, _ = torch_npu.npu_rms_norm(x, self.weight, self.eps)
++            gate = torch.sigmoid(g) if self.activation == "sigmoid" else torch.nn.functional.silu(g)
++            return normalized * gate
++        return rms_norm_gated(
++            x,
++            g,
++            self.weight,
++            self.bias,
++            self.activation,
++            residual=residual,
++            eps=self.eps,
++            prenorm=prenorm,
++            residual_in_fp32=residual_in_fp32,
++        )

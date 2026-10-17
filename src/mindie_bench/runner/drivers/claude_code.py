@@ -1,5 +1,10 @@
 """Claude print stream-json; deduplicate message IDs and correlate tool results."""
 
+import json
+import shlex
+import sys
+from pathlib import Path
+
 from mindie_bench.models import Tokens, ToolCall, Trajectory
 from mindie_bench.runner.drivers import normalize_tool
 from mindie_bench.scorer.tool_observations import SCHEMA, observe_claude_result
@@ -17,9 +22,33 @@ class ClaudeCodeDriver:
 
     def command(self, profile, config):
         self.server_components = profile.fingerprint["server_components"]
+        # Claude's own temporary root otherwise defaults to /tmp/claude-<uid>,
+        # outside the per-trial sandbox, independently of the system TMPDIR.
+        native_tmp = profile.root / "tmp"
+        native_tmp.mkdir(exist_ok=True)
+        profile.env["CLAUDE_CODE_TMPDIR"] = str(native_tmp)
+        capture_hook = profile.fingerprint.get("group") == "G3"
+        settings = json.loads((profile.root / "settings.json").read_text())
+        if capture_hook:
+            hook = [
+                sys.executable,
+                "-I",
+                "-m",
+                "mindie_bench.integrations.claude_stop",
+                str(profile.root / "native-stop.json"),
+            ]
+            settings.update(
+                disableAllHooks=False,
+                hooks={"Stop": [{"hooks": [{"type": "command", "command": shlex.join(hook)}]}]},
+            )
+            (profile.root / "settings.json").write_text(json.dumps(settings) + "\n")
+        # The native summary worker reads this owned native profile, never the
+        # caller's profile. Provider credentials remain the broker-only environment.
+        (Path(profile.env["CLAUDE_CONFIG_DIR"]) / "settings.json").write_text(
+            json.dumps({"model": config.model}) + "\n"
+        )
         if (profile.root / "skills").exists():
             import shutil
-            from pathlib import Path
 
             shutil.copytree(
                 profile.root / "skills",
@@ -42,7 +71,7 @@ class ClaudeCodeDriver:
             "--settings",
             str(profile.root / "settings.json"),
             "--dangerously-skip-permissions",
-            "--no-session-persistence",
+            *([] if capture_hook else ["--no-session-persistence"]),
             "--no-chrome",
         ]
         if config.reasoning_effort:
@@ -53,6 +82,15 @@ class ClaudeCodeDriver:
 
     def consume(self, event, elapsed, generation):
         kind = event.get("type")
+        identity = event.get("session_id")
+        if identity is not None:
+            if not isinstance(identity, str) or not identity or len(identity) > 256:
+                raise ValueError("Claude event has an invalid native session identity")
+            if self.result.native_session_id not in {None, identity}:
+                raise ValueError("Claude stream changed its native session identity")
+            self.result.native_session_id = identity
+        if kind == "system" and event.get("subtype") == "init" and identity is None:
+            raise ValueError("Claude init has no native session identity")
         message = event.get("message", {})
         if kind == "assistant":
             identity = message.get("id")

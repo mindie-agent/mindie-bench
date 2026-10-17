@@ -9,7 +9,7 @@ import sys
 import tempfile
 
 root = pathlib.Path.cwd()
-if not (root / "vllm_ascend/worker/model_runner_v1.py").is_file():
+if not (root / "vllm_ascend/__init__.py").is_file():
     raise RuntimeError("run from the trial source root")
 worker = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "bench_idle_dp_worker.py").resolve(
     strict=True

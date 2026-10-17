@@ -1,0 +1,4 @@
+Archived upstream incident #15937: rotated target and an existing EAGLE3 draft
+configuration produce severely degraded acceptance after an upgrade.
+This L2 reproduces the weight-basis contract on CPU; no new NPU measurement is
+represented by this incident description.

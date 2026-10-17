@@ -96,7 +96,7 @@ def probe_servers(profile, group_config, read_paths, trial_dir, gateway):
 
                 def response(identity):
                     nonlocal buffer
-                    deadline = time.monotonic() + 15
+                    deadline = time.monotonic() + 45
                     while time.monotonic() < deadline:
                         while b"\n" not in buffer:
                             remaining = deadline - time.monotonic()

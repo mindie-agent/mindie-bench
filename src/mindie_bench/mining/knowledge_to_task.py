@@ -158,16 +158,24 @@ def _toml_document(data: dict) -> str:
             return "[" + ", ".join(value(child) for child in item) + "]"
         raise ValueError("unsupported task TOML value")
 
-    def table(items, prefix):
+    def is_table_array(item):
+        return isinstance(item, list) and item and all(isinstance(child, dict) for child in item)
+
+    def table(items, prefix, *, array=False):
         if prefix:
-            lines.append("[" + ".".join(json.dumps(part) for part in prefix) + "]")
+            bracket = "[[" if array else "["
+            close = "]]" if array else "]"
+            lines.append(bracket + ".".join(json.dumps(part) for part in prefix) + close)
         for key, item in items.items():
-            if not isinstance(item, dict):
+            if not isinstance(item, dict) and not is_table_array(item):
                 name = key if re.fullmatch(r"[A-Za-z0-9_-]+", key) else json.dumps(key)
                 lines.append(name + " = " + value(item))
         for key, item in items.items():
             if isinstance(item, dict):
                 table(item, [*prefix, key])
+            elif is_table_array(item):
+                for child in item:
+                    table(child, [*prefix, key], array=True)
 
     table(data, [])
     return "\n".join(lines) + "\n"

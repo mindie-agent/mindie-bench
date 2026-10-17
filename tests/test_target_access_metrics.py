@@ -198,6 +198,86 @@ def test_edit_metrics_use_successful_edit_calls_never_a_later_read(case):
 
 
 @pytest.mark.parametrize(
+    ("name", "path_key", "component"),
+    [
+        ("remote_multi_edit", "path", "remote-dev"),
+        ("mcp__remote__remote_multi_edit", "file_path", "remote-dev"),
+        ("MultiEdit", "file_path", None),
+        ("Write", "file_path", None),
+    ],
+)
+def test_typed_multi_edit_and_write_preserve_edit_turn_and_time(case, name, path_key, component):
+    edit = call(
+        "typed-edit",
+        name=name,
+        turn=10,
+        start=121,
+        end=122,
+        **{path_key: TARGET},
+        edits=[{"old_string": "old", "new_string": "new"}],
+    )
+    edit.component = component
+    edit.result_observation = ToolResultObservation(
+        source="codex_mcp" if component else "claude_tool_result",
+        operation_kind="file",
+        classification="success",
+        classification_reason="explicit_tool_success",
+    )
+    primary, aux = metrics(case, [edit], wall=150)
+    assert primary["turns_to_first_target_edit"] == primary["turns_to_last_target_edit"] == 10
+    assert primary["time_to_first_target_edit_sec"] == 121
+    assert primary["time_to_last_target_edit_sec"] == 121
+    assert aux["target_edit_attempts_by_outcome"] == {"success": 1, "failed": 0, "unknown": 0}
+    observed = aux["target_access_observations"]
+    assert len(observed) == 1
+    assert observed[0]["kind"] == "edit"
+    assert observed[0]["source"] == "typed_path"
+    assert observed[0]["execution_scope"] == ("remote" if component else "local")
+
+
+@pytest.mark.parametrize(
+    ("classification", "outcome"), [("business_failure", "failed"), ("unknown", "unknown")]
+)
+def test_remote_multi_edit_requires_success_and_only_uses_its_typed_path(case, classification, outcome):
+    edit = call(
+        "remote-multi",
+        name="remote_multi_edit",
+        path=TARGET,
+        turn=3,
+        edits=[{"old_string": "old", "new_string": "new"}],
+    )
+    edit.component = "remote-dev"
+    edit.result_observation = ToolResultObservation(
+        source="codex_mcp",
+        operation_kind="file",
+        classification=classification,
+        classification_reason="explicit_component_result",
+    )
+    primary, aux = metrics(case, [edit])
+    assert primary["turns_to_first_target_edit"] is None
+    assert aux["target_access_observations"][0]["call_outcome"] == outcome
+    assert aux["target_edit_attempts_by_outcome"][outcome] == 1
+    edit.arguments["path"] = "other.py"
+    edit.arguments["edits"] = [{"old_string": "old", "new_string": TARGET}]
+    found, _ = target_access_observations(Trajectory(calls=[edit]), [TARGET])
+    assert found == []
+
+
+@pytest.mark.parametrize("name", ["MultiEdit", "Write"])
+def test_native_multi_edit_and_write_require_explicit_success(case, name):
+    edit = call("native-edit", name=name, file_path=TARGET, turn=4, start=6, end=7)
+    primary, _ = metrics(case, [edit])
+    assert primary["turns_to_first_target_edit"] == 4
+    edit.is_error = True
+    primary, _ = metrics(case, [edit])
+    assert primary["turns_to_first_target_edit"] is None
+    edit.is_error = None
+    primary, aux = metrics(case, [edit])
+    assert primary["turns_to_first_target_edit"] is None
+    assert aux["target_access_observations"][0]["call_outcome"] == "unknown"
+
+
+@pytest.mark.parametrize(
     "attempt",
     [
         call("failed-cat", f"cat {TARGET}", turn=2, start=2, end=3, error=True),
@@ -825,3 +905,53 @@ def test_npu_count_uses_command_positions_and_retains_opaque_uncertainty(
         )
     ]
     assert "command" not in observed["calls"][0]
+
+
+@pytest.mark.parametrize(
+    ("command", "expected_kind"),
+    [
+        (f"python3 -c \"from pathlib import Path; Path('{TARGET}').open('r').read()\"", "read"),
+        (f"python3 -c \"from pathlib import Path; Path('{TARGET}').open(mode='w').write('x')\"", "edit"),
+        (
+            f"python3 -c \"from pathlib import Path; Path('tmp.py').replace(Path('{TARGET}'))\"",
+            "edit",
+        ),
+        (f"python3 -c \"import os; os.replace('tmp.py', '{TARGET}')\"", "edit"),
+        (f"python3 -c \"import os; os.rename('{TARGET}', 'backup.py')\"", "edit"),
+        (f"python3 -c \"from pathlib import Path; Path('{TARGET}').rename('backup.py')\"", "edit"),
+        (f"python3 -c \"import shutil; shutil.copy2('tmp.py', '{TARGET}')\"", "edit"),
+        (f"tee {TARGET} </dev/null", "edit"),
+        (f"cp -f /tmp/staged.py {TARGET}", "edit"),
+        (f"mv {TARGET} /tmp/backup.py", "edit"),
+        (f"perl -pi -e 's/old/new/g' {TARGET}", "edit"),
+    ],
+)
+def test_python_and_shell_atomic_replacement_and_path_open_access(command, expected_kind):
+    found, unresolved = target_access_observations(
+        Trajectory(calls=[call("access", command, turn=2)]), [TARGET]
+    )
+    assert [row["kind"] for row in found] == [expected_kind]
+    assert unresolved == []
+
+
+def test_string_replacement_of_a_filename_is_not_file_access():
+    command = f"python3 -c \"name='{TARGET}'; print(name.replace('ops', 'layers'))\""
+    found, unresolved = target_access_observations(
+        Trajectory(calls=[call("mention", command)]), [TARGET]
+    )
+    assert found == []
+    assert unresolved == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"grep -E -n 'Ascend(RMS|Layer)Norm' {TARGET}",
+        f"sed -E -n '1,5p' {TARGET}",
+        f"perl -E 'say for <>' {TARGET}",
+    ],
+)
+def test_extended_expression_flags_do_not_turn_patterns_into_paths(command):
+    found, unresolved = target_access_observations(Trajectory(calls=[call("read", command)]), [TARGET])
+    assert [row["kind"] for row in found] == ["read"]
+    assert unresolved == []

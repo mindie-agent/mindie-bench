@@ -146,8 +146,24 @@ def install_soundness_worker(case, monkeypatch, results):
         def upload_public(self, path):
             pass
 
-        def verify(self, script):
-            return next(frames)
+        def verify(self, script, *, env, timeout):
+            frame = next(frames)
+            envelope = dict(
+                schema_version="mindie-bench-private-oracle/1",
+                nonce=env["MINDIE_BENCH_PERFORMANCE_NONCE"],
+                manifest_sha256=env["MINDIE_BENCH_ORACLE_SHA256"],
+                probes=[],
+                judge=dict(
+                    returncode=frame["exit_code"],
+                    stdout_b64=frame["stdout_b64"],
+                    stderr_b64=frame["stderr_b64"],
+                ),
+                before={"status": "intact"},
+                after={"status": "intact"},
+                original_error=None,
+                tampered=None,
+            )
+            return judge_frame(0, json.dumps(envelope).encode(), b"")
 
         def execute(self, command, stdin):
             assert command == "git apply --no-index -"
@@ -182,7 +198,13 @@ def test_l3_soundness_preserves_both_judges_and_numeric_verdicts(case, monkeypat
     assert proof["status"] == "completed"
     assert closed == [True]
     for stage, frame in [("before", before), ("after", after)]:
-        assert json.loads((output / f"verifier_{stage}.remote.json").read_text()) == frame
+        transport = json.loads((output / f"verifier_{stage}.remote.json").read_text())
+        judge = json.loads(base64.b64decode(transport["stdout_b64"]))["judge"]
+        assert judge == dict(
+            returncode=frame["exit_code"],
+            stdout_b64=frame["stdout_b64"],
+            stderr_b64=frame["stderr_b64"],
+        )
         assert (output / f"verifier_{stage}.stdout").read_bytes() == base64.b64decode(
             frame["stdout_b64"]
         )
@@ -204,7 +226,10 @@ def test_l3_soundness_preserves_invalid_judge_and_original_failure(case, monkeyp
     with pytest.raises(RuntimeError, match="soundness failed"):
         check_soundness(case["task"], case["config"], tier="l3", output=output)
     assert closed == [True]
-    assert json.loads((output / "verifier_before.remote.json").read_text()) == frame
+    transport = json.loads((output / "verifier_before.remote.json").read_text())
+    judge = json.loads(base64.b64decode(transport["stdout_b64"]))["judge"]
+    assert judge["returncode"] == frame["exit_code"]
+    assert judge["stdout_b64"] == frame["stdout_b64"]
     assert (output / "verifier_before.stdout").read_bytes() == b"broken environment\n"
     assert (output / "verifier_before.stderr").read_bytes() == b"\xffraw driver failure\n"
     attempt = json.loads((output / "soundness_attempt.json").read_text())

@@ -27,8 +27,14 @@ runner neither reads nor copies personal CLI login files.
 uv run mindie-bench validate --tasks /absolute/tasks --config experiment.toml
 uv run mindie-bench run --tasks /absolute/tasks --config experiment.toml \
   --tier l2 --groups G0,G1,G2 --repetitions 3 --concurrency 4 \
-  --output reports/controlled-run
+  --canary-first --output reports/controlled-run
 ```
+
+Start a new task or harness configuration with one cell. `--canary-first` admits
+the remaining matrix only after its first cell has a known business outcome;
+for G3 it checks the first complete seed/evaluation lineage. A business failure
+is a valid observation. Infrastructure failures and unknown attempts stop
+dependent work without automatic replay.
 
 Use exact model deployments, not moving aliases. Record provider-side sampling
 or reasoning settings in the deployment identity. No universal `temperature`
@@ -148,6 +154,32 @@ Return exit 0 for reward 1; return nonzero with explicit reward 0 for a wrong
 solution. Exit nonzero without a valid result for a broken environment.
 Performance numbers are verifier observations; none are inferred from logs.
 
+Before agent admission, the runner records SHA-256 identities of `verifier/`,
+`oracle/`, `task.toml` and any additional `oracle.protected_paths`. These files
+stay outside the agent's write grants. The verifier checks them before and after
+execution. Tasks can declare `[[oracle.probes]]` commands with an expected exit
+code and stdout hash, using `{oracle}` to address the private judge bundle.
+Changed protected files or a failed integrity control produce
+`oracle_tampered`, reward zero and an explicit warning. An uncertain remote
+operation retains its unknown outcome. Judges that import candidate Python
+must also check their own comparator after importing and executing that code;
+a separate clean-process probe cannot detect every in-process monkey patch.
+The performance judge captures its synchronization, clock, comparator, graph
+and allocator bindings before importing candidate code. `MeasurementGuard`
+checks those bindings and Python code objects after candidate execution; the
+timer continues to use the captured original synchronization and clock.
+
+Performance tasks require an explicit `[performance]` contract. It names at
+least two distinct private shape hashes, a rotating buffer count, sample count,
+speedup thresholds and, where needed, a workspace cap. Timing helpers call
+`torch.npu.synchronize()` before and after each host monotonic interval.
+The judge must return nonce-bound evidence for its actual measurements:
+`aclgraph_capture_compatible`, `memory_workspace_delta_mb` (decimal MB) and
+`e2e_warm_server_speedup`. Graph acceptance requires actual capture and replay;
+workspace uses synchronized allocator peaks; warm-service measurements must
+execute the stated persistent workload. A tiny operator service does not
+establish full-model throughput or real KV-cache headroom.
+
 ## Soundness and mining
 
 ```sh
@@ -218,7 +250,10 @@ For Codex, the runner enables only its event recorder in the fresh G3 profile.
 It uses the actual native thread ID to locate the transcript and requires a
 matching native `Stop` event. Personal hooks and profiles are not copied.
 The `native` object accompanies the general adapter payload; the bundled
-first-party capture adapter requires it and currently supports Codex only.
+first-party capture adapter requires it. For Claude Code it contains the actual
+`session_id`, `prompt_id`, transcript path and native Stop event path. The runner
+checks the event identity, workspace and owned transcript location before using
+the native mindie-agent-cc extractor and organizer. Kimi is not connected.
 
 It must deterministically redact before saving, invoke the intended installed
 capture/indexing code, write actual Markdown into `destination`, use only
@@ -235,17 +270,25 @@ first batch as completion. Failed, cancelled, or unknown indexing cannot be
 silently skipped or resubmitted.
 
 `mindie_bench.integrations.first_party` exposes `knowledge-mcp` and `capture`.
-Run it with the selected component interpreter and frozen runtime payload.
+Run it with the selected component interpreter and source or installed runtime.
 `knowledge-mcp --corpus ... --state ...` installs the physically filtered
 Markdown view with the first-party `MaterialStore` and rebuilds ReMe retrieval.
 It records actual query and explain references in the private profile.
-`capture` takes `--codex-scripts`, `--codex-bin`, `--summary-model`, `--gitleaks`,
+`capture` takes `--codex-scripts` / `--codex-bin` or
+`--claude-scripts` / `--claude-bin`, plus `--summary-model`, `--gitleaks`
 and a consumer `--query`. It validates native event/transcript identity, invokes
 the native transcript extractor and knowledge engine, runs the native small-model
 worker with LangMem, and retains deterministic redacted bodies plus indexing
 usage. It then pushes to the profile's fresh local bare Git repository, clones
 it independently, verifies the commit and package hashes, rebuilds retrieval,
 and reads the returned references before updating the warm corpus.
+
+Before local Git publication and again before the next round, `CorpusLinter`
+checks every newly exported package. It rejects unconditional global bans,
+absolute performance claims, missing assistant-authored root-cause/evidence/
+applicability sections, and a native Markdown index longer than 50 lines.
+It leaves the material intact and reports findings. Rejection prevents corpus
+consumption and produces a completed failure with reward zero.
 
 These are separate evidence boundaries: local Git delivery is not a GitHub PR,
 Grok review, or public merge; the adapter's consumer readback is not evidence
@@ -292,6 +335,29 @@ memory_limit_mb = 500
 probe_command = ["/opt/bench/bin/npu-probe-json"]
 runtime_read_paths = ["/usr/local/Ascend", "/opt/python"]
 ```
+
+Native L3 also requires `remote.component_runtime`, using the existing five
+components. Set `interpreters` for `coordinator`, `npu-top`, `diagnostics`,
+`knowledge` and `remote-dev`; optional `python_paths` select explicit source
+checkouts. Its `endpoint` must name the physical host, while `diagnostics_root`
+names an owned output directory. Declare separate `port_ranges.master` and
+`port_ranges.hccl`, a heartbeat interval and a lease TTL. The controller records
+the actual component versions and revisions in each receipt.
+
+Coordinator is the allocation authority for both the target devices and port
+pairs. Live npu-top observations must confirm no foreign process or active
+AICore use before admission and after release. Missing or conflicting telemetry
+fails admission. During execution, process ownership uses the attested PID
+namespace, boot identity and process start ticks. The receipt exposes component
+call latency, lease acknowledgements, accepted/rejected samples and diagnostics
+delivery.
+
+Each slot gets independent `ASCEND_CACHE_PATH`, `TORCHINDUCTOR_CACHE_DIR`,
+`TRITON_CACHE_DIR` and `TMPDIR`, as well as leased `MASTER_PORT` and
+`HCCL_IF_BASE_PORT`. A short TMPDIR alias in the slot's private mount namespace
+points to its unique backing directory, so long trial paths do not break
+multi-process Unix sockets. The paths and ports are recorded in
+`slot_isolation.json`.
 
 Declare `[environment.l3]` with the same exact source commit and the task's
 `npu_model` / `npu_count`. Run with `--tier l3`; the device pool admits only

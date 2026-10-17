@@ -1,5 +1,12 @@
 # A version-evidenced stale-knowledge configuration task
 
+The sibling [fused-mc2-deployment](fused-mc2-deployment/SOURCE.md) adds the L3
+business counterpart: the complete current tiny Qwen3-MoE runs on two physical
+NPUs with TP2/EP2 and HCCL. Real operator traces distinguish the obsolete
+environment override from the supported current configuration. Its deployment
+fixture is explicitly constructed; the retained historical advice is real.
+The sections below describe the separate CPU reporting migration.
+
 `fused-mc2-report` is a real source-bound CPU configuration/reporting migration
 task. It deliberately preserves the old knowledge body and checks its version
 conditions against an executed current-source counterexample. Old source alone

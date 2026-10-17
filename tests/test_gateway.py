@@ -5,6 +5,7 @@ import struct
 import threading
 import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
@@ -28,6 +29,67 @@ def test_no_pr_issue_or_arbitrary_http_egress(case):
                 post(gateway.url, path, {"body": "should never leave this machine"})
             assert failure.value.code == 403
         assert gateway.model_calls == 0
+
+
+def test_claude_native_beta_query_is_forwarded_without_opening_arbitrary_queries(case, monkeypatch):
+    accepted = []
+
+    class Provider(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            accepted.append(self.path)
+            raw = json.dumps(
+                {
+                    "id": "message-fixture",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "fixture"}],
+                    "usage": {"input_tokens": 3, "output_tokens": 1},
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    monkeypatch.setenv("BENCH_TEST_KEY", "fixture-only")
+    harness = HarnessConfig(
+        name="claude-code",
+        executable="/usr/bin/true",
+        model="pinned",
+        expected_version="fixture",
+        api_key_env="BENCH_TEST_KEY",
+        provider_url=f"http://127.0.0.1:{server.server_port}/v1",
+    )
+    try:
+        with Gateway(
+            harness, case["spec"], case["task"], case["repo"], case["root"] / "journal"
+        ) as gateway:
+            with post(gateway.url, "/v1/messages?beta=true", {"model": "pinned"}) as response:
+                assert response.status == 200
+                response.read()
+            for path in [
+                "/v1/messages?beta=false",
+                "/v1/messages?beta=true&redirect=external",
+                "/v1/responses?beta=true",
+            ]:
+                with pytest.raises(urllib.error.HTTPError) as failure:
+                    post(gateway.url, path, {"model": "pinned"})
+                assert failure.value.code == 403
+            assert gateway.model_calls == 1
+            assert not gateway.unknown
+        assert accepted == ["/v1/messages?beta=true"]
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
 
 
 def test_replay_rule_paths_never_leave_parent_and_have_hard_budget(case):

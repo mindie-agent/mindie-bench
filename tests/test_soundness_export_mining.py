@@ -1,6 +1,7 @@
 import hashlib
 import json
 import sys
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,10 +9,24 @@ import pytest
 from test_metrics import receipt
 
 from mindie_bench.hf_sync.exporter import export_hf, public_row
-from mindie_bench.mining.knowledge_to_task import mine_knowledge
+from mindie_bench.mining.knowledge_to_task import _toml_document, mine_knowledge
 from mindie_bench.models import TaskSpec
 from mindie_bench.runner.soundness import check_soundness
 from mindie_bench.scorer.comparator import freeze, load_receipts
+
+
+def test_task_serializer_roundtrips_multiple_private_oracle_probes():
+    data = {
+        "schema_version": "1.0",
+        "oracle": {
+            "protected_paths": ["golden.json"],
+            "probes": [
+                {"name": "first", "command": ["python", "{oracle}/verifier/first.py"]},
+                {"name": "second", "command": ["python", "{oracle}/verifier/second.py"]},
+            ],
+        },
+    }
+    assert tomllib.loads(_toml_document(data)) == data
 
 
 def test_soundness_checks_fail_before_and_pass_after_and_preserves_source(case):
@@ -225,3 +240,45 @@ def test_valid_public_ids_and_failure_states_survive_export_round_trip(
     assert manifest["attempts"] == len(originals)
     assert manifest["uploaded"] is False
     assert manifest["public_trial_id_scheme"] == "sha256-utf8-native-trial-id"
+
+
+def test_export_hf_includes_public_tasks_and_optional_upload(
+    case, tmp_path, monkeypatch, public_export_input
+):
+    from types import ModuleType
+
+    import pyarrow.parquet as pq
+
+    source, originals, scanner = public_export_input
+    mock_redaction(monkeypatch, lambda rows: None)
+    uploaded_calls = []
+    hf_module = ModuleType("huggingface_hub")
+
+    class FakeHfApi:
+        def create_repo(self, **kwargs):
+            uploaded_calls.append(("create_repo", kwargs))
+
+        def upload_folder(self, **kwargs):
+            uploaded_calls.append(("upload_folder", kwargs))
+
+    hf_module.HfApi = FakeHfApi
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
+    output = tmp_path / "public-with-tasks"
+    result = export_hf(
+        source,
+        output,
+        knowledge_python=Path(sys.executable),
+        gitleaks=scanner,
+        tasks_root=case["task"],
+        upload_repo="Ascend/mindie-bench-test",
+    )
+    assert result["uploaded"] is True
+    assert result["tasks"] == 1
+    assert result["repo_id"] == "Ascend/mindie-bench-test"
+    assert len(uploaded_calls) == 2
+    tasks_table = pq.read_table(output / "tasks.parquet")
+    assert tasks_table.num_rows == 1
+    assert tasks_table.column("instance_id").to_pylist() == ["synthetic-dtype"]
+    readme = (output / "README.md").read_text()
+    assert "tasks.parquet" in readme
+    assert "Leaderboard Summary" in readme

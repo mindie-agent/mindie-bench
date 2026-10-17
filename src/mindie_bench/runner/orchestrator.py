@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import os
@@ -17,6 +16,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from mindie_bench import __version__
+from mindie_bench.evaluation.corpus_linter import CorpusLintRejected
+from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.io import digest, read_json, task_hash, tree_hash, write_json
 from mindie_bench.models import (
     ExperimentConfig,
@@ -35,7 +36,11 @@ from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profil
 from mindie_bench.runner.remote_slot import RemoteSlot
 from mindie_bench.runner.sandbox import native_command
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS
-from mindie_bench.runner.verifier import local_verifier, parse_verifier
+from mindie_bench.runner.verifier import (
+    local_verifier,
+    remote_verifier,
+    validate_remote_oracle_contract,
+)
 from mindie_bench.runner.worktree_slot import WorktreeSlot
 from mindie_bench.scorer.comparator import grouped_summaries
 from mindie_bench.scorer.metrics import trajectory_metrics
@@ -66,8 +71,49 @@ RUNTIME_HELPER_MODULES = (
     "mindie_bench.runner.ssh_shim",
     "mindie_bench.runner.knowledge_stdio",
     "mindie_bench.integrations.codex_stop",
+    "mindie_bench.integrations.claude_stop",
     "mindie_bench.integrations.first_party",
 )
+
+
+def native_capture_payload(harness, trajectory, profile, workspace):
+    identity = trajectory.native_session_id
+    if not identity:
+        raise ValueError("G3 capture requires the actual native session identity")
+    stop_path = profile.root / "native-stop.json"
+    if harness == "codex":
+        transcripts = list(
+            (Path(profile.env["CODEX_HOME"]) / "sessions").rglob(f"*-{identity}.jsonl")
+        )
+        if len(transcripts) != 1:
+            raise ValueError("G3 cannot identify exactly one native task transcript")
+        transcript = transcripts[0].resolve(strict=True)
+    elif harness == "claude-code":
+        from mindie_bench.integrations.claude_stop import read_stop
+
+        event = read_stop(stop_path)
+        if event["session_id"] != identity:
+            raise ValueError("G3 Claude Stop differs from the foreground session identity")
+        if Path(event["cwd"]).resolve(strict=True) != workspace.resolve(strict=True):
+            raise ValueError("G3 Claude Stop differs from the foreground workspace")
+        transcript = Path(event["transcript_path"]).resolve(strict=True)
+        projects = (Path(profile.env["CLAUDE_CONFIG_DIR"]) / "projects").resolve(strict=True)
+        if not transcript.is_relative_to(projects) or not transcript.is_file():
+            raise ValueError("G3 Claude transcript is outside the owned native profile")
+    else:
+        raise ValueError(f"G3 capture is unsupported for harness {harness!r}")
+    return {
+        "harness": harness,
+        "session_id": identity,
+        "transcript_path": str(transcript),
+        "cwd": str(workspace),
+        "stop_event_path": str(stop_path),
+    }
+
+
+def require_corpus_lint(capture_receipt):
+    if capture_receipt.get("corpus_lint", {}).get("status") != "passed":
+        raise ValueError("G3 corpus quality gate did not pass; dependent evaluation is blocked")
 
 
 def probe_capture_git(profile, paths: list[Path], trial_dir: Path) -> dict:
@@ -280,13 +326,15 @@ def run_trial(
     trajectory = Trajectory()
     status, reason = TerminalStatus.INFRA, "trial did not start"
     errors, auxiliary, primary = [], {}, {}
-    profile = slot = remote = result = gateway = None
+    profile = slot = workspace = remote = result = gateway = None
     phase = "preflight"
     wall_clock = 0.0
     verifier_record = None
     verifier_seconds = None
     capture_started = None
     try:
+        oracle_manifest = freeze_oracle(task_root, task.oracle)
+        auxiliary["oracle_manifest"] = oracle_manifest.to_dict()
         if environment is None:
             raise ValueError(f"task has no {tier} environment")
         if task.task.evidence == "candidate":
@@ -306,12 +354,19 @@ def run_trial(
             raise ValueError("fixture harness is restricted to synthetic tasks")
         if config.harness.name != "fixture" and config.backend != "native":
             raise ValueError("native harnesses require the OS-enforced native backend")
+        if (
+            tier == "l3"
+            and config.backend == "native"
+            and (config.remote is None or not config.remote.component_runtime)
+        ):
+            raise ValueError("L3 native evaluation requires the five-component runtime configuration")
+        if tier == "l3":
+            validate_remote_oracle_contract(task.oracle)
         profile = build_profile(trial_dir, task, group, config, corpus_override=corpus_override)
         fingerprint.update(profile.fingerprint)
         paths = runtime_paths(config, profile)
         protected = [
-            task_root / "oracle",
-            task_root / "verifier",
+            *(task_root / relative for relative in oracle_manifest.protected_paths),
             Path(environment.repo_path),
             Path.home() / ".codex",
             Path.home() / ".claude",
@@ -348,13 +403,13 @@ def run_trial(
             )
         if group == Group.G3:
             fingerprint["capture_git_preflight"] = probe_capture_git(profile, paths, trial_dir)
-        slot = WorktreeSlot(environment, trial_dir / "workspace", task_root)
-        workspace = slot.prepare()
         if tier == "l3":
             if config.remote is None or not devices or len(devices) != environment.npu_count:
                 raise ValueError(
                     "L3 requires a remote worker and exactly the declared number of NPU devices"
                 )
+            workspace = trial_dir / "workspace"
+            workspace.mkdir(parents=True, exist_ok=True)
             remote = RemoteSlot(
                 config.remote,
                 environment,
@@ -367,6 +422,9 @@ def run_trial(
             remote.upload_public(task_root / "environment")
             fingerprint["remote_preflight"] = remote.preflight
             fingerprint["remote_environment"] = remote.preflight["_environment"]
+        else:
+            slot = WorktreeSlot(environment, trial_dir / "workspace", task_root)
+            workspace = slot.prepare()
         _install_shims(profile, environment.replay_commands if tier == "l2" else [], remote=bool(remote))
         unix_socket = trial_dir / "gateway.sock" if platform.system() == "Linux" else None
         gateway = Gateway(
@@ -415,17 +473,35 @@ def run_trial(
 
             prompt = knowledge_prompt(profile) + (task_root / "instruction.md").read_text()
             if remote:
+                if "remote-dev" in profile.fingerprint.get("components", []):
+                    prompt += (
+                        f"\n\nWork on the isolated SSH endpoint bench-slot. "
+                        f"Remote workspace: {remote.path}. "
+                        f"Assigned NPU devices: {','.join(map(str, devices))}. "
+                        'Use remote-dev MCP tools with host="bench-slot", port=22: prefer remote_grep, '
+                        "remote_glob, remote_read, and remote_edit for fast remote code search, reading, and "
+                        "surgical edits in the remote workspace, and use remote_bash (with yield_time_ms=10000 "
+                        "or 30000) for running remote test scripts. The local directory is an empty client "
+                        "scratchpad; the source snapshot lives in the remote workspace without Git history. "
+                        "Apply the repair in the remote workspace that the NPU verifier will inspect.\n"
+                    )
+                else:
+                    prompt += (
+                        f"\n\nWork on the isolated SSH endpoint bench-slot. "
+                        f"Remote workspace: {remote.path}. "
+                        f"Assigned NPU devices: {','.join(map(str, devices))}. "
+                        "The local directory is an empty client scratchpad; the source snapshot lives in the "
+                        "remote workspace on bench-slot without Git history. Apply the repair in the remote "
+                        "workspace that the NPU verifier will inspect. Choose validation proportional to the "
+                        "change and observed failures.\n"
+                    )
+            else:
                 prompt += (
-                    f"\n\nWork on the isolated SSH endpoint bench-slot. "
-                    f"Remote workspace: {remote.path}. "
-                    f"Assigned NPU devices: {','.join(map(str, devices))}. "
-                    'For remote-dev tools select host="bench-slot", port=22. '
-                    "The local and remote workspaces are plain source snapshots without Git history; "
-                    "apply the repair in the remote workspace that the NPU verifier will inspect.\n"
-                    "For routine remote test commands, prefer yield_time_ms=10000 or 30000. "
-                    "If a command returns a running job, follow that existing job with a bounded "
-                    "wait (for example 10000 ms) instead of repeated one-second empty polls. "
-                    "Choose validation proportional to the change and observed failures.\n"
+                    "\n\nThe workspace is a plain source snapshot without Git history. "
+                    "Apply the repair here and use the public reproducer or relevant available "
+                    "tests for validation. Git history, stash and checkout are unavailable. "
+                    "Choose validation proportional to the change and observed failures; "
+                    "report any unavailable dependencies in your final answer.\n"
                 )
             phase = "agent"
             auxiliary["preflight_wall_clock_sec"] = time.monotonic() - trial_started
@@ -490,21 +566,35 @@ def run_trial(
                 )
                 if remote:
                     remote.quiesce()
-                    verified = remote.verify((task_root / "verifier/test.sh").read_bytes())
-                    stdout = base64.b64decode(verified["stdout_b64"]).decode()
-                    stderr = base64.b64decode(verified["stderr_b64"]).decode()
-                    (trial_dir / "verifier.stdout").write_text(stdout)
-                    (trial_dir / "verifier.stderr").write_text(stderr)
-                    verdict = parse_verifier(verified["exit_code"], stdout)
-                    verifier_record = dict(returncode=verified["exit_code"], result=verdict.model_dump())
+                    verdict, verifier_record = remote_verifier(
+                        task_root,
+                        remote,
+                        trial_dir,
+                        task.budget.verifier_timeout_sec,
+                        oracle_manifest=oracle_manifest,
+                        oracle_contract=task.oracle,
+                        performance_contract=task.performance,
+                    )
                 else:
                     verdict, verifier_record = local_verifier(
-                        task_root, workspace, profile, trial_dir, task.budget.verifier_timeout_sec, paths
+                        task_root,
+                        workspace,
+                        profile,
+                        trial_dir,
+                        task.budget.verifier_timeout_sec,
+                        paths,
+                        oracle_manifest=oracle_manifest,
+                        oracle_contract=task.oracle,
+                        performance_contract=task.performance,
                     )
                 passed = verdict.reward == 1.0 and not result.stop_reason
                 status = TerminalStatus.PASS if passed else TerminalStatus.FAIL
                 reason = (
-                    None if passed else result.stop_reason or "external verifier rejected final state"
+                    None
+                    if passed
+                    else verdict.failure_reason
+                    or result.stop_reason
+                    or "external verifier rejected final state"
                 )
                 primary.update(
                     resolved=passed,
@@ -514,7 +604,11 @@ def run_trial(
                 auxiliary["verifier"] = verifier_record
                 verifier_seconds = time.monotonic() - verifier_started
         phase = "postflight"
-        if group == Group.G3 and status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
+        if (
+            group == Group.G3
+            and status in {TerminalStatus.PASS, TerminalStatus.FAIL}
+            and primary.get("performance_metrics", {}).get("oracle_status") != "oracle_tampered"
+        ):
             phase = "capture"
             capture_started = time.monotonic()
             auxiliary["business_terminal_status"] = status.value
@@ -533,22 +627,10 @@ def run_trial(
                 "instance_id": task.task.instance_id,
                 "cluster": task.task.cluster,
             }
-            if config.harness.name == "codex":
-                identity = trajectory.native_session_id
-                if not identity:
-                    raise ValueError("G3 Codex capture requires the actual native thread identity")
-                transcripts = list(
-                    (Path(profile.env["CODEX_HOME"]) / "sessions").rglob(f"*-{identity}.jsonl")
+            if config.harness.name != "fixture":
+                public["native"] = native_capture_payload(
+                    config.harness.name, trajectory, profile, workspace
                 )
-                if len(transcripts) != 1:
-                    raise ValueError("G3 cannot identify exactly one native task transcript")
-                public["native"] = {
-                    "harness": "codex",
-                    "session_id": identity,
-                    "transcript_path": str(transcripts[0]),
-                    "cwd": str(workspace),
-                    "stop_event_path": str(profile.root / "native-stop.json"),
-                }
             corpus_before_capture = tree_hash(profile.corpus)
             capture_harness = config.harness.model_copy(
                 update={"model": group_config.capture_model or config.harness.model}
@@ -599,6 +681,8 @@ def run_trial(
                 )
                 capture_gateway.finish_inference()
                 errors.extend(captured.errors)
+                if len(records) == 1 and isinstance(records[0], dict):
+                    auxiliary["capture"] = records[0]
                 auxiliary["capture_model_calls"] = capture_gateway.model_calls
                 auxiliary["capture_model"] = capture_harness.model
                 auxiliary["capture_provider_tokens"] = capture_gateway.metered_tokens().model_dump()
@@ -620,6 +704,9 @@ def run_trial(
                     or capture_gateway.infrastructure_error
                     or len(records) != 1
                 ):
+                    lint = auxiliary.get("capture", {}).get("corpus_lint", {})
+                    if lint.get("status") == "rejected":
+                        raise CorpusLintRejected(lint)
                     raise ValueError("required capture failed; inspect its original private receipts")
                 capture_receipt = records[0]
             if capture_receipt.get("status") != "completed" or not isinstance(
@@ -629,6 +716,7 @@ def run_trial(
                     "offline capture adapter did not provide a completion and token receipt"
                 )
             auxiliary["capture"] = capture_receipt
+            require_corpus_lint(capture_receipt)
             if auxiliary["capture_model_calls"] and capture_receipt["tokens"].get("total") == 0:
                 raise ValueError("capture inference occurred but its usage was reported as zero")
             provider_tokens = auxiliary["capture_provider_tokens"]
@@ -650,7 +738,10 @@ def run_trial(
         raise
     except Exception as exc:
         errors.append(dict(stage=phase, type=type(exc).__name__, message=str(exc)))
-        if phase == "agent" or isinstance(exc, UnknownExternalEffects):
+        if isinstance(exc, CorpusLintRejected):
+            status = TerminalStatus.FAIL
+            primary.update(resolved=False, reward=0.0)
+        elif phase == "agent" or isinstance(exc, UnknownExternalEffects):
             status = TerminalStatus.UNKNOWN
         else:
             if phase == "postflight":
@@ -686,6 +777,7 @@ def run_trial(
                     trajectory,
                     environment,
                     task.mindie_knowledge.target_files,
+                    public_root=task_root / "environment",
                 )
                 write_json(trial_dir / "source_visibility.json", source_visibility, exclusive=True)
             if config.backend == "native" and gateway and (trial_dir / "broker.jsonl").is_file():
@@ -717,7 +809,7 @@ def run_trial(
                 )
                 primary["tokens"]["complete"] = False
             capture = auxiliary.get("capture")
-            if capture:
+            if capture and capture.get("tokens") is not None:
                 metering = capture["tokens"]
                 if (
                     not isinstance(metering.get("total"), int)
@@ -766,6 +858,20 @@ def run_trial(
                 if auxiliary["files_modified"] is not None
                 else "remote_snapshot_inventory_unavailable"
             )
+            if getattr(remote, "component_runtime", None) is not None:
+                try:
+                    from mindie_bench.scorer.components import summarize_component_runtime
+
+                    auxiliary["component_runtime_metrics"] = summarize_component_runtime(
+                        trial_dir / "component_runtime.jsonl"
+                    )
+                except Exception as exc:
+                    errors.append(
+                        dict(stage="component_metrics", type=type(exc).__name__, message=str(exc))
+                    )
+                    if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
+                        auxiliary["business_terminal_status"] = status.value
+                        status, reason = TerminalStatus.INFRA, "component metric extraction failed"
         if slot:
             try:
                 if slot.created:
@@ -778,6 +884,14 @@ def run_trial(
                     # deleting only this runner-owned worktree.
                     shutil.make_archive(str(trial_dir / "final_workspace"), "gztar", slot.destination)
                 slot.cleanup()
+            except Exception as exc:
+                errors.append(dict(stage="workspace_cleanup", type=type(exc).__name__, message=str(exc)))
+        elif workspace is not None and workspace.exists():
+            try:
+                auxiliary["local_files_modified"] = sorted(
+                    p.relative_to(workspace).as_posix() for p in workspace.rglob("*") if p.is_file()
+                )
+                shutil.make_archive(str(trial_dir / "final_workspace"), "gztar", workspace)
             except Exception as exc:
                 errors.append(dict(stage="workspace_cleanup", type=type(exc).__name__, message=str(exc)))
         if gateway:
@@ -840,6 +954,7 @@ def run_matrix(
     repetitions: int,
     concurrency: int,
     output: Path,
+    canary_first: bool = False,
 ) -> list[TrialReceipt]:
     if concurrency < 1 or repetitions < 1 or not groups or len(set(groups)) != len(groups):
         raise ValueError("positive concurrency/repetitions and unique groups are required")
@@ -959,6 +1074,10 @@ def run_matrix(
                 if (
                     receipt.terminal_status not in {TerminalStatus.PASS, TerminalStatus.FAIL}
                     or receipt.auxiliary_metrics.get("capture", {}).get("status") != "completed"
+                    or receipt.auxiliary_metrics.get("capture", {})
+                    .get("corpus_lint", {})
+                    .get("status")
+                    != "passed"
                 ):
                     blocked = [
                         dict(
@@ -1001,6 +1120,33 @@ def run_matrix(
     ]
     matrix_error = None
     try:
+        if canary_first and len(cells) > 1:
+            if jobs:
+                canary = execute_cell(*jobs.pop(0))
+                if (
+                    canary.terminal_status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}
+                    or canary.errors
+                ):
+                    raise RuntimeError(
+                        f"canary gate failed on {canary.trial_id} "
+                        f"(status={canary.terminal_status.value}); remaining cells were not admitted"
+                    )
+            elif lineage_jobs:
+                execute_lineage(*lineage_jobs.pop(0))
+                bad = next(
+                    (
+                        row
+                        for row in receipts
+                        if row.terminal_status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}
+                        or row.errors
+                    ),
+                    None,
+                )
+                if bad is not None:
+                    raise RuntimeError(
+                        f"canary gate failed on {bad.trial_id} "
+                        f"(status={bad.terminal_status.value}); remaining cells were not admitted"
+                    )
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
             futures = []
             try:

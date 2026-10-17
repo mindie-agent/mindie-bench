@@ -294,15 +294,13 @@ def test_successful_remote_handler_finishes_before_worker_quiesce(case, monkeypa
             assert gateways[0].remote_state()["active"] == 0
             quiesced.append(True)
 
-        def verify(self, script):
-            return {
-                "exit_code": 0,
-                "stdout_b64": base64.b64encode(b'{"reward":1.0}\n').decode(),
-                "stderr_b64": "",
-            }
-
         def close(self):
             pass
+
+    def verifier(*args, **kwargs):
+        assert quiesced == [True]
+        assert gateways[0].remote_state()["active"] == 0
+        return VerifierResult(reward=1.0), {"returncode": 0}
 
     def process(*args, gateway, consume, **kwargs):
         gateways.append(gateway)
@@ -314,6 +312,7 @@ def test_successful_remote_handler_finishes_before_worker_quiesce(case, monkeypa
 
     monkeypatch.setattr(orchestrator, "RemoteSlot", Worker)
     monkeypatch.setattr(orchestrator, "stream_process", process)
+    monkeypatch.setattr(orchestrator, "remote_verifier", verifier)
     monkeypatch.setattr(orchestrator, "native_command", lambda command, **kwargs: command)
     output = case["root"] / "run"
     output.mkdir()

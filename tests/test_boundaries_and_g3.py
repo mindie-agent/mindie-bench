@@ -107,7 +107,7 @@ root=pathlib.Path(request["destination"])/"tasks"/("captured-"+request["instance
 (root/"materials").mkdir(parents=True)
 (root/"PACKAGE.md").write_text("# Synthetic captured advice\\n")
 (root/"materials/0001.md").write_text("Synthetic locally captured public text.\\n")
-print(json.dumps({"status":"completed","tokens":{"total":7,"complete":True},"estimated_cost_usd":0}))
+print(json.dumps({"status":"completed","tokens":{"total":7,"complete":True},"estimated_cost_usd":0,"corpus_lint":{"status":"passed"}}))
 """
     )
     capture.chmod(0o700)

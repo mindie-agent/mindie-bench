@@ -215,6 +215,94 @@ def test_git_or_native_parse_failure_is_not_reported_as_no_output(case, tmp_path
         observe_source_visibility(path, Trajectory(), environment, ["module.py"])
 
 
+def test_declared_public_asset_uses_original_bytes_and_explicit_non_git_provenance(case, tmp_path):
+    public = tmp_path / "task-public"
+    public.mkdir()
+    initial = b"OVERRIDE = 'legacy'\n"
+    (public / "deployment.py").write_bytes(initial)
+    # A final file in the source checkout is never the public asset's initial value.
+    (Path(case["spec"].environment["l2"].repo_path) / "deployment.py").write_text("REPAIRED = True\n")
+    native = native_file(
+        tmp_path / "events.jsonl",
+        [(2, result("REPAIRED = True\n")), (3, result(initial.decode()))],
+    )
+    observed = observe_source_visibility(
+        native,
+        Trajectory(calls=[pending_read()]),
+        case["spec"].environment["l2"],
+        ["deployment.py"],
+        public_root=public,
+    )
+    assert len(observed["witnesses"]) == 1
+    witness = observed["witnesses"][0]
+    assert witness["native_event_line"] == 2
+    assert witness["source_origin"] == "task_public_asset"
+    assert witness["git_blob_id"] is None
+    assert witness["source_sha256"] == hashlib.sha256(initial).hexdigest()
+    assert witness["source_bytes"] == len(initial)
+
+
+@pytest.mark.parametrize("kind", ["file_symlink", "parent_symlink", "root_symlink", "missing"])
+def test_public_asset_missing_or_symlink_never_becomes_initial_source(case, tmp_path, kind):
+    public = tmp_path / "task-public"
+    public.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "deployment.py").write_text("SECRET\n")
+    target = "deployment.py"
+    if kind == "file_symlink":
+        (public / target).symlink_to(outside / target)
+    elif kind == "parent_symlink":
+        (public / "nested").symlink_to(outside, target_is_directory=True)
+        target = "nested/deployment.py"
+    elif kind == "root_symlink":
+        link = tmp_path / "linked-public"
+        link.symlink_to(public, target_is_directory=True)
+        public = link
+    with pytest.raises(ValueError, match="public asset"):
+        observe_source_visibility(
+            native_file(tmp_path / "events.jsonl", []),
+            Trajectory(),
+            case["spec"].environment["l2"],
+            [target],
+            public_root=public,
+        )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        b"100644 blob abc\tdeployment.py\0" * 2,
+        b"040000 tree abc\tdeployment.py\0",
+        b"120000 blob abc\tdeployment.py\0",
+    ],
+)
+def test_ambiguous_or_nonregular_git_entry_cannot_fall_back_to_public(
+    case, tmp_path, monkeypatch, entry
+):
+    from types import SimpleNamespace
+
+    public = tmp_path / "task-public"
+    public.mkdir()
+    (public / "deployment.py").write_text("NOT_A_GIT_FALLBACK\n")
+    run = subprocess.run
+
+    def selected_run(command, **kwargs):
+        if command[3] == "ls-tree":
+            return SimpleNamespace(stdout=entry)
+        return run(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", selected_run)
+    with pytest.raises(ValueError, match="Git blob"):
+        observe_source_visibility(
+            native_file(tmp_path / "events.jsonl", []),
+            Trajectory(),
+            case["spec"].environment["l2"],
+            ["deployment.py"],
+            public_root=public,
+        )
+
+
 @pytest.mark.parametrize("target", ["../module.py", "/module.py", "module.py\nother"])
 def test_target_paths_must_be_confined_git_paths(case, tmp_path, target):
     with pytest.raises(ValueError):
