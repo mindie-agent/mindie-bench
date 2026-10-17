@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from mindie_bench.io import read_json, safe_relative, write_json
 from mindie_bench.models import HarnessConfig, TaskSpec, UnknownExternalEffects
 from mindie_bench.runner.usage import UsageMeter, sum_usage
+from mindie_bench.scorer.command_observations import is_recognized_npu_command
 
 MODEL_SETTLEMENT_GRACE_SEC = 10.0
 
@@ -154,14 +155,12 @@ class Gateway(AbstractContextManager):
 
     def ssh_stream(self, request: dict) -> dict:
         """Bridge remote-dev's existing NDJSON RPC without waiting for stdin EOF."""
-        from mindie_bench.scorer.metrics import NPU_TEST
-
         action = request["action"]
         if action == "open":
             command = request["command"]
             if not isinstance(command, str) or not command or len(command.encode()) > 8 * 1024 * 1024:
                 raise ValueError("invalid remote stream command")
-            test_run = bool(NPU_TEST.search(command))
+            test_run = is_recognized_npu_command(command)
             with self.lock:
                 if test_run and self.remote_test_calls >= self.task.budget.max_npu_runs:
                     self.stop_reason = "max_npu_runs"
@@ -207,7 +206,7 @@ class Gateway(AbstractContextManager):
                 if not isinstance(spec, dict):
                     raise ValueError("invalid remote job specification")
                 command = payload.get("command", payload.get("cmd", spec.get("command", "")))
-                tests += int(isinstance(command, str) and bool(NPU_TEST.search(command)))
+                tests += int(isinstance(command, str) and is_recognized_npu_command(command))
             if self.remote_test_calls + tests > self.task.budget.max_npu_runs:
                 self.stop_reason = "max_npu_runs"
                 raise RemoteBudgetExhausted("benchmark NPU test budget exhausted")
@@ -398,15 +397,13 @@ class Gateway(AbstractContextManager):
                             return self.reject(403, "no remote slot is assigned")
                         import base64
 
-                        from mindie_bench.scorer.metrics import NPU_TEST
-
                         request = json.loads(body)
                         command, stdin_b64 = request["command"], request["stdin_b64"]
                         stdin = base64.b64decode(stdin_b64, validate=True)
                         if not isinstance(command, str) or len(stdin) > 8 * 1024 * 1024:
                             return self.reject(400, "invalid remote command")
                         # Stdin is opaque input, including patch and file bodies.
-                        test_run = bool(NPU_TEST.search(command))
+                        test_run = is_recognized_npu_command(command)
                         with gateway.lock:
                             if gateway.unknown or gateway.closed or gateway.infrastructure_error:
                                 return self.reject(

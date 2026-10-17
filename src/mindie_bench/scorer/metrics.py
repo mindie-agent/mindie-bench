@@ -22,12 +22,12 @@ from mindie_bench.models import (
     Trajectory,
     TrialReceipt,
 )
+from mindie_bench.scorer.command_observations import (
+    is_recognized_npu_command,
+    observe_npu_command,
+)
 from mindie_bench.scorer.tool_observations import summarize_tool_observations
 
-NPU_TEST = re.compile(
-    r"(?<![\w-])(pytest\b|vllm\s+serve\b|python3?\s+-m\s+unittest\b|"
-    r"python3?\s+.*test_|msprof\b|torchrun\b)"
-)
 REMOTE = {"remote_bash", "remote_job_start", "remote_exec", "remote_command"}
 READ_EDIT = {
     "remote_read",
@@ -60,24 +60,25 @@ def remote_execution(call: ToolCall) -> bool:
 
 
 def npu_test_runs(trajectory: Trajectory) -> int:
-    """Count reported command-pattern attempts, including failed or unfinished calls."""
+    """Count recognized command-attempt proxies, not complete hardware executions."""
     return sum(_npu_test_call(call) for call in trajectory.calls)
 
 
 def _npu_test_call(call):
     command = call.arguments.get("command", call.arguments.get("cmd", ""))
-    return isinstance(command, str) and remote_execution(call) and bool(NPU_TEST.search(command))
+    return remote_execution(call) and is_recognized_npu_command(command)
 
 
 def _python_accesses(code: str) -> tuple[list[tuple[str, str]], list[str]]:
     """Follow literal path aliases and executed syntax, never strings containing code."""
     accesses, unresolved, names = [], [], {}
     path_factories = {"Path", "PurePath"}
+    local_callables = set()
     if len(code) > 262_144:
         return [], ["python_static_parser_limit"]
     try:
         tree = ast.parse(code)
-    except (SyntaxError, ValueError):
+    except (SyntaxError, ValueError, RecursionError):
         return [], ["python_syntax_unresolved"]
 
     def value(node):
@@ -85,9 +86,29 @@ def _python_accesses(code: str) -> tuple[list[tuple[str, str]], list[str]]:
             return node.value
         if isinstance(node, ast.Name):
             return names.get(node.id)
+        if isinstance(node, (ast.List, ast.Tuple)):
+            if len(node.elts) > 64:
+                unresolved.append("python_literal_sequence_limit")
+                return None
+            if all(isinstance(part, ast.Constant) and isinstance(part.value, str) for part in node.elts):
+                return tuple(part.value for part in node.elts)
+        if isinstance(node, ast.Subscript):
+            sequence = value(node.value)
+            index = node.slice
+            sign = 1
+            if isinstance(index, ast.UnaryOp) and isinstance(index.op, (ast.USub, ast.UAdd)):
+                sign = -1 if isinstance(index.op, ast.USub) else 1
+                index = index.operand
+            if isinstance(sequence, tuple):
+                if isinstance(index, ast.Constant) and type(index.value) is int:
+                    position = sign * index.value
+                    if -len(sequence) <= position < len(sequence):
+                        return sequence[position]
+                unresolved.append("python_literal_sequence_index_unresolved")
         if isinstance(node, ast.Call) and (
             isinstance(node.func, ast.Name)
             and node.func.id in path_factories
+            and node.func.id not in local_callables
             or isinstance(node.func, ast.Attribute)
             and node.func.attr == "Path"
         ):
@@ -102,24 +123,157 @@ def _python_accesses(code: str) -> tuple[list[tuple[str, str]], list[str]]:
                     return left + right
         return None
 
+    def forget_sequence(sequence):
+        for name in [name for name, known in names.items() if known is sequence]:
+            names.pop(name)
+        unresolved.append("python_literal_sequence_invalidated")
+
+    def escape(node):
+        """An untracked receiver or argument may mutate any alias of a list."""
+        known = value(node)
+        if isinstance(known, tuple):
+            forget_sequence(known)
+        elif not isinstance(known, str):
+            for child in ast.iter_child_nodes(node):
+                escape(child)
+
+    def forget_target(node, *, inplace=False):
+        if isinstance(node, ast.Name):
+            known = names.get(node.id)
+            if inplace and isinstance(known, tuple):
+                forget_sequence(known)
+            names.pop(node.id, None)
+        elif isinstance(node, (ast.Subscript, ast.Attribute)):
+            escape(node.value)
+        else:
+            for child in ast.iter_child_nodes(node):
+                forget_target(child, inplace=inplace)
+
+    def forget_imports(node):
+        for alias in node.names:
+            name = alias.asname or (
+                alias.name if isinstance(node, ast.ImportFrom) else alias.name.split(".")[0]
+            )
+            names.pop(name, None)
+
+    def invalidate_call(node):
+        if isinstance(node.func, ast.Name) and node.func.id in local_callables:
+            # An opaque local callable may change captured/global containers.
+            names.clear()
+            unresolved.append("python_opaque_local_callable")
+        if isinstance(node.func, ast.Name) and node.func.id in {"exec", "eval"}:
+            names.clear()
+            unresolved.append("python_dynamic_namespace")
+        if isinstance(node.func, ast.Attribute):
+            receiver = value(node.func.value)
+            if isinstance(receiver, tuple):
+                forget_sequence(receiver)
+        for argument in [*node.args, *(keyword.value for keyword in node.keywords)]:
+            escape(argument)
+
+    definitions = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+    controls = (
+        ast.If,
+        ast.For,
+        ast.While,
+        ast.Try,
+        ast.TryStar,
+        ast.AsyncFor,
+        ast.ListComp,
+        ast.SetComp,
+        ast.DictComp,
+        ast.GeneratorExp,
+        ast.IfExp,
+        ast.BoolOp,
+        ast.Match,
+    )
+
+    def invalidate_control(node):
+        # Inspect possible rebinding/escape only; never count a branch's file
+        # operations as having run. Alias creation inside a branch is opaque.
+        if isinstance(node, definitions):
+            if getattr(node, "name", None):
+                local_callables.add(node.name)
+            names.pop(getattr(node, "name", None), None)
+            return
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            forget_imports(node)
+        if isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
+            names.pop(node.name, None)
+        if isinstance(node, ast.MatchMapping):
+            names.pop(node.rest, None)
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            if node.value is not None:
+                escape(node.value)
+        if isinstance(node, ast.Call):
+            invalidate_call(node)
+        if isinstance(node, ast.AugAssign):
+            forget_target(node.target, inplace=True)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.pop(node.id, None)
+        if isinstance(node, (ast.Subscript, ast.Attribute)) and isinstance(
+            node.ctx, (ast.Store, ast.Del)
+        ):
+            escape(node.value)
+        for child in ast.iter_child_nodes(node):
+            invalidate_control(child)
+
     def visit(node):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            forget_imports(node)
         if isinstance(node, ast.ImportFrom) and node.module == "pathlib":
             path_factories.update(
                 alias.asname or alias.name for alias in node.names if alias.name in {"Path", "PurePath"}
             )
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+        if isinstance(node, definitions):
             # A definition or a copied test body is not evidence of its execution.
+            if getattr(node, "name", None):
+                local_callables.add(node.name)
+            names.pop(getattr(node, "name", None), None)
             unresolved.append("python_definition_body_not_observed")
             return
-        if isinstance(node, (ast.If, ast.For, ast.While, ast.Try, ast.AsyncFor)):
+        if isinstance(node, controls):
+            invalidate_control(node)
             unresolved.append("python_dynamic_control_flow")
             return
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            if node.value is not None:
+                visit(node.value)
+            resolved = value(node.value) if node.value is not None else None
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            callable_alias = isinstance(node.value, ast.Lambda) or (
+                isinstance(node.value, ast.Name) and node.value.id in local_callables
+            )
+            if resolved is None and node.value is not None:
+                escape(node.value)
+            for target in targets:
+                forget_target(target)
+                if isinstance(target, ast.Name):
+                    local_callables.discard(target.id)
+                    if callable_alias:
+                        local_callables.add(target.id)
+                    if resolved is not None:
+                        names[target.id] = resolved
+            return
+        if isinstance(node, (ast.AugAssign, ast.NamedExpr)):
+            forget_target(node.target, inplace=True)
+            if node.value is not None:
+                visit(node.value)
+                escape(node.value)
+            unresolved.append("python_assignment_unresolved")
+            return
+        if isinstance(node, ast.Delete):
+            for target in node.targets:
+                forget_target(target)
+            return
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.pop(node.id, None)
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and node.func.id == "open":
                 path = value(node.args[0]) if node.args else None
                 mode = value(node.args[1]) if len(node.args) > 1 else "r"
                 mode = next((value(k.value) for k in node.keywords if k.arg == "mode"), mode)
-                if path is not None and isinstance(mode, str):
+                if isinstance(path, str) and isinstance(mode, str):
                     accesses.append(("edit" if any(flag in mode for flag in "wax+") else "read", path))
                 else:
                     unresolved.append("python_dynamic_open_path_or_mode")
@@ -130,20 +284,13 @@ def _python_accesses(code: str) -> tuple[list[tuple[str, str]], list[str]]:
                 "write_bytes",
             }:
                 path = value(node.func.value)
-                if path is not None:
+                if isinstance(path, str):
                     accesses.append(("edit" if node.func.attr.startswith("write") else "read", path))
                 else:
                     unresolved.append("python_dynamic_path")
+            invalidate_call(node)
         for child in ast.iter_child_nodes(node):
             visit(child)
-        if isinstance(node, ast.Assign):
-            resolved = value(node.value)
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    if resolved is None:
-                        names.pop(target.id, None)
-                    else:
-                        names[target.id] = resolved
 
     visit(tree)
     return accesses, sorted(set(unresolved))
@@ -326,10 +473,111 @@ def _call_outcome(call):
     return "unknown"
 
 
+def _job_argument_identity(call: ToolCall) -> str | None:
+    values = [call.arguments[key] for key in ("job_id", "session_id") if key in call.arguments]
+    if not values or any(not isinstance(value, str) or not value for value in values):
+        return None
+    return values[0] if all(value == values[0] for value in values) else None
+
+
+def _pending_job_outcomes(trajectory: Trajectory) -> dict[int, tuple[str, dict]]:
+    """Derive command certainty from scoped job receipts, preserving native facts."""
+    grouped = defaultdict(list)
+    for index, call in enumerate(trajectory.calls):
+        result = call.result_observation
+        if call.component == "remote-dev" and result is not None and result.job_id:
+            grouped[(call.component, result.target_id, result.job_id)].append((index, call))
+    outcomes = {}
+    terminal_states = {"succeeded", "failed", "timeout", "cancelled", "completed"}
+    for index, call in enumerate(trajectory.calls):
+        result = call.result_observation
+        if (
+            call.component != "remote-dev"
+            or not remote_execution(call)
+            or result is None
+            or result.classification != "pending"
+        ):
+            continue
+        evidence = dict(
+            basis="same_remote_job_reconciliation",
+            original_classification=result.classification,
+            original_exit_code=result.exit_code,
+            job_id=result.job_id,
+            target_id=result.target_id,
+            confirmation_call_ids=[],
+            reason="no_later_terminal_confirmation",
+            edit_time_basis="original_command_started_sec_proxy",
+        )
+        outcome = "unknown"
+        rows = grouped.get((call.component, result.target_id, result.job_id), [])
+        if not result.target_id or not result.job_id or result.result_schema != "remote-dev.result.v1":
+            evidence["reason"] = "incomplete_scoped_job_identity"
+        elif sum(remote_execution(other) for _, other in rows) != 1:
+            evidence["reason"] = "ambiguous_job_execution_identity"
+        elif any(
+            other.result_observation.classification == "unknown"
+            or other.result_observation.submission_state == "uncertain"
+            or other.result_observation.classification_reason == "conflicting_exit_codes"
+            for _, other in rows
+        ):
+            evidence["reason"] = "uncertain_job_result"
+        elif any(
+            tool_name(other.name) in {"remote_job_status", "remote_job_tail", "remote_job_stdin"}
+            and other.result_observation.operation_kind == "observation"
+            and other.result_observation.source == result.source
+            and other.result_observation.result_schema == result.result_schema
+            and any(key in other.arguments for key in ("job_id", "session_id"))
+            and _job_argument_identity(other) != result.job_id
+            for _, other in rows
+        ):
+            evidence["reason"] = "conflicting_job_argument_identity"
+        else:
+            terminal = []
+            for other_index, other in rows:
+                observed = other.result_observation
+                if (
+                    tool_name(other.name) in {"remote_job_status", "remote_job_tail", "remote_job_stdin"}
+                    and _job_argument_identity(other) == result.job_id
+                    and observed.operation_kind == "observation"
+                    and observed.source == result.source
+                    and observed.result_schema == result.result_schema
+                    and observed.remote_status in terminal_states
+                    and observed.classification in {"business_success", "business_failure"}
+                    and observed.exit_code is not None
+                ):
+                    terminal.append((other_index, other))
+            exits = {other.result_observation.exit_code for _, other in terminal}
+            inconsistent = any(
+                (other.result_observation.classification == "business_success")
+                != (other.result_observation.exit_code == 0)
+                for _, other in terminal
+            )
+            if len(exits) > 1 or inconsistent:
+                evidence["reason"] = "conflicting_job_terminal_results"
+                evidence["known_terminal_exit_codes"] = sorted(exits)
+            else:
+                later = [other for other_index, other in terminal if other_index > index]
+                if later:
+                    code = later[0].result_observation.exit_code
+                    outcome = "success" if code == 0 else "failed"
+                    evidence.update(
+                        basis="later_same_remote_job_terminal",
+                        reason=None,
+                        confirmed_exit_code=code,
+                        confirmation_call_ids=[other.id for other in later],
+                        confirmation_turn=later[0].turn,
+                        confirmation_ended_sec=later[0].ended_sec,
+                        source_evidence_time_basis="later_terminal_confirmation",
+                    )
+        outcomes[index] = (outcome, evidence)
+    return outcomes
+
+
 def target_access_observations(
     trajectory: Trajectory, targets: list[str]
 ) -> tuple[list[dict], list[dict]]:
     observations, unresolved = [], []
+    job_outcomes = _pending_job_outcomes(trajectory)
     for index, call in enumerate(trajectory.calls):
         name = tool_name(call.name)
         paths = []
@@ -375,6 +623,18 @@ def target_access_observations(
                 if not (path == target or path.endswith("/" + target)) or (kind, target) in seen:
                     continue
                 seen.add((kind, target))
+                outcome, evidence = job_outcomes.get(
+                    index,
+                    (
+                        _call_outcome(call),
+                        dict(
+                            basis="original_call_result",
+                            classification=call.result_observation.classification
+                            if call.result_observation is not None
+                            else None,
+                        ),
+                    ),
+                )
                 observations.append(
                     dict(
                         call_id=call.id,
@@ -384,7 +644,8 @@ def target_access_observations(
                         target=target,
                         source="typed_path" if name in READ_EDIT else "command_structure",
                         execution_scope="remote" if remote else "local",
-                        call_outcome=_call_outcome(call),
+                        call_outcome=outcome,
+                        outcome_evidence=evidence,
                         started_sec=call.started_sec,
                         ended_sec=call.ended_sec,
                     )
@@ -550,6 +811,7 @@ def _validation_tail(trajectory):
     return dict(
         first_recorded_success_call_index=first,
         total_empty_job_polls=len(polls),
+        empty_job_poll_definition="no chars/eof input; may return output; not an idle-poll count",
         empty_job_poll_timing=_duration_profile(empty_polls),
         recognized_test_attempts_after_first_recorded_success=(
             sum(index > first for index in tests) if first is not None else None
@@ -623,8 +885,24 @@ def trajectory_metrics(
         remainder = wall_clock - combined_timing["observed_union_sec"]
     access, unresolved = target_access_observations(trajectory, task.mindie_knowledge.target_files)
     edit_primary, edit_auxiliary = _edit_metrics(trajectory, access, unresolved)
-    source_primary, source_auxiliary = source_evidence_metrics(
-        source_visibility, [row for row in access if row["call_outcome"] == "success"]
+    successful_accesses = []
+    for row in access:
+        if row["call_outcome"] != "success":
+            continue
+        evidence = row["outcome_evidence"]
+        if evidence["basis"] == "later_same_remote_job_terminal":
+            # Preserve the original attempt's timestamps, but do not claim its
+            # pending RPC completion was already evidence of command success.
+            row = dict(
+                row,
+                turn=evidence["confirmation_turn"],
+                ended_sec=evidence["confirmation_ended_sec"],
+            )
+        successful_accesses.append(row)
+    source_primary, source_auxiliary = source_evidence_metrics(source_visibility, successful_accesses)
+    source_auxiliary["source_evidence_basis"]["job_confirmation"] = (
+        "later terminal confirmation turn/end when the original command result was pending; "
+        "original access/edit start remains a command-attempt proxy"
     )
     rates = [
         harness.input_usd_per_million,
@@ -722,6 +1000,26 @@ def trajectory_metrics(
         remote_tool_errors=sum(c.is_error is True for c in all_remote),
         remote_tool_non_business_errors=tool_observations["non_business_error_count"],
         tool_observations=tool_observations,
+        npu_command_observations=dict(
+            basis="literal_command_position/1",
+            calls=[
+                dict(
+                    call_id=call.id,
+                    **{
+                        key: value
+                        for key, value in observe_npu_command(
+                            call.arguments.get("command", call.arguments.get("cmd", ""))
+                        ).items()
+                        if key != "scope"
+                    },
+                )
+                for call in remote
+            ],
+            scope=(
+                "recognized command-attempt lower bound/proxy; not complete hardware/kernel "
+                "execution counts; unrecognized opaque commands may execute tests"
+            ),
+        ),
         target_access_observations=access,
         target_access_unresolved=unresolved,
         validation_tail=_validation_tail(trajectory),

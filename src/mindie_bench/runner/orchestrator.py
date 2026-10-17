@@ -70,6 +70,55 @@ RUNTIME_HELPER_MODULES = (
 )
 
 
+def probe_capture_git(profile, paths: list[Path], trial_dir: Path) -> dict:
+    code = (
+        "import json\n"
+        "from pathlib import Path\n"
+        "from mindie_bench.integrations.first_party import preflight_git\n"
+        "print(json.dumps(preflight_git(Path('capture-git-preflight'))))\n"
+    )
+    command = native_command(
+        [sys.executable, "-I", "-c", code],
+        read=paths,
+        write=[profile.root],
+        cwd=profile.root,
+        policy_path=trial_dir / "capture-git-preflight.sb",
+    )
+    try:
+        result = subprocess.run(
+            command,
+            env=dict(profile.env, **profile.private_env),
+            cwd=profile.root,
+            timeout=30,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.TimeoutExpired as error:
+        for name, value in [("stdout", error.stdout), ("stderr", error.stderr)]:
+            raw = value.encode() if isinstance(value, str) else value or b""
+            (trial_dir / f"capture-git-preflight.{name}").write_bytes(raw)
+        raise RuntimeError(
+            "capture Git preflight timed out; inspect capture-git-preflight.stderr"
+        ) from error
+    (trial_dir / "capture-git-preflight.stdout").write_text(result.stdout)
+    (trial_dir / "capture-git-preflight.stderr").write_text(result.stderr)
+    if result.returncode:
+        raise RuntimeError(
+            f"capture Git preflight failed (exit={result.returncode}); "
+            "inspect capture-git-preflight.stderr"
+        )
+    observed = json.loads(result.stdout)
+    if (
+        observed.get("status") != "completed"
+        or observed.get("executable") != profile.private_env["MINDIE_BENCH_GIT"]
+        or observed.get("exec_path") != profile.private_env["GIT_EXEC_PATH"]
+        or observed.get("model_calls") != 0
+    ):
+        raise ValueError("capture Git preflight returned an invalid runtime identity")
+    write_json(trial_dir / "capture-git-preflight.json", observed)
+    return observed
+
+
 def probe_runtime_import(profile, read_paths: list[Path], trial_dir: Path, expected_digest: str):
     code = (
         "import importlib,json,sys\n"
@@ -297,6 +346,8 @@ def run_trial(
             raise ValueError(
                 f"harness version mismatch: expected {config.harness.expected_version!r}, got {version!r}"
             )
+        if group == Group.G3:
+            fingerprint["capture_git_preflight"] = probe_capture_git(profile, paths, trial_dir)
         slot = WorktreeSlot(environment, trial_dir / "workspace", task_root)
         workspace = slot.prepare()
         if tier == "l3":

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,36 @@ class Profile:
     private_root: Path | None = None
     private_env: dict[str, str] = field(default_factory=dict)
     knowledge_servers: dict = field(default_factory=dict)
+
+
+def capture_git_runtime(env: dict[str, str]) -> dict:
+    """Resolve Apple's launcher before sandboxing, and bind local Git helpers."""
+
+    def inspect(command):
+        try:
+            return subprocess.run(
+                command, check=True, capture_output=True, text=True, env=env
+            ).stdout.strip()
+        except subprocess.CalledProcessError as error:
+            error.add_note("Git discovery stderr (at most 16 KiB): " + (error.stderr or "")[:16_384])
+            raise
+
+    executable = shutil.which("git", path=env["PATH"])
+    if executable is None:
+        raise FileNotFoundError("Git is required for local capture publication")
+    if platform.system() == "Darwin" and Path(executable).resolve() == Path("/usr/bin/git"):
+        executable = inspect(["/usr/bin/xcrun", "--find", "git"])
+        if Path(executable).resolve() == Path("/usr/bin/git"):
+            raise ValueError("xcrun did not resolve the actual Git executable")
+    binary = Path(executable).resolve(strict=True)
+    helpers = Path(inspect([str(binary), "--exec-path"])).resolve(strict=True)
+    if not binary.is_file() or not os.access(binary, os.X_OK) or not helpers.is_dir():
+        raise ValueError("capture requires an executable Git and its actual helper directory")
+    return dict(
+        executable=str(binary),
+        executable_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
+        exec_path=str(helpers),
+    )
 
 
 def bind_mcp_transport(profile: Profile):
@@ -178,6 +209,13 @@ def build_profile(
     if corpus is not None:
         private_env["MINDIE_BENCH_CORPUS"] = str(corpus)
     runtime_paths = []
+    git_runtime = None
+    if group == Group.G3:
+        git_runtime = capture_git_runtime(env)
+        private_env.update(
+            MINDIE_BENCH_GIT=git_runtime["executable"], GIT_EXEC_PATH=git_runtime["exec_path"]
+        )
+        runtime_paths.extend([Path(git_runtime["executable"]), Path(git_runtime["exec_path"])])
     model_catalog_sha256 = None
     if config.harness.model_catalog_path:
         catalog = Path(config.harness.model_catalog_path).resolve(strict=True)
@@ -269,6 +307,7 @@ def build_profile(
         "components": sorted(components),
         "server_components": {name: server.component for name, server in servers.items()},
         "publication_policy": "local-only",
+        "capture_git_runtime": git_runtime,
         "corpus_projection": "task Markdown and format contract; no feedback, docs, or cached indexes",
         "mcp_config": json.loads((root / "mcp.json").read_text()),
         "knowledge_access": "parent-owned MCP stdio; no foreground corpus or state file grant",

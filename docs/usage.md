@@ -314,16 +314,16 @@ L3 verifiers are self-contained bash scripts sent after agent quiescence.
 Interactive SSH, tunnelling, SCP/SFTP, multi-host HCCL and native Windows workers
 are outside this implementation.
 
-`max_npu_runs` caps recognized test-command attempts using command patterns such
-as `pytest`, `torchrun`, and `python ...test_...`. It does not count hardware
-kernel launches or detect every possible NPU program. Reports retain this limit
-and the observed attempt count rather than claiming exact hardware utilization.
-One-shot SSH, direct SSH stream commands and remote RPC command fields use the
-same command-pattern contract. Stdin, uploaded worker code and file/patch bodies
-are opaque data and do not consume the budget merely by mentioning a test.
-Programs executed through stdin are not inferred to be tests when their command
-does not match this contract. A recognized command still counts as an attempt
-if an earlier shell step fails or pytest only collects tests.
+`max_npu_runs` caps recognized test-command attempts at literal program positions,
+including `pytest`, `torchrun`, `python -m pytest` and named test scripts.
+One-shot SSH, direct SSH streams, remote RPC commands and the scorer share the
+same bounded parser. Literal shell/SSH wrappers are inspected; quoted messages,
+comments, compiler arguments and heredoc bodies are not test programs merely
+because they mention a test name. Dynamic shell constructs and inline Python
+retain explicit unresolved reasons. Reports therefore expose a lower-bound
+command proxy, not complete NPU-test or kernel-launch counts. One submitted
+compound command consumes at most one attempt; a recognized program still
+counts if an earlier shell step fails or pytest only collects tests.
 
 `remote_test_budget_invocations` counts admitted recognized remote commands.
 `remote_test_invocations` counts native-reported matching tool attempts,
@@ -364,9 +364,14 @@ every missing individual seed task, so keep the complete run manifest or frozen
 receipt inventory. The sum of delivery seconds includes each trial's work and
 is not the concurrent scheduler's elapsed wall time.
 
-Localization uses typed read/grep/edit observations. Shell-only source access
-can leave `turns_to_first_localization` null even when the source was inspected.
-Comparison retains max-turn penalties in
+Localization uses typed read/grep/edit observations and bounded literal
+shell/Python access to target files, including SSH and `remote_bash`.
+Command access records attempted execution separately from known success;
+unresolved dynamic paths retain their reasons. A pending remote command can
+be confirmed only by a later terminal observation with the same component,
+target and job identity. Its original call remains unchanged.
+First/last target-edit times are command-start proxies; source evidence becomes
+available at the later confirmation time. Comparison retains max-turn penalties in
 `localization_penalized_turns_ratio`, reports `localization_observed_pairs`,
 and leaves `localization_speedup` null unless every matched valid pair has
 observations on both sides. Do not interpret asymmetric visibility as a

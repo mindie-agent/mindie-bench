@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import hashlib
 import json
 import os
 import subprocess
@@ -135,13 +136,54 @@ def serve(args):
 
 
 def git(*arguments, cwd=None):
-    return subprocess.run(
-        ["git", "-c", "protocol.file.allow=always", *map(str, arguments)],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    executable = os.environ["MINDIE_BENCH_GIT"]
+    try:
+        return subprocess.run(
+            [executable, "-c", "protocol.file.allow=always", *map(str, arguments)],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError as error:
+        error.add_note("Git stderr (at most 16 KiB): " + (error.stderr or "")[:16_384])
+        raise
+
+
+def preflight_git(destination: Path) -> dict:
+    """Exercise the capture's actual local publication route before model admission."""
+    destination = destination.resolve()
+    destination.mkdir(exist_ok=False)
+    remote, producer, cloned = [destination / name for name in ["remote.git", "producer", "consumer"]]
+    git("init", "--template=", "--bare", "-q", remote)
+    git("init", "--template=", "-q", "-b", "main", producer)
+    body = b"Owned zero-model local Git publication preflight.\n"
+    (producer / "material.md").write_bytes(body)
+    git("add", "material.md", cwd=producer)
+    git(
+        "-c",
+        "user.name=MindIE Benchmark",
+        "-c",
+        "user.email=benchmark@example.invalid",
+        "commit",
+        "-qm",
+        "Local Git preflight",
+        cwd=producer,
+    )
+    revision = git("rev-parse", "HEAD", cwd=producer)
+    git("push", str(remote), "HEAD:refs/heads/main", cwd=producer)
+    git("clone", "--template=", "-q", "--branch", "main", remote, cloned)
+    if git("rev-parse", "HEAD", cwd=cloned) != revision or (cloned / "material.md").read_bytes() != body:
+        raise RuntimeError("local Git preflight consumer differs from the producer")
+    return dict(
+        status="completed",
+        executable=os.environ["MINDIE_BENCH_GIT"],
+        exec_path=os.environ["GIT_EXEC_PATH"],
+        revision=revision,
+        body_sha256=hashlib.sha256(body).hexdigest(),
+        model_calls=0,
+        publication="owned local bare Git only",
+    )
 
 
 def finish_indexes(engine, summarize, *, max_batches=256):
@@ -316,7 +358,7 @@ def capture(args):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(text)
         with timing.measure("local_git_publish"):
-            git("init", "-q", "-b", "main", staging)
+            git("init", "--template=", "-q", "-b", "main", staging)
             git("add", ".", cwd=staging)
             git(
                 "-c",
@@ -332,7 +374,7 @@ def capture(args):
             git("push", str(local_remote), "HEAD:refs/heads/main", cwd=staging)
         cloned = root / "independent-consumer"
         with timing.measure("consumer_git_readback"):
-            git("clone", "-q", "--branch", "main", local_remote, cloned)
+            git("clone", "--template=", "-q", "--branch", "main", local_remote, cloned)
             if git("rev-parse", "HEAD", cwd=cloned) != revision:
                 raise RuntimeError("independent consumer did not obtain the published revision")
             fetched = list(packages(cloned))

@@ -2,20 +2,26 @@
 
 ## Current benchmark improvements
 
-Reviewed source base: `2efbc5993b917c7d14ac88f2f14916c1816494b8`;
-current 50-file runtime digest:
-`1748b294b999de38ed88cc3b6d7463a14615923360743bdf190e708ac4d32b28`.
+Reviewed source base: `7088263`; the final runtime changes are bound by the
+51-file implementation digest:
+`b1634bfd4f181b07b4c3af248234008bb44eee7c052b79b56d992f143180dfcf`.
 Principles revision remains `240248b18996904490cca1e1ecceb8d9ecd83e03`,
 file SHA-256 `642bb77daf460dd9c15931b70983fd972f5f8ee352863c2158432c1ca96b470a`.
 
 1. Total cost: interval unions replace summed concurrent waits; first/last edits,
    validation tails and seed-inclusive costs separate repair progress from later work.
+   Program-position parsing removes textual false test matches without claiming
+   to count every opaque program or actual kernel execution.
 2. Closed boundaries: the broker transports actual MCP exchanges; recipe compilation
    validates source/assets and leaves engineering diagnosis to the native agent.
 3. Cognitive load: existing run/mine/compare commands remain the maintainer entry.
    Required MCP startup removes the need for agents to construct manual clients.
+   Actual local Git publication is checked automatically before model admission,
+   without a user-facing recovery command or an unsandboxed capture fallback.
 4. Single responsibility: profiles own grants, the broker owns transport observations,
    external judges own correctness and the scorer owns derived measurements.
+   One shared command predicate now serves all three gateway admission paths
+   and the scorer instead of four independently interpreted regex checks.
 5. Skills give a map: domain guidance remains advisory; explicit retrieval is a
    separately declared experiment condition rather than an implicit product mandate.
 6. Advisory knowledge: actual stale advice is tested against current source;
@@ -24,15 +30,37 @@ file SHA-256 `642bb77daf460dd9c15931b70983fd972f5f8ee352863c2158432c1ca96b470a`.
    Personal configuration and public publication remain outside these experiments.
 8. Reuse: native MCP readiness, real MindIE capture/retrieval, Git, OS sandboxes,
    locked CPU libraries and actual distributed model modules are used directly.
+   G3 materialization copies the existing task as explicit same-defect candidates;
+   it never inherits their source/gold proofs or invents a second task domain.
+   macOS capture resolves the installed Git executable before sandboxing and
+   grants only that binary and its existing helper directory, avoiding xcrun's
+   blocked loader without granting the complete developer-tools installation.
 9. Visible errors: caller argument errors remain visible without poisoning a healthy
    knowledge backend; provider/remote uncertainty is retained. Remote modification
    inventories now describe the judged workspace and exclude unchanged provided inputs.
+   Conservative literal-container access analysis invalidates escaped or mutated
+   aliases. Later job receipts establish success only for an unambiguous matching
+   target/job; original pending, conflicting and unknown facts remain intact.
+   Both native job-identity aliases are accepted only when consistent with each
+   other and the result. Git failures retain the original exception and stderr.
 
-The current suite reports 465 passed and two optional skips; both skipped native/MCP
-controls subsequently passed with their actual runtimes. The installed M wheel
-matches all 50 runtime files. Frozen L model trials retain their original
-`59a53f99…` implementation; M's inventory correction needs its separate remote
-canaries. Actual task outcomes and environment differences are in
+The O suite reports 645 passed and zero skips, with all optional native/MCP/CPU
+runtimes explicitly selected. Its wheel, source and installed package match all
+51 runtime files; six base dependencies were installed from hash-locked entries.
+The prior remote-inventory correction passed separate real zero-model canaries
+on both A2 and A3. N's installed foreground/MCP preflight returned the exact
+knowledge body while denying four existing private files to Python and `cat`;
+both backend sessions closed cleanly, with zero model or remote executions.
+Frozen L model trials retain their original `59a53f99…` implementation and
+original counters. N's read-only command audit records 13 textual false matches
+and six unresolved inline-Python commands rather than relabelling all 19
+differences as false tests. The real N seed passed its six state checks but failed
+capture before any summary-model request; its eval remains blocked. Same-policy
+zero-model diagnosis established the xcrun loader failure. O's installed sandbox
+then passed the complete owned init/commit/push/clone/body-readback route and the
+private-bare check. O's MCP privacy preflight also passed with unchanged component
+trees and zero model/remote executions. These checks establish the prerequisites,
+not a completed paid flywheel. Actual task outcomes and environment differences are in
 [acceptance](acceptance.md), rather than inferred from passing software tests.
 
 ## Frozen G/H/I review history
