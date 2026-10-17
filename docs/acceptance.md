@@ -5,6 +5,261 @@ Implementation, task soundness, native experiment completion and measured
 engineering benefit are separate conclusions. All paths below are relative to
 `reports/acceptance-a2-a3-20261017/`, unless another root is stated.
 
+## Current improvements and measured comparisons
+
+The initial new experiments below use the independently installed runtime
+`59a53f994306c8fbee36dfe2a42a675b4533270eaed4c8991137f73037e59379`
+and raw evidence under `reports/benchmark-improvement-20261017/`.
+Foreground corpus paths/grants were removed: actual knowledge processes own
+their private files, while the foreground uses the real MCP transport.
+Native servers are required and initialized before the first model request.
+Broker accounting includes manual MCP clients, uses the exact native clock
+origin, and separates foreground retrieval from capture-consumer checks.
+
+The scorer now parses shell source access, merges overlapping tool intervals,
+records first/last target edits and validation tails, and preserves measurement
+reasons. The subsequent source-inventory correction uses the actual judged
+workspace, excludes unchanged provided inputs and retains local/remote lists
+separately. Its installed wheel passed actual zero-model SSH/worktree/postflight
+checks on A2 and A3 (`remote-inventory-fix/{a2,a3}-canary/receipt.json`).
+Neither canary changes or retroactively rescores a frozen model trial.
+
+The source-bound datasets now include six executable corpus-first CPU recipes,
+a whole-module Ascend error replay with an independent 37-case CPU tensor
+judge, a stale-advice task with executed old/current API counterexamples and
+a real dual-card model-state task. Each admitted task has its own source-fail /
+gold-pass proof. Public instructions and reproduction assets remain separate
+from gold, hidden judges, replay rules and source history.
+
+### Real A2/A3 native cells
+
+One attempt per condition, same foreground model and task budget within each
+hardware study; all eight independent verifiers passed:
+
+| Task / hardware | Condition | Native time (s) | Delivery time (s) | Original regex / parsed command attempts | Foreground query / explain |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Legacy RMSNorm / A2 | G0 | 275.80 | 310.36 | 11 / 3 | 0 / 0 |
+| Legacy RMSNorm / A2 | G1 | 174.02 | 208.85 | 4 / 2 | 0 / 0 |
+| Legacy RMSNorm / A2 | G2 natural | 188.34 | 233.33 | 8 / 5 | 0 / 0 |
+| Legacy RMSNorm / A2 | G2 explicit | 215.69 | 260.32 | 5 / 3 | 1 / 1 |
+| Kimi K3 idle state / A3 | G0 | 298.26 | 338.00 | 6 / 6 | 0 / 0 |
+| Kimi K3 idle state / A3 | G1 | 237.76 | 280.16 | 7 / 6 | 0 / 0 |
+| Kimi K3 idle state / A3 | G2 natural | 179.07 | 231.38 | 6 / 4 | 0 / 0 |
+| Kimi K3 idle state / A3 | G2 explicit | 244.99 | 295.84 | 6 / 5 | 1 / 1 |
+
+The A3 task executes complete historical runner/model modules with actual
+DP2/TP1, HCCL, KDA/MLA/MoE and NPU state updates. Its six hidden state checks
+cover idle, busy-rank and unaffected-row behavior. It is eager state correctness,
+with tiny dummy-weight model execution, rather than ACLGraph, pretrained-model
+accuracy or serving throughput. A2 remains the original functional regression.
+Both explicit conditions returned exact canonical knowledge bodies; natural
+G2 did not query. Baselines passed, so these cells show no completion-rate lift.
+Explicit retrieval took longer than G1 in both studies. The parsed counts are
+a separate read-only audit, not rewritten trial results or replayed budgets:
+13 original matches were textual/compiler commands rather than test-program
+execution; six further inline-Python commands are unresolved by the conservative
+parser. Parsed counts are lower-bound command observations, not measured kernel
+executions or guaranteed hardware-test counts. A2's 55 no-input job observations
+all requested 10-second waits; only one was both pending and without new output.
+No-input calls are not automatically idle polls.
+
+An independent retrieval diagnostic generated six new bytecode caches while
+the natural cohorts were active. Excluding precisely those files reproduced
+the frozen component tree hash: all other bytes, including source, were
+unchanged. The first explicit launch was rejected before model admission;
+the six caches were archived and removed, and the exact tree was restored
+before either explicit cell. This environment difference remains in
+`diagnostic-cache-restoration/restoration.json`; comparisons are descriptive,
+not clean causal estimates. Original trials and the refusal are preserved.
+
+### CPU, replay and retrieval
+
+The earlier 24-cell CPU/replay study completed with 23 passes and one
+infrastructure failure. It exposed missing native first-turn knowledge tools,
+manual-client undercounting and malformed-client input poisoning the broker.
+Those three implementation defects were fixed before the new installed-runtime
+study. Original outcomes remain unchanged.
+The twelve ordinary G0/G1/G2 CPU cells took 434.35 scheduler seconds; the two
+G3 seed/eval pairs took 348.02 seconds. The separate three-condition Ascend
+replay took 245.27 seconds, and its explicit G2 cell took 93.55 seconds.
+These are actual local slice durations, rather than a five-minute claim for
+the complete dataset.
+
+The new ten-cell CPU/replay study has five passes, four failures and one unknown:
+two passing seeds; one passing and one unknown G3 evaluation; four failing stale
+conditions; one passing explicit placeholder evaluation and one passing replay.
+Both G3 evaluations actually queried and explained their own new seed bodies.
+The unknown evaluation passed its business judge but its capture worker made a
+second native request beyond the declared one-call budget. The first request
+has complete provider usage; the refused request was not admitted. Its local
+capture remains unknown and was not retried. Evidence does not establish why
+the native worker requested a continuation, so the budget was not increased.
+
+All four stale conditions missed the supported `--additional_config` spelling,
+whose usage exists in the public historical source. The explicit condition
+performed real query/explain but still failed; this is zero observed completion
+benefit, not evidence that stale advice caused the failure. Independent
+readbacks are in `independent-native-l-review/`.
+
+The fixed retrieval component slice uses 12 distinct known-positive queries
+over the frozen 661-package corpus: Recall@3 = 11/12, MRR@3 = 0.83333 and
+nDCG@3 = 0.855155. Query median/p95 are 436.59/519.53 ms; explain median/p95
+are 6.02/69.29 ms. The preserved miss is a Chinese paraphrase ranked below
+the top three by lexical BM25, with correct source labels and indexed bodies.
+This slice is not an exhaustive relevance evaluation or general recall claim.
+
+The original twelve-task/five-domain flagship, repeated reliability estimates,
+actual graph execution and performance-regression tasks still need additional
+source-bound tasks and trials. Current passing eager/CPU/replay cases do not
+complete that broader matrix. Private detailed receipts remain under reports;
+the product documentation retains architecture and maintainer contracts only.
+
+### Further defects found by real NPU capture
+
+The subsequent N same-defect G3 pair accounts for one failed seed prerequisite
+and one blocked eval. Its seed passed all six distributed state checks, used
+actual foreground query/explain once each, and recorded the exact native Stop.
+Capture failed before any summary-model admission: macOS PATH Git invoked
+xcrun, whose loader was denied by the capture sandbox. A same-policy read-only
+canary established the original stderr and successful direct Git invocation.
+The original receipt remains `infra_failed`, rather than a completed flywheel.
+
+This trial also exposed a scorer omission: native job observations used
+`session_id`, while later-completion reconciliation accepted only `job_id`.
+The fix accepts either only with consistent scoped result identity, preserving
+conflicting or unconfirmed commands as unknown. It does not rewrite the N
+null metrics. The command parser now also recognizes the public `reproduce.py`
+entry at a literal program position, without counting reads, compiler arguments
+or quoted text as executions.
+
+The installed O runtime is
+`b1634bfd4f181b07b4c3af248234008bb44eee7c052b79b56d992f143180dfcf`.
+It selects actual Git and its helper directory before sandboxing, retains Git
+stderr, and verifies local init/commit/push/clone/body-readback before workspace,
+remote or model admission. Its full suite has 645 passes and zero skips; all
+51 runtime files match source, wheel and installation. The independent
+installed Git and MCP/privacy preflights passed with zero model/remote/NPU
+executions. Detailed original outcomes and zero-model diagnosis are in
+`independent-native-n-review/` and `native-npu-flywheel-n/reconciliation/`.
+
+### Actual O NPU experience reuse
+
+The new O study completed both planned cells without blocked, failed or unknown
+outcomes. They repeat one historical defect and the same verifier in separate
+native sessions; they are not two independent defects.
+
+| Measurement | Seed session | Session using its captured experience |
+| --- | ---: | ---: |
+| Native wall time (s) | 303.09 | 250.09 |
+| Complete delivery time (s) | 368.55 | 315.38 |
+| First observed successful target access, turn / s | 20 / 207.20 | 7 / 53.88 |
+| First target edit, turn / s | 20 / 207.20 | 12 / 104.25 |
+| Last target edit, turn / s | 20 / 207.20 | 13 / 110.89 |
+| Recognized attempts before last edit / total | 3 / 7 | 1 / 5 |
+| Foreground query / explain | 1 / 1 | 1 / 1 |
+| Foreground / summary-model requests | 26 / 1 | 22 / 1 |
+
+Both cells passed all six independent DP2/HCCL state judgments. Each has a real
+native Stop, deterministic redaction, completed one-call model navigation, local
+Git publication and an independent consumer. Before eval capture began, its
+initial corpus tree exactly matched the seed's captured tree. Its foreground
+query selected its own new seed package, and its actual native explain result
+returned the canonical 5,065-byte body, SHA-256
+`d22360fa0c86b8b11f6eae9ffa5baf5b27ae9aba4621afe42d574abee189a0ea`.
+This is foreground MCP evidence, separately verified from consumer readback.
+
+All 48 foreground and two summary-model requests have complete usage:
+3,426,146 tokens including the seed and both captures. The scheduler took
+686.14 seconds; summed delivery time was 683.92 seconds. There are 64 structured
+remote results with zero non-business errors and complete observation coverage.
+Both final remote settlements are sealed with zero active/unknown operations,
+and assigned-card PID lists are empty.
+
+The edit/access fields are successful command proxies with 2/2 observation
+coverage; complete initial Git-blob visibility remains null because only
+excerpts were returned. One repeated incident and one eval do not establish
+Pass³, completion lift or causal efficiency improvement. The seed cost is
+included, and neither this study nor its timing ratios replace the earlier
+G0/G1/G2 cohorts. Actual metrics and CLI accounting are in
+`independent-native-o-review/reportable-terminal-v1.{json,md}`; closed-loop
+identity/body/resource evidence is in
+`native-npu-flywheel-o/reconciliation/full-loop-terminal.json`.
+
+### Native C++ numerical repair: four conditions
+
+The source-bound `kda-chunk-varlen-padded-workspace` task adds an actual CANN
+operator workspace defect. Its exact A3 soundness proof observes four failing
+variable-length cases and four passing dense controls before repair, then eight
+passing cases after gold. Each model trial's private judge rebuilds its complete
+current 1,626-file C++ source tree, loads a fresh operator prefix and imports the
+hash-bound historical test module to execute those eight numerical cases.
+It checks finite values and independent FP32 output/final-state references;
+it does not run every test in that historical module.
+
+The four predeclared single-attempt conditions used the unchanged installed O
+runtime, the same model and a 40-request foreground limit:
+
+| Condition | Original overall outcome | External numerical cases | Foreground / verifier / delivery (s) | Foreground query / explain | Recognized NPU attempts |
+| --- | --- | ---: | ---: | ---: | ---: |
+| G0 | completed_pass | 8/8 pass | 456.11 / 306.74 / 771.13 | 0 / 0 | 3 |
+| G1 | completed_fail: max_turns | 8/8 pass | 643.22 / 308.41 / 960.05 | 0 / 0 | 2 |
+| G2 natural | completed_fail: max_turns | 8/8 pass | 487.40 / 306.11 / 811.46 | 0 / 0 | 2 |
+| G2 explicit | completed_fail: max_turns | 8/8 pass | 632.29 / 306.04 / 955.91 | 1 / 1 | 3 |
+
+Correct final source and native completion within budget are distinct results:
+the latter is 1/4 under this declared protocol. Explicit retrieval succeeded
+and took 12.26 seconds, but showed no budget-completion improvement here.
+G0 still passes this one task; no observed score was used to force its baseline
+into a desired 20-60% band. There are four singleton conditions on one defect,
+not a completion-lift or reliability estimate. Natural conditions used a
+two-device pool with concurrency two, followed by explicit concurrency one;
+these timings are descriptive, not a randomized hardware comparison.
+
+All 158 admitted foreground requests have complete usage: 423,009 uncached
+input, 12,216,576 cached input and 34,524 output tokens; no capture requests.
+Three subsequent calls were refused locally before paid admission. The actual
+scheduler duration was 2,538.52 seconds. Each assigned card's postflight has no
+PID, all remote settlements are sealed with no active or uncertain operations,
+and all cleanup-error lists are empty. The three-cell natural manifest and
+one-cell explicit manifest are accounted separately, then joined by arm ID.
+
+The real G0 trace also validates interval merging: 949.83 cumulative remote
+seconds become a 363.06-second union within its 456.11-second foreground wall.
+All four exploration-time residuals and first-access measurements are observed.
+Original O first/last-edit coverage is 3/4: a nested quoted SSH/Python heredoc
+caused G0's literal edit to be missed. Final source commit `52466b4` fixes that
+bounded parser and passes 666 tests with zero skips. Its separate observation
+replay recovers G0's turn-14 edit at 63.08 seconds and measures all seven
+access/edit fields in all four conditions. The other three conditions retain
+their original values. The installed-runtime derivation is
+`nested-ssh-heredoc-parser-fix-1/p-installed-four-arm-shadow.json`;
+original receipts, trajectories, budgets, provider usage and outcomes remain
+unchanged.
+
+One natural-G2 `remote_edit` call failed before submission when deleting text
+with `new_string=""`. Its native error retains caller/not-sent metadata, but
+the original normalized observation lacks structured attribution. Therefore
+the original total non-business error count stays unmeasured with known lower
+bound zero; it is not reported as zero errors. The component defect is tracked
+separately from the final numerical result. Remote-dev commit
+`34bb6e514c6b7fe1ebb7eb0527f98bd527d23695`, based on the exact frozen `f72c96c`,
+now accepts empty string replacements while rejecting missing, null and
+non-string arguments before endpoint resolution. Its schema-to-MCP-dispatch
+regression executes the actual file-operation program against temporary files:
+47 targeted tests and 54 subtests pass, with no model, SSH or NPU operations.
+Old-string and stale-read guards remain exercised. The original frozen
+component, model results and failure observation were not replaced by this fix.
+
+The compact measured readout is
+`independent-native-kda-o-review/final-reportable-readout-v1.{json,md}`;
+fresh-source, eight-case and resource identity are independently checked in
+`native-kda-study-o/reconciliation/verifier-terminal-readback.json`.
+These are numerical correctness results on A3, alongside the earlier real DP2
+state task. They do not complete the original flagship's graph, performance,
+cross-model analogical-transfer or repeated-reliability matrix.
+
+## Historical G/H/I cohorts
+
 The source-matched H dual-cluster matrix has terminated with 88 actual receipts
 and two blocked cells across 90 planned cells. It did not pass complete matrix
 acceptance. The later I runtime passed a separate four-cell native canary and

@@ -2,7 +2,9 @@
 
 ## Current benchmark improvements
 
-Reviewed source base: `7088263`; the final runtime changes are bound by the
+Reviewed final implementation commit: `52466b4`; its 51-file runtime digest is
+`92f13ff4fb138a1a69818e1c5b5b2cfafe63a3688623b53e8610113d512031cf`.
+The actual O model experiments retain implementation `d5e546a`, bound by the
 51-file implementation digest:
 `b1634bfd4f181b07b4c3af248234008bb44eee7c052b79b56d992f143180dfcf`.
 Principles revision remains `240248b18996904490cca1e1ecceb8d9ecd83e03`,
@@ -14,6 +16,9 @@ file SHA-256 `642bb77daf460dd9c15931b70983fd972f5f8ee352863c2158432c1ca96b470a`.
    to count every opaque program or actual kernel execution.
 2. Closed boundaries: the broker transports actual MCP exchanges; recipe compilation
    validates source/assets and leaves engineering diagnosis to the native agent.
+   The final scorer scans bounded literal quotes, escapes and comments before
+   interpreting a heredoc. Only existing shell/SSH recursion interprets quoted
+   command arguments; cat/echo payloads remain data and no command is executed.
 3. Cognitive load: existing run/mine/compare commands remain the maintainer entry.
    Required MCP startup removes the need for agents to construct manual clients.
    Actual local Git publication is checked automatically before model admission,
@@ -35,6 +40,9 @@ file SHA-256 `642bb77daf460dd9c15931b70983fd972f5f8ee352863c2158432c1ca96b470a`.
    macOS capture resolves the installed Git executable before sandboxing and
    grants only that binary and its existing helper directory, avoiding xcrun's
    blocked loader without granting the complete developer-tools installation.
+   The new C++ task builds the complete current operator source and imports a
+   hash-bound historical test module for eight numerical cases.
+   Its A3 source-fail/gold-pass proof is separate from model repair results.
 9. Visible errors: caller argument errors remain visible without poisoning a healthy
    knowledge backend; provider/remote uncertainty is retained. Remote modification
    inventories now describe the judged workspace and exclude unchanged provided inputs.
@@ -43,10 +51,16 @@ file SHA-256 `642bb77daf460dd9c15931b70983fd972f5f8ee352863c2158432c1ca96b470a`.
    target/job; original pending, conflicting and unknown facts remain intact.
    Both native job-identity aliases are accepted only when consistent with each
    other and the result. Git failures retain the original exception and stderr.
+   The final quote-aware correction retains missing heredoc boundaries as
+   unresolved. Its observation-only replay never changes original trial statuses,
+   budgets, provider usage or receipts.
 
-The O suite reports 645 passed and zero skips, with all optional native/MCP/CPU
-runtimes explicitly selected. Its wheel, source and installed package match all
-51 runtime files; six base dependencies were installed from hash-locked entries.
+The final source suite reports 666 passed and zero skips, with all optional
+native/MCP/CPU runtimes explicitly selected. The earlier O suite reported 645;
+the first final-task software snapshot reported 648 before the nested-SSH
+correction. These source revisions remain distinct from their model experiments.
+Wheel/source/install byte and dependency checks are recorded in their separate
+runtime inventories; six base dependencies use hash-locked entries.
 The prior remote-inventory correction passed separate real zero-model canaries
 on both A2 and A3. N's installed foreground/MCP preflight returned the exact
 knowledge body while denying four existing private files to Python and `cat`;
@@ -59,8 +73,27 @@ capture before any summary-model request; its eval remains blocked. Same-policy
 zero-model diagnosis established the xcrun loader failure. O's installed sandbox
 then passed the complete owned init/commit/push/clone/body-readback route and the
 private-bare check. O's MCP privacy preflight also passed with unchanged component
-trees and zero model/remote executions. These checks establish the prerequisites,
-not a completed paid flywheel. Actual task outcomes and environment differences are in
+trees and zero model/remote executions. The subsequent actual O study completed
+both planned DP2 cells and both captures: independent readback confirms exact
+Stop identities, twelve state judgments, local Git/consumer identity and the
+eval's actual native receipt of its own seed body. Fifty requests have complete
+provider usage; original N failure/blocked outcomes remain unchanged. This is
+one repeated incident, with seed-inclusive cost and no causal lift claim.
+The subsequent four-condition C++ study used the unchanged installed O runtime:
+all four final source snapshots passed eight numerical cases, while three native
+sessions exhausted their fixed 40-call budget and remain completed failures.
+The first G0 target edit was absent from the original O metrics; a separate
+read-only final-parser derivation recovers the actual literal edit without
+rewriting the original experiment. Independent review found no material issue
+in the bounded parser change and its opaque-payload/incomplete-boundary controls.
+The actual empty-replacement failure also produced remote-dev fix `34bb6e5`
+in an isolated worktree based on the exact frozen component revision. Its
+declared string schema accepts deletion, while invalid input remains a visible
+caller error before endpoint resolution. Forty-seven targeted tests plus
+54 subtests execute the real file-operation program locally, including stale
+read protection. This component change has its own concrete nine-principle
+review and does not replace the original experiment's frozen dependency.
+Actual task outcomes and environment differences are in
 [acceptance](acceptance.md), rather than inferred from passing software tests.
 
 ## Frozen G/H/I review history
