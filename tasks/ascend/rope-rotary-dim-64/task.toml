@@ -1,0 +1,28 @@
+schema_version = "1.0"
+[task]
+instance_id = "rope-rotary-dim-64"
+domain_category = "operator_correctness"
+difficulty = "easy"
+evidence = "verified"
+cluster = "partial-rope-rotary-dim"
+role = "seed"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "80e5812b39bd3b19efa8a6af65658f599bd6cae0"
+issue = "6581"
+validation_scope = "focused historical Python functions; actual single-device NPU tensors, no model weights or distributed collective claim"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/ops/rotary_embedding.py"]
+[budget]
+max_turns = 40
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l3]
+repo_path = "../../../repositories/vllm-ascend-rope"
+base_commit = "d060c797ed8fd22a1ecdf86c5e26f6eeaf7531f2"
+npu_model = "Ascend910"
+npu_count = 1

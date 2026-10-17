@@ -182,7 +182,7 @@ for proc in pathlib.Path("/proc").iterdir():
         if proc.stat().st_uid!=os.getuid():
             continue
         fd=os.pidfd_open(int(proc.name))
-    except ProcessLookupError:
+    except (FileNotFoundError, ProcessLookupError):
         continue
     try:
         if token in (proc/"environ").read_bytes().split(b"\0"):

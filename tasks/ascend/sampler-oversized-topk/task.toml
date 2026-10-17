@@ -1,0 +1,28 @@
+schema_version = "1.0"
+[task]
+instance_id = "sampler-oversized-topk"
+domain_category = "operator_correctness"
+difficulty = "easy"
+evidence = "verified"
+cluster = "reduce-sampler-candidate-contract"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "80cd5964286f2a394e3e6b3d1f7581ce901c812a"
+issue = "10004"
+validation_scope = "focused historical Python functions; actual single-device NPU tensors, no model weights or distributed collective claim"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/sample/sampler.py"]
+[budget]
+max_turns = 40
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l3]
+repo_path = "../../../repositories/vllm-ascend-sampler"
+base_commit = "d552d03a4851aa4d75420377952b0177c94cd4a5"
+npu_model = "Ascend910"
+npu_count = 1

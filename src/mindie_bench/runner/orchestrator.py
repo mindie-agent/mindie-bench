@@ -62,6 +62,90 @@ def implementation_digest() -> str:
     )
 
 
+RUNTIME_HELPER_MODULES = (
+    "mindie_bench.runner.ssh_shim",
+    "mindie_bench.integrations.codex_stop",
+    "mindie_bench.integrations.first_party",
+)
+
+
+def probe_runtime_import(profile, read_paths: list[Path], trial_dir: Path, expected_digest: str):
+    code = (
+        "import importlib,json,sys\n"
+        "from pathlib import Path\n"
+        "import mindie_bench\n"
+        "from mindie_bench.runner.orchestrator import implementation_digest\n"
+        f"names={RUNTIME_HELPER_MODULES!r}\n"
+        "modules={name:str(Path(importlib.import_module(name).__file__).resolve()) for name in names}\n"
+        "print(json.dumps(dict(benchmark_source_sha256=implementation_digest(),"
+        "executable=sys.executable,package_root=str(Path(mindie_bench.__file__).resolve().parent),"
+        "modules=modules)))\n"
+    )
+    command = native_command(
+        [sys.executable, "-I", "-c", code],
+        read=read_paths,
+        write=[profile.root],
+        cwd=profile.root,
+        policy_path=trial_dir / "runtime-preflight.sb",
+    )
+    diagnostic = dict(status="failed", expected_source_sha256=expected_digest)
+    try:
+        try:
+            result = subprocess.run(
+                command,
+                env=profile.env,
+                cwd=profile.root,
+                timeout=20,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.TimeoutExpired as exc:
+            for name, value in [("stdout", exc.stdout), ("stderr", exc.stderr)]:
+                raw = value.encode() if isinstance(value, str) else value or b""
+                (trial_dir / f"runtime-preflight.{name}").write_bytes(raw)
+            raise RuntimeError(
+                "runtime helper import timed out; inspect runtime-preflight.stderr"
+            ) from exc
+        (trial_dir / "runtime-preflight.stdout").write_text(result.stdout)
+        (trial_dir / "runtime-preflight.stderr").write_text(result.stderr)
+        diagnostic["returncode"] = result.returncode
+        if result.returncode:
+            raise RuntimeError(
+                f"runtime helper import failed (exit={result.returncode}); "
+                "inspect runtime-preflight.stderr"
+            )
+        observed = json.loads(result.stdout)
+        diagnostic["observed"] = observed
+        if not isinstance(observed, dict) or not all(
+            isinstance(observed.get(name), str)
+            for name in ["benchmark_source_sha256", "executable", "package_root"]
+        ):
+            raise ValueError("runtime helper identity is malformed")
+        modules = observed.get("modules")
+        if not isinstance(modules, dict) or set(modules) != set(RUNTIME_HELPER_MODULES):
+            raise ValueError("runtime module identity is malformed")
+        root = Path(observed["package_root"])
+        for name, path in modules.items():
+            if not isinstance(path, str) or Path(path) != root.joinpath(
+                *name.split(".")[1:]
+            ).with_suffix(".py"):
+                raise ValueError(f"runtime module identity mismatch: {name}")
+        if Path(observed["executable"]).absolute() != Path(sys.executable).absolute():
+            raise ValueError("runtime interpreter identity mismatch")
+        if observed["benchmark_source_sha256"] != expected_digest:
+            raise ValueError(
+                "runtime implementation digest mismatch: "
+                f"expected {expected_digest}, got {observed['benchmark_source_sha256']}"
+            )
+        diagnostic["status"] = "completed"
+    except Exception as exc:
+        diagnostic["error"] = dict(type=type(exc).__name__, message=str(exc))
+        write_json(trial_dir / "runtime-preflight.json", diagnostic)
+        raise
+    write_json(trial_dir / "runtime-preflight.json", diagnostic)
+    return observed
+
+
 def check_read_boundaries(paths: list[Path], protected: list[Path]):
     for allowed in paths:
         for private in protected:
@@ -184,6 +268,9 @@ def run_trial(
         if task.mindie_knowledge.corpus_id in config.corpora:
             protected.append(Path(config.corpora[task.mindie_knowledge.corpus_id].path))
         check_read_boundaries(paths, protected)
+        fingerprint["runtime_preflight"] = probe_runtime_import(
+            profile, paths, trial_dir, fingerprint["benchmark_source_sha256"]
+        )
         binary = Path(config.harness.executable).resolve(strict=True)
         fingerprint["harness_binary_sha256"] = hashlib.sha256(binary.read_bytes()).hexdigest()
         version_cmd = native_command(

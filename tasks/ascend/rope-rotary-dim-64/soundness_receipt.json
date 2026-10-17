@@ -1,0 +1,49 @@
+{
+  "after_reward": 1.0,
+  "before_reward": 0.0,
+  "errors": [],
+  "model_calls": 0,
+  "remote_postflight": {
+    "14": {
+      "capacity_mb": 65536,
+      "card_id": 7,
+      "chip_id": 0,
+      "model": "Ascend910",
+      "physical_id": 14,
+      "pids": [],
+      "used_mb": 3141
+    },
+    "_environment": {
+      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
+      "driver": "25.5.3",
+      "image_digest": "sha256:90d743487f574f50d9baefbb4438b6590f4a1ddea2676f26de50c01da0b5da27",
+      "kernel": "5.10.0-216.0.0.115.oe2203sp4.aarch64",
+      "python": "3.12.13 (main, Aug  3 2026, 02:40:28) [GCC 11.4.0]",
+      "torch_npu": "2.10.0.post4"
+    }
+  },
+  "remote_preflight": {
+    "14": {
+      "capacity_mb": 65536,
+      "card_id": 7,
+      "chip_id": 0,
+      "model": "Ascend910",
+      "physical_id": 14,
+      "pids": [],
+      "used_mb": 3139
+    },
+    "_environment": {
+      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
+      "driver": "25.5.3",
+      "image_digest": "sha256:90d743487f574f50d9baefbb4438b6590f4a1ddea2676f26de50c01da0b5da27",
+      "kernel": "5.10.0-216.0.0.115.oe2203sp4.aarch64",
+      "python": "3.12.13 (main, Aug  3 2026, 02:40:28) [GCC 11.4.0]",
+      "torch_npu": "2.10.0.post4"
+    }
+  },
+  "schema_version": "1.0",
+  "source_commit": "d060c797ed8fd22a1ecdf86c5e26f6eeaf7531f2",
+  "status": "completed",
+  "task_sha256": "bd509ecf348e19f700c2a28105e855d602b7988e03bfbc8ef8788ee37b8e1799",
+  "tier": "l3"
+}
