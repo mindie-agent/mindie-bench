@@ -24,6 +24,34 @@ for A2. Operators need access to the appropriate exact local image, an existing
 source repository containing both historical base objects, and a new owned
 build context. A missing prerequisite is an explicit preparation gap.
 
+For A2, distinguish the original framework image from the reusable core
+checkpoint. The recorded builder was created from
+`sha256:8bdfac2931eeb2ff736bd0164b9843fc434c75f184406b1b7ee126b7a893a7c2`.
+After RMSNorm projection and runtime preparation, its first commit produced
+the core checkpoint `d85730...` listed above. Continuing changes in that same
+original builder later produced the multifamily image `bd78c9...`. Thus the
+observed worker record's `source_image = 8bdfac...` identifies the original
+builder image; it does not name this recipe's direct input. The historical
+multifamily image was not built by creating a new builder from `d85730...`,
+so these records do not establish a direct Docker parent edge from the core
+checkpoint to that multifamily image.
+
+The recipe intentionally starts from the reusable core checkpoint. Its
+RMSNorm file must already have the exact failing hash, and its untouched
+rope/sampler files must match
+`18b9dd6ffbe82f0c5a80068b7c9633593b78e36ce9e039c100878754f5c9bcd7`
+and
+`1e99d47a1ba37cc0537248b32d283b01741fab4726f880700a8add09340592ba`.
+Those hashes were read from the actual core worker and reproduced the recorded
+multifamily function output locally. This reconciles the two preparation paths
+at the checked source files, not at complete image/layer identity. Read-only
+Docker inspection on October 17, 2026 at 03:00:21 UTC confirmed all three local
+images existed: the original has 26 layers, while the core and multifamily
+checkpoints each have those 26 layers plus different final layers; both report
+the original image as `Parent`. Verify that the exact core image is still
+present locally before each build; this observation and historical commit
+receipts do not guarantee future image availability.
+
 ## Prepare and inspect before building
 
 This command performs only local Git reads and writes a new build context:
