@@ -45,8 +45,14 @@ class Gateway(AbstractContextManager):
         self.workspace, self.journal = workspace, journal
         self.lock = threading.RLock()
         self.model_idle = threading.Condition(self.lock)
+        self.remote_idle = threading.Condition(self.lock)
         self.models_sealed = False
         self.model_settlement_expired = False
+        self.remotes_sealed = False
+        self.remote_settlement_expired = False
+        self.remote_active = 0
+        self.remote_unknown = False
+        self.remote_failures: list[dict] = []
         self.model_calls = self.replay_calls = 0
         self.stop_reason: str | None = None
         self.unknown = False
@@ -88,6 +94,11 @@ class Gateway(AbstractContextManager):
 
     def record(self, kind: str, **values):
         with self.lock, self.journal.open("a", encoding="utf-8") as out:
+            if kind in {"remote_unknown", "remote_calls_unsettled"} or (
+                kind == "remote_delivery_failed" and values.get("external_effects") == "unknown"
+            ):
+                self.remote_unknown = True
+                self.remote_failures.append(dict(kind=kind, **values))
             out.write(json.dumps(dict(kind=kind, monotonic_sec=time.monotonic(), **values)) + "\n")
             out.flush()
 
@@ -267,6 +278,7 @@ class Gateway(AbstractContextManager):
                     self.close_connection = True
 
             def do_POST(self):
+                remote_admitted = False
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                     if length <= 0 or length > 32 * 1024 * 1024:
@@ -274,6 +286,12 @@ class Gateway(AbstractContextManager):
                     body = self.rfile.read(length)
                     if len(body) != length:
                         return self.reject(400, "incomplete request")
+                    if self.path in {"/bench/ssh", "/bench/ssh-stream"}:
+                        with gateway.remote_idle:
+                            if gateway.remotes_sealed or gateway.closed:
+                                return self.reject(409, "remote admission is sealed; no new operation")
+                            gateway.remote_active += 1
+                            remote_admitted = True
                     if self.path == "/bench/replay":
                         payload = json.dumps(gateway.replay(json.loads(body))).encode()
                         self.send_response(200)
@@ -487,6 +505,11 @@ class Gateway(AbstractContextManager):
                     gateway.record("broker_error", error=type(exc).__name__, message=str(exc))
                     gateway.infrastructure_error = f"{type(exc).__name__}: {exc}"
                     self.reject(500, "benchmark broker failed; inspect its private journal")
+                finally:
+                    if remote_admitted:
+                        with gateway.remote_idle:
+                            gateway.remote_active -= 1
+                            gateway.remote_idle.notify_all()
 
             def do_GET(self):
                 self.reject(403, "egress endpoint is not permitted")
@@ -548,8 +571,30 @@ class Gateway(AbstractContextManager):
             with self.model_idle:
                 self.model_idle.wait_for(lambda: self.active == 0, timeout=min(timeout, 0.25))
 
+    def finish_remote(self, timeout=MODEL_SETTLEMENT_GRACE_SEC):
+        """Settle admitted RPC handlers before the judge can quiesce their worker."""
+        with self.remote_idle:
+            if self.remotes_sealed:
+                return
+            self.remotes_sealed = True
+            if not self.remote_idle.wait_for(lambda: self.remote_active == 0, timeout=timeout):
+                self.unknown = True
+                self.remote_settlement_expired = True
+                self.record("remote_calls_unsettled", active=self.remote_active)
+
+    def remote_state(self):
+        with self.lock:
+            return dict(
+                sealed=self.remotes_sealed,
+                active=self.remote_active,
+                settlement_expired=self.remote_settlement_expired,
+                unknown=self.remote_unknown,
+                failures=list(self.remote_failures),
+            )
+
     def __exit__(self, *args):
         self.finish_inference()
+        self.finish_remote()
         self.closed = True
         self._close_model_connections()
         if self.server:

@@ -378,6 +378,7 @@ def run_trial(
             )
             wall_clock = result.elapsed
             gateway.finish_inference()
+            gateway.finish_remote()
             errors.extend(result.errors)
             auxiliary["native_process"] = dict(
                 returncode=result.returncode, stop_reason=result.stop_reason
@@ -671,6 +672,21 @@ def run_trial(
                 slot.cleanup()
             except Exception as exc:
                 errors.append(dict(stage="workspace_cleanup", type=type(exc).__name__, message=str(exc)))
+        if gateway:
+            settlement = gateway.remote_state()
+            auxiliary["remote_settlement"] = settlement
+            if settlement["unknown"]:
+                if status != TerminalStatus.UNKNOWN:
+                    auxiliary["status_before_remote_unknown"] = dict(
+                        terminal_status=status.value, failure_reason=reason
+                    )
+                    if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
+                        auxiliary.setdefault("business_terminal_status", status.value)
+                reason = "remote effects are unknown; inspect the original broker journal; no retry"
+                errors.append(
+                    dict(stage="remote_settlement", type="UnknownExternalEffects", message=reason)
+                )
+                status = TerminalStatus.UNKNOWN
         if status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}:
             primary.update(resolved=None, reward=None)
         primary["delivery_wall_clock_sec"] = time.monotonic() - trial_started
