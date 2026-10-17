@@ -101,7 +101,7 @@ try:
 except (AssertionError, TypeError, ValueError, AttributeError, RuntimeError) as exc:
     import traceback
     traceback.print_exc()
-    if isinstance(exc, RuntimeError) and not any(marker in str(exc) for marker in ("expanded size", "selected index k out of range", "size of tensor")):
+    if isinstance(exc, RuntimeError) and not any(marker in str(exc).casefold() for marker in ("expanded size", "selected index k out of range", "size of tensor")):
         raise
     print(json.dumps({"reward": 0.0}))
     raise SystemExit(1)

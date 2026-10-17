@@ -11,7 +11,7 @@
       "model": "Ascend910",
       "physical_id": 14,
       "pids": [],
-      "used_mb": 3140
+      "used_mb": 3139
     },
     "_environment": {
       "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
@@ -30,7 +30,7 @@
       "model": "Ascend910",
       "physical_id": 14,
       "pids": [],
-      "used_mb": 3140
+      "used_mb": 3139
     },
     "_environment": {
       "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
@@ -44,6 +44,6 @@
   "schema_version": "1.0",
   "source_commit": "d552d03a4851aa4d75420377952b0177c94cd4a5",
   "status": "completed",
-  "task_sha256": "50bd1c10154c165c6cae7193a16792cf1ee5b2d3fa0bfc79fc900ef1af56d4b9",
+  "task_sha256": "16b4be6a7a1af422c1c3d6a5038aef68a2e7af87f47813bf7a133f977c3fb091",
   "tier": "l3"
 }

@@ -1,5 +1,13 @@
 # Source-grounded executable candidate
 
+The seed verifier's target-error classifier was revised after the frozen G
+experiment exposed a capitalized `Selected index k out of range` error. This
+definition is a candidate again until a new hardware-specific soundness proof
+completes. The old proof is preserved byte-for-byte at
+`reports/acceptance-a2-a3-20261017/task-expansion/sampler-seed-casefold/pre-casefold-soundness-receipt.json`
+(SHA-256 `05e5d9d5cccfb2d53e90f0a1e6397208f491fca9fcb3736f8a78436c0101d845`)
+and in the earlier Git revision. It does not validate the changed task bytes.
+
 This task is not verified until actual before/gold-after soundness succeeds on the selected hardware/image.
 Upstream: vllm-project/vllm-ascend PR #10004.
 Failing source: `d552d03a4851aa4d75420377952b0177c94cd4a5`.
