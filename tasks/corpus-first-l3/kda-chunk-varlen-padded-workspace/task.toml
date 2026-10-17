@@ -1,0 +1,35 @@
+schema_version = "1.0"
+
+[task]
+instance_id = "kda-chunk-varlen-padded-workspace"
+domain_category = "native_operator_numerical_correctness"
+difficulty = "hard"
+evidence = "verified"
+cluster = "kda-varlen-native-workspace"
+role = "eval"
+
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "8ddf72b3b697c29b8b0cd98401dd396fa319fd26"
+test_commit = "f27f1658669bd22f20e8b2ed539b724ef3bbb5e3"
+validation_scope = "One real Ascend910_93 NPU, normally rebuilt CANN native operator, complete historical test module, eight finite-input/output-state CPU-reference cases; operator proof exists, candidate repair-task soundness is not inherited. No graph, distributed, full-model, A2 or performance claim."
+
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = ["0bc94d24162470fe8ce3fc189b7eb239aa868d074ff53c78706cad0c5c608243", "bd76c09b015265e14e93da7611506d3566ca73c59a0e66c59d1555e41e400a6d"]
+analogical_task_hashes = []
+target_files = ["csrc/attention/chunk_kda_fwd/op_host/chunk_kda_fwd_tiling.cpp"]
+
+[budget]
+max_turns = 40
+max_npu_runs = 8
+timeout_sec = 3600
+verifier_timeout_sec = 2400
+max_output_bytes = 67108864
+
+[environment.l3]
+repo_path = "../../../repositories/vllm-ascend-kda-workspace"
+base_commit = "9a3a8fdeb248e9fe444fe80353ea3795d1030df0"
+npu_model = "Ascend910"
+npu_count = 1

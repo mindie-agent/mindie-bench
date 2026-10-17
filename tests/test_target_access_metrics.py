@@ -3,7 +3,12 @@ import shlex
 import pytest
 
 from mindie_bench.models import ToolCall, ToolResultObservation, Trajectory
-from mindie_bench.scorer.metrics import _python_accesses, first_localization, trajectory_metrics
+from mindie_bench.scorer.metrics import (
+    _python_accesses,
+    first_localization,
+    target_access_observations,
+    trajectory_metrics,
+)
 
 TARGET = "vllm_ascend/ops/layernorm.py"
 
@@ -68,6 +73,101 @@ def test_shell_and_python_source_access_is_observed_without_execution(command):
 )
 def test_filename_mentions_and_opaque_payloads_are_not_source_access(command):
     assert first_localization(Trajectory(calls=[call("mention", command)]), [TARGET]) is None
+
+
+def _wrap_remote_script(script, wrapper):
+    ssh = "ssh -p 22 -o BatchMode=yes bench-slot " + shlex.quote(script)
+    if wrapper == "ssh":
+        return ssh
+    if wrapper == "zsh":
+        return "/bin/zsh -c " + shlex.quote(ssh)
+    if wrapper == "shells":
+        return "bash -lc " + shlex.quote("dash -c " + shlex.quote(ssh))
+    return "cd /workspace && env CONTRACT=1 command " + ssh + "; echo done"
+
+
+@pytest.mark.parametrize("wrapper", ["ssh", "zsh", "shells", "compound"])
+@pytest.mark.parametrize("action", ["read_text", "write_text"])
+def test_remote_python_heredoc_recurses_through_literal_wrapper_arguments(wrapper, action, tmp_path):
+    marker = tmp_path / "must-not-exist"
+    operation = "p.read_text()" if action == "read_text" else "p.write_text('new')"
+    script = (
+        "python3 - <<'PY'\nfrom pathlib import Path\n"
+        f"p=Path('{TARGET}')\n{operation}\nPath({str(marker)!r}).write_text('never')\nPY"
+    )
+    command = _wrap_remote_script(script, wrapper)
+    found, unresolved = target_access_observations(
+        Trajectory(calls=[call("literal", command)]), [TARGET]
+    )
+    assert len(found) == 1
+    assert found[0]["kind"] == ("read" if action == "read_text" else "edit")
+    assert found[0]["execution_scope"] == "remote"
+    assert unresolved == []
+    assert not marker.exists()
+
+
+def test_double_quoted_ssh_heredoc_preserves_successful_edit_turn_and_time(case):
+    command = (
+        "/bin/zsh -c \"ssh bench-slot \\\"python3 - <<'PY'\n"
+        f"from pathlib import Path\np=Path('{TARGET}')\n"
+        "s=p.read_text(); p.write_text(s + 'new')\nPY\\\"\""
+    )
+    primary, auxiliary = metrics(
+        case,
+        [
+            call("read", f"cat {TARGET}", turn=4, start=14, end=15),
+            call("edit", command, turn=14, start=63, end=64),
+        ],
+        wall=100,
+    )
+    assert primary["turns_to_first_localization"] == 4
+    assert primary["time_to_first_localization_sec"] == 14
+    assert primary["turns_to_first_target_edit"] == primary["turns_to_last_target_edit"] == 14
+    assert primary["time_to_first_target_edit_sec"] == primary["time_to_last_target_edit_sec"] == 63
+    assert auxiliary["target_edit_attempts_by_outcome"] == {"success": 1, "failed": 0, "unknown": 0}
+    assert auxiliary["target_access_unresolved"] == []
+
+
+@pytest.mark.parametrize("program", ["cat", "echo", "ssh-cat", "ssh-echo", "cat-wrapper-payload"])
+def test_opaque_heredoc_payload_never_becomes_executed_remote_python(program):
+    body = f"from pathlib import Path\np=Path('{TARGET}')\np.write_text('new')"
+    if program == "cat":
+        command = "cat <<'DATA'\n" + body + "\nDATA"
+    elif program == "echo":
+        command = "echo " + shlex.quote("python3 - <<'PY'\n" + body + "\nPY")
+    elif program == "ssh-cat":
+        command = _wrap_remote_script("cat <<'PY'\n" + body + "\nPY", "zsh")
+    elif program == "ssh-echo":
+        command = _wrap_remote_script("echo " + shlex.quote(body), "zsh")
+    else:
+        command = (
+            "cat <<'DATA'\n"
+            + _wrap_remote_script("python3 - <<'PY'\n" + body + "\nPY", "zsh")
+            + "\nDATA"
+        )
+    found, _ = target_access_observations(Trajectory(calls=[call("opaque", command)]), [TARGET])
+    assert found == []
+
+
+@pytest.mark.parametrize("closing", ["", "OTHER", "PY_suffix"])
+def test_missing_remote_heredoc_boundary_retains_unknown_instead_of_an_edit(closing):
+    script = (
+        f"python3 - <<'PY'\nfrom pathlib import Path\nPath('{TARGET}').write_text('new')\n" + closing
+    )
+    found, unresolved = target_access_observations(
+        Trajectory(calls=[call("incomplete", _wrap_remote_script(script, "zsh"))]), [TARGET]
+    )
+    assert found == []
+    assert {row["reason"] for row in unresolved} == {"heredoc_boundary_unresolved"}
+
+
+def test_heredoc_text_in_a_shell_comment_does_not_hide_the_next_source_read():
+    command = "# not a heredoc <<'PY'\n" + f"cat {TARGET}"
+    found, unresolved = target_access_observations(
+        Trajectory(calls=[call("comment", command)]), [TARGET]
+    )
+    assert len(found) == 1 and found[0]["kind"] == "read"
+    assert unresolved == []
 
 
 def test_edit_metrics_use_successful_edit_calls_never_a_later_read(case):

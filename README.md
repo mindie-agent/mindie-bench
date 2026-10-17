@@ -34,6 +34,7 @@ Existing attempts are never overwritten or automatically resumed.
 | [Ascend diagnostic replay](tasks/replay/README.md) | Saved real NPU errors, the complete historical sampler module and an independent CPU tensor judge; replay feedback alone cannot earn a pass. |
 | [Versioned stale-knowledge task](tasks/stale/README.md) | Actual old advice, executed old/current configuration APIs and a separately judged reporting migration. |
 | [Dual-card idle-DP task](tasks/corpus-first-l3/k3-gdn-idle-dp-state/SOURCE.md) | Complete historical model runner, actual Kimi K3 model modules, DP2/HCCL and independent state checks on physical NPUs. Scope is eager state correctness. |
+| [Native KDA numerical task](tasks/corpus-first-l3/kda-chunk-varlen-padded-workspace/SOURCE.md) | Complete historical C++ operator source, fresh CANN builds, four failing variable-length cases and four dense controls, judged against independent FP32 references on A3. |
 | [Frozen retrieval questions](benchmarks/retrieval/README.md) | Twelve known-positive questions over twelve real packages in the fixed 661-package corpus; component retrieval quality and latency. |
 | [Ascend smoke suite](tasks/ascend/README.md) | Three historical defect families and six seed/eval variants with independent A2/A3 source-fail/gold-pass proofs. |
 | [PyTorch CPU recipes](tasks/cpu/README.md) | Four separate CPU source-contract tasks with explicit runtime and soundness requirements. |

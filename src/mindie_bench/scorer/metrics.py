@@ -301,22 +301,30 @@ def _shell_accesses(command: str, *, depth=0, remote=False, stdin=None):
     if depth > 12 or len(command) > 262_144:
         return [], ["command_static_parser_limit"]
     accesses, unresolved = [], []
-    try:
-        words = shlex.split(command, comments=True)
-    except ValueError:
-        words = []
-    # Remove literal here-doc bodies before tokenizing shell syntax. Only the
-    # program receiving stdin may interpret that body, never a cat/echo payload.
-    heredoc_pattern = r"(?m)<<-?\s*(['\"]?)([A-Za-z_][A-Za-z_0-9]*)\1[ \t]*\n"
-    wrapped_heredoc = any(
-        word in {"-c", "-lc", "-ic"}
-        and any(posixpath.basename(prefix) in {"sh", "bash", "zsh", "dash"} for prefix in words[:i])
-        and re.search(heredoc_pattern, words[i + 1])
-        for i, word in enumerate(words[:-1])
-    )
-    # A here-doc inside a quoted shell argument belongs to the recursive parse.
-    # The segment loop must still visit any commands after that wrapper.
-    heredoc = None if wrapped_heredoc else re.search(heredoc_pattern, command)
+    # Quoted arguments belong to the receiving program; only recursive shell
+    # and SSH wrappers may interpret their redirections. Cat/echo bodies stay data.
+    heredoc_pattern = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z_0-9]*)\1[ \t]*\n")
+    heredoc, quote, index = None, None, 0
+    while index < len(command):
+        char = command[index]
+        if char == "\\" and quote != "'":
+            index += 2
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+        elif char in {"'", '"'}:
+            quote = char
+        elif char == "#" and (index == 0 or command[index - 1] in " \t\r\n;&|()"):
+            end = command.find("\n", index)
+            if end < 0:
+                break
+            index = end
+        elif char == "<":
+            heredoc = heredoc_pattern.match(command, index)
+            if heredoc:
+                break
+        index += 1
     if heredoc:
         end = re.search(rf"(?m)^\t*{re.escape(heredoc[2])}[ \t]*(?:\n|$)", command[heredoc.end() :])
         if end is None:

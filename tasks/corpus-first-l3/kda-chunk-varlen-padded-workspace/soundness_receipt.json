@@ -1,0 +1,49 @@
+{
+  "after_reward": 1.0,
+  "before_reward": 0.0,
+  "errors": [],
+  "model_calls": 0,
+  "remote_postflight": {
+    "11": {
+      "capacity_mb": 65536,
+      "card_id": 5,
+      "chip_id": 1,
+      "model": "Ascend910",
+      "physical_id": 11,
+      "pids": [],
+      "used_mb": 2880
+    },
+    "_environment": {
+      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
+      "driver": "25.5.3",
+      "image_digest": "sha256:615d7645ada461ebad836eabe1f98796ff7a3d72ba3a33e899696fa43284c42b",
+      "kernel": "5.10.0-216.0.0.115.oe2203sp4.aarch64",
+      "python": "3.12.13 (main, Aug  3 2026, 02:43:47) [GCC 12.3.1 (openEuler 12.3.1-105.oe2403sp3)]",
+      "torch_npu": "2.10.0.post4"
+    }
+  },
+  "remote_preflight": {
+    "11": {
+      "capacity_mb": 65536,
+      "card_id": 5,
+      "chip_id": 1,
+      "model": "Ascend910",
+      "physical_id": 11,
+      "pids": [],
+      "used_mb": 2879
+    },
+    "_environment": {
+      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
+      "driver": "25.5.3",
+      "image_digest": "sha256:615d7645ada461ebad836eabe1f98796ff7a3d72ba3a33e899696fa43284c42b",
+      "kernel": "5.10.0-216.0.0.115.oe2203sp4.aarch64",
+      "python": "3.12.13 (main, Aug  3 2026, 02:43:47) [GCC 12.3.1 (openEuler 12.3.1-105.oe2403sp3)]",
+      "torch_npu": "2.10.0.post4"
+    }
+  },
+  "schema_version": "1.0",
+  "source_commit": "9a3a8fdeb248e9fe444fe80353ea3795d1030df0",
+  "status": "completed",
+  "task_sha256": "1347f645881aab44fe04c349e597ac4cc2b68cca5a8c1ee8914f91082da7e889",
+  "tier": "l3"
+}
