@@ -9,34 +9,28 @@ Codex Stop evidence to MindIE capture, LangMem indexing, local Git publication,
 and retrieval by an independent consumer.
 
 Implementation and acceptance are distinct. Bundled fixtures are **synthetic**.
-There is no claimed 12-task verified NPU dataset or measured MindIE speedup.
-The current Ascend tasks cover one upstream RMSNorm defect family with two
-trigger variants; their soundness checks do not establish G0-G3 effectiveness.
-On A3 node 156, a real GPT-5.6-Sol seed has passed the NPU verifier and completed
-native Stop capture, GPT-5.6-Luna indexing, local Git delivery and independent
-consumer readback. A held-out null-trigger evaluation queried and read that
-captured material, then passed the NPU verifier and completed its own local
-capture. A later 24-cell cohort completed, but a runner PTY policy defect makes
-it qualified historical evidence. The next 15-cell plan produced 14 receipts:
-10 passed, 3 infrastructure failures and 1 unknown; one dependent evaluation was
-not started. That run exposed opaque patch input incorrectly consuming the
-command budget and incomplete provider settlement after a native disconnect.
-Both defects are fixed in `d259695`, which passed 182 local tests. That source's
-first admission check found occupied devices before any model request.
-After a later clean readback, both runners passed fresh admission and started
-the new 15-cell cohort at six-slot concurrency. Recurring foreign NPU occupancy
-and an upstream model EOF left 12 receipts: 11 infrastructure failures and
-1 unknown; three dependent evaluations were not started. Five business
-verifiers passed 150 NPU cases and three seed captures completed, but required
-postflight failed. The final revision `7691a48` additionally corrects the
-seed-prerequisite diagnostic and export identity integrity, and passes 197 tests;
-it does not relabel the
-preceding cohort as evidence for its own digest. Full hardware acceptance
-remains incomplete.
-These partial, source-specific results do not establish an effectiveness gain.
-Node 153's original
-uncertain operation remains unresolved; node 156 results do not establish
-recovery of node 153.
+The real Ascend set contains three historical defect families with six
+seed/evaluation variants: RMSNorm optional metadata, partial RoPE dimensions and
+reduce-sampler candidates. Each hardware class has independent source-fail /
+gold-pass NPU proof. Four separate CPU task recipes exercise real PyTorch source
+contracts, with their own task identities and soundness requirements.
+
+The H runtime is commit `18e854e`, digest
+`f922f0dda22d052679523830782dca52736054978d5922d0233926fe62bb8bc9`.
+Its unified zero-model suite passes 235 tests. The preceding frozen G native
+GPT-6.1-Sol / GPT-5.6-Luna cohort is running on A2 and A3, with 45 planned
+cells per hardware class, including required G3 seeds. It exposed a task
+verifier classification defect and insufficient capture diagnostics, corrected
+and separately tested in H. Original unknown/infra receipts remain intact.
+See [actual acceptance](docs/acceptance.md) for experiment identities,
+terminal evidence and limits; planned cells are not completed cells.
+Native Stop, real indexing, local Git delivery and independent consumer checks
+remain distinct from observed foreground retrieval and effectiveness.
+
+There is no claimed initial twelve-task flagship dataset, universal MindIE speedup,
+full-model serving, AscendC or multi-host HCCL acceptance. Original failed and
+unknown attempts remain intact; new runs do not repair their history. Node 156
+results do not establish recovery of node 153's unresolved operation.
 
 ```sh
 uv sync --locked
@@ -65,6 +59,9 @@ are not a security boundary for hostile tenants.
 - [Task, experiment, capture and remote-worker contracts](docs/usage.md)
 - [Actual acceptance evidence](docs/acceptance.md)
 - [Nine-principle implementation review](docs/design-principles-review.md)
+- [Real Ascend task runbook](tasks/ascend/README.md)
+- [Real CPU task recipes](tasks/cpu/README.md)
+- [Routing and retrieval evidence contract](tasks/L1-L2-acceptance.md)
 - [Twelve source-grounded candidates](tasks/candidates/README.md)
 
 `export-hf` produces local redacted JSON, Parquet and a static HTML leaderboard.

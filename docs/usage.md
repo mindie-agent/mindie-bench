@@ -16,6 +16,8 @@ Existing run directories are never overwritten or resumed.
 
 ## Native experiment
 
+The real task runbooks are `tasks/ascend/README.md` and `tasks/cpu/README.md`;
+the routing/retrieval evidence contract is `tasks/L1-L2-acceptance.md`.
 Copy an experiment template from `examples/` and fill in the exact installed
 binary version, pinned model, model endpoint, and component commands. The model
 API key must already exist in the explicitly named environment variable. The
@@ -37,8 +39,10 @@ The parent broker holds the selected credential; trial processes receive a
 broker-only placeholder.
 For native Codex aliases that require a custom catalog, set
 `harness.model_catalog_path` to a UTF-8 JSON file with native
-`{"models":[...]}` records. Export full records from the pinned CLI's
-`codex debug models --bundled`; a slug-only list is insufficient. The selected
+`{"models":[...]}` records. Export full records using
+`codex debug models --bundled`; record the actual export CLI binary/version
+as well as the execution CLI, and verify the latter accepts the catalog under
+the real sandbox. A slug-only list is insufficient. The selected
 model slugs must match the configured foreground and capture routes. The
 catalog is copied into the fresh profile and its hash enters the fingerprint.
 Cache writes are a subset of non-read input tokens; when present, they require
@@ -367,4 +371,6 @@ Parquet readback leave no published output directory. This command does not
 upload anything or restore a private value removed by the redactor.
 The installed component redactor runs with Python `-I`; export does not import
 modules from the invocation directory. The actual shadow-directory export
-preflight and its six real input rows are recorded in `docs/acceptance.md`.
+preflight and its six real input rows are recorded in
+`docs/acceptance-pre-g-history.md`; that checkpoint is not relabeled as G
+runtime acceptance.

@@ -10,7 +10,9 @@ workspace manager, plugin, service, or mandatory user workflow.
 
 - L0: deterministic contracts and component observations, with no model or NPU.
 - L1: bounded native-harness tasks, including external trajectory graders.
-- L2: fresh source worktrees, CPU replay feedback, and an external final judge.
+- L2: fresh source worktrees with actual CPU execution or explicitly labelled
+  replay feedback, and an external final judge. Real CPU tasks have their own
+  locked runtime, task identity and source-fail/gold-pass proof.
 - L3: SSH into an existing dedicated Linux container, with per-device leases,
   private worktrees, a persistent isolated worker, and memory/process readback.
 - G0: native harness; G1: remote tools; G2: remote tools plus filtered public
@@ -225,6 +227,11 @@ Git history and stale bytecode, and records an inspected projection manifest.
 Generic guards in other classes are reviewed separately. This task-specific
 projection does not establish that arbitrary runtime dependencies are free of
 contamination; image identity and soundness proofs must follow each change.
+The three-family A2/A3 tasks additionally project the exact failing RoPE cache
+and sampler functions while preserving modern runtime interfaces. Their source,
+bytecode, relevant archives and symlink observations have explicit adjudications;
+opaque vendor binaries remain an inspection limit. A3 canonical RMSNorm tasks
+were separately revalidated against the final image without rewriting old proofs.
 
 ## Native capture and local knowledge delivery
 
@@ -235,7 +242,9 @@ Markdown bodies as authoritative; summaries and indexes remain derived
 navigation. It records indexing usage before reporting completion.
 
 For native model aliases, the parent supplies full Codex `ModelInfo` records
-exported by the pinned CLI. The selected Codex adapter projects only the unique
+exported by an explicitly recorded native CLI. The execution CLI and metadata
+export CLI identities can differ and must both be retained. The selected Codex
+adapter projects only the unique
 summary-model record into its fresh native home as `{"models":[...]}` and sets
 top-level `model_catalog_json`. The selected bytes enter route and worker-policy
 hashes. Missing, unreadable, malformed or ambiguous supplied metadata fails
