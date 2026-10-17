@@ -1,0 +1,122 @@
+{
+  "assets": {
+    "environment/reproduce.py": {
+      "path": "assets/environment/reproduce.py",
+      "sha256": "061f6e62cfb1e5e7dc9aa3febdc0a44e7a8e8494065f04246202e13fb377eed6"
+    },
+    "environment/symptom.log": {
+      "path": "assets/environment/symptom.log",
+      "sha256": "80ff22640d32587d6782923f0fc20ea731dfa011536913a6479ab84ea20d8d1f"
+    },
+    "environment/v0_23_0_envs.py.txt": {
+      "path": "assets/environment/v0_23_0_envs.py.txt",
+      "sha256": "5bcd8e084f1dca527a10510cd77a0ce6a40d79b8cc82593bce262e5b21ca869d"
+    },
+    "environment/v0_27_1_contract_envs.py.txt": {
+      "path": "assets/environment/v0_27_1_contract_envs.py.txt",
+      "sha256": "e2637639fa027de6e4a17cd75fe564b1cd6057ac239dd365ab43081278f5300f"
+    },
+    "environment/version-files.json": {
+      "path": "assets/environment/version-files.json",
+      "sha256": "f25d6343143f2f61886c0b576ffe34107f6c0a14e3bb4ff91a4c5b1169c9ac11"
+    },
+    "environment/version_probe.py": {
+      "path": "assets/environment/version_probe.py",
+      "sha256": "db4dc4df695312b63c17890732269ff837605580ec9485f7695512032f47d00f"
+    },
+    "instruction.md": {
+      "path": "assets/instruction.md",
+      "sha256": "e27106fec27c20043b4df6903eb76baa9b01cfbac3e111c62f47c8dcff538c32"
+    },
+    "oracle/gold_patch.diff": {
+      "path": "assets/oracle/gold_patch.diff",
+      "sha256": "1663c812fc610b99843cec2bb69d1b56f1b4ef8dc7e121bd670d3e817fa1f9e0"
+    },
+    "oracle/replay_rules.json": {
+      "path": "assets/oracle/replay_rules.json",
+      "sha256": "672ea20fd6f5037e0702a089f3a6f160254fcd5441303a6472d5a294e09dbc5b"
+    },
+    "verifier/runtime-binding.json": {
+      "path": "assets/verifier/runtime-binding.json",
+      "sha256": "13dd9b5045112e4047c55d115b583705e9410981fe9063b80548b038b2e27f3e"
+    },
+    "verifier/test.sh": {
+      "path": "assets/verifier/test.sh",
+      "sha256": "471139acbc86a2296fde719e08b337d6e9e0b02fa8ccfdbb3a68188ca3f6e22f"
+    },
+    "verifier/verify.py": {
+      "path": "assets/verifier/verify.py",
+      "sha256": "8fe33af27033e065ec145c57e034425fa5c4207f524326e92baad7655d57abea"
+    }
+  },
+  "corpus_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "knowledge_condition": {
+    "counterexample_asset": "environment/version_probe.py",
+    "current_version": "vLLM 0.27.1 configuration contract at migration commit 80c833fb86b105391d164c9e3fc60d0bfecbf85e",
+    "historical_version": "v0.23.0 tag, exact source 5cb98caaadeff42b5b62b996e34bb2aaa29d20fd",
+    "historical_version_quote": "VLLM_ASCEND_ENABLE_FUSED_MC2` \u5728 0.23 \u9ed8\u8ba4\u662f `0`",
+    "rationale": "The actual advice relies on an environment-control mechanism that exists at v0.23.0 and is removed by the pinned current configuration migration. Its NPU bug narrative is not treated as independent proof. Current CPU counterexample executes both complete env modules; task repair concerns actual report attribution only.",
+    "same_origin_review": "No declared exact-origin package after bounded exact fix-SHA / PR #14831 / pull URL scan; this is not exhaustive semantic absence. The stale advice package is retained, not masked as same-origin."
+  },
+  "knowledge_evidence": [
+    {
+      "block_id": "05f4d9d87d7c0f07595dfc310d32e2408af0dd9cd2984796a21d99bab95e082d",
+      "package_id": "adc00ab1ad0d5b4d05cecca47bdcef318d9eda10405d667b6e976d21bf59a11e",
+      "relation": "stale",
+      "sha256": "a6e936ebd8931043e985ab8f6452920eb9830166160be017323aa89fe5bb9f83",
+      "supporting_text": "\u4fee\u590d\u524d\uff0c\u53d7\u5f71\u54cd\u914d\u7f6e\u6700\u7a33\u59a5\u7684\u89c4\u907f\u65b9\u5f0f\u662f `VLLM_ASCEND_ENABLE_FUSED_MC2=0`"
+    }
+  ],
+  "runtime": {
+    "python": "@L2_PYTHON@",
+    "python_binary_sha256": "@PYTHON_SHA256@"
+  },
+  "schema": "mindie-bench-l2-recipe/1",
+  "source_files_sha256": {
+    "tests/e2e/common/kv_pool/config.py": "3122c59c70b8080858bdddd148e091cc08a3b48225ad47a44b7ede22c657b42e",
+    "tests/e2e/nightly/multi_node/external_dp/scripts/external_dp_config.py": "f4f60d7d9053fe58a1dff38cadc0fead732bfb8e55fe0bc135ef9f307926cd2a",
+    "tests/e2e/nightly/multi_node/external_dp/scripts/runtime.py": "7857ba008b6d511a0ee4bd58eb9cfedf7344edeff420949f43889b0b4874cd0d",
+    "tests/e2e/nightly/multi_node/external_dp/scripts/utils.py": "08864aa6dec976d6d596de150d74819ced0264b73309ffc1be9e4ef469faa980",
+    "tests/e2e/nightly/multi_node/scripts/benchmark_results.py": "54f9360ff734423bf45af4a2b5fafebe9fef8a2a8226d2817a3bde1e8d798699",
+    "tests/e2e/nightly/multi_node/scripts/utils.py": "5f34fdc1a0d125c12fe97036657268060d01f07fd03a58d502f3d1190379f015",
+    "tests/e2e/nightly/scripts/result_postprocess.py": "b85e347d38e6cf3c8e3b0aa8316c89074cc45a85254353e469362ec561626824"
+  },
+  "task_spec": {
+    "budget": {
+      "max_npu_runs": 12,
+      "max_turns": 35,
+      "timeout_sec": 600,
+      "verifier_timeout_sec": 90
+    },
+    "environment": {
+      "l2": {
+        "base_commit": "e8600b7f6198fb6bd07116fa0a77792f9867f86d",
+        "npu_count": 0,
+        "replay_commands": [],
+        "repo_path": "@SOURCE_REPO@"
+      }
+    },
+    "mindie_knowledge": {
+      "analogical_task_hashes": [],
+      "corpus_id": "stale-fused-mc2",
+      "knowledge_gradient": "stale",
+      "same_origin_task_hashes": [],
+      "target_files": [
+        "tests/e2e/nightly/multi_node/external_dp/scripts/utils.py"
+      ]
+    },
+    "schema_version": "1.0",
+    "task": {
+      "difficulty": "medium",
+      "domain_category": "configuration_migration",
+      "evidence": "candidate",
+      "instance_id": "stale-fused-mc2-report",
+      "role": "eval",
+      "source": {
+        "fix_commit": "80c833fb86b105391d164c9e3fc60d0bfecbf85e",
+        "repository": "vllm-project/vllm-ascend",
+        "validation_scope": "Complete external-DP report and dependency modules on CPU; pinned actual old/current environment API counterexample. No NPU performance, collective or serving acceptance."
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+[project]
+name = "mindie-bench-stale-config-runtime"
+version = "0.1.0"
+requires-python = "==3.13.*"
+dependencies = ["PyYAML==6.0.3", "regex"]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]

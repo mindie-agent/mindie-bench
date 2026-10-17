@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from mindie_bench.io import read_json, safe_relative, tree_hash, write_json
-from mindie_bench.models import Group, GroupConfig, MCPServer, VerifierResult
+from mindie_bench.models import Group, GroupConfig, KnowledgeSpec, MCPServer, VerifierResult
 from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profile, filtered_corpus
 from mindie_bench.runner.verifier import parse_verifier
 
@@ -156,7 +156,8 @@ def test_g0_profile_is_fresh_and_drops_personal_credentials(case, monkeypatch):
     assert profile.env["HOME"].startswith(str(trial))
     assert profile.env["CODEX_HOME"].startswith(str(trial))
     assert profile.fingerprint["publication_policy"] == "local-only"
-    assert (profile.root / "local_knowledge.git/HEAD").is_file()
+    assert (profile.private_root / "local_knowledge.git/HEAD").is_file()
+    assert "MINDIE_BENCH_LOCAL_KNOWLEDGE_REMOTE" not in profile.env
 
 
 def test_no_fake_g1_component_acceptance(case):
@@ -186,6 +187,19 @@ def test_g2_filters_and_preserves_stale_knowledge(case, corpus):
     assert not (profile.corpus / "tasks/origin").exists()
     assert (profile.corpus / "tasks/stale").exists()
     assert profile.fingerprint["excluded_task_hashes"] == ["origin"]
+
+
+@pytest.mark.parametrize(
+    "relations",
+    [
+        {"same_origin_task_hashes": ["origin", "origin"]},
+        {"analogical_task_hashes": ["analogy", "analogy"]},
+        {"same_origin_task_hashes": ["origin"], "analogical_task_hashes": ["origin"]},
+    ],
+)
+def test_knowledge_relations_cannot_inflate_or_contradict_labels(relations):
+    with pytest.raises(ValidationError):
+        KnowledgeSpec(knowledge_gradient="analogical", **relations)
 
 
 def test_corrupt_config_is_not_first_use(case):

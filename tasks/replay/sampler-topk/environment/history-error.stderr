@@ -1,0 +1,19 @@
+[W1017 01:45:20.049340060 NPUCachingAllocator.cpp:202] Warning: The current CANN and HDK(driver) versions require processing for 32 padding size, with memory allocation. (function operator())
+Traceback (most recent call last):
+  File "<stdin>", line 57, in <module>
+  File "vllm_ascend/sample/sampler.py", line 180, in _apply_top_k_top_p_pytorch
+    local_vals, local_idx = torch.topk(logits, k=top_k, dim=-1)  # [B, top_k], [B, top_k]
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: topk:../third_party/op-plugin/op_plugin/ops/opapi/TopKKernelNpuOpApi.cpp:69 NPU function error: call aclnnTopk failed, error code is 161002
+[ERROR] 2026-10-17-01:45:20 (PID:6, Device:0, RankID:-1) ERR00100 PTA call acl api failed.
+[PID: 6] 2026-10-17-01:45:20.417.252 AclNN_Parameter_Error(EZ1001): Selected index k out of range (max num of self.size(2) is 8,but k is 4096)
+
+Traceback (most recent call last):
+  File "<stdin>", line 57, in <module>
+  File "vllm_ascend/sample/sampler.py", line 180, in _apply_top_k_top_p_pytorch
+    local_vals, local_idx = torch.topk(logits, k=top_k, dim=-1)  # [B, top_k], [B, top_k]
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: topk:../third_party/op-plugin/op_plugin/ops/opapi/TopKKernelNpuOpApi.cpp:69 NPU function error: call aclnnTopk failed, error code is 161002
+[ERROR] 2026-10-17-01:45:20 (PID:6, Device:0, RankID:-1) ERR00100 PTA call acl api failed.
+[PID: 6] 2026-10-17-01:45:20.417.252 AclNN_Parameter_Error(EZ1001): Selected index k out of range (max num of self.size(2) is 8,but k is 4096)
+

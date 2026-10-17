@@ -26,6 +26,26 @@ def parser():
     )
     validate.add_argument("--tasks", type=Path, required=True)
     validate.add_argument("--config", type=Path)
+    coverage = commands.add_parser(
+        "coverage", help="check whether a study can answer its declared metric questions"
+    )
+    coverage.add_argument("--tasks", type=Path, required=True)
+    coverage.add_argument("--groups", default="G0,G1,G2,G3")
+    coverage.add_argument("--repetitions", type=int, default=3)
+    audit = commands.add_parser(
+        "audit-report", help="read an incomplete experiment without freezing or replaying it"
+    )
+    audit.add_argument("--input", type=Path, required=True)
+    audit.add_argument("--output", type=Path, required=True)
+    retrieval = commands.add_parser(
+        "component-retrieval",
+        help="execute frozen source-bound queries in the selected first-party component runtime",
+    )
+    retrieval.add_argument("--corpus", type=Path, required=True)
+    retrieval.add_argument("--labels", type=Path, required=True)
+    retrieval.add_argument("--output", type=Path, required=True)
+    retrieval.add_argument("--repetitions", type=int, default=3)
+    retrieval.add_argument("--k", type=int, default=3)
     soundness = commands.add_parser("soundness", help="prove base FAIL and gold PASS without a model")
     soundness.add_argument("--task", type=Path, required=True)
     soundness.add_argument("--config", type=Path, required=True)
@@ -58,10 +78,13 @@ def parser():
     frozen = commands.add_parser("freeze")
     frozen.add_argument("--input", type=Path, required=True)
     frozen.add_argument("--output", type=Path, required=True)
-    mine = commands.add_parser("mine", help="generate unverified source-grounded candidates")
+    mine = commands.add_parser(
+        "mine", help="discover candidates or compile a hashed source-bound executable L2 recipe"
+    )
     mine.add_argument("--corpus", type=Path, required=True)
     mine.add_argument("--output", type=Path, required=True)
     mine.add_argument("--limit", type=int, default=12)
+    mine.add_argument("--recipe", type=Path, help="compile an explicit L2 recipe instead of discovery")
     export = commands.add_parser(
         "export-hf", help="redact, scan, and stage Parquet locally; never upload"
     )
@@ -89,7 +112,23 @@ def main(argv=None):
                 output=args.output.resolve(),
                 promote=args.promote,
             )
-        elif args.command in {"run", "validate"}:
+        elif args.command == "audit-report":
+            from mindie_bench.evaluation.accounting import audit_report
+
+            result = audit_report(args.input)
+            args.output.mkdir(parents=True, exist_ok=False)
+            write_json(args.output / "report.json", result, exclusive=True)
+        elif args.command == "component-retrieval":
+            from mindie_bench.evaluation.retrieval import evaluate_retrieval
+
+            result = evaluate_retrieval(
+                args.corpus,
+                args.labels,
+                args.output,
+                repetitions=args.repetitions,
+                k=args.k,
+            )
+        elif args.command in {"run", "validate", "coverage"}:
             paths = (
                 [args.tasks]
                 if (args.tasks / "task.toml").is_file()
@@ -100,8 +139,18 @@ def main(argv=None):
             specs = [TaskSpec.load(path) for path in paths]
             if len({task.task.instance_id for task in specs}) != len(specs):
                 raise ValueError("duplicate task instance IDs")
-            config = ExperimentConfig.load(args.config) if args.config else None
-            if args.command == "validate":
+            config_path = getattr(args, "config", None)
+            config = ExperimentConfig.load(config_path) if config_path else None
+            if args.command == "coverage":
+                from mindie_bench.evaluation.coverage import assess_coverage, default_targets
+
+                result = assess_coverage(
+                    specs,
+                    groups=[Group(value.strip()) for value in args.groups.split(",")],
+                    repetitions=args.repetitions,
+                    targets=default_targets(),
+                ).to_dict()
+            elif args.command == "validate":
                 result = dict(
                     validated_tasks=len(specs), experiment_validated=bool(config), model_calls=0
                 )
@@ -148,13 +197,18 @@ def main(argv=None):
             freeze(rows, args.output)
             result = dict(frozen=len(rows), output=str(args.output))
         elif args.command == "mine":
-            from mindie_bench.mining.knowledge_to_task import mine_knowledge
+            from mindie_bench.mining.knowledge_to_task import compile_recipe, mine_knowledge
 
-            result = dict(
-                candidates=len(mine_knowledge(args.corpus, args.output, limit=args.limit)),
-                evidence="candidate",
-                output=str(args.output),
-            )
+            if args.recipe:
+                result = compile_recipe(
+                    args.corpus.resolve(), args.recipe.resolve(), args.output.resolve()
+                )
+            else:
+                result = dict(
+                    candidates=len(mine_knowledge(args.corpus, args.output, limit=args.limit)),
+                    evidence="candidate",
+                    output=str(args.output),
+                )
         else:
             from mindie_bench.hf_sync.exporter import export_hf
 
@@ -165,7 +219,14 @@ def main(argv=None):
         return 0
     except Exception as exc:
         print(
-            json.dumps(dict(status="failed", error=type(exc).__name__, message=str(exc))),
+            json.dumps(
+                dict(
+                    status="failed",
+                    error=type(exc).__name__,
+                    message=str(exc),
+                    notes=getattr(exc, "__notes__", []),
+                )
+            ),
             file=sys.stderr,
         )
         return 2

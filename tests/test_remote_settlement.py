@@ -279,6 +279,7 @@ def test_successful_remote_handler_finishes_before_worker_quiesce(case, monkeypa
 
     class Worker:
         preflight = {"_environment": {"image_digest": "synthetic"}}
+        modified_files = ["remote-production.py"]
 
         def __init__(self, *args, **kwargs):
             self.path = "/synthetic-owned-slot"
@@ -333,6 +334,9 @@ def test_successful_remote_handler_finishes_before_worker_quiesce(case, monkeypa
     assert receipt.terminal_status.value == "completed_pass", receipt.model_dump_json(indent=2)
     assert quiesced == [True]
     assert not receipt.auxiliary_metrics["remote_settlement"]["unknown"]
+    assert receipt.auxiliary_metrics["files_modified"] == ["remote-production.py"]
+    assert receipt.auxiliary_metrics["local_files_modified"] == []
+    assert receipt.auxiliary_metrics["files_modified_scope"] == "remote_judged_workspace"
 
 
 def test_late_unknown_and_original_capture_failure_are_both_saved(case, corpus, monkeypatch):

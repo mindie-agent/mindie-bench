@@ -66,6 +66,16 @@ configuration, not environment variables claimed to be understood by every
 MindIE version. For example, a knowledge adapter must bind its actual retrieval
 configuration to `{corpus}` and rebuild its index from this filtered view.
 The benchmark does not install plugins or change your saved production settings.
+For knowledge servers, these substitutions refer to the trial's sibling
+`knowledge-private` directory. The controller starts the actual MCP server in
+its own OS sandbox; a foreground stdio relay exposes its query/explain protocol.
+The foreground receives neither private paths nor filesystem grants to the
+corpus, derived index, publication repository or protocol journal. Capture alone
+gets the exact private-root capability after the foreground task has ended.
+Place knowledge-only libraries or source in
+`knowledge_runtime_read_paths`, not `runtime_read_paths`; only the parent
+knowledge server and capture adapter receive those read grants. This also keeps
+fixed component source from leaking answers when a task repairs that component.
 On macOS the runner's Seatbelt policy supports native PTY allocation and
 termios using the sandbox's PTY extension. The regression checks actual terminal
 I/O and keeps an owned preexisting PTY, an outside secret and unauthorized
@@ -75,6 +85,13 @@ loopback inaccessible.
 It is copied into the fresh Codex/Claude skill directory. Skill use remains
 advisory. Put task-specific trigger expectations in L1 tasks rather than forcing
 retrieval in all engineering tasks.
+For a separate explicit activation condition, set
+`groups.G2.knowledge_mode = "explicit"` (and likewise G3 when selected). This
+adds an explicit request to query and explain relevant historical experience;
+the default `"advisory"` condition leaves activation to the Agent.
+`"oracle"` requires `oracle_context_files` selecting exact Markdown from the
+physically filtered corpus. Oracle content is fingerprinted and labelled
+separately; it cannot reintroduce excluded same-origin material.
 
 ## Task contract
 
@@ -136,15 +153,22 @@ Performance numbers are verifier observations; none are inferred from logs.
 ```sh
 uv run mindie-bench mine --corpus /absolute/public-corpus \
   --output tasks/new-candidates --limit 12
+uv run mindie-bench mine --corpus /absolute/public-corpus \
+  --recipe /absolute/recipe/recipe.json --output tasks/new-l2-task
 uv run mindie-bench soundness --task /absolute/candidate-task \
   --config experiment.toml --tier l2 --output reports/soundness-attempt --promote
 ```
 
-Mining records the exact public source commit, package/block hashes, original
-source status, candidate domains, and missing evidence. It produces
-`candidate.json`, not an executable task that pretends to be verified.
-Supply a failing source revision, a minimal public instruction, independent
-verifier, gold fix, and transfer labels before soundness.
+Discovery records the exact public source commit, package/block hashes, source
+status, candidate domains and missing evidence in `candidate.json`.
+The explicit recipe path compiles runnable L2 assets: full source module hashes,
+public symptoms and a module entry point, independent CPU judge, gold repair and
+private replay rules. It verifies Git blobs, asset hashes, supporting knowledge
+passages and runtime identity. It never invents a correct verifier from prose.
+Compiled tasks remain candidates until actual soundness passes. An optional
+existing proof can promote only the exact matching task bytes/source revision.
+Stale conditions require historical/current versions and a supplied current
+counterexample; no-hit conditions require an explicitly frozen and judged scope.
 
 Successful soundness records FAIL before and PASS after the gold patch, with
 zero model calls. Promotion is explicit. The proof binds the task bytes and tier;

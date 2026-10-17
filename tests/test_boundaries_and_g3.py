@@ -133,7 +133,7 @@ print(json.dumps({"status":"completed","tokens":{"total":7,"complete":True},"est
     assert len(rows) == 4
     for row in rows:
         assert row.terminal_status.value == "completed_pass", row.model_dump_json(indent=2)
-        view = Path(row.artifacts["private_trial_dir"]) / "profile/corpus/tasks"
+        view = Path(row.artifacts["captured_corpus"]) / "tasks"
         assert not (view / "origin").exists()
         if row.task_role == "seed":
             assert not (view / "captured-synthetic-eval").exists()

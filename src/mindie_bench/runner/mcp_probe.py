@@ -14,6 +14,46 @@ from mindie_bench.io import digest
 from mindie_bench.runner.sandbox import native_command
 
 
+def close_probe(process):
+    """EOF lets a stdio relay close its independently owned backend session."""
+    failure = None
+    try:
+        process.communicate(timeout=10)
+        if process.returncode:
+            raise RuntimeError(f"MCP preflight exited with code {process.returncode}")
+    except BaseException as error:
+        failure = error
+    finally:
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except BaseException as cleanup:
+                if failure is None:
+                    failure = cleanup
+                else:
+                    failure.add_note(f"MCP preflight forced cleanup also failed: {cleanup}")
+            try:
+                process.communicate(timeout=5)
+            except BaseException as cleanup:
+                if failure is None:
+                    failure = cleanup
+                else:
+                    failure.add_note(f"MCP preflight forced cleanup also failed: {cleanup}")
+        for stream in (process.stdin, process.stdout):
+            if stream is not None and not stream.closed:
+                try:
+                    stream.close()
+                except BaseException as cleanup:
+                    if failure is None:
+                        failure = cleanup
+                    else:
+                        failure.add_note(f"MCP preflight pipe close also failed: {cleanup}")
+    if failure is not None:
+        raise failure
+
+
 def probe_servers(profile, group_config, read_paths, trial_dir, gateway):
     observed = {}
     if not group_config:
@@ -27,9 +67,12 @@ def probe_servers(profile, group_config, read_paths, trial_dir, gateway):
             write=[profile.root],
             cwd=profile.root,
             policy_path=trial_dir / f"mcp-{name}.sb",
+            gateway_port=gateway.port,
+            gateway_socket=gateway.unix_socket,
         )
         read_fd, owner_fd = os.pipe()
         process = None
+        failure = None
         with (trial_dir / f"mcp-{name}.stderr").open("xb") as stderr:
             try:
                 process = subprocess.Popen(
@@ -116,16 +159,19 @@ def probe_servers(profile, group_config, read_paths, trial_dir, gateway):
                     tool_names=sorted(tools),
                     tool_schema_sha256=digest(catalog),
                 )
+            except BaseException as error:
+                failure = error
+                raise
             finally:
-                if process:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    process.wait(timeout=5)
-                    process.stdin.close()
-                    process.stdout.close()
-                os.close(owner_fd)
-                if read_fd >= 0:
-                    os.close(read_fd)
+                try:
+                    if process:
+                        close_probe(process)
+                except BaseException as cleanup:
+                    if failure is None:
+                        raise
+                    failure.add_note(f"MCP preflight shutdown also failed: {cleanup}")
+                finally:
+                    os.close(owner_fd)
+                    if read_fd >= 0:
+                        os.close(read_fd)
     return observed

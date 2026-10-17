@@ -1,4 +1,41 @@
-# Design-principles review - current I implementation and G/H history
+# Design-principles review
+
+## Current benchmark improvements
+
+Reviewed source base: `2efbc5993b917c7d14ac88f2f14916c1816494b8`;
+current 50-file runtime digest:
+`1748b294b999de38ed88cc3b6d7463a14615923360743bdf190e708ac4d32b28`.
+Principles revision remains `240248b18996904490cca1e1ecceb8d9ecd83e03`,
+file SHA-256 `642bb77daf460dd9c15931b70983fd972f5f8ee352863c2158432c1ca96b470a`.
+
+1. Total cost: interval unions replace summed concurrent waits; first/last edits,
+   validation tails and seed-inclusive costs separate repair progress from later work.
+2. Closed boundaries: the broker transports actual MCP exchanges; recipe compilation
+   validates source/assets and leaves engineering diagnosis to the native agent.
+3. Cognitive load: existing run/mine/compare commands remain the maintainer entry.
+   Required MCP startup removes the need for agents to construct manual clients.
+4. Single responsibility: profiles own grants, the broker owns transport observations,
+   external judges own correctness and the scorer owns derived measurements.
+5. Skills give a map: domain guidance remains advisory; explicit retrieval is a
+   separately declared experiment condition rather than an implicit product mandate.
+6. Advisory knowledge: actual stale advice is tested against current source;
+   origin packages are physically excluded and G3 consumers receive their own seed.
+7. On-demand scope: each requested trial uses fresh profiles and assigned slots.
+   Personal configuration and public publication remain outside these experiments.
+8. Reuse: native MCP readiness, real MindIE capture/retrieval, Git, OS sandboxes,
+   locked CPU libraries and actual distributed model modules are used directly.
+9. Visible errors: caller argument errors remain visible without poisoning a healthy
+   knowledge backend; provider/remote uncertainty is retained. Remote modification
+   inventories now describe the judged workspace and exclude unchanged provided inputs.
+
+The current suite reports 465 passed and two optional skips; both skipped native/MCP
+controls subsequently passed with their actual runtimes. The installed M wheel
+matches all 50 runtime files. Frozen L model trials retain their original
+`59a53f99…` implementation; M's inventory correction needs its separate remote
+canaries. Actual task outcomes and environment differences are in
+[acceptance](acceptance.md), rather than inferred from passing software tests.
+
+## Frozen G/H/I review history
 
 Current reviewed runtime commit:
 `620949dab43cf3e87c021d49c608edb8f18dde9e`, with 40-file runtime SHA-256

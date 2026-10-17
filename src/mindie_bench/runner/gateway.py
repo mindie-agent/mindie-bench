@@ -91,6 +91,16 @@ class Gateway(AbstractContextManager):
                 )
         self.server = None
         self.thread = None
+        self.knowledge = None
+
+    def attach_knowledge(self, profile, read_paths):
+        """Keep the configured real knowledge runtime in the parent capability domain."""
+        from mindie_bench.runner.knowledge_broker import ParentKnowledgeBroker
+
+        if self.knowledge is not None:
+            raise ValueError("knowledge broker is already attached")
+        if profile.knowledge_servers:
+            self.knowledge = ParentKnowledgeBroker(profile, read_paths, self.record)
 
     def record(self, kind: str, **values):
         with self.lock, self.journal.open("a", encoding="utf-8") as out:
@@ -286,6 +296,64 @@ class Gateway(AbstractContextManager):
                     body = self.rfile.read(length)
                     if len(body) != length:
                         return self.reject(400, "incomplete request")
+                    if self.path == "/bench/knowledge-stdio":
+                        from mindie_bench.runner.knowledge_broker import KnowledgeInputError
+
+                        if gateway.knowledge is None:
+                            return self.reject(403, "no parent knowledge component is assigned")
+                        if gateway.closed:
+                            return self.reject(409, "knowledge admission is closed")
+                        try:
+                            try:
+                                request = json.loads(body)
+                            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                                raise KnowledgeInputError(
+                                    "invalid knowledge relay JSON request"
+                                ) from exc
+                            result = gateway.knowledge.request(request)
+                        except KnowledgeInputError as exc:
+                            gateway.record(
+                                "knowledge_client_rejected",
+                                error=type(exc).__name__,
+                                message=str(exc),
+                                backend_admitted=False,
+                            )
+                            return self.reject(400, str(exc))
+                        except Exception as exc:
+                            gateway.infrastructure_error = "required parent knowledge component failed"
+                            gateway.record(
+                                "knowledge_error",
+                                error=type(exc).__name__,
+                                message=str(exc),
+                            )
+                            return self.reject(
+                                500, "required knowledge component failed; inspect parent journal"
+                            )
+                        payload = json.dumps(result).encode()
+                        try:
+                            self.send_response(200)
+                            self.send_header("Content-Length", str(len(payload)))
+                            self.send_header("Content-Type", "application/json")
+                            self.end_headers()
+                            self.wfile.write(payload)
+                            self.wfile.flush()
+                        except OSError as exc:
+                            pure_poll = (
+                                request.get("action") == "exchange"
+                                and not request.get("stdin_b64")
+                                and not request.get("eof")
+                                and not result.get("stdout_b64")
+                                and result.get("exit_code") is None
+                            )
+                            if not pure_poll:
+                                gateway.infrastructure_error = "knowledge MCP result delivery failed"
+                            gateway.record(
+                                "knowledge_delivery_failed",
+                                error=type(exc).__name__,
+                                external_effects="none" if pure_poll else "completed",
+                            )
+                            self.close_connection = True
+                        return
                     if self.path in {"/bench/ssh", "/bench/ssh-stream"}:
                         with gateway.remote_idle:
                             if gateway.remotes_sealed or gateway.closed:
@@ -593,14 +661,42 @@ class Gateway(AbstractContextManager):
             )
 
     def __exit__(self, *args):
-        self.finish_inference()
-        self.finish_remote()
+        failures = []
+
+        def cleanup(stage, operation):
+            try:
+                operation()
+            except BaseException as exc:
+                failures.append(exc)
+                self.infrastructure_error = "required broker settlement or cleanup failed"
+                try:
+                    self.record(
+                        "broker_cleanup_error",
+                        stage=stage,
+                        error=type(exc).__name__,
+                        message=str(exc),
+                    )
+                except BaseException as receipt_error:
+                    exc.add_note(f"broker cleanup receipt also failed: {receipt_error}")
+
+        cleanup("model_settlement", self.finish_inference)
+        cleanup("remote_settlement", self.finish_remote)
+        if self.knowledge is not None:
+            cleanup("knowledge_cleanup", self.knowledge.close)
         self.closed = True
-        self._close_model_connections()
+        cleanup("model_connections", self._close_model_connections)
         if self.server:
-            self.server.shutdown()
-            self.server.server_close()
+            cleanup("server_shutdown", self.server.shutdown)
+            cleanup("server_close", self.server.server_close)
         if self.thread:
-            self.thread.join(timeout=2)
+            cleanup("server_join", lambda: self.thread.join(timeout=2))
         if self.unix_socket:
-            self.unix_socket.unlink(missing_ok=True)
+            cleanup("socket_unlink", lambda: self.unix_socket.unlink(missing_ok=True))
+        if failures:
+            primary = failures[0]
+            for failure in failures[1:]:
+                primary.add_note(f"another broker cleanup failed: {type(failure).__name__}: {failure}")
+            if args and args[1] is not None:
+                args[1].add_note(f"broker cleanup also failed: {type(primary).__name__}: {primary}")
+            else:
+                raise primary

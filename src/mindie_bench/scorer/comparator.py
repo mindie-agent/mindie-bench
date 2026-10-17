@@ -73,6 +73,8 @@ def comparison(
     *,
     k: int = 3,
     role: str = "eval",
+    expected_cells: list[dict] | None = None,
+    blocked_cells: list[dict] | None = None,
 ) -> dict:
     if role not in {"seed", "eval"}:
         raise ValueError("comparison role must be seed or eval")
@@ -113,7 +115,25 @@ def comparison(
         skills = [row.environment_fingerprint.get("skills_sha256") for row in (a, b)]
         if all(skills) and skills[0] != skills[1]:
             raise ValueError("shared skill snapshot changed")
-    a, b = summarize(baseline, k=k), summarize(candidate, k=k)
+    a, b = [
+        summarize(
+            rows,
+            k=k,
+            expected_cells=_declared_scope(
+                expected_cells, rows[0].tier, rows[0].ablation_group.value, role
+            ),
+            blocked_cells=_declared_scope(
+                blocked_cells, rows[0].tier, rows[0].ablation_group.value, role
+            ),
+        )
+        for rows in (baseline, candidate)
+    ]
+    if any(
+        side["matrix_coverage"].get(field)
+        for side in (a, b)
+        for field in ("identity_mismatches", "unexpected_terminal_cells", "duplicate_terminal_cells")
+    ):
+        raise ValueError("comparison cells differ from the declared inventory")
     valid = {TerminalStatus.PASS, TerminalStatus.FAIL}
     for rows, selected, summary in zip(complete_inputs, (baseline, candidate), (a, b), strict=True):
         required = role == "eval" and selected[0].ablation_group.value == "G3"
@@ -229,7 +249,7 @@ def comparison(
                 or y.primary_metrics["localization_penalty_turns"],
             )
         )
-    funnel = {}
+    funnel, funnel_bases = {}, {}
     for field in (
         "total_turns",
         "npu_execution_wait_sec",
@@ -237,9 +257,25 @@ def comparison(
         "llm_and_exploration_sec",
     ):
         values = [(x.primary_metrics.get(field), y.primary_metrics.get(field)) for x, y in paired]
+        bases = (
+            {
+                row.primary_metrics.get(
+                    "knowledge_measurement_basis", "legacy_native_tool_trajectory_only"
+                )
+                for pair in paired
+                for row in pair
+            }
+            if field in {"knowledge_query_sec", "llm_and_exploration_sec"}
+            else set()
+        )
+        funnel_bases[field] = dict(
+            measurement_bases=sorted(bases),
+            comparable=len(bases) <= 1,
+            reason="knowledge_measurement_basis_mismatch" if len(bases) > 1 else None,
+        )
         funnel[field] = (
             {"baseline_mean": mean(x for x, _ in values), "candidate_mean": mean(y for _, y in values)}
-            if values and all(x is not None and y is not None for x, y in values)
+            if values and len(bases) <= 1 and all(x is not None and y is not None for x, y in values)
             else None
         )
     paired_lift = (
@@ -250,14 +286,62 @@ def comparison(
         if paired
         else None
     )
+    declared_complete = (
+        a["matrix_coverage"]["complete"]
+        and b["matrix_coverage"]["complete"]
+        and a["seed_setup_complete"]
+        and b["seed_setup_complete"]
+        if expected_cells is not None
+        else None
+    )
+    time_observed_pairs = sum(
+        x.primary_metrics.get("delivery_wall_clock_sec") is not None
+        and y.primary_metrics.get("delivery_wall_clock_sec") is not None
+        for x, y in solved_pairs
+    )
     return dict(
         comparison_role=role,
         baseline_group=baseline[0].ablation_group.value,
         candidate_group=candidate[0].ablation_group.value,
         tier=baseline[0].tier,
         evidence=baseline[0].evidence,
+        knowledge_protocols=dict(
+            baseline=sorted(
+                {row.environment_fingerprint.get("knowledge_mode", "unrecorded") for row in baseline}
+            ),
+            candidate=sorted(
+                {row.environment_fingerprint.get("knowledge_mode", "unrecorded") for row in candidate}
+            ),
+            candidate_oracle_contexts_supplied=sum(
+                bool(row.environment_fingerprint.get("oracle_context_sha256")) for row in candidate
+            ),
+            oracle_is_a_controlled_content_condition_not_natural_retrieval=True,
+        ),
         baseline=a,
         candidate=b,
+        comparison_coverage=dict(
+            matched_observed_pairs=len(left),
+            matched_valid_pairs=len(paired),
+            excluded_invalid_pairs=len(left) - len(paired),
+            mutually_solved_pairs=len(solved_pairs),
+            pairs_with_recorded_delivery_times=time_observed_pairs,
+            baseline=a["matrix_coverage"],
+            candidate=b["matrix_coverage"],
+            complete=declared_complete,
+            reason=(
+                "plan_inventory_unavailable"
+                if expected_cells is None
+                else "incomplete_declared_cells_or_seed_setup"
+                if not declared_complete
+                else None
+            ),
+            whole_population_reliability_complete=(
+                a["reliability_coverage"]["complete_for_declared_cells"]
+                and b["reliability_coverage"]["complete_for_declared_cells"]
+                if expected_cells is not None
+                else None
+            ),
+        ),
         matched_valid_pairs=len(paired),
         paired_completion_lift=paired_lift,
         wall_clock_speedup_on_mutual_success=ratio("delivery_wall_clock_sec", solved_pairs),
@@ -275,7 +359,79 @@ def comparison(
             if observed_localization and len(observed_localization) == len(paired)
             else None
         ),
+        knowledge_effectiveness=dict(
+            **b["knowledge_observations"]["benefit"],
+            native_body_access="not_measured_by_mcp_counters",
+            time_ratio_is_not_knowledge_benefit=True,
+        ),
+        metric_qualifications=dict(
+            paired_completion_lift=dict(
+                population="matched_valid_pairs",
+                observed_pairs=len(paired),
+                matched_observed_pairs=len(left),
+                excludes_invalid_pairs=len(left) - len(paired),
+                causal=False,
+            ),
+            wall_clock_speedup_on_mutual_success=dict(
+                population="mutually_solved_pairs_with_recorded_delivery_times",
+                observed_pairs=time_observed_pairs,
+                mutually_solved_pairs=len(solved_pairs),
+                complete_for_solved_pairs=bool(solved_pairs)
+                and time_observed_pairs == len(solved_pairs),
+                reason=(
+                    "no_mutually_solved_pairs"
+                    if not solved_pairs
+                    else "delivery_timing_missing"
+                    if time_observed_pairs != len(solved_pairs)
+                    else "descriptive_paired_ratio_only"
+                ),
+                causal=False,
+            ),
+            saved_npu_test_run_fraction=dict(
+                population="matched_valid_pairs",
+                observed_pairs=sum(x is not None and y is not None for x, y in npu_values),
+                definition="recognized_remote_test_command_attempts_including_failed_or_unfinished",
+                is_kernel_launch_or_success_rate=False,
+                causal=False,
+            ),
+            localization_speedup=dict(
+                observed_pairs=len(observed_localization),
+                matched_valid_pairs=len(paired),
+                reason=(
+                    "no_matched_valid_pairs"
+                    if not paired
+                    else "typed_localization_missing"
+                    if len(observed_localization) != len(paired)
+                    else None
+                ),
+                missing_typed_access_does_not_prove_failure=True,
+            ),
+            pass_pow_k=dict(
+                population="eligible_observed_tasks_only",
+                baseline_eligible_tasks=a["reliability_eligible_tasks"],
+                baseline_observed_tasks=a["reliability_total_tasks"],
+                candidate_eligible_tasks=b["reliability_eligible_tasks"],
+                candidate_observed_tasks=b["reliability_total_tasks"],
+                complete_declared_matrix=declared_complete,
+                is_whole_matrix_reliability=bool(declared_complete)
+                and a["reliability_coverage"]["complete_for_observed_tasks"]
+                and b["reliability_coverage"]["complete_for_observed_tasks"],
+                reason=(
+                    "plan_inventory_unavailable"
+                    if expected_cells is None
+                    else "incomplete_declared_cells_or_seed_setup"
+                    if not declared_complete
+                    else "insufficient_valid_independent_repetitions"
+                    if not (
+                        a["reliability_coverage"]["complete_for_observed_tasks"]
+                        and b["reliability_coverage"]["complete_for_observed_tasks"]
+                    )
+                    else None
+                ),
+            ),
+        ),
         funnel=funnel,
+        funnel_measurement_bases=funnel_bases,
     )
 
 
@@ -308,6 +464,65 @@ def markdown(result: dict) -> str:
         rows.append(
             f"| {field} | {fmt(result['baseline'][field])} | {fmt(result['candidate'][field])} |"
         )
+    rows += [
+        "",
+        "Timing means above use valid completed-pass/completed-fail attempts with recorded times; "
+        "unknown and infrastructure outcomes are excluded from those means.",
+        "Pass^k above covers eligible observed tasks only. "
+        f"Eligible/observed tasks: baseline {result['baseline']['reliability_eligible_tasks']}/"
+        f"{result['baseline']['reliability_total_tasks']}; candidate "
+        f"{result['candidate']['reliability_eligible_tasks']}/"
+        f"{result['candidate']['reliability_total_tasks']}. "
+        "A partially eligible subset is not whole-matrix reliability.",
+        "",
+        "## Recorded elapsed time across all attempts",
+        "",
+        "These means include recorded failed/unknown/infra attempts, not successful delivery.",
+        "",
+        "| Measurement | Baseline | Candidate |",
+        "| --- | ---: | ---: |",
+    ]
+    for field in (
+        "mean_wall_clock_coverage",
+        "mean_delivery_wall_clock_count",
+        "all_attempt_recorded_wall_clock_sec_mean",
+        "all_attempt_recorded_wall_clock_sec_count",
+        "all_attempt_recorded_delivery_wall_clock_sec_mean",
+        "all_attempt_recorded_delivery_wall_clock_sec_count",
+    ):
+        rows.append(
+            f"| {field} | {fmt(result['baseline'][field])} | {fmt(result['candidate'][field])} |"
+        )
+    rows += [
+        "",
+        "## Coverage and missing observations",
+        "",
+        f"Declared matrix coverage: `{result['comparison_coverage']}`.",
+        "",
+        "| Observation | Baseline measured/attempts | Candidate measured/attempts |",
+        "| --- | ---: | ---: |",
+    ]
+    for name in (
+        "tokens",
+        "localization",
+        "remote_non_business_errors",
+        "knowledge_queries",
+        "knowledge_explains",
+    ):
+        values = [
+            side["measurement_coverage"][name] for side in (result["baseline"], result["candidate"])
+        ]
+        rows.append(
+            f"| {name} | {values[0]['observed_attempts']}/{values[0]['population_attempts']} "
+            f"({values[0]['state']}) | {values[1]['observed_attempts']}/"
+            f"{values[1]['population_attempts']} ({values[1]['state']}) |"
+        )
+    rows += [
+        "",
+        f"Knowledge effectiveness: `{result['knowledge_effectiveness']}`. "
+        "A time ratio is not evidence of knowledge benefit. "
+        "MCP count coverage does not measure native corpus-body reads.",
+    ]
     rows += [
         "",
         "## Resources including required G3 seed setup",
@@ -393,12 +608,31 @@ def freeze(receipts: list[TrialReceipt], destination: Path):
     )
 
 
-def grouped_summaries(receipts):
+def _declared_scope(cells, tier, group, role):
+    if cells is None:
+        return None
+    if any(not isinstance(cell, dict) or not {"tier", "group", "role"} <= cell.keys() for cell in cells):
+        raise ValueError("declared cells require tier, group and role")
+    return [
+        cell
+        for cell in cells
+        if cell["tier"] == tier and cell["group"] == group and cell["role"] == role
+    ]
+
+
+def grouped_summaries(receipts, *, expected_cells=None, blocked_cells=None):
     groups = defaultdict(list)
     for receipt in receipts:
         key = (receipt.tier, receipt.evidence, receipt.ablation_group.value)
         groups[key + (("seed",) if receipt.task_role == "seed" else ())].append(receipt)
-    result = {"/".join(key): summarize(rows) for key, rows in groups.items()}
+    result = {
+        "/".join(key): summarize(
+            rows,
+            expected_cells=_declared_scope(expected_cells, key[0], key[2], rows[0].task_role),
+            blocked_cells=_declared_scope(blocked_cells, key[0], key[2], rows[0].task_role),
+        )
+        for key, rows in groups.items()
+    }
     for key, rows in groups.items():
         if len(key) == 3 and key[2] == "G3" and key + ("seed",) in groups:
             seed = summarize(groups[key + ("seed",)])

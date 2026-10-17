@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -16,9 +17,12 @@ class WorktreeSlot:
     def __init__(self, environment: SourceEnvironment, destination: Path, task_root: Path):
         self.repo = Path(environment.repo_path).resolve(strict=True)
         self.environment = environment
-        self.destination = destination
-        self.task_root = task_root
+        # Git interprets relative worktree destinations from the source repo,
+        # while the caller interprets them from its cwd. Freeze one identity.
+        self.destination = destination.resolve()
+        self.task_root = task_root.resolve(strict=True)
         self.created = False
+        self.public_files = {}
 
     def prepare(self) -> Path:
         actual = subprocess.run(
@@ -54,6 +58,11 @@ class WorktreeSlot:
                     shutil.copytree(item, target)
                 else:
                     shutil.copy2(item, target)
+            self.public_files = {
+                path.relative_to(public).as_posix(): hashlib.sha256(path.read_bytes()).digest()
+                for path in public.rglob("*")
+                if path.is_file()
+            }
         for reserved in ["oracle", "verifier", ".git", *HARNESS_CONFIG_PATHS]:
             if (self.destination / reserved).exists():
                 raise ValueError(f"source contains reserved evaluation/configuration path: {reserved}")
@@ -115,7 +124,18 @@ class WorktreeSlot:
                 check=True,
                 capture_output=True,
             ).stdout.split(b"\0")
-            return sorted(set(changed + [os.fsdecode(name) for name in untracked if name]))
+            modified = set(changed + [os.fsdecode(name) for name in untracked if name])
+            for name, original in self.public_files.items():
+                path = self.destination / name
+                if (
+                    not path.is_symlink()
+                    and path.is_file()
+                    and hashlib.sha256(path.read_bytes()).digest() == original
+                ):
+                    modified.discard(name)
+                else:
+                    modified.add(name)
+            return sorted(modified)
         finally:
             (self.destination / ".git").unlink()
 

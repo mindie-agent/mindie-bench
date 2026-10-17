@@ -1,0 +1,17 @@
+{
+  "checks": [
+    {
+      "not_contains": "torch.topk(logits, k=top_k, dim=-1)",
+      "path": "vllm_ascend/sample/sampler.py"
+    }
+  ],
+  "fail": {
+    "exit_code": 1,
+    "stderr": "[W1017 01:45:20.049340060 NPUCachingAllocator.cpp:202] Warning: The current CANN and HDK(driver) versions require processing for 32 padding size, with memory allocation. (function operator())\nTraceback (most recent call last):\n  File \"<stdin>\", line 57, in <module>\n  File \"vllm_ascend/sample/sampler.py\", line 180, in _apply_top_k_top_p_pytorch\n    local_vals, local_idx = torch.topk(logits, k=top_k, dim=-1)  # [B, top_k], [B, top_k]\n                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: topk:../third_party/op-plugin/op_plugin/ops/opapi/TopKKernelNpuOpApi.cpp:69 NPU function error: call aclnnTopk failed, error code is 161002\n[ERROR] 2026-10-17-01:45:20 (PID:6, Device:0, RankID:-1) ERR00100 PTA call acl api failed.\n[PID: 6] 2026-10-17-01:45:20.417.252 AclNN_Parameter_Error(EZ1001): Selected index k out of range (max num of self.size(2) is 8,but k is 4096)\n\nTraceback (most recent call last):\n  File \"<stdin>\", line 57, in <module>\n  File \"vllm_ascend/sample/sampler.py\", line 180, in _apply_top_k_top_p_pytorch\n    local_vals, local_idx = torch.topk(logits, k=top_k, dim=-1)  # [B, top_k], [B, top_k]\n                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: topk:../third_party/op-plugin/op_plugin/ops/opapi/TopKKernelNpuOpApi.cpp:69 NPU function error: call aclnnTopk failed, error code is 161002\n[ERROR] 2026-10-17-01:45:20 (PID:6, Device:0, RankID:-1) ERR00100 PTA call acl api failed.\n[PID: 6] 2026-10-17-01:45:20.417.252 AclNN_Parameter_Error(EZ1001): Selected index k out of range (max num of self.size(2) is 8,but k is 4096)\n\n"
+  },
+  "pass": {
+    "exit_code": 0,
+    "stdout": "Historical unsafe-call replay rule no longer matches. This is not a tensor verdict; execute the public CPU counterpart and external judge. No NPU was called.\n"
+  },
+  "schema_version": "1.0"
+}

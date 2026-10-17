@@ -1,0 +1,14 @@
+{
+  "v0_23_0": {
+    "commit": "5cb98caaadeff42b5b62b996e34bb2aaa29d20fd",
+    "file": "v0_23_0_envs.py.txt",
+    "sha256": "5bcd8e084f1dca527a10510cd77a0ce6a40d79b8cc82593bce262e5b21ca869d",
+    "source_path": "vllm_ascend/envs.py"
+  },
+  "v0_27_1_contract": {
+    "commit": "80c833fb86b105391d164c9e3fc60d0bfecbf85e",
+    "file": "v0_27_1_contract_envs.py.txt",
+    "sha256": "e2637639fa027de6e4a17cd75fe564b1cd6057ac239dd365ab43081278f5300f",
+    "source_path": "vllm_ascend/envs.py"
+  }
+}

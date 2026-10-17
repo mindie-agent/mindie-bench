@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mindie_bench.io import write_json
+from mindie_bench.io import task_hash, tree_hash, write_json
 from mindie_bench.models import CorpusConfig, Group, RemoteConfig, TaskSpec, TerminalStatus, TrialReceipt
 from mindie_bench.runner import orchestrator
 from mindie_bench.scorer.comparator import load_receipts
@@ -49,7 +49,7 @@ def completed_trial(path, arguments, *, status=TerminalStatus.PASS, capture="com
     trial_id = f"{identity}-{arguments['group'].value}-{arguments['repetition']}"
     directory = arguments["run_root"] / trial_id
     directory.mkdir()
-    view = directory / "profile/corpus"
+    view = directory / "knowledge-private/corpus"
     previous = arguments.get("corpus_override")
     if previous:
         shutil.copytree(previous, view)
@@ -72,14 +72,17 @@ def completed_trial(path, arguments, *, status=TerminalStatus.PASS, capture="com
         knowledge_gradient=spec.mindie_knowledge.knowledge_gradient,
         task_role=spec.task.role,
         cluster=spec.task.cluster,
-        task_digest="synthetic-task",
+        task_digest=task_hash(path),
         experiment_digest="synthetic-experiment",
         environment_fingerprint={},
         terminal_status=status,
         failure_reason=None if status == TerminalStatus.PASS else "uncertain capture effects",
         primary_metrics=outcome,
-        auxiliary_metrics={"capture": {"status": capture}},
-        artifacts={"private_trial_dir": str(directory)},
+        auxiliary_metrics={
+            "capture": {"status": capture},
+            "captured_corpus_sha256": tree_hash(view),
+        },
+        artifacts={"private_trial_dir": str(directory), "captured_corpus": str(view)},
         evidence="synthetic",
     )
     write_json(directory / "trial_receipt.json", receipt.model_dump(mode="json"), exclusive=True)
@@ -103,7 +106,7 @@ def test_ordinary_cells_overlap_g3_and_eval_waits_for_capture(case, corpus, monk
             assert (seed_view / "captured-seed-1").is_file()
         receipt = completed_trial(path, arguments)
         if arguments["group"] == Group.G3 and path == seed:
-            seed_view = Path(receipt.artifacts["private_trial_dir"]) / "profile/corpus"
+            seed_view = Path(receipt.artifacts["captured_corpus"])
             captured.set()
         return receipt
 

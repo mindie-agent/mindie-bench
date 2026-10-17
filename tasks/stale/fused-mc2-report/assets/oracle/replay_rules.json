@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "enabled": false,
+  "checks": [],
+  "pass": {
+    "exit_code": 0
+  },
+  "fail": {
+    "exit_code": 1
+  },
+  "scope": "Actual complete CPU reporting module; no replay or NPU execution."
+}

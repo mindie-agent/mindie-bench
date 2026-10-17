@@ -1,0 +1,67 @@
+{
+  "after_reward": 1.0,
+  "before_reward": 0.0,
+  "errors": [],
+  "model_calls": 0,
+  "remote_postflight": {
+    "8": {
+      "capacity_mb": 65536,
+      "card_id": 4,
+      "chip_id": 0,
+      "model": "Ascend910",
+      "physical_id": 8,
+      "pids": [],
+      "used_mb": 3142
+    },
+    "9": {
+      "capacity_mb": 65536,
+      "card_id": 4,
+      "chip_id": 1,
+      "model": "Ascend910",
+      "physical_id": 9,
+      "pids": [],
+      "used_mb": 2883
+    },
+    "_environment": {
+      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
+      "driver": "25.5.3",
+      "image_digest": "sha256:333cadf615f4d5174bd23c735d53298689f81291079e9b6ae429971dc2a61f36",
+      "kernel": "5.10.0-216.0.0.115.oe2203sp4.aarch64",
+      "python": "3.12.13 (main, Aug  3 2026, 02:43:47) [GCC 12.3.1 (openEuler 12.3.1-105.oe2403sp3)]",
+      "torch_npu": "2.10.0.post4"
+    }
+  },
+  "remote_preflight": {
+    "8": {
+      "capacity_mb": 65536,
+      "card_id": 4,
+      "chip_id": 0,
+      "model": "Ascend910",
+      "physical_id": 8,
+      "pids": [],
+      "used_mb": 3141
+    },
+    "9": {
+      "capacity_mb": 65536,
+      "card_id": 4,
+      "chip_id": 1,
+      "model": "Ascend910",
+      "physical_id": 9,
+      "pids": [],
+      "used_mb": 2882
+    },
+    "_environment": {
+      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
+      "driver": "25.5.3",
+      "image_digest": "sha256:333cadf615f4d5174bd23c735d53298689f81291079e9b6ae429971dc2a61f36",
+      "kernel": "5.10.0-216.0.0.115.oe2203sp4.aarch64",
+      "python": "3.12.13 (main, Aug  3 2026, 02:43:47) [GCC 12.3.1 (openEuler 12.3.1-105.oe2403sp3)]",
+      "torch_npu": "2.10.0.post4"
+    }
+  },
+  "schema_version": "1.0",
+  "source_commit": "c3394206bdd00b132580ae439555b4f1a70d5bf6",
+  "status": "completed",
+  "task_sha256": "26d8266f680d381d39617eca1464c14e0cc335da5d103f4cdc2d2300d87c9f09",
+  "tier": "l3"
+}

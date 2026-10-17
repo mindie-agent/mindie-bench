@@ -1,0 +1,5 @@
+{
+  "python": "@PYTHON_SHA256@",
+  "yaml": "@YAML_VERSION@",
+  "regex": "@REGEX_VERSION@"
+}

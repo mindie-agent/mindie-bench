@@ -67,7 +67,13 @@ def test_filename_mentions_do_not_claim_localization():
         calls=[
             ToolCall(id="1", name="Bash", arguments={"command": "echo target.py"}, turn=1),
             ToolCall(id="2", name="Read", arguments={"file_path": "prefix-target.py"}, turn=2),
-            ToolCall(id="3", name="Grep", arguments={"matched_files": ["/workspace/target.py"]}, turn=4),
+            ToolCall(
+                id="3",
+                name="Grep",
+                arguments={"matched_files": ["/workspace/target.py"]},
+                turn=4,
+                is_error=False,
+            ),
         ]
     )
     assert first_localization(trajectory, ["target.py"]) == 4
@@ -96,9 +102,13 @@ def test_overlap_never_produces_negative_llm_time(case):
             for i in range(2)
         ]
     )
-    primary, _ = trajectory_metrics(trajectory, case["spec"], case["config"].harness, 12, tier="l3")
-    assert primary["npu_execution_wait_sec"] == 20
-    assert primary["llm_and_exploration_sec"] is None
+    primary, auxiliary = trajectory_metrics(
+        trajectory, case["spec"], case["config"].harness, 12, tier="l3"
+    )
+    assert primary["npu_execution_wait_sec"] == 10
+    assert primary["llm_and_exploration_sec"] == 2
+    assert auxiliary["tool_timing"]["remote"]["raw_cumulative_sec"] == 20
+    assert auxiliary["tool_timing"]["remote"]["overlap_sec"] == 10
 
 
 def test_native_ssh_and_mcp_execution_have_comparable_wait_metrics(case):

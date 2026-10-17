@@ -1,0 +1,38 @@
+{
+  "base_commit": "d552d03a4851aa4d75420377952b0177c94cd4a5",
+  "cpu_boundary": [
+    "real torch CPU tensors",
+    "framework imports/classes/configuration fixtures",
+    "one-rank all_gather identity, no HCCL emulation",
+    "unsupported stream/AscendC calls fail explicitly"
+  ],
+  "fix_commit": "80cd5964286f2a394e3e6b3d1f7581ce901c812a",
+  "gold_patch_sha256": "47a563bc65138acc6525ee1d7c55a3863e1225e5ee8b547ae46a798b22fcd407",
+  "gold_source_sha256": "99966ee37339c7a6d1f98c734d3d906ee923e4e52f47f85360ed1061aa229db2",
+  "hardware_gold_reward": 1.0,
+  "hardware_proof_sha256": "3d95880b16cf60bb25d731d10da389431c280e80bcd3bb908925d27a7a2dcfd4",
+  "hardware_proof_task_sha256": "64aeae26455ec3c18322353984a531c632047ec761c163a069c82585c18f693b",
+  "hardware_source_reward": 0.0,
+  "historical_environment": {
+    "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
+    "driver": "25.5.3",
+    "image_digest": "sha256:90d743487f574f50d9baefbb4438b6590f4a1ddea2676f26de50c01da0b5da27",
+    "kernel": "5.10.0-216.0.0.115.oe2203sp4.aarch64",
+    "python": "3.12.13 (main, Aug  3 2026, 02:40:28) [GCC 11.4.0]",
+    "torch_npu": "2.10.0.post4"
+  },
+  "historical_scope": "Focused exact source-function execution on actual single-device NPU; original judge initial uppercase error classification failed and was corrected in a fresh proof. This L2 task imports the whole historical Python module.",
+  "historical_shape": {
+    "batch": 1,
+    "device_model": "Ascend910",
+    "local_vocabulary_width": 8,
+    "top_k": 4096
+  },
+  "history_stderr_sha256": "dd47b68c0a1ae514866ed892210126e1fb83c94b8cb71a0e111cb4ec23481d93",
+  "knowledge_condition": "unlabelled relation; use explicitly frozen empty replay-empty corpus for a no-hit run. No global corpus-irrelevance or stale claim.",
+  "replay_scope": "Parent gateway source-pattern diagnostic replay, not an NPU execution or a semantic verdict.",
+  "repository": "vllm-project/vllm-ascend",
+  "schema": "mindie-bench-ascend-replay-source/1",
+  "source_path": "vllm_ascend/sample/sampler.py",
+  "source_sha256": "df46f904ba989b7d3579bd965c67c9f0fac7018bc13958dd2f203b21b2b17829"
+}

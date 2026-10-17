@@ -54,7 +54,15 @@ class KnowledgeSpec(StrictModel):
     def package_ids(cls, values: list[str]) -> list[str]:
         if any(not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value) for value in values):
             raise ValueError("invalid corpus package ID")
+        if len(values) != len(set(values)):
+            raise ValueError("knowledge package IDs must be unique within each relation")
         return values
+
+    @model_validator(mode="after")
+    def distinct_relations(self):
+        if set(self.same_origin_task_hashes) & set(self.analogical_task_hashes):
+            raise ValueError("same-origin and analogical knowledge packages must be distinct")
+        return self
 
     @field_validator("target_files")
     @classmethod
@@ -135,6 +143,24 @@ class GroupConfig(StrictModel):
     capture_command: list[str] = Field(default_factory=list)
     capture_model: str | None = None
     capture_max_model_calls: int = Field(default=1, gt=0)
+    knowledge_mode: Literal["advisory", "explicit", "oracle"] = "advisory"
+    oracle_context_files: list[str] = Field(default_factory=list)
+
+    @field_validator("oracle_context_files")
+    @classmethod
+    def confined_oracle_context(cls, values: list[str]) -> list[str]:
+        if len(values) != len(set(values)):
+            raise ValueError("oracle context paths must be unique")
+        for value in values:
+            if not safe_relative(value).startswith("tasks/") or not value.endswith(".md"):
+                raise ValueError("oracle context must select task Markdown in the filtered corpus")
+        return values
+
+    @model_validator(mode="after")
+    def explicit_knowledge_condition(self):
+        if (self.knowledge_mode == "oracle") != bool(self.oracle_context_files):
+            raise ValueError("only oracle mode requires explicitly selected context files")
+        return self
 
     @field_validator("mcp_servers")
     @classmethod
@@ -195,6 +221,7 @@ class ExperimentConfig(StrictModel):
     corpora: dict[str, CorpusConfig] = Field(default_factory=dict)
     component_revisions: dict[str, str] = Field(default_factory=dict)
     runtime_read_paths: list[str] = Field(default_factory=list)
+    knowledge_runtime_read_paths: list[str] = Field(default_factory=list)
     backend: Literal["native", "fixture"] = "native"
     remote: RemoteConfig | None = None
 
@@ -217,6 +244,41 @@ class VerifierResult(StrictModel):
         return value
 
 
+class ToolResultObservation(StrictModel):
+    """Bounded result facts; original tool payloads stay in the private native log."""
+
+    schema_version: Literal["mindie-bench-tool-observation/1"] = "mindie-bench-tool-observation/1"
+    source: Literal["codex_mcp", "claude_tool_result", "native_command", "native_file"]
+    classification: Literal[
+        "success",
+        "business_success",
+        "business_failure",
+        "pending",
+        "unknown",
+        "transport_error",
+        "protocol_error",
+        "component_error",
+        "unclassified",
+    ]
+    operation_kind: Literal["execution", "observation", "control", "file", "knowledge", "other"]
+    result_schema: str | None = Field(default=None, max_length=96)
+    native_status: str | None = Field(default=None, max_length=96)
+    mcp_is_error: bool | None = None
+    remote_outcome: str | None = Field(default=None, max_length=96)
+    remote_status: str | None = Field(default=None, max_length=96)
+    exit_code: int | None = Field(default=None, strict=True)
+    job_id: str | None = Field(default=None, max_length=256)
+    invocation_id: str | None = Field(default=None, max_length=256)
+    target_id: str | None = Field(default=None, max_length=256)
+    submission_state: str | None = Field(default=None, max_length=96)
+    error_category: str | None = Field(default=None, max_length=96)
+    error_domain: Literal["transport", "protocol", "component"] | None = None
+    operation_completed: bool | None = None
+    component_duration_ms: float | None = Field(default=None, ge=0)
+    result_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    classification_reason: str = Field(max_length=96)
+
+
 class ToolCall(StrictModel):
     id: str
     name: str
@@ -226,6 +288,7 @@ class ToolCall(StrictModel):
     started_sec: float | None = None
     ended_sec: float | None = None
     is_error: bool | None = None
+    result_observation: ToolResultObservation | None = None
 
 
 class Tokens(StrictModel):
@@ -252,6 +315,7 @@ class Trajectory(StrictModel):
     native_error: str | None = None
     native_session_id: str | None = None
     public_messages: list[dict[str, str]] = Field(default_factory=list)
+    tool_observation_schema: Literal["mindie-bench-tool-observation/1"] | None = None
 
 
 class TrialReceipt(StrictModel):

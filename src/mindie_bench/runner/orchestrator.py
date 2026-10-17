@@ -64,6 +64,7 @@ def implementation_digest() -> str:
 
 RUNTIME_HELPER_MODULES = (
     "mindie_bench.runner.ssh_shim",
+    "mindie_bench.runner.knowledge_stdio",
     "mindie_bench.integrations.codex_stop",
     "mindie_bench.integrations.first_party",
 )
@@ -185,6 +186,8 @@ def run_trial(
     corpus_override: Path | None = None,
     cancelled=None,
 ) -> TrialReceipt:
+    task_root = task_root.resolve(strict=True)
+    run_root = run_root.resolve(strict=True)
     trial_started = time.monotonic()
     task = TaskSpec.load(task_root)
     trial_id = f"{task.task.instance_id}_{group.value}_{repetition}_{uuid.uuid4().hex[:12]}"
@@ -264,7 +267,10 @@ def run_trial(
             Path.home() / ".codex",
             Path.home() / ".claude",
             Path.home() / ".kimi-code",
+            *[Path(path).resolve(strict=True) for path in config.knowledge_runtime_read_paths],
         ]
+        if profile.private_root:
+            protected.append(profile.private_root)
         if task.mindie_knowledge.corpus_id in config.corpora:
             protected.append(Path(config.corpora[task.mindie_knowledge.corpus_id].path))
         check_read_boundaries(paths, protected)
@@ -321,7 +327,12 @@ def run_trial(
             unix_socket=unix_socket,
             remote=remote,
         )
+        knowledge_paths = [
+            *paths,
+            *[Path(path).resolve(strict=True) for path in config.knowledge_runtime_read_paths],
+        ]
         with gateway:
+            gateway.attach_knowledge(profile, knowledge_paths)
             profile.env.update(
                 MINDIE_BENCH_GATEWAY=gateway.url,
                 MINDIE_BENCH_DUMMY_KEY="broker-only",
@@ -349,9 +360,9 @@ def run_trial(
                 gateway_port=gateway.port,
                 gateway_socket=unix_socket,
             )
-            prompt = (task_root / "instruction.md").read_text()
-            if profile.corpus:
-                prompt += f"\n\nAvailable advisory corpus: {profile.corpus}\n"
+            from mindie_bench.runner.profile_builder import knowledge_prompt
+
+            prompt = knowledge_prompt(profile) + (task_root / "instruction.md").read_text()
             if remote:
                 prompt += (
                     f"\n\nWork on the isolated SSH endpoint bench-slot. "
@@ -360,6 +371,10 @@ def run_trial(
                     'For remote-dev tools select host="bench-slot", port=22. '
                     "The local and remote workspaces are plain source snapshots without Git history; "
                     "apply the repair in the remote workspace that the NPU verifier will inspect.\n"
+                    "For routine remote test commands, prefer yield_time_ms=10000 or 30000. "
+                    "If a command returns a running job, follow that existing job with a bounded "
+                    "wait (for example 10000 ms) instead of repeated one-second empty polls. "
+                    "Choose validation proportional to the change and observed failures.\n"
                 )
             phase = "agent"
             auxiliary["preflight_wall_clock_sec"] = time.monotonic() - trial_started
@@ -381,7 +396,9 @@ def run_trial(
             gateway.finish_remote()
             errors.extend(result.errors)
             auxiliary["native_process"] = dict(
-                returncode=result.returncode, stop_reason=result.stop_reason
+                returncode=result.returncode,
+                stop_reason=result.stop_reason,
+                started_monotonic_sec=result.started_monotonic_sec,
             )
             trajectory = driver.trajectory()
             trajectory.total_turns = max(trajectory.total_turns, gateway.model_calls)
@@ -461,7 +478,7 @@ def run_trial(
                     *trajectory.public_messages,
                 ],
                 "destination": str(profile.corpus),
-                "local_remote": profile.env["MINDIE_BENCH_LOCAL_KNOWLEDGE_REMOTE"],
+                "local_remote": profile.private_env["MINDIE_BENCH_LOCAL_KNOWLEDGE_REMOTE"],
                 "instance_id": task.task.instance_id,
                 "cluster": task.task.cluster,
             }
@@ -502,8 +519,8 @@ def run_trial(
                 driver_for(config.harness.name).command(profile, capture_harness)
                 capture = native_command(
                     group_config.capture_command,
-                    read=paths,
-                    write=[profile.root],
+                    read=[*knowledge_paths, profile.private_root],
+                    write=[profile.root, profile.private_root],
                     cwd=profile.root,
                     policy_path=trial_dir / "capture.sb",
                     gateway_port=capture_gateway.port,
@@ -512,7 +529,7 @@ def run_trial(
                 records = []
                 captured = stream_process(
                     capture,
-                    env=profile.env,
+                    env=dict(profile.env, **profile.private_env),
                     cwd=profile.root,
                     prompt=json.dumps(public),
                     output=trial_dir / "capture_events.jsonl",
@@ -574,6 +591,7 @@ def run_trial(
             auxiliary["captured_corpus_sha256"] = tree_hash(profile.corpus)
             if auxiliary["captured_corpus_sha256"] == corpus_before_capture:
                 raise ValueError("capture adapter reported completion without changing the local corpus")
+            auxiliary["captured_corpus_path"] = str(profile.corpus)
     except KeyboardInterrupt:
         status = TerminalStatus.UNKNOWN if phase in {"agent", "capture"} else TerminalStatus.INFRA
         reason = "interrupted; reconcile existing effects before another attempt"
@@ -607,8 +625,36 @@ def run_trial(
                                 max(getattr(observed, field), getattr(trajectory.tokens, field)),
                             )
                     trajectory.tokens = observed
+            source_visibility = None
+            broker_knowledge = None
+            if config.backend == "native" and result and result.started and environment is not None:
+                from mindie_bench.evaluation.source_visibility import observe_source_visibility
+
+                source_visibility = observe_source_visibility(
+                    trial_dir / "native_events.jsonl",
+                    trajectory,
+                    environment,
+                    task.mindie_knowledge.target_files,
+                )
+                write_json(trial_dir / "source_visibility.json", source_visibility, exclusive=True)
+            if config.backend == "native" and gateway and (trial_dir / "broker.jsonl").is_file():
+                from mindie_bench.evaluation.broker_knowledge import summarize_broker_knowledge
+
+                broker_knowledge = summarize_broker_knowledge(
+                    trial_dir / "broker.jsonl",
+                    process_origin_monotonic_sec=(
+                        result.started_monotonic_sec if result is not None else None
+                    ),
+                )
+                write_json(trial_dir / "broker_knowledge.json", broker_knowledge, exclusive=True)
             measured_primary, measured_aux = trajectory_metrics(
-                trajectory, task, config.harness, wall_clock, tier=tier
+                trajectory,
+                task,
+                config.harness,
+                wall_clock,
+                tier=tier,
+                source_visibility=source_visibility,
+                broker_knowledge=broker_knowledge,
             )
             primary = dict(measured_primary, **primary)
             auxiliary = dict(measured_aux, **auxiliary)
@@ -662,10 +708,21 @@ def run_trial(
                         TerminalStatus.INFRA,
                         "remote postflight failed; preserve separate business verdict",
                     )
+            auxiliary["files_modified"] = getattr(remote, "modified_files", None)
+            auxiliary["files_modified_scope"] = "remote_judged_workspace"
+            auxiliary["files_modified_reason"] = (
+                None
+                if auxiliary["files_modified"] is not None
+                else "remote_snapshot_inventory_unavailable"
+            )
         if slot:
             try:
                 if slot.created:
-                    auxiliary["files_modified"] = slot.snapshot_patch(trial_dir)
+                    auxiliary["local_files_modified"] = slot.snapshot_patch(trial_dir)
+                    if not remote:
+                        auxiliary["files_modified"] = auxiliary["local_files_modified"]
+                        auxiliary["files_modified_scope"] = "local_judged_workspace"
+                        auxiliary["files_modified_reason"] = None
                     # Preserve the final files as a private artifact before
                     # deleting only this runner-owned worktree.
                     shutil.make_archive(str(trial_dir / "final_workspace"), "gztar", slot.destination)
@@ -709,7 +766,14 @@ def run_trial(
             primary_metrics=primary,
             auxiliary_metrics=auxiliary,
             errors=errors,
-            artifacts={"private_trial_dir": str(trial_dir)},
+            artifacts={
+                "private_trial_dir": str(trial_dir),
+                **(
+                    {"captured_corpus": auxiliary["captured_corpus_path"]}
+                    if "captured_corpus_path" in auxiliary
+                    else {}
+                ),
+            },
             evidence=task.task.evidence,
         )
         write_json(trial_dir / "trial_receipt.json", receipt.model_dump(mode="json"), exclusive=True)
@@ -728,7 +792,13 @@ def run_matrix(
 ) -> list[TrialReceipt]:
     if concurrency < 1 or repetitions < 1 or not groups or len(set(groups)) != len(groups):
         raise ValueError("positive concurrency/repetitions and unique groups are required")
+    task_roots = [path.resolve(strict=True) for path in task_roots]
+    output = output.resolve()
     specs = {path: TaskSpec.load(path) for path in task_roots}
+    if not specs or len(specs) != len(task_roots):
+        raise ValueError("matrix task paths must be nonempty and unique")
+    if len({spec.task.instance_id for spec in specs.values()}) != len(specs):
+        raise ValueError("matrix task instance IDs must be unique")
     lineages = {}
     if Group.G3 in groups:
         if not any(spec.task.role == "seed" for spec in specs.values()):
@@ -755,6 +825,21 @@ def run_matrix(
                 raise ValueError("each L3 task must fit the explicitly configured NPU device pool")
     output.mkdir(parents=True, exist_ok=False)
     output.chmod(0o700)
+    cells = [
+        dict(
+            instance_id=spec.task.instance_id,
+            tier=tier,
+            group=group.value,
+            repetition=repetition,
+            role=spec.task.role,
+            task_digest=task_hash(path),
+            cluster=spec.task.cluster,
+            corpus_id=spec.mindie_knowledge.corpus_id,
+        )
+        for path, spec in specs.items()
+        for group in groups
+        for repetition in range(1, repetitions + 1)
+    ]
     write_json(
         output / "eval_manifest.json",
         dict(
@@ -766,10 +851,12 @@ def run_matrix(
             groups=[g.value for g in groups],
             repetitions=repetitions,
             automatic_retries=0,
+            cells=cells,
         ),
         exclusive=True,
     )
     receipts = []
+    blocked_cells = []
     receipt_lock = threading.Lock()
     device_condition = threading.Condition()
     cancelled = threading.Event()
@@ -815,13 +902,28 @@ def run_matrix(
         warm = output / "warm-initial" / str(repetition) / cluster / corpus_id
         warm.parent.mkdir(parents=True, exist_ok=True)
         filtered_corpus(Path(config.corpora[corpus_id].path), warm, excluded)
-        for path in paths:
+        for index, path in enumerate(paths):
             receipt = execute_cell(path, Group.G3, repetition, corpus_override=warm)
             if specs[path].task.role == "seed":
                 if (
                     receipt.terminal_status not in {TerminalStatus.PASS, TerminalStatus.FAIL}
                     or receipt.auxiliary_metrics.get("capture", {}).get("status") != "completed"
                 ):
+                    blocked = [
+                        dict(
+                            **cell,
+                            reason="seed_prerequisite_not_completed",
+                            prerequisite_trial_id=receipt.trial_id,
+                            prerequisite_status=receipt.terminal_status.value,
+                        )
+                        for cell in cells
+                        if cell["group"] == "G3"
+                        and cell["repetition"] == repetition
+                        and cell["instance_id"]
+                        in {specs[remaining].task.instance_id for remaining in paths[index + 1 :]}
+                    ]
+                    with receipt_lock:
+                        blocked_cells.extend(blocked)
                     raise RuntimeError(
                         "G3 seed prerequisites failed; dependent evals were not started "
                         f"(cluster={cluster}, corpus={corpus_id}, repetition={repetition}, "
@@ -830,7 +932,9 @@ def run_matrix(
                     )
                 # Failed engineering attempts are still valid reference experience.
                 # Held-out evaluations never become input to later evaluations.
-                warm = Path(receipt.artifacts["private_trial_dir"]) / "profile/corpus"
+                warm = Path(receipt.artifacts["captured_corpus"])
+                if tree_hash(warm) != receipt.auxiliary_metrics["captured_corpus_sha256"]:
+                    raise ValueError("captured seed corpus changed before its held-out evaluation")
 
     jobs = [
         (path, group, repetition)
@@ -879,9 +983,28 @@ def run_matrix(
         matrix_error = error
     try:
         write_json(output / "summary.json", grouped_summaries(receipts), exclusive=True)
+        from mindie_bench.evaluation.accounting import account_cells
+
+        manifest_path = output / "eval_manifest.json"
+        accounting = account_cells(read_json(manifest_path), receipts, blocked_cells=blocked_cells)
+        write_json(
+            output / "matrix_accounting.json",
+            dict(
+                schema="mindie-bench-matrix-accounting/1",
+                manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+                receipt_sha256={
+                    row.trial_id: hashlib.sha256(
+                        (Path(row.artifacts["private_trial_dir"]) / "trial_receipt.json").read_bytes()
+                    ).hexdigest()
+                    for row in receipts
+                },
+                **accounting,
+            ),
+            exclusive=True,
+        )
     except Exception as error:
         if matrix_error is not None:
-            matrix_error.add_note(f"matrix summary write also failed: {error}")
+            matrix_error.add_note(f"matrix reporting write also failed: {error}")
             raise matrix_error from error
         raise
     if matrix_error is not None:

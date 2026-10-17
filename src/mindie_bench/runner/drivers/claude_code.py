@@ -2,13 +2,14 @@
 
 from mindie_bench.models import Tokens, ToolCall, Trajectory
 from mindie_bench.runner.drivers import normalize_tool
+from mindie_bench.scorer.tool_observations import SCHEMA, observe_claude_result
 
 
 class ClaudeCodeDriver:
     name = "claude-code"
 
     def __init__(self):
-        self.result = Trajectory()
+        self.result = Trajectory(tool_observation_schema=SCHEMA)
         self.calls = {}
         self.messages = {}
         self.server_components = {}
@@ -77,11 +78,25 @@ class ClaudeCodeDriver:
                         self.public_blocks.add(public_id)
                         self.result.public_messages.append({"role": "assistant", "text": block["text"]})
         if kind == "user":
-            for block in message.get("content", []):
-                if isinstance(block, dict) and block.get("type") == "tool_result":
-                    call = self.calls.get(block.get("tool_use_id"))
-                    if call:
-                        call.ended_sec, call.is_error = elapsed, bool(block.get("is_error", False))
+            results = [
+                block
+                for block in message.get("content", [])
+                if isinstance(block, dict) and block.get("type") == "tool_result"
+            ]
+            attached = event.get("tool_use_result")
+            for block in results:
+                call = self.calls.get(block.get("tool_use_id"))
+                if call:
+                    call.ended_sec, call.is_error = elapsed, bool(block.get("is_error", False))
+                    attached_id = attached.get("tool_use_id") if isinstance(attached, dict) else None
+                    unambiguous = (
+                        attached_id == block.get("tool_use_id")
+                        if attached_id is not None
+                        else len(results) == 1
+                    )
+                    call.result_observation = observe_claude_result(
+                        block, call, attached if unambiguous else None
+                    )
         if kind == "result":
             self.result.native_completed = event.get("subtype") == "success" and not event.get(
                 "is_error"

@@ -18,6 +18,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from mindie_bench.evaluation.timing import StageRecorder
 from mindie_bench.models import UnknownExternalEffects
 
 
@@ -83,18 +84,24 @@ def serve(args):
         server = FastMCP("mindie-bench-first-party-knowledge")
 
         async def invoke(kind, operation, **request):
+            started = time.perf_counter()
             try:
                 result = await asyncio.wrap_future(worker.submit(operation))
             except Exception as exc:
                 try:
-                    record(kind, **request, error=dict(type=type(exc).__name__, message=str(exc)))
+                    record(
+                        kind,
+                        **request,
+                        elapsed_sec=time.perf_counter() - started,
+                        error=dict(type=type(exc).__name__, message=str(exc)),
+                    )
                 except Exception as logging_error:
                     exc.add_note(
                         "retrieval error logging also failed: "
                         f"{type(logging_error).__name__}: {logging_error}"
                     )
                 raise
-            record(kind, **request, result=result)
+            record(kind, **request, elapsed_sec=time.perf_counter() - started, result=result)
             return result
 
         @server.tool()
@@ -158,6 +165,28 @@ def finish_indexes(engine, summarize, *, max_batches=256):
     raise RuntimeError("native indexer exceeded its deterministic batch bound")
 
 
+def close_capture_resources(engine, store, timing, *, primary=None):
+    failures = []
+    for stage, cleanup in [
+        ("capture operation shutdown", engine.operations.shutdown),
+        ("capture store close", store.close),
+    ]:
+        try:
+            with timing.measure(stage, record_start=False):
+                cleanup()
+        except BaseException as error:
+            failures.append((stage, error))
+    if not failures:
+        return
+    if primary is None:
+        _, primary = failures.pop(0)
+        for stage, error in failures:
+            primary.add_note(f"{stage} also failed: {type(error).__name__}: {error}")
+        raise primary
+    for stage, error in failures:
+        primary.add_note(f"{stage} also failed: {type(error).__name__}: {error}")
+
+
 def capture(args):
     import mindie_knowledge
     from mindie_knowledge import consent_store
@@ -171,11 +200,15 @@ def capture(args):
     native = payload["native"]
     if native["harness"] != "codex":
         raise ValueError("this adapter requires an actual Codex transcript and Stop event")
-    root = Path.cwd()
+    root = Path.cwd().resolve(strict=True)
+    timing = StageRecorder(root / "capture-stages.json")
     corpus = Path(payload["destination"]).resolve(strict=True)
     local_remote = Path(payload["local_remote"]).resolve(strict=True)
-    if not all(path.is_relative_to(root) for path in [corpus, local_remote]):
-        raise ValueError("capture or publication escapes the isolated profile")
+    private_root = Path(os.environ["MINDIE_BENCH_KNOWLEDGE_PRIVATE_ROOT"]).resolve(strict=True)
+    if private_root != root.parent / "knowledge-private" or root.name != "profile":
+        raise ValueError("capture knowledge root must be this trial's owned private sibling")
+    if corpus != private_root / "corpus" or local_remote != private_root / "local_knowledge.git":
+        raise ValueError("capture or publication escapes the owned knowledge private root")
     if git("--git-dir", local_remote, "rev-parse", "--is-bare-repository") != "true":
         raise ValueError("publication target must be this profile's bare Git repository")
     sys.path.insert(0, str(Path(args.codex_scripts).resolve(strict=True)))
@@ -235,30 +268,37 @@ def capture(args):
         redactor_executable=args.gitleaks,
         summary_command=[sys.executable, "-I", "-c", summary_loader],
     )
+    capture_failure = None
     try:
-        receipt = engine.capture(
-            session_id=event["session_id"],
-            turn_id=event["turn_id"],
-            transcript_path=event["transcript_path"],
-            cwd=event["cwd"],
-            harness="codex",
-        )
+        with timing.measure("native_capture_admission"):
+            receipt = engine.capture(
+                session_id=event["session_id"],
+                turn_id=event["turn_id"],
+                transcript_path=event["transcript_path"],
+                cwd=event["cwd"],
+                harness="codex",
+            )
         if "id" not in receipt:
             raise RuntimeError("native capture was not admitted: " + json.dumps(receipt))
-        for _ in range(256):
-            engine._process(receipt["id"])
-            row = store.capture_row(receipt["id"])
-            if row["status"] in {"organized", "no-new-material"}:
-                break
-            if row["status"] not in {"pending", "queued", "deferred"} or engine.errors:
-                raise RuntimeError("capture failed: " + json.dumps(dict(row=row, errors=engine.errors)))
-        else:
-            raise RuntimeError("native capture exceeded the deterministic page bound")
+        with timing.measure("body_capture_and_redaction"):
+            for _ in range(256):
+                engine._process(receipt["id"])
+                row = store.capture_row(receipt["id"])
+                if row["status"] in {"organized", "no-new-material"}:
+                    break
+                if row["status"] not in {"pending", "queued", "deferred"} or engine.errors:
+                    raise RuntimeError(
+                        "capture failed: " + json.dumps(dict(row=row, errors=engine.errors))
+                    )
+            else:
+                raise RuntimeError("native capture exceeded the deterministic page bound")
         body_receipt = store.capture_material_receipt(receipt["id"])
         if not body_receipt:
             raise RuntimeError("native capture produced no body receipt")
-        time.sleep(3.1)
-        tasks = finish_indexes(engine, summarize_due)
+        with timing.measure("native_index_due_wait"):
+            time.sleep(3.1)
+        with timing.measure("indexing"):
+            tasks = finish_indexes(engine, summarize_due)
         usage = SummaryLedger(store.db).usage_totals()
         if usage["unknown_calls"]:
             raise UnknownExternalEffects(
@@ -267,53 +307,74 @@ def capture(args):
         staging = root / "publication"
         staging.mkdir()
         exported = []
-        for task in tasks:
-            package = store.materials.export_task(task["entry_id"], source="draft")
-            exported.append(package)
-            for name, text in package["files"].items():
-                path = staging / "tasks" / package["task_id"] / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(text)
-        git("init", "-q", "-b", "main", staging)
-        git("add", ".", cwd=staging)
-        git(
-            "-c",
-            "user.name=MindIE Benchmark",
-            "-c",
-            "user.email=benchmark@example.invalid",
-            "commit",
-            "-qm",
-            "Publish current redacted benchmark material locally",
-            cwd=staging,
-        )
-        revision = git("rev-parse", "HEAD", cwd=staging)
-        git("push", str(local_remote), "HEAD:refs/heads/main", cwd=staging)
+        with timing.measure("package_export"):
+            for task in tasks:
+                package = store.materials.export_task(task["entry_id"], source="draft")
+                exported.append(package)
+                for name, text in package["files"].items():
+                    path = staging / "tasks" / package["task_id"] / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(text)
+        with timing.measure("local_git_publish"):
+            git("init", "-q", "-b", "main", staging)
+            git("add", ".", cwd=staging)
+            git(
+                "-c",
+                "user.name=MindIE Benchmark",
+                "-c",
+                "user.email=benchmark@example.invalid",
+                "commit",
+                "-qm",
+                "Publish current redacted benchmark material locally",
+                cwd=staging,
+            )
+            revision = git("rev-parse", "HEAD", cwd=staging)
+            git("push", str(local_remote), "HEAD:refs/heads/main", cwd=staging)
         cloned = root / "independent-consumer"
-        git("clone", "-q", "--branch", "main", local_remote, cloned)
-        if git("rev-parse", "HEAD", cwd=cloned) != revision:
-            raise RuntimeError("independent consumer did not obtain the published revision")
-        fetched = list(packages(cloned))
-        if {p["package_hash"] for p in fetched} != {p["package_hash"] for p in exported}:
-            raise RuntimeError("published material changed between producer and consumer")
-        reader = consumer(cloned, root / "consumer-index", revision)
+        with timing.measure("consumer_git_readback"):
+            git("clone", "-q", "--branch", "main", local_remote, cloned)
+            if git("rev-parse", "HEAD", cwd=cloned) != revision:
+                raise RuntimeError("independent consumer did not obtain the published revision")
+            fetched = list(packages(cloned))
+            if {p["package_hash"] for p in fetched} != {p["package_hash"] for p in exported}:
+                raise RuntimeError("published material changed between producer and consumer")
+        reader = None
+        consumer_failure = None
         try:
-            hits = reader.search(args.query)
+            with timing.measure("consumer_index"):
+                reader = consumer(cloned, root / "consumer-index", revision)
+            with timing.measure("consumer_query"):
+                hits = reader.search(args.query)
             if not hits:
                 raise RuntimeError("the independent consumer did not retrieve captured material")
             # search returns a page with ranked results in the installed component contract.
             rows = hits["results"] if isinstance(hits, dict) else hits
             if not rows:
                 raise RuntimeError("the independent consumer returned an empty retrieval page")
-            reads = [dict(ref=hit["ref"], value=explain(reader, hit["ref"])) for hit in rows]
+            with timing.measure("consumer_explain"):
+                reads = [dict(ref=hit["ref"], value=explain(reader, hit["ref"])) for hit in rows]
+        except BaseException as error:
+            consumer_failure = error
+            raise
         finally:
-            reader.close()
-        for package in fetched:
-            target = corpus / "tasks" / package["task_id"]
-            target.mkdir(exist_ok=False)
-            for name, text in package["files"].items():
-                path = target / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(text)
+            if reader is not None:
+                try:
+                    with timing.measure("consumer_close", record_start=False):
+                        reader.close()
+                except BaseException as error:
+                    if consumer_failure is None:
+                        raise
+                    consumer_failure.add_note(
+                        f"consumer close also failed: {type(error).__name__}: {error}"
+                    )
+        with timing.measure("warm_corpus_install"):
+            for package in fetched:
+                target = corpus / "tasks" / package["task_id"]
+                target.mkdir(exist_ok=False)
+                for name, text in package["files"].items():
+                    path = target / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(text)
         total = usage["input_tokens"] + usage["output_tokens"]
         result = dict(
             status="completed",
@@ -325,33 +386,16 @@ def capture(args):
             publication=dict(kind="local-git", revision=revision),
             packages=[dict(task_id=p["task_id"], package_hash=p["package_hash"]) for p in fetched],
             consumer=dict(revision=revision, hits=hits, reads=reads),
+            stage_observations=timing.stages.copy(),
+            stage_scope="adapter stages; native foreground Stop-hook latency is measured separately",
         )
         write_json(root / "full-loop-receipt.json", result)
         return result
+    except BaseException as error:
+        capture_failure = error
+        raise
     finally:
-        primary = sys.exception()
-        cleanup_errors = []
-        for stage, cleanup in [
-            ("capture operation shutdown", engine.operations.shutdown),
-            ("capture store close", store.close),
-        ]:
-            try:
-                cleanup()
-            except BaseException as exc:
-                cleanup_errors.append((stage, exc))
-        if cleanup_errors:
-            # A caller's handled exception is not a failure of this capture.
-            frame = sys._getframe()
-            trace = primary.__traceback__ if primary is not None else None
-            while trace is not None and trace.tb_frame is not frame:
-                trace = trace.tb_next
-            propagating = trace is not None
-            if not propagating:
-                _, primary = cleanup_errors.pop(0)
-            for stage, error in cleanup_errors:
-                primary.add_note(f"{stage} also failed: {type(error).__name__}: {error}")
-            if not propagating:
-                raise primary
+        close_capture_resources(engine, store, timing, primary=capture_failure)
 
 
 def main():

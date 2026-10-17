@@ -1,0 +1,4 @@
+Actual pinned-source observation on CPU:
+Current config enable_fused_mc2=1 with legacy env=0: reported features=[]
+Runtime API observation: v0.23.0 recognizes legacy values 0/1; current pinned module recognizes neither.
+No service, SSH, NPU, model or publication was invoked.

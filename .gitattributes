@@ -1,2 +1,4 @@
 # Preserve upstream patch context prefixes, including blank context lines.
 tasks/**/oracle/*.diff -whitespace
+# Keep the captured NPU stderr byte-for-byte, including its final blank line.
+tasks/replay/sampler-topk/environment/history-error.stderr -whitespace

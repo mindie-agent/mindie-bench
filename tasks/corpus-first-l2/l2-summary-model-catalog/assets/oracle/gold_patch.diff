@@ -1,0 +1,104 @@
+diff --git a/plugins/mindie-agent/scripts/summary_provider.py b/plugins/mindie-agent/scripts/summary_provider.py
+index 5972381..82e00eb 100644
+--- a/plugins/mindie-agent/scripts/summary_provider.py
++++ b/plugins/mindie-agent/scripts/summary_provider.py
+@@ -15,6 +15,11 @@ _STRINGS = {"name", "base_url", "wire_api", "env_key", "env_key_instructions",
+ _BOOLEANS = {"requires_openai_auth", "supports_websockets"}
+ _TABLES = {"http_headers", "env_http_headers", "query_params"}
+ _NUMBERS = {"request_max_retries", "stream_max_retries", "stream_idle_timeout_ms"}
++_MODEL_FIELDS = {
++    "slug": str, "display_name": str, "supported_reasoning_levels": list,
++    "shell_type": str, "visibility": str, "supported_in_api": bool, "priority": int,
++    "support_verbosity": bool, "truncation_policy": dict, "experimental_supported_tools": list,
++}
+ _CREDENTIAL_QUERY = {"key", "api_key", "apikey", "token", "access_token", "auth",
+                      "authorization", "subscription_key", "signature", "sig",
+                      "client_secret", "password"}
+@@ -47,29 +52,39 @@ def _read(path, limit):
+         raise ProviderConfigurationError("summary_provider_document_unavailable") from None
+ 
+ 
+-def _alias(config, model):
++def _catalog(config, model):
+     catalog = config.get("model_catalog_json")
+     if catalog is None:
+         # No implicit prefix is inferred from the business model or hostname.
+-        return model
++        return model, None
+     if not isinstance(catalog, str) or not Path(catalog).is_absolute():
+         raise ProviderConfigurationError("summary_model_catalog_invalid")
++    raw = _read(catalog, 4 * 1024 * 1024)
+     try:
+-        data = json.loads(_read(catalog, 4 * 1024 * 1024))
++        data = json.loads(raw)
+         entries = data["models"] if isinstance(data, dict) else data
+         if not isinstance(entries, list):
+             raise ValueError()
+-        names = []
+         for item in entries:
+             if not isinstance(item, dict) or not isinstance(item.get("slug"), str):
+                 raise ValueError()
+-            names.append(item["slug"])
+     except (ValueError, TypeError, KeyError):
+         raise ProviderConfigurationError("summary_model_catalog_invalid") from None
+-    candidates = [name for name in names if name == model or name.endswith("/" + model)]
++    candidates = [item for item in entries
++                  if item["slug"] == model or item["slug"].endswith("/" + model)]
+     if len(candidates) != 1:
+         raise ProviderConfigurationError("summary_model_catalog_ambiguous_or_missing")
+-    return candidates[0]
++    selected = candidates[0]
++    # Reject an alias-only index before spawning Codex. Preserve all native
++    # fields instead of rebuilding model capabilities or instructions here.
++    if any(type(selected.get(key)) is not kind for key, kind in _MODEL_FIELDS.items()):
++        raise ProviderConfigurationError("summary_model_catalog_record_invalid")
++    try:
++        projected = json.dumps({"models": [selected]}, sort_keys=True,
++                               ensure_ascii=True, allow_nan=False, separators=(",", ":")) + "\n"
++    except (ValueError, TypeError):
++        raise ProviderConfigurationError("summary_model_catalog_record_invalid") from None
++    return selected["slug"], projected
+ 
+ 
+ def _route_query(pairs):
+@@ -192,8 +207,14 @@ def selected(model):
+              "base_url_query": _route_query(parse_qsl(parsed.query, keep_blank_values=True)),
+              "query_params": _route_query(sorted(provider.get("query_params", {}).items())),
+              "headers": _route_headers(provider)}
+-    return {"model": _alias(config, model), "provider": provider, "name": name,
+-            "route_sha256": hashlib.sha256(json.dumps(route, sort_keys=True).encode()).hexdigest()}
++    selected_model, catalog = _catalog(config, model)
++    if catalog is not None:
++        route["model_catalog_sha256"] = hashlib.sha256(catalog.encode("utf-8")).hexdigest()
++    selected = {"model": selected_model, "provider": provider, "name": name,
++                "route_sha256": hashlib.sha256(json.dumps(route, sort_keys=True).encode()).hexdigest()}
++    if catalog is not None:
++        selected["model_catalog"] = catalog
++    return selected
+ 
+ 
+ def _toml(value):
+@@ -213,14 +234,20 @@ def environment(route, directory):
+     home = Path(directory) / "native-home"
+     config = home / "config.toml"
+     text = "model_provider = " + _toml(route["name"]) + "\n"
++    documents = []
++    if route.get("model_catalog") is not None:
++        catalog = home / "models.json"
++        text += "model_catalog_json = " + _toml(str(catalog)) + "\n"
++        documents.append((catalog, route["model_catalog"]))
+     text += "[model_providers." + _toml(route["name"]) + "]\n"
+     text += "".join(_toml(key) + " = " + _toml(value) + "\n"
+                     for key, value in sorted(route["provider"].items()))
+     try:
+         home.mkdir(mode=0o700)
+-        fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+-            stream.write(text)
++        for path, content in documents + [(config, text)]:
++            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
++                stream.write(content)
+     except OSError:
+         raise ProviderConfigurationError("summary_provider_temporary_config_unavailable") from None
+     env = {key: value for key, value in os.environ.items()

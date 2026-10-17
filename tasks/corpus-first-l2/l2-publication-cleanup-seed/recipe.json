@@ -1,0 +1,103 @@
+{
+  "assets": {
+    "environment/reproduce.py": {
+      "path": "assets/environment/reproduce.py",
+      "sha256": "89306c7c94ec8bb2a7f447b144db6384d6c3df19dec9d37415fb014ecb122104"
+    },
+    "environment/runtime-binding.json": {
+      "path": "assets/environment/runtime-binding.json",
+      "sha256": "d277afadf5b7e2f7dc1384964790aae73d5825e72f856dc655d90e462d0baed8"
+    },
+    "environment/symptom.log": {
+      "path": "assets/environment/symptom.log",
+      "sha256": "a17dfbb2ed1bb759258a6dc59ac8c3a06d2d8b7fac2434e956ab6089f81ab67a"
+    },
+    "instruction.md": {
+      "path": "assets/instruction.md",
+      "sha256": "bfa5c3b7e32916f897837cbd4d6bbdc7c0b3b7573d4ca57eb2744569f5e31bf2"
+    },
+    "oracle/gold_patch.diff": {
+      "path": "assets/oracle/gold_patch.diff",
+      "sha256": "1a62f6f466b1bb023d573fc8c3a9791789d888ef25cddc3175597cf9de180c89"
+    },
+    "oracle/replay_rules.json": {
+      "path": "assets/oracle/replay_rules.json",
+      "sha256": "b5c1625871a5d22b6afe1b8b801d743a46ab61de9cf9841753792bf04bc09cc8"
+    },
+    "verifier/runtime-binding.json": {
+      "path": "assets/verifier/runtime-binding.json",
+      "sha256": "d277afadf5b7e2f7dc1384964790aae73d5825e72f856dc655d90e462d0baed8"
+    },
+    "verifier/test.sh": {
+      "path": "assets/verifier/test.sh",
+      "sha256": "471139acbc86a2296fde719e08b337d6e9e0b02fa8ccfdbb3a68188ca3f6e22f"
+    },
+    "verifier/verify.py": {
+      "path": "assets/verifier/verify.py",
+      "sha256": "cc9b46f747b447b4f8c0742ebb49f04fd861343274d9e7e7cb664fe0f7d1cdbd"
+    }
+  },
+  "corpus_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "knowledge_condition": {
+    "rationale": "A human-labelled relationship to the read historical body, not a declaration that its engineering narrative is true.",
+    "supporting_relation": "same completed-business/local-recording failure principle, different concrete publication path"
+  },
+  "knowledge_evidence": [
+    {
+      "block_id": "4f9379711ed3dda9834e86fb845e86b32b28d6cb41ecb69192567791468e39f0",
+      "package_id": "dd0699186e44b01867bbe21eae30e7c984c3622cdfe902219487285e423527cb",
+      "relation": "analogical",
+      "sha256": "dcd04e0ff98ed401ab991613604df334e37152aaa22acd890bc58dd9bdf07733",
+      "supporting_text": " assistant:commentary\n\u5df2\u786e\u8ba4\u4e00\u7c7b\u9700\u8981\u533a\u5206\u7684\u60c5\u51b5\uff1a\u4e1a\u52a1\u64cd\u4f5c\u5df2\u7ecf\u6210\u529f\uff0c\u4f46\u672c\u5730\u8bb0\u5f55\u7ed3\u679c\u5931\u8d25\u3002\u73b0\u5728\u4f1a\u540c\u65f6\u62a5\u544a\u201c\u64cd\u4f5c\u5b8c\u6210\u201d\u548c\u201c\u8bb0\u8d26\u5931\u8d25\u201d\uff0c\u5e76\u660e\u786e\u4e0d\u8981\u91cd\u505a\u64cd\u4f5c\uff0c\u907f\u514d\u91cd"
+    }
+  ],
+  "runtime": {
+    "python": "@L2_PYTHON@",
+    "python_binary_sha256": "@PYTHON_SHA256@"
+  },
+  "schema": "mindie-bench-l2-recipe/1",
+  "source_files_sha256": {
+    "mindie_knowledge/loop/publication_worker.py": "123788f801327de78bba4ca42b54935dc8b51932620cd6a824e2fb8419dd8d26"
+  },
+  "task_spec": {
+    "budget": {
+      "max_npu_runs": 12,
+      "max_turns": 35,
+      "timeout_sec": 600,
+      "verifier_timeout_sec": 90
+    },
+    "environment": {
+      "l2": {
+        "base_commit": "23b1516907edfcccf55243f141f414f1d4b8d535",
+        "npu_count": 0,
+        "replay_commands": [],
+        "repo_path": "@KNOWLEDGE_REPO@"
+      }
+    },
+    "mindie_knowledge": {
+      "analogical_task_hashes": [
+        "dd0699186e44b01867bbe21eae30e7c984c3622cdfe902219487285e423527cb"
+      ],
+      "corpus_id": "l2-knowledge",
+      "knowledge_gradient": "analogical",
+      "same_origin_task_hashes": [],
+      "target_files": [
+        "mindie_knowledge/loop/publication_worker.py"
+      ]
+    },
+    "schema_version": "1.0",
+    "task": {
+      "cluster": "l2-publication",
+      "difficulty": "medium",
+      "domain_category": "agent_protocol",
+      "evidence": "candidate",
+      "instance_id": "l2-publication-cleanup-seed",
+      "role": "seed",
+      "source": {
+        "fix_commit": "b1d8d9278a60394f0de28aa2986d02e0ecb8b115",
+        "repository": "mindie-agent/knowledge",
+        "validation_scope": "Actual complete Python product modules on CPU; fixture remote transport; no native model/NPU acceptance"
+      }
+    }
+  }
+}

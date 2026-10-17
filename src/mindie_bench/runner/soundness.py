@@ -18,6 +18,8 @@ from mindie_bench.runner.worktree_slot import WorktreeSlot
 
 
 def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote: bool = False):
+    task_root = task_root.resolve(strict=True)
+    output = output.resolve()
     task = TaskSpec.load(task_root)
     environment = task.environment[tier]
     patch = task_root / "oracle/gold_patch.diff"

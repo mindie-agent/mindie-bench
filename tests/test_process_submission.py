@@ -95,3 +95,30 @@ def test_zero_exit_before_receiving_prompt_is_a_visible_submission_failure(tmp_p
     assert any(
         error["stage"] == "agent" and error["type"] == "BrokenPipeError" for error in result.errors
     )
+
+
+def test_native_relative_observation_uses_the_recorded_monotonic_origin(tmp_path):
+    observed = []
+    result = process_module.stream_process(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            "import json,sys,time; sys.stdin.read(); print(json.dumps({'clock':time.monotonic()}))",
+        ],
+        env=dict(os.environ),
+        cwd=tmp_path,
+        prompt="new clock probe",
+        output=tmp_path / "events.jsonl",
+        stderr=tmp_path / "stderr",
+        timeout=3,
+        max_bytes=1024,
+        consume=lambda value, elapsed, _: observed.append((value["clock"], elapsed)),
+        gateway=gateway(),
+    )
+    assert result.returncode == 0
+    assert not result.errors
+    native_clock, elapsed = observed[0]
+    origin = result.started_monotonic_sec
+    assert origin is not None
+    assert origin <= native_clock <= origin + elapsed <= origin + result.elapsed

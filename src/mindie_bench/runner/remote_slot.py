@@ -20,6 +20,7 @@ import threading
 import time
 from pathlib import Path, PurePosixPath
 
+from mindie_bench.io import safe_relative
 from mindie_bench.models import RemoteConfig, SourceEnvironment
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, PROJECTOR
 
@@ -228,6 +229,9 @@ if path.is_dir():
         if len(patch)>32*1024*1024:
             raise RuntimeError("remote final patch exceeds artifact bound")
         final["patch_b64"]=base64.b64encode(patch).decode()
+        changed=subprocess.run(["git","-C",str(path),"diff","--name-only","-z",
+            "--no-ext-diff","--no-textconv","HEAD",*diff_paths],
+            check=True,capture_output=True).stdout.split(b"\0")
         untracked=subprocess.run(["git","-C",str(path),"ls-files","--others","--exclude-standard","-z",
             *diff_paths],
             check=True,capture_output=True).stdout.split(b"\0")
@@ -244,6 +248,8 @@ if path.is_dir():
             if size>32*1024*1024:
                 raise RuntimeError("remote untracked artifact bound exceeded")
             final["untracked"][os.fsdecode(name)]=base64.b64encode(data).decode()
+        final["files_modified"]=sorted(set(
+            [os.fsdecode(name) for name in changed if name]+list(final["untracked"])))
         subprocess.run(["git","-C",cfg["repo_path"],"worktree","remove","--force",str(path)],
             check=True,capture_output=True)
     except Exception as exc:
@@ -275,6 +281,8 @@ class RemoteSlot:
         self.closed = False
         self.artifact_dir = artifact_dir
         self.cleanup_receipt = None
+        self.modified_files = None
+        self.public_files = {}
         self.stderr_file = None
         self.read_buffer = b""
         self.operation_unknown = False
@@ -527,6 +535,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         )
         if result["exit_code"] != 0:
             raise RuntimeError("could not stage public task assets in the remote slot")
+        self.public_files = files
 
     def verify(self, script: bytes):
         return self.execute("/bin/bash -s", base64.b64encode(script).decode())
@@ -558,6 +567,24 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         if self.cleanup_receipt:
             final = self.cleanup_receipt.get("cleanup", {})
             errors.extend(final.get("errors", []))
+            if "files_modified" in final:
+                try:
+                    names = final["files_modified"]
+                    if not isinstance(names, list) or any(not isinstance(name, str) for name in names):
+                        raise ValueError("remote modified-file inventory must be a list of paths")
+                    changed = {safe_relative(name) for name in names}
+                    if self.public_files:
+                        untracked = final.get("untracked")
+                        if not isinstance(untracked, dict):
+                            raise ValueError("remote public-file comparison needs final untracked bytes")
+                        for name, original in self.public_files.items():
+                            if untracked.get(name) == original:
+                                changed.discard(name)
+                            else:
+                                changed.add(name)
+                    self.modified_files = sorted(changed)
+                except ValueError as exc:
+                    errors.append(f"modified-file inventory: {exc}")
             try:
                 self.postflight = self.validate_probe(final["probe"])
                 if self.preflight and self.postflight["_environment"] != self.preflight["_environment"]:

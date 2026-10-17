@@ -1,5 +1,4 @@
-import ast
-import inspect
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
@@ -9,22 +8,24 @@ from mindie_bench.models import UnknownExternalEffects
 
 
 def capture_finalizer():
-    """Exercise the actual cleanup block without component or model startup."""
-    capture = ast.parse(inspect.getsource(first_party.capture)).body[0]
-    finalizer = next(node.finalbody for node in capture.body if isinstance(node, ast.Try))
-    function = ast.parse(
-        "def exercise(engine, store, operation):\n    try:\n        return operation()\n    finally:\n"
-        "        pass\n"
-    ).body[0]
-    function.body[0].finalbody = finalizer
-    namespace = {"sys": first_party.sys}
-    exec(
-        compile(
-            ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])), __file__, "exec"
-        ),
-        namespace,
-    )
-    return namespace["exercise"]
+    """Exercise real cleanup without component or model startup."""
+
+    def exercise(engine, store, operation):
+        primary = None
+        try:
+            return operation()
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            first_party.close_capture_resources(
+                engine,
+                store,
+                SimpleNamespace(measure=lambda stage, **kwargs: nullcontext()),
+                primary=primary,
+            )
+
+    return exercise
 
 
 def resources(first=None, second=None):
@@ -81,3 +82,22 @@ def test_capture_returns_business_result_after_both_cleanups_succeed():
     engine, store, called = resources()
     assert capture_finalizer()(engine, store, lambda: "completed") == "completed"
     assert called == ["shutdown", "close"]
+
+
+def test_stage_journal_failure_does_not_skip_required_cleanup(tmp_path, monkeypatch):
+    from mindie_bench.evaluation import timing
+
+    engine, store, called = resources()
+    recorder = timing.StageRecorder(tmp_path / "stages.json")
+    monkeypatch.setattr(
+        timing, "write_json", lambda *a, **kw: (_ for _ in ()).throw(OSError("disk full"))
+    )
+    original = UnknownExternalEffects("original uncertain request")
+    with pytest.raises(UnknownExternalEffects) as caught:
+        try:
+            raise original
+        finally:
+            first_party.close_capture_resources(engine, store, recorder, primary=original)
+    assert caught.value is original
+    assert called == ["shutdown", "close"]
+    assert sum("disk full" in note for note in original.__notes__) == 2

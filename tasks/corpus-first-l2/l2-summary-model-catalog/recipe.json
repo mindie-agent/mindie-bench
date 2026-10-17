@@ -1,0 +1,95 @@
+{
+  "assets": {
+    "environment/reproduce.py": {
+      "path": "assets/environment/reproduce.py",
+      "sha256": "692281959e1928057226bd86485681db4e4c52449f45bbc13a8ace6af3e431cd"
+    },
+    "environment/runtime-binding.json": {
+      "path": "assets/environment/runtime-binding.json",
+      "sha256": "d277afadf5b7e2f7dc1384964790aae73d5825e72f856dc655d90e462d0baed8"
+    },
+    "environment/symptom.log": {
+      "path": "assets/environment/symptom.log",
+      "sha256": "2b737ff08c09be4f045e8defc208398ebe183aa80e7a07d8149c8a7cd89bed1c"
+    },
+    "instruction.md": {
+      "path": "assets/instruction.md",
+      "sha256": "e41ec1d8b3d0ea231dfb9b0aeee7adb8ed85772e324f8d78914952aa074da04a"
+    },
+    "oracle/gold_patch.diff": {
+      "path": "assets/oracle/gold_patch.diff",
+      "sha256": "0bac70cd763dae3d6b3e355b1f08b94f7478c1dc1d04a774f1ec8f1077c0d28c"
+    },
+    "oracle/replay_rules.json": {
+      "path": "assets/oracle/replay_rules.json",
+      "sha256": "b5c1625871a5d22b6afe1b8b801d743a46ab61de9cf9841753792bf04bc09cc8"
+    },
+    "verifier/runtime-binding.json": {
+      "path": "assets/verifier/runtime-binding.json",
+      "sha256": "d277afadf5b7e2f7dc1384964790aae73d5825e72f856dc655d90e462d0baed8"
+    },
+    "verifier/test.sh": {
+      "path": "assets/verifier/test.sh",
+      "sha256": "471139acbc86a2296fde719e08b337d6e9e0b02fa8ccfdbb3a68188ca3f6e22f"
+    },
+    "verifier/verify.py": {
+      "path": "assets/verifier/verify.py",
+      "sha256": "fce370066701470b9cedab5d1bf47d0f4050cb889c3232e3184d451135a11750"
+    }
+  },
+  "corpus_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "knowledge_condition": {
+    "rationale": "A deliberately empty, operator-frozen knowledge scope. This does not claim the full public corpus has no relevant experience.",
+    "runtime_requirement": "G2/G3 must mount the separately frozen empty l2-no-hit corpus.",
+    "scope_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+    "scope_complete_judgement": true,
+    "scope_package_ids": []
+  },
+  "knowledge_evidence": [],
+  "runtime": {
+    "python": "@L2_PYTHON@",
+    "python_binary_sha256": "@PYTHON_SHA256@"
+  },
+  "schema": "mindie-bench-l2-recipe/1",
+  "source_files_sha256": {
+    "plugins/mindie-agent/scripts/summary_provider.py": "91413d14dc53aa855df73b1ed20637037720da5d9ce4933b712715228775cefa"
+  },
+  "task_spec": {
+    "budget": {
+      "max_npu_runs": 12,
+      "max_turns": 35,
+      "timeout_sec": 600,
+      "verifier_timeout_sec": 90
+    },
+    "environment": {
+      "l2": {
+        "base_commit": "4e4efcaf1d6511f735bc407c3b1927268ccb7806",
+        "npu_count": 0,
+        "replay_commands": [],
+        "repo_path": "@CODEX_REPO@"
+      }
+    },
+    "mindie_knowledge": {
+      "analogical_task_hashes": [],
+      "corpus_id": "l2-no-hit",
+      "knowledge_gradient": "no_hit",
+      "same_origin_task_hashes": [],
+      "target_files": [
+        "plugins/mindie-agent/scripts/summary_provider.py"
+      ]
+    },
+    "schema_version": "1.0",
+    "task": {
+      "difficulty": "medium",
+      "domain_category": "agent_protocol",
+      "evidence": "candidate",
+      "instance_id": "l2-summary-model-catalog",
+      "role": "eval",
+      "source": {
+        "fix_commit": "176518026d04a82958350fa1e7230cc61f4417a0",
+        "repository": "mindie-agent/mindie-agent-codex",
+        "validation_scope": "Actual complete Python product modules on CPU; fixture remote transport; no native model/NPU acceptance"
+      }
+    }
+  }
+}

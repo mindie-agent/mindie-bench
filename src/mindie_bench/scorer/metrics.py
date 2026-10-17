@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import math
+import posixpath
 import re
+import shlex
 from collections import Counter, defaultdict
 from statistics import mean
 
+from mindie_bench.evaluation.broker_knowledge import BASIS as BROKER_KNOWLEDGE_BASIS
+from mindie_bench.evaluation.broker_knowledge import SCHEMA as BROKER_KNOWLEDGE_SCHEMA
+from mindie_bench.evaluation.source_visibility import source_evidence_metrics
 from mindie_bench.models import (
     HarnessConfig,
     TaskSpec,
@@ -16,6 +22,7 @@ from mindie_bench.models import (
     Trajectory,
     TrialReceipt,
 )
+from mindie_bench.scorer.tool_observations import summarize_tool_observations
 
 NPU_TEST = re.compile(
     r"(?<![\w-])(pytest\b|vllm\s+serve\b|python3?\s+-m\s+unittest\b|"
@@ -31,6 +38,10 @@ READ_EDIT = {
     "Grep",
     "read_file",
     "edit_file",
+    "remote_apply_patch",
+    "apply_patch",
+    "remote_write",
+    "write_file",
 }
 
 
@@ -50,30 +61,516 @@ def remote_execution(call: ToolCall) -> bool:
 
 def npu_test_runs(trajectory: Trajectory) -> int:
     """Count reported command-pattern attempts, including failed or unfinished calls."""
-    count = 0
-    for call in trajectory.calls:
-        command = call.arguments.get("command", call.arguments.get("cmd", ""))
-        if not isinstance(command, str):
+    return sum(_npu_test_call(call) for call in trajectory.calls)
+
+
+def _npu_test_call(call):
+    command = call.arguments.get("command", call.arguments.get("cmd", ""))
+    return isinstance(command, str) and remote_execution(call) and bool(NPU_TEST.search(command))
+
+
+def _python_accesses(code: str) -> tuple[list[tuple[str, str]], list[str]]:
+    """Follow literal path aliases and executed syntax, never strings containing code."""
+    accesses, unresolved, names = [], [], {}
+    path_factories = {"Path", "PurePath"}
+    if len(code) > 262_144:
+        return [], ["python_static_parser_limit"]
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        return [], ["python_syntax_unresolved"]
+
+    def value(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name):
+            return names.get(node.id)
+        if isinstance(node, ast.Call) and (
+            isinstance(node.func, ast.Name)
+            and node.func.id in path_factories
+            or isinstance(node.func, ast.Attribute)
+            and node.func.attr == "Path"
+        ):
+            parts = [value(arg) for arg in node.args]
+            return posixpath.join(*parts) if parts and all(isinstance(p, str) for p in parts) else None
+        if isinstance(node, ast.BinOp):
+            left, right = value(node.left), value(node.right)
+            if isinstance(left, str) and isinstance(right, str):
+                if isinstance(node.op, ast.Div):
+                    return posixpath.join(left, right)
+                if isinstance(node.op, ast.Add):
+                    return left + right
+        return None
+
+    def visit(node):
+        if isinstance(node, ast.ImportFrom) and node.module == "pathlib":
+            path_factories.update(
+                alias.asname or alias.name for alias in node.names if alias.name in {"Path", "PurePath"}
+            )
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            # A definition or a copied test body is not evidence of its execution.
+            unresolved.append("python_definition_body_not_observed")
+            return
+        if isinstance(node, (ast.If, ast.For, ast.While, ast.Try, ast.AsyncFor)):
+            unresolved.append("python_dynamic_control_flow")
+            return
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id == "open":
+                path = value(node.args[0]) if node.args else None
+                mode = value(node.args[1]) if len(node.args) > 1 else "r"
+                mode = next((value(k.value) for k in node.keywords if k.arg == "mode"), mode)
+                if path is not None and isinstance(mode, str):
+                    accesses.append(("edit" if any(flag in mode for flag in "wax+") else "read", path))
+                else:
+                    unresolved.append("python_dynamic_open_path_or_mode")
+            elif isinstance(node.func, ast.Attribute) and node.func.attr in {
+                "read_text",
+                "read_bytes",
+                "write_text",
+                "write_bytes",
+            }:
+                path = value(node.func.value)
+                if path is not None:
+                    accesses.append(("edit" if node.func.attr.startswith("write") else "read", path))
+                else:
+                    unresolved.append("python_dynamic_path")
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+        if isinstance(node, ast.Assign):
+            resolved = value(node.value)
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    if resolved is None:
+                        names.pop(target.id, None)
+                    else:
+                        names[target.id] = resolved
+
+    visit(tree)
+    return accesses, sorted(set(unresolved))
+
+
+def _shell_accesses(command: str, *, depth=0, remote=False, stdin=None):
+    """Parse bounded shell structure without executing it or inspecting payload files."""
+    if depth > 12 or len(command) > 262_144:
+        return [], ["command_static_parser_limit"]
+    accesses, unresolved = [], []
+    try:
+        words = shlex.split(command, comments=True)
+    except ValueError:
+        words = []
+    # Remove literal here-doc bodies before tokenizing shell syntax. Only the
+    # program receiving stdin may interpret that body, never a cat/echo payload.
+    heredoc_pattern = r"(?m)<<-?\s*(['\"]?)([A-Za-z_][A-Za-z_0-9]*)\1[ \t]*\n"
+    wrapped_heredoc = any(
+        word in {"-c", "-lc", "-ic"}
+        and any(posixpath.basename(prefix) in {"sh", "bash", "zsh", "dash"} for prefix in words[:i])
+        and re.search(heredoc_pattern, words[i + 1])
+        for i, word in enumerate(words[:-1])
+    )
+    # A here-doc inside a quoted shell argument belongs to the recursive parse.
+    # The segment loop must still visit any commands after that wrapper.
+    heredoc = None if wrapped_heredoc else re.search(heredoc_pattern, command)
+    if heredoc:
+        end = re.search(rf"(?m)^\t*{re.escape(heredoc[2])}[ \t]*(?:\n|$)", command[heredoc.end() :])
+        if end is None:
+            return [], ["heredoc_boundary_unresolved"]
+        body = command[heredoc.end() : heredoc.end() + end.start()]
+        header = command[: heredoc.start()]
+        tail = command[heredoc.end() + end.end() :]
+        first, reasons = _shell_accesses(header, depth=depth + 1, remote=remote, stdin=body)
+        rest, more = _shell_accesses(tail, depth=depth + 1, remote=remote) if tail.strip() else ([], [])
+        return first + rest, reasons + more
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()\n")
+        lexer.whitespace = " \t\r"
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return [], ["shell_syntax_unresolved"]
+    segments, current = [], []
+    for token in tokens:
+        if token in {";", "&&", "||", "|", "&", "\n", "(", ")"}:
+            if current:
+                segments.append(current)
+            current = []
+        else:
+            current.append(token)
+    if current:
+        segments.append(current)
+    for words in segments:
+        while words and (
+            re.match(r"^[A-Za-z_]\w*=", words[0]) or words[0] in {"env", "command", "exec"}
+        ):
+            words = words[1:]
+        if not words:
             continue
-        if remote_execution(call) and NPU_TEST.search(command):
-            count += 1
-    return count
+        name = posixpath.basename(words[0])
+        if name in {"sh", "bash", "zsh", "dash"}:
+            option = next((i for i, word in enumerate(words) if word in {"-c", "-lc", "-ic"}), None)
+            if option is not None and option + 1 < len(words):
+                found, reasons = _shell_accesses(
+                    words[option + 1], depth=depth + 1, remote=remote, stdin=stdin
+                )
+                accesses.extend(found)
+                unresolved.extend(reasons)
+            continue
+        if name == "ssh":
+            index = 1
+            while index < len(words) and words[index].startswith("-"):
+                index += 2 if words[index] in {"-p", "-o", "-i", "-l", "-F", "-J", "-S", "-W"} else 1
+            remaining = words[index + 1 :]
+            if remaining:
+                script = remaining[0] if len(remaining) == 1 else shlex.join(remaining)
+                found, reasons = _shell_accesses(script, depth=depth + 1, remote=True, stdin=stdin)
+                accesses.extend(found)
+                unresolved.extend(reasons)
+            continue
+        redirected = set()
+        for i, word in enumerate(words[:-1]):
+            if word in {">", ">>", "<"}:
+                accesses.append(("read" if word == "<" else "edit", words[i + 1], remote))
+                redirected.update({i, i + 1})
+        words = [word for i, word in enumerate(words) if i not in redirected]
+        if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", name):
+            code = (
+                words[words.index("-c") + 1]
+                if "-c" in words and words.index("-c") + 1 < len(words)
+                else stdin
+            )
+            if code is not None:
+                found, reasons = _python_accesses(code)
+                accesses.extend((kind, path, remote) for kind, path in found)
+                unresolved.extend(reasons)
+            else:
+                unresolved.append("python_script_or_dynamic_input_unobserved")
+            continue
+        if name in {"apply_patch", "patch"}:
+            if stdin and name == "apply_patch":
+                accesses.extend(
+                    ("edit", match, remote)
+                    for match in re.findall(r"(?m)^\*\*\* (?:Update|Add|Delete) File: (.+)$", stdin)
+                )
+            else:
+                unresolved.append("patch_target_payload_unobserved")
+            continue
+        if name not in {"cat", "sed", "grep", "rg", "head", "tail"}:
+            continue
+        if name == "rg" and "--files" in words:
+            continue
+        operands, explicit_pattern, skip = [], False, False
+        options_with_value = {
+            "-e",
+            "-f",
+            "-g",
+            "--glob",
+            "-t",
+            "--type",
+            "-n",
+            "-c",
+            "-A",
+            "-B",
+            "-C",
+            "-m",
+            "--max-count",
+            "--max-depth",
+        }
+        for i, word in enumerate(words[1:]):
+            if skip:
+                skip = False
+                continue
+            if word in {"-e", "-f"}:
+                explicit_pattern = True
+                skip = True
+            elif word in options_with_value and (word not in {"-n", "-c"} or name in {"head", "tail"}):
+                skip = True
+            elif word.startswith("-"):
+                continue
+            else:
+                operands.append(word)
+        if name in {"grep", "rg", "sed"} and not explicit_pattern and operands:
+            operands = operands[1:]
+        kind = (
+            "edit"
+            if name == "sed" and any(word == "-i" or word.startswith("-i") for word in words[1:])
+            else "read"
+        )
+        accesses.extend((kind, path, remote) for path in operands)
+    return accesses, sorted(set(unresolved))
+
+
+def _call_outcome(call):
+    observed = call.result_observation
+    if observed is not None:
+        if observed.classification in {"success", "business_success"}:
+            return "success"
+        if observed.classification in {
+            "business_failure",
+            "transport_error",
+            "protocol_error",
+            "component_error",
+        }:
+            return "failed"
+        return "unknown"
+    if call.is_error is True:
+        return "failed"
+    if call.is_error is False and tool_name(call.name) in {
+        "bash",
+        "Bash",
+        "exec_command",
+        "shell",
+        "Read",
+        "Edit",
+        "Grep",
+    }:
+        return "success"
+    return "unknown"
+
+
+def target_access_observations(
+    trajectory: Trajectory, targets: list[str]
+) -> tuple[list[dict], list[dict]]:
+    observations, unresolved = [], []
+    for index, call in enumerate(trajectory.calls):
+        name = tool_name(call.name)
+        paths = []
+        if name in READ_EDIT:
+            kind = (
+                "edit"
+                if name
+                in {
+                    "remote_edit",
+                    "Edit",
+                    "edit_file",
+                    "remote_apply_patch",
+                    "apply_patch",
+                    "remote_write",
+                    "write_file",
+                }
+                else "read"
+            )
+            values = [call.arguments.get(key) for key in ("path", "file_path", "filename")]
+            values += call.arguments.get("paths", []) + call.arguments.get("matched_files", [])
+            if name in {"remote_apply_patch", "apply_patch"}:
+                patch = call.arguments.get("patch", call.arguments.get("input"))
+                if isinstance(patch, str):
+                    values += re.findall(
+                        r"(?m)^\*\*\* (?:(?:Update|Add|Delete) File|Move to): (.+)$", patch
+                    )
+            paths.extend((kind, path, name.startswith("remote_")) for path in values)
+        elif name in REMOTE or name.lower() in {"bash", "exec_command", "shell"}:
+            command = call.arguments.get("command", call.arguments.get("cmd"))
+            if isinstance(command, str):
+                paths, reasons = _shell_accesses(command, remote=name in REMOTE)
+                unresolved.extend(dict(call_id=call.id, reason=reason) for reason in reasons)
+        seen = set()
+        for kind, path, remote in paths:
+            if not isinstance(path, str):
+                continue
+            if any(mark in path for mark in ("$", "*", "?")):
+                unresolved.append(dict(call_id=call.id, reason="dynamic_or_glob_path_unresolved"))
+                continue
+            path = posixpath.normpath(path)
+            for target in targets:
+                target = posixpath.normpath(target)
+                if not (path == target or path.endswith("/" + target)) or (kind, target) in seen:
+                    continue
+                seen.add((kind, target))
+                observations.append(
+                    dict(
+                        call_id=call.id,
+                        call_index=index,
+                        turn=call.turn,
+                        kind=kind,
+                        target=target,
+                        source="typed_path" if name in READ_EDIT else "command_structure",
+                        execution_scope="remote" if remote else "local",
+                        call_outcome=_call_outcome(call),
+                        started_sec=call.started_sec,
+                        ended_sec=call.ended_sec,
+                    )
+                )
+    return observations, unresolved
 
 
 def first_localization(trajectory: Trajectory, targets: list[str]) -> int | None:
-    for call in sorted(trajectory.calls, key=lambda c: c.turn):
-        if tool_name(call.name) not in READ_EDIT:
+    observations, _ = target_access_observations(trajectory, targets)
+    return min(
+        (row["turn"] for row in observations if row["call_outcome"] == "success"),
+        default=None,
+    )
+
+
+def _duration_profile(calls):
+    intervals = []
+    for call in calls:
+        if call.started_sec is None or call.ended_sec is None:
             continue
-        paths = [call.arguments.get(k) for k in ("path", "file_path", "filename")]
-        paths += call.arguments.get("paths", []) + call.arguments.get("matched_files", [])
-        for path in paths:
-            if isinstance(path, str) and any(path == t or path.endswith("/" + t) for t in targets):
-                return call.turn
-    return None
+        if not all(math.isfinite(value) and value >= 0 for value in (call.started_sec, call.ended_sec)):
+            raise ValueError("tool interval must contain finite nonnegative elapsed times")
+        if call.ended_sec < call.started_sec:
+            raise ValueError("tool end precedes start")
+        intervals.append((call.started_sec, call.ended_sec))
+    intervals.sort()
+    merged = []
+    for start, end in intervals:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    raw = sum(end - start for start, end in intervals)
+    union = sum(end - start for start, end in merged)
+    return dict(
+        calls=len(calls),
+        observed_intervals=len(intervals),
+        missing_intervals=len(calls) - len(intervals),
+        complete=len(intervals) == len(calls),
+        raw_cumulative_sec=raw,
+        observed_union_sec=union,
+        overlap_sec=raw - union,
+        coverage=len(intervals) / len(calls) if calls else None,
+        first_started_sec=intervals[0][0] if intervals else None,
+        last_ended_sec=max(end for _, end in intervals) if intervals else None,
+    )
+
+
+def _edit_metrics(trajectory, observations, unresolved):
+    def order(row):
+        return row["turn"], row["call_index"]
+
+    ordered = sorted(observations, key=order)
+    edits = list({row["call_index"]: row for row in ordered if row["kind"] == "edit"}.values())
+    successful = [row for row in edits if row["call_outcome"] == "success"]
+    first, last = (successful[0], successful[-1]) if successful else (None, None)
+    access = next((row for row in ordered if row["call_outcome"] == "success"), None)
+    access_reason = (
+        None
+        if access
+        else "only_failed_or_unconfirmed_access_attempts"
+        if ordered
+        else "dynamic_access_unresolved"
+        if unresolved
+        else "no_target_access_observed"
+    )
+    reason = (
+        None
+        if successful
+        else "only_failed_or_unconfirmed_edit_attempts"
+        if edits
+        else "dynamic_access_unresolved"
+        if unresolved
+        else "no_target_edit_observed"
+    )
+    primary = dict(
+        turns_to_first_localization=access["turn"] if access else None,
+        time_to_first_localization_sec=access["started_sec"] if access else None,
+        turns_to_first_target_edit=first["turn"] if first else None,
+        time_to_first_target_edit_sec=first["started_sec"] if first else None,
+        turns_to_last_target_edit=last["turn"] if last else None,
+        time_to_last_target_edit_sec=last["started_sec"] if last else None,
+        npu_runs_before_last_target_edit=(
+            sum(
+                index < last["call_index"] and _npu_test_call(call)
+                for index, call in enumerate(trajectory.calls)
+            )
+            if last
+            else None
+        ),
+    )
+    reasons = {
+        key: None
+        if value is not None
+        else "source_access_timing_missing"
+        if key == "time_to_first_localization_sec" and access
+        else access_reason
+        if key in {"turns_to_first_localization", "time_to_first_localization_sec"}
+        else "edit_call_timing_missing"
+        if successful and key.startswith("time_")
+        else reason
+        for key, value in primary.items()
+    }
+    first_attempt = ordered[0] if ordered else None
+    access_calls = {row["call_index"]: row for row in ordered}.values()
+    return primary, dict(
+        first_target_access_attempt_turn=first_attempt["turn"] if first_attempt else None,
+        first_target_access_attempt_sec=first_attempt["started_sec"] if first_attempt else None,
+        first_target_access_attempt_outcome=first_attempt["call_outcome"] if first_attempt else None,
+        first_target_access_attempt_scope=(
+            "earliest command/path attempt including failed and unconfirmed calls; "
+            "not proof of returned source bytes or successful completion"
+        ),
+        target_access_attempts_by_outcome={
+            state: sum(row["call_outcome"] == state for row in access_calls)
+            for state in ("success", "failed", "unknown")
+        },
+        target_access_metric_reasons={
+            key: reasons[key]
+            for key in ("turns_to_first_localization", "time_to_first_localization_sec")
+        },
+        target_edit_attempts_by_outcome={
+            state: sum(row["call_outcome"] == state for row in edits)
+            for state in ("success", "failed", "unknown")
+        },
+        target_edit_metric_reasons=reasons,
+        target_access_scope=(
+            "all source-access attempts retained; primary metrics require a successful containing "
+            "call; command/path proxy, not semantic root cause or proof of repaired bytes"
+        ),
+        target_edit_time_scope="successful containing call start; not exact filesystem write time",
+        npu_runs_before_last_target_edit_scope=(
+            "recognized separate native command attempts preceding the edit call; intra-call ordering unmeasured"
+        ),
+    )
+
+
+def _validation_tail(trajectory):
+    successes, tests, polls = [], [], []
+    jobs = {}
+    for index, call in enumerate(trajectory.calls):
+        observed = call.result_observation
+        if _npu_test_call(call):
+            tests.append(index)
+            if observed is not None and observed.job_id:
+                jobs[observed.job_id] = index
+            if _call_outcome(call) == "success":
+                successes.append(index)
+        elif (
+            observed is not None
+            and observed.job_id in jobs
+            and observed.classification == "business_success"
+        ):
+            successes.append(index)
+        if (
+            tool_name(call.name) == "remote_job_stdin"
+            and not call.arguments.get("chars")
+            and not call.arguments.get("eof")
+        ):
+            polls.append(index)
+    first = min(successes) if successes else None
+    empty_polls = [trajectory.calls[index] for index in polls]
+    return dict(
+        first_recorded_success_call_index=first,
+        total_empty_job_polls=len(polls),
+        empty_job_poll_timing=_duration_profile(empty_polls),
+        recognized_test_attempts_after_first_recorded_success=(
+            sum(index > first for index in tests) if first is not None else None
+        ),
+        empty_job_polls_after_first_recorded_success=(
+            sum(index > first for index in polls) if first is not None else None
+        ),
+        scope="recognized command/result observations; not kernel counts or proof of public reproduction",
+        is_stop_rule=False,
+    )
 
 
 def trajectory_metrics(
-    trajectory: Trajectory, task: TaskSpec, harness: HarnessConfig, wall_clock: float, *, tier: str
+    trajectory: Trajectory,
+    task: TaskSpec,
+    harness: HarnessConfig,
+    wall_clock: float,
+    *,
+    tier: str,
+    source_visibility: dict | None = None,
+    broker_knowledge: dict | None = None,
 ) -> tuple[dict, dict]:
     remote = [c for c in trajectory.calls if remote_execution(c)]
     all_remote = [
@@ -85,18 +582,50 @@ def trajectory_metrics(
         c for c in trajectory.calls if tool_name(c.name) in {"knowledge_query", "knowledge_explain"}
     ]
 
-    def duration(calls):
-        if any(c.started_sec is None or c.ended_sec is None for c in calls):
-            return None
-        values = [c.ended_sec - c.started_sec for c in calls]
-        if any(v < 0 for v in values):
-            raise ValueError("tool end precedes start")
-        return sum(values)
-
-    remote_sec, knowledge_sec = duration(remote), duration(knowledge)
+    remote_timing = _duration_profile(remote)
+    all_remote_timing = _duration_profile(all_remote)
+    knowledge_timing = _duration_profile(knowledge)
+    combined_timing = _duration_profile(all_remote + knowledge)
+    native_knowledge_timing = knowledge_timing
+    native_combined_timing = combined_timing
+    timing_reason = None
+    if broker_knowledge is not None:
+        if broker_knowledge.get("schema") != BROKER_KNOWLEDGE_SCHEMA:
+            raise ValueError("unsupported broker knowledge observation schema")
+        knowledge_timing = broker_knowledge["timing"]
+        if broker_knowledge["relative_intervals"] is None:
+            combined_timing = dict(
+                calls=len(all_remote) + broker_knowledge["admitted_calls"],
+                observed_intervals=None,
+                missing_intervals=None,
+                complete=False,
+                raw_cumulative_sec=None,
+                observed_union_sec=None,
+                overlap_sec=None,
+                coverage=None,
+                first_started_sec=None,
+                last_ended_sec=None,
+            )
+            timing_reason = broker_knowledge["alignment_reason"]
+        else:
+            observed_calls = [
+                ToolCall(id=f"broker-knowledge-{index}", name="knowledge", turn=1, **interval)
+                for index, interval in enumerate(broker_knowledge["relative_intervals"])
+            ]
+            combined_timing = _duration_profile(all_remote + observed_calls)
+    remote_sec = remote_timing["observed_union_sec"] if remote_timing["complete"] else None
+    knowledge_sec = knowledge_timing["observed_union_sec"] if knowledge_timing["complete"] else None
     remainder = None
-    if remote_sec is not None and knowledge_sec is not None and remote_sec + knowledge_sec <= wall_clock:
-        remainder = wall_clock - remote_sec - knowledge_sec
+    within_wall = (
+        combined_timing["last_ended_sec"] is None or combined_timing["last_ended_sec"] <= wall_clock
+    )
+    if combined_timing["complete"] and within_wall:
+        remainder = wall_clock - combined_timing["observed_union_sec"]
+    access, unresolved = target_access_observations(trajectory, task.mindie_knowledge.target_files)
+    edit_primary, edit_auxiliary = _edit_metrics(trajectory, access, unresolved)
+    source_primary, source_auxiliary = source_evidence_metrics(
+        source_visibility, [row for row in access if row["call_outcome"] == "success"]
+    )
     rates = [
         harness.input_usd_per_million,
         harness.cached_usd_per_million,
@@ -132,11 +661,23 @@ def trajectory_metrics(
         total_wall_clock_sec=wall_clock,
         npu_execution_wait_sec=remote_sec,
         knowledge_query_sec=knowledge_sec,
+        knowledge_measurement_basis=(
+            BROKER_KNOWLEDGE_BASIS if broker_knowledge is not None else "native_tool_trajectory/1"
+        ),
+        foreground_knowledge_queries_count=(
+            broker_knowledge["query_count"]
+            if broker_knowledge is not None
+            else sum(tool_name(c.name) == "knowledge_query" for c in knowledge)
+        ),
+        foreground_knowledge_explains_count=(
+            broker_knowledge["explain_count"]
+            if broker_knowledge is not None
+            else sum(tool_name(c.name) == "knowledge_explain" for c in knowledge)
+        ),
         llm_and_exploration_sec=remainder,
         total_turns=trajectory.total_turns,
         npu_test_runs=npu_test_runs(trajectory) if tier == "l3" else None,
         remote_test_invocations=npu_test_runs(trajectory),
-        turns_to_first_localization=first_localization(trajectory, task.mindie_knowledge.target_files),
         localization_penalty_turns=task.budget.max_turns,
         zero_human_intervention=(
             trajectory.human_interventions == 0 if trajectory.human_interventions is not None else None
@@ -144,7 +685,10 @@ def trajectory_metrics(
         tokens=trajectory.tokens.model_dump(),
         estimated_cost_usd=cost,
         cost_complete=trajectory.tokens.complete and cost is not None,
+        **edit_primary,
+        **source_primary,
     )
+    tool_observations = summarize_tool_observations(all_remote)
     auxiliary = dict(
         knowledge_queries_count=sum(
             tool_name(c.name) in {"knowledge_query", "query"} for c in knowledge
@@ -152,18 +696,235 @@ def trajectory_metrics(
         knowledge_explains_count=sum(
             tool_name(c.name) in {"knowledge_explain", "explain"} for c in knowledge
         ),
+        knowledge_measurement=(
+            dict(
+                basis=BROKER_KNOWLEDGE_BASIS,
+                query_count=broker_knowledge["query_count"],
+                explain_count=broker_knowledge["explain_count"],
+                admitted_calls=broker_knowledge["admitted_calls"],
+                completed_calls=broker_knowledge["completed_calls"],
+                successful_calls=broker_knowledge["successful_calls"],
+                failed_calls=broker_knowledge["failed_calls"],
+                incomplete_calls=broker_knowledge["incomplete_calls"],
+                timing_complete=knowledge_timing["complete"],
+                scope=broker_knowledge["scope"],
+            )
+            if broker_knowledge is not None
+            else dict(
+                basis="native_tool_trajectory/1",
+                query_count=sum(tool_name(c.name) == "knowledge_query" for c in knowledge),
+                explain_count=sum(tool_name(c.name) == "knowledge_explain" for c in knowledge),
+                scope="native named tool calls only; shell-launched MCP clients unmeasured",
+            )
+        ),
+        broker_knowledge=broker_knowledge,
         remote_tool_calls_count=len(all_remote),
         remote_tool_errors=sum(c.is_error is True for c in all_remote),
-        remote_tool_non_business_errors=None,
-        tool_timing_complete=remote_sec is not None and knowledge_sec is not None,
-        timing_overlaps_or_missing=remainder is None,
+        remote_tool_non_business_errors=tool_observations["non_business_error_count"],
+        tool_observations=tool_observations,
+        target_access_observations=access,
+        target_access_unresolved=unresolved,
+        validation_tail=_validation_tail(trajectory),
+        tool_timing=dict(
+            remote=remote_timing,
+            all_remote=all_remote_timing,
+            knowledge=knowledge_timing,
+            combined=combined_timing,
+            native_knowledge=native_knowledge_timing,
+            native_combined=native_combined_timing,
+            cross_component_overlap_sec=(
+                all_remote_timing["observed_union_sec"]
+                + knowledge_timing["observed_union_sec"]
+                - combined_timing["observed_union_sec"]
+                if combined_timing["observed_union_sec"] is not None
+                else None
+            ),
+            remainder_reason=(
+                timing_reason
+                if timing_reason
+                else "missing_tool_intervals"
+                if not combined_timing["complete"]
+                else "tool_interval_outside_wall_clock"
+                if remainder is None
+                else None
+            ),
+            within_wall_clock=within_wall,
+            scope="execution union is not pure NPU compute; combined is all remote/knowledge call union",
+            knowledge_measurement_basis=(
+                BROKER_KNOWLEDGE_BASIS if broker_knowledge is not None else "native_tool_trajectory/1"
+            ),
+        ),
+        tool_timing_complete=combined_timing["complete"],
+        timing_overlaps_or_missing=(
+            not combined_timing["complete"] or combined_timing["overlap_sec"] > 0 or remainder is None
+        ),
         hit_oracle_task_in_top3=None,
         hit_oracle_block=None,
+        **edit_auxiliary,
+        **source_auxiliary,
     )
     return primary, auxiliary
 
 
-def summarize(receipts: list[TrialReceipt], *, k: int = 3, fast_p: float = 1.15) -> dict:
+def _measurement_coverage(known: list[bool], *, reason: str) -> dict:
+    total, observed = len(known), sum(known)
+    state = (
+        "empty"
+        if not total
+        else "complete"
+        if observed == total
+        else "not_measured"
+        if not observed
+        else "partial"
+    )
+    return dict(
+        population_attempts=total,
+        observed_attempts=observed,
+        missing_attempts=total - observed,
+        coverage=observed / total if total else None,
+        state=state,
+        reason="empty_input" if not total else None if observed == total else reason,
+    )
+
+
+def _known_count(value) -> bool:
+    return type(value) is int and value >= 0
+
+
+def _matrix_coverage(receipts, expected_cells, blocked_cells) -> dict:
+    result = dict(
+        planned_cells=None,
+        observed_terminal_cells=len(receipts),
+        valid_outcome_cells=sum(
+            row.terminal_status in {TerminalStatus.PASS, TerminalStatus.FAIL} for row in receipts
+        ),
+        missing_terminal_cells=None,
+        blocked_cells=None,
+        unclassified_missing_cells=None,
+        unexpected_terminal_cells=None,
+        identity_mismatches=None,
+        terminal_receipts_complete=None,
+        all_planned_cells_accounted_for=None,
+        complete=None,
+        reason="plan_inventory_unavailable",
+    )
+    if expected_cells is None:
+        if blocked_cells is not None:
+            raise ValueError("blocked cells require an explicit expected cell inventory")
+        return result
+
+    def key(cell):
+        return cell["instance_id"], cell["tier"], cell["group"], cell["repetition"]
+
+    def indexed(cells):
+        indexed_cells = {}
+        for cell in cells:
+            if (
+                not isinstance(cell, dict)
+                or any(
+                    not isinstance(cell.get(field), str) or not cell[field]
+                    for field in ("instance_id", "tier", "group", "task_digest")
+                )
+                or cell.get("role") not in {"eval", "seed"}
+                or not _known_count(cell.get("repetition"))
+                or cell["repetition"] < 1
+            ):
+                raise ValueError(
+                    "expected/blocked cells require explicit task, tier, group, repetition, role and digest"
+                )
+            identity = key(cell)
+            if identity in indexed_cells:
+                raise ValueError("duplicate declared matrix cell")
+            indexed_cells[identity] = {
+                field: cell[field]
+                for field in ("instance_id", "tier", "group", "repetition", "role", "task_digest")
+            }
+        return indexed_cells
+
+    expected = indexed(expected_cells)
+    blocked = indexed(blocked_cells) if blocked_cells is not None else None
+    actual = {
+        (row.instance_id, row.tier, row.ablation_group.value, row.repetition): row for row in receipts
+    }
+    if blocked is not None:
+        if blocked.keys() - expected.keys():
+            raise ValueError("blocked cells are outside the expected cell inventory")
+        if blocked.keys() & actual.keys():
+            raise ValueError("a blocked cell cannot also have a terminal receipt")
+        if any(
+            any(
+                blocked[identity][field] != expected[identity][field]
+                for field in ("role", "task_digest")
+            )
+            for identity in blocked
+        ):
+            raise ValueError("blocked cell identity differs from the expected inventory")
+    missing = expected.keys() - actual.keys()
+    unexpected = actual.keys() - expected.keys()
+    mismatches = [
+        dict(cell=expected[identity], fields=fields)
+        for identity in expected.keys() & actual.keys()
+        if (
+            fields := [
+                field
+                for field, value in (
+                    ("role", actual[identity].task_role),
+                    ("task_digest", actual[identity].task_digest),
+                )
+                if expected[identity][field] != value
+            ]
+        )
+    ]
+    duplicate_actual = len(actual) != len(receipts)
+    terminal_complete = bool(expected) and not (missing or unexpected or mismatches or duplicate_actual)
+    complete = terminal_complete and result["valid_outcome_cells"] == len(expected)
+    result.update(
+        planned_cells=len(expected),
+        missing_terminal_cells=[expected[identity] for identity in sorted(missing)],
+        blocked_cells=list(blocked.values()) if blocked is not None else None,
+        unclassified_missing_cells=(
+            [expected[identity] for identity in sorted(missing - blocked.keys())]
+            if blocked is not None
+            else None
+        ),
+        unexpected_terminal_cells=[
+            dict(instance_id=identity[0], tier=identity[1], group=identity[2], repetition=identity[3])
+            for identity in sorted(unexpected)
+        ],
+        identity_mismatches=mismatches,
+        duplicate_terminal_cells=duplicate_actual,
+        terminal_receipts_complete=terminal_complete,
+        all_planned_cells_accounted_for=(
+            not (missing - blocked.keys() or unexpected or mismatches or duplicate_actual)
+            if blocked is not None
+            else True
+            if terminal_complete
+            else None
+        ),
+        complete=complete,
+        reason=(
+            "empty_plan"
+            if not expected
+            else "cell_identity_mismatch"
+            if mismatches or unexpected or duplicate_actual
+            else "missing_terminal_cells"
+            if missing
+            else "invalid_terminal_outcomes"
+            if not complete
+            else None
+        ),
+    )
+    return result
+
+
+def summarize(
+    receipts: list[TrialReceipt],
+    *,
+    k: int = 3,
+    fast_p: float = 1.15,
+    expected_cells: list[dict] | None = None,
+    blocked_cells: list[dict] | None = None,
+) -> dict:
     if k < 1 or not math.isfinite(fast_p) or fast_p <= 0:
         raise ValueError("k and performance threshold must be positive")
     statuses = Counter(r.terminal_status.value for r in receipts)
@@ -174,7 +935,11 @@ def summarize(receipts: list[TrialReceipt], *, k: int = 3, fast_p: float = 1.15)
         by_task[receipt.instance_id].append(receipt)
     # Do not cube an overall mixture of easy/hard tasks. Report the requested
     # plug-in estimate per task, and only where k valid repetitions exist.
-    reliable = [rows for rows in by_task.values() if len(rows) >= k]
+    reliable = [
+        rows
+        for rows in by_task.values()
+        if len({r.repetition for r in rows}) == len(rows) and len(rows) >= k
+    ]
     pass_pow_k = (
         mean(
             (sum(r.terminal_status == TerminalStatus.PASS for r in rows) / len(rows)) ** k
@@ -214,6 +979,160 @@ def summarize(receipts: list[TrialReceipt], *, k: int = 3, fast_p: float = 1.15)
         for field in token_fields
     }
     delivery_all = [r.primary_metrics.get("delivery_wall_clock_sec") for r in receipts]
+    wall_all = [r.primary_metrics.get("total_wall_clock_sec") for r in receipts]
+    remote_errors = [r.auxiliary_metrics.get("remote_tool_non_business_errors") for r in receipts]
+    query_counts = [
+        r.auxiliary_metrics.get("knowledge_measurement", {}).get(
+            "query_count",
+            r.primary_metrics.get(
+                "foreground_knowledge_queries_count", r.auxiliary_metrics.get("knowledge_queries_count")
+            ),
+        )
+        for r in receipts
+    ]
+    explain_counts = [
+        r.auxiliary_metrics.get("knowledge_measurement", {}).get(
+            "explain_count",
+            r.primary_metrics.get(
+                "foreground_knowledge_explains_count",
+                r.auxiliary_metrics.get("knowledge_explains_count"),
+            ),
+        )
+        for r in receipts
+    ]
+    query_coverage = _measurement_coverage(
+        [_known_count(value) for value in query_counts], reason="mcp_count_missing"
+    )
+    explain_coverage = _measurement_coverage(
+        [_known_count(value) for value in explain_counts], reason="mcp_count_missing"
+    )
+    query_total = (
+        sum(value for value in query_counts if _known_count(value))
+        if query_coverage["observed_attempts"]
+        else None
+    )
+    explain_total = (
+        sum(value for value in explain_counts if _known_count(value))
+        if explain_coverage["observed_attempts"]
+        else None
+    )
+    mcp_complete = query_coverage["state"] == explain_coverage["state"] == "complete"
+    knowledge_state = (
+        "empty"
+        if not receipts
+        else "observed_zero_mcp_calls"
+        if mcp_complete and query_total == explain_total == 0
+        else "observed_mcp_calls"
+        if mcp_complete
+        else "not_measured"
+        if query_total is None and explain_total is None
+        else "partial"
+    )
+    knowledge = dict(
+        state=knowledge_state,
+        measurement_bases=sorted(
+            {
+                row.auxiliary_metrics.get("knowledge_measurement", {}).get(
+                    "basis",
+                    row.primary_metrics.get(
+                        "knowledge_measurement_basis", "legacy_native_tool_trajectory_only"
+                    ),
+                )
+                for row in receipts
+            }
+        ),
+        query_count=query_total if query_coverage["state"] == "complete" else None,
+        explain_count=explain_total if explain_coverage["state"] == "complete" else None,
+        broker_count_coverage=_measurement_coverage(
+            [
+                row.primary_metrics.get("knowledge_measurement_basis") == BROKER_KNOWLEDGE_BASIS
+                or row.auxiliary_metrics.get("knowledge_measurement", {}).get("basis")
+                == BROKER_KNOWLEDGE_BASIS
+                for row in receipts
+            ],
+            reason="shell_launched_mcp_clients_not_covered_by_native_tool_trajectory",
+        ),
+        observed_query_count_lower_bound=query_total,
+        observed_explain_count_lower_bound=explain_total,
+        attempts_with_observed_queries=sum(_known_count(value) and value > 0 for value in query_counts),
+        attempts_with_observed_explains=sum(
+            _known_count(value) and value > 0 for value in explain_counts
+        ),
+        query_count_coverage=query_coverage,
+        explain_count_coverage=explain_coverage,
+        native_body_access="not_measured_by_mcp_counters",
+        benefit=dict(
+            value=None,
+            state="not_measured",
+            reason=(
+                "empty_input"
+                if not receipts
+                else "mcp_observation_incomplete"
+                if not mcp_complete
+                else "no_observed_mcp_retrieval"
+                if query_total == explain_total == 0
+                else "causal_protocol_not_supplied"
+            ),
+        ),
+    )
+    measurement_coverage = dict(
+        wall_clock_valid=_measurement_coverage(
+            [r.primary_metrics.get("total_wall_clock_sec") is not None for r in valid],
+            reason="timing_missing",
+        ),
+        delivery_valid=_measurement_coverage(
+            [r.primary_metrics.get("delivery_wall_clock_sec") is not None for r in valid],
+            reason="timing_missing",
+        ),
+        wall_clock_all_attempts=_measurement_coverage(
+            [value is not None for value in wall_all], reason="timing_missing"
+        ),
+        delivery_all_attempts=_measurement_coverage(
+            [value is not None for value in delivery_all], reason="timing_missing"
+        ),
+        tokens=_measurement_coverage(
+            [r.primary_metrics.get("tokens", {}).get("complete") is True for r in receipts],
+            reason="usage_incomplete_or_missing",
+        ),
+        localization=_measurement_coverage(
+            [r.primary_metrics.get("turns_to_first_localization") is not None for r in receipts],
+            reason="source_access_proxy_unobserved",
+        ),
+        remote_non_business_errors=_measurement_coverage(
+            [_known_count(value) for value in remote_errors], reason="classification_missing"
+        ),
+        knowledge_queries=query_coverage,
+        knowledge_explains=explain_coverage,
+    )
+    measurement_coverage["tokens"]["recorded_attempts"] = sum(
+        isinstance(r.primary_metrics.get("tokens"), dict) for r in receipts
+    )
+    progress_metrics = {}
+    for field in (
+        "time_to_first_localization_sec",
+        "turns_to_first_target_edit",
+        "time_to_first_target_edit_sec",
+        "turns_to_last_target_edit",
+        "time_to_last_target_edit_sec",
+        "npu_runs_before_last_target_edit",
+    ):
+        values = [row.primary_metrics.get(field) for row in receipts]
+        coverage = _measurement_coverage(
+            [value is not None for value in values], reason="target_progress_observation_missing"
+        )
+        progress_metrics[field] = dict(
+            **coverage,
+            mean_recorded_value=mean(value for value in values if value is not None)
+            if coverage["observed_attempts"]
+            else None,
+            population="all_attempts_with_recorded_proxy",
+        )
+    observed_tasks = sorted({r.instance_id for r in receipts})
+    eligible_tasks = {rows[0].instance_id for rows in reliable}
+    reliability_complete = bool(receipts) and (
+        len(eligible_tasks) == len(observed_tasks) and len(valid) == len(receipts)
+    )
+    matrix = _matrix_coverage(receipts, expected_cells, blocked_cells)
     return dict(
         attempts=len(receipts),
         statuses={s.value: statuses[s.value] for s in TerminalStatus},
@@ -228,9 +1147,89 @@ def summarize(receipts: list[TrialReceipt], *, k: int = 3, fast_p: float = 1.15)
         reliability_eligible_tasks=len(reliable),
         reliability_total_tasks=len({r.instance_id for r in receipts}),
         reliability_estimator="mean_per_task_plugin_power; minimum k valid independent repeats",
+        pass_pow_k_scope="eligible_observed_tasks_only",
+        whole_matrix_pass_pow_k=(
+            pass_pow_k if matrix["complete"] is True and reliability_complete else None
+        ),
+        reliability_coverage=dict(
+            state=(
+                "empty"
+                if not receipts
+                else "complete_for_observed_tasks"
+                if reliability_complete
+                else "partial"
+                if reliable
+                else "not_measured"
+            ),
+            required_valid_independent_repetitions=k,
+            observed_tasks=len(observed_tasks),
+            eligible_tasks=len(eligible_tasks),
+            ineligible_tasks=[task for task in observed_tasks if task not in eligible_tasks],
+            planned_tasks=(
+                len({cell["instance_id"] for cell in expected_cells})
+                if expected_cells is not None
+                else None
+            ),
+            unobserved_planned_tasks=(
+                sorted({cell["instance_id"] for cell in expected_cells} - set(observed_tasks))
+                if expected_cells is not None
+                else None
+            ),
+            per_task=[
+                dict(
+                    instance_id=task,
+                    observed_attempts=sum(row.instance_id == task for row in receipts),
+                    valid_independent_repetitions=len({row.repetition for row in by_task[task]}),
+                    eligible=task in eligible_tasks,
+                )
+                for task in observed_tasks
+            ],
+            eligible_task_fraction=len(eligible_tasks) / len(observed_tasks) if observed_tasks else None,
+            complete_for_observed_tasks=reliability_complete,
+            complete_for_declared_cells=(
+                matrix["complete"] and reliability_complete if expected_cells is not None else None
+            ),
+            reason=(
+                "empty_input"
+                if not receipts
+                else "insufficient_valid_independent_repetitions"
+                if not reliable
+                else "partial_eligible_task_coverage"
+                if not reliability_complete
+                else "plan_inventory_unavailable"
+                if expected_cells is None
+                else matrix["reason"]
+            ),
+        ),
+        matrix_coverage=matrix,
         mean_wall_clock_sec=mean(known_times) if known_times else None,
         mean_delivery_wall_clock_sec=mean(delivery_times) if delivery_times else None,
         mean_wall_clock_coverage=len(known_times),
+        mean_delivery_wall_clock_count=len(delivery_times),
+        valid_mean_population="completed_pass_or_completed_fail_with_recorded_timing",
+        all_attempt_recorded_wall_clock_sec_mean=(
+            mean(value for value in wall_all if value is not None)
+            if any(value is not None for value in wall_all)
+            else None
+        ),
+        all_attempt_recorded_wall_clock_sec_count=sum(value is not None for value in wall_all),
+        all_attempt_recorded_delivery_wall_clock_sec_mean=(
+            mean(value for value in delivery_all if value is not None)
+            if any(value is not None for value in delivery_all)
+            else None
+        ),
+        all_attempt_recorded_delivery_wall_clock_sec_count=sum(
+            value is not None for value in delivery_all
+        ),
+        all_attempt_recorded_time_scope="recorded_elapsed_including_invalid_outcomes; not_successful_delivery",
+        measurement_coverage=measurement_coverage,
+        knowledge_observations=knowledge,
+        target_progress_metrics=progress_metrics,
+        observed_remote_non_business_errors_lower_bound=(
+            sum(value for value in remote_errors if _known_count(value))
+            if any(_known_count(value) for value in remote_errors)
+            else None
+        ),
         zero_intervention_rate=(
             sum(v is True for v in interventions) / len(valid)
             if valid and all(v is not None for v in interventions)

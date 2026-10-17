@@ -7,13 +7,14 @@ from pathlib import Path
 
 from mindie_bench.models import Tokens, ToolCall, Trajectory
 from mindie_bench.runner.drivers import normalize_tool
+from mindie_bench.scorer.tool_observations import SCHEMA, observe_codex_result
 
 
 class CodexDriver:
     name = "codex"
 
     def __init__(self):
-        self.result = Trajectory()
+        self.result = Trajectory(tool_observation_schema=SCHEMA)
         self.calls: dict[str, ToolCall] = {}
         self.server_components = {}
 
@@ -52,6 +53,9 @@ class CodexDriver:
                 f"[mcp_servers.{json.dumps(name)}]",
                 f"command = {json.dumps(server['command'])}",
                 f"args = {json.dumps(server['args'])}",
+                # An ablation's declared tools must be ready for its first turn.
+                "required = true",
+                "startup_timeout_sec = 30",
             ]
             if server["env"]:
                 lines.append(f"[mcp_servers.{json.dumps(name)}.env]")
@@ -145,6 +149,7 @@ class CodexDriver:
             self.calls[identity].is_error = (
                 item.get("status") == "failed" or item.get("exit_code", 0) != 0
             )
+            self.calls[identity].result_observation = observe_codex_result(item, self.calls[identity])
         self.result.total_turns = max(self.result.total_turns, generation)
 
     def trajectory(self):

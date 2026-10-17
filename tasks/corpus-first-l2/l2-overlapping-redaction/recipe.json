@@ -1,0 +1,104 @@
+{
+  "assets": {
+    "environment/reproduce.py": {
+      "path": "assets/environment/reproduce.py",
+      "sha256": "76cdd6516f4c6558a404bf4e133dc6080393fe88ff337322f2af9537e3660665"
+    },
+    "environment/runtime-binding.json": {
+      "path": "assets/environment/runtime-binding.json",
+      "sha256": "d277afadf5b7e2f7dc1384964790aae73d5825e72f856dc655d90e462d0baed8"
+    },
+    "environment/symptom.log": {
+      "path": "assets/environment/symptom.log",
+      "sha256": "598e72319c3c84732f4f8e1cdb0dec704c6bd3c0dc7c0cedbb9a963bc8962117"
+    },
+    "instruction.md": {
+      "path": "assets/instruction.md",
+      "sha256": "383319c4d18d340f140f8e1fbd603c1c26d331a2c6c0e4cbb311c14f05b871f7"
+    },
+    "oracle/gold_patch.diff": {
+      "path": "assets/oracle/gold_patch.diff",
+      "sha256": "48774a711dc5a74376c9b1af2c0b20c8f49bc21799afccf5e296a741d4daffce"
+    },
+    "oracle/replay_rules.json": {
+      "path": "assets/oracle/replay_rules.json",
+      "sha256": "b5c1625871a5d22b6afe1b8b801d743a46ab61de9cf9841753792bf04bc09cc8"
+    },
+    "verifier/runtime-binding.json": {
+      "path": "assets/verifier/runtime-binding.json",
+      "sha256": "d277afadf5b7e2f7dc1384964790aae73d5825e72f856dc655d90e462d0baed8"
+    },
+    "verifier/test.sh": {
+      "path": "assets/verifier/test.sh",
+      "sha256": "471139acbc86a2296fde719e08b337d6e9e0b02fa8ccfdbb3a68188ca3f6e22f"
+    },
+    "verifier/verify.py": {
+      "path": "assets/verifier/verify.py",
+      "sha256": "d386a9f34226f88c162cd5f0a554723ae2bc295a6e66033f4e0e73a4bd8c5bc2"
+    }
+  },
+  "corpus_commit": "cec3249ccd75e7a73cf2f2f776117e0ec385795b",
+  "knowledge_condition": {
+    "rationale": "A human-labelled relationship to the read historical body, not a declaration that its engineering narrative is true.",
+    "supporting_relation": "same historical scanner failure family"
+  },
+  "knowledge_evidence": [
+    {
+      "block_id": "9d7aa8a28111b2585c0ee450f5e0efa0d49d65ca0fa6c5166a5b6ebdc411c0b6",
+      "package_id": "a8366fec042e7a58e8a204aa03f250796998d31469c300ba5c77c27ac282a541",
+      "relation": "same_origin",
+      "sha256": "5313881a3c9a6151c4e70bf58c0fb1083bd74ef54f9e6a8d790f43b75ceb35da",
+      "supporting_text": "imi \u5df2\u5f00\u59cb\u4fee\u6539\u5171\u4eab\u8131\u654f\u89c4\u5219\uff0cGrok \u5728\u8865\u72ec\u7acb\u53cd\u4f8b\u3002\u6211\u7684\u8bc4\u5ba1\u91cd\u70b9\u662f\u76f8\u4ea4\u89c4\u5219\u662f\u5426\u5b8c\u6574\u8986\u76d6\u654f\u611f\u5185\u5bb9\u3001\u79c1\u94a5\u662f\u5426\u6574\u5757\u79fb\u9664\uff0c\u4ee5\u53ca\u8131\u654f\u6807\u8bb0\u80fd\u5426\u5b89\u5168\u5730\u91cd\u590d\u5904\u7406\uff1b\u68c0\u67e5\u901a\u8fc7\u524d\uff0c\u8fd9\u6279\u4ee3"
+    }
+  ],
+  "runtime": {
+    "python": "@L2_PYTHON@",
+    "python_binary_sha256": "@PYTHON_SHA256@"
+  },
+  "schema": "mindie-bench-l2-recipe/1",
+  "source_files_sha256": {
+    "mindie_knowledge/loop/transcript_redaction.py": "2538bb8339313632a0391a67ed1f2477ee189ef0b7ccf9b385f85f05d5bf0192",
+    "mindie_knowledge/redact.py": "591a11fb1e6aa6f5015df93c765878dae819a983c896f3114a84732a53a2e4b7"
+  },
+  "task_spec": {
+    "budget": {
+      "max_npu_runs": 12,
+      "max_turns": 35,
+      "timeout_sec": 600,
+      "verifier_timeout_sec": 90
+    },
+    "environment": {
+      "l2": {
+        "base_commit": "e65b05c795e2c6e7073f331565df712c853d761f",
+        "npu_count": 0,
+        "replay_commands": [],
+        "repo_path": "@KNOWLEDGE_REPO@"
+      }
+    },
+    "mindie_knowledge": {
+      "analogical_task_hashes": [],
+      "corpus_id": "l2-knowledge",
+      "knowledge_gradient": "near_exact",
+      "same_origin_task_hashes": [
+        "a8366fec042e7a58e8a204aa03f250796998d31469c300ba5c77c27ac282a541"
+      ],
+      "target_files": [
+        "mindie_knowledge/redact.py",
+        "mindie_knowledge/loop/transcript_redaction.py"
+      ]
+    },
+    "schema_version": "1.0",
+    "task": {
+      "difficulty": "medium",
+      "domain_category": "agent_protocol",
+      "evidence": "candidate",
+      "instance_id": "l2-overlapping-redaction",
+      "role": "eval",
+      "source": {
+        "fix_commit": "23b1516907edfcccf55243f141f414f1d4b8d535",
+        "repository": "mindie-agent/knowledge",
+        "validation_scope": "Actual complete Python product modules on CPU; fixture remote transport; no native model/NPU acceptance"
+      }
+    }
+  }
+}

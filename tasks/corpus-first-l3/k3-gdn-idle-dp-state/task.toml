@@ -1,0 +1,29 @@
+schema_version = "1.0"
+[task]
+instance_id = "k3-gdn-idle-dp-state"
+domain_category = "distributed_state_correctness"
+difficulty = "hard"
+evidence = "verified"
+cluster = "kimi-k3-idle-dp-recurrent-state"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "d8c9e3a673af918c94a7794ef6f1f69c024d9c62"
+issue = "15655"
+validation_scope = "DP=2 TP=1 eager full-module contract: real Kimi K3 KDA+MLA+MoE with dummy weights, real native conv/recurrent-state updates and HCCL; symmetric force_attention activation; no ACLGraph, pretrained-weight, serving, or 310P acceptance claim"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "analogical"
+same_origin_task_hashes = ["0bc94d24162470fe8ce3fc189b7eb239aa868d074ff53c78706cad0c5c608243", "cb438ab3a3aaa893a1a37d008f506dbdaaa2c40471ce19f24f005b8a052dc0b4", "25db1a8c52ab2169afe3b1c8fcef7836e51d732fadef6309d1e5ad3b5e9d38f9"]
+analogical_task_hashes = ["2bb1f4fcc62e47f0f51e02ec4f9678d29b615f2c988bf95a8a5d385425316536", "48e7cb7565fee65747ade6f78c3c3ea5513d660d2aa132ef19bb799cfdf4bc84"]
+target_files = ["vllm_ascend/worker/model_runner_v1.py", "vllm_ascend/_310p/model_runner_310p.py"]
+[budget]
+max_turns = 40
+max_npu_runs = 8
+timeout_sec = 1200
+verifier_timeout_sec = 240
+[environment.l3]
+repo_path = "../../../repositories/vllm-ascend-idle-dp"
+base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
+npu_model = "Ascend910"
+npu_count = 2

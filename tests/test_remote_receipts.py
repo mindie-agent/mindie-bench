@@ -52,13 +52,37 @@ def test_late_business_receipt_is_not_confused_with_cleanup(case, monkeypatch):
         ),
     }
     late = {"exit_code": 0, "stdout_b64": "", "stderr_b64": ""}
-    cleanup = {"cleanup": {"probe": probe, "errors": []}, "remote_artifact": "/owned.final.json"}
+    cleanup = {
+        "cleanup": {"probe": probe, "errors": [], "files_modified": ["remote-production.py"]},
+        "remote_artifact": "/owned.final.json",
+    }
     frames = iter([late, cleanup])
     monkeypatch.setattr(slot, "_read", lambda timeout: next(frames))
     slot.close()
     assert slot.cleanup_receipt == cleanup
     assert json.loads((case["root"] / "remote_late_results.jsonl").read_text()) == late
     assert slot.postflight["0"]["pids"] == []
+    assert slot.modified_files == ["remote-production.py"]
+
+
+def test_remote_inventory_excludes_unchanged_public_inputs_and_keeps_their_deletion(case, monkeypatch):
+    slot = remote_slot(case)
+    original = base64.b64encode(b"public input\n").decode()
+    slot.public_files = {"unchanged.py": original, "deleted.py": original, "edited.py": original}
+    slot.cleanup_receipt = {
+        "cleanup": {
+            "probe": {},
+            "errors": [],
+            "files_modified": ["production.py", "unchanged.py", "edited.py"],
+            "untracked": {
+                "unchanged.py": original,
+                "edited.py": base64.b64encode(b"edited input\n").decode(),
+            },
+        }
+    }
+    monkeypatch.setattr(slot, "validate_probe", lambda value: value)
+    slot.close()
+    assert slot.modified_files == ["deleted.py", "edited.py", "production.py"]
 
 
 def test_soundness_releases_worker_when_prepare_fails(case, monkeypatch):

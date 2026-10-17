@@ -22,6 +22,7 @@ class ProcessResult:
     stop_reason: str | None = None
     errors: list[dict[str, str]] = field(default_factory=list)
     started: bool = False
+    started_monotonic_sec: float | None = None
 
 
 def stream_process(
@@ -46,6 +47,7 @@ def stream_process(
     readers_stopped = threading.Event()
     count = 0
     started = time.monotonic()
+    result.started_monotonic_sec = started
     try:
         process = subprocess.Popen(
             [sys.executable, "-I", "-m", "mindie_bench.runner.owner", str(read_fd), *command],
