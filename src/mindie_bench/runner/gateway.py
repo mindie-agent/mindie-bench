@@ -365,6 +365,14 @@ class Gateway(AbstractContextManager):
                             return self.reject(409, "duplicate paid request; no replay")
                         if gateway.model_calls >= gateway.task.budget.max_turns:
                             gateway.stop_reason = "max_turns"
+                            gateway.record(
+                                "model_admission_rejected",
+                                reason="max_turns",
+                                http_status=429,
+                                request_sha256=request_hash,
+                                admitted_model_calls=gateway.model_calls,
+                                limit=gateway.task.budget.max_turns,
+                            )
                             return self.reject(429, "benchmark turn budget exhausted")
                         gateway.seen.add(request_hash)
                         gateway.model_calls += 1

@@ -521,6 +521,13 @@ def run_trial(
                     consume=lambda event, *_: records.append(event),
                     gateway=capture_gateway,
                 )
+                auxiliary["capture_process"] = dict(
+                    returncode=captured.returncode,
+                    stop_reason=captured.stop_reason,
+                    errors=captured.errors,
+                    elapsed_sec=captured.elapsed,
+                    started=captured.started,
+                )
                 capture_gateway.finish_inference()
                 errors.extend(captured.errors)
                 auxiliary["capture_model_calls"] = capture_gateway.model_calls
