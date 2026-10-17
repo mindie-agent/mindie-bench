@@ -6,8 +6,9 @@ silently substituted for another.
 
 ## L1 retrieval observations
 
-Use only actual foreground `knowledge_query` / `knowledge_explain` events from
-the selected frozen G2/G3 trials. Keep the original event path, raw bytes/hash,
+For the MCP retrieval-ranking slice, use only actual foreground
+`knowledge_query` / `knowledge_explain` events from the selected frozen G2/G3
+trials. Keep the original event path, raw bytes/hash,
 trial/source/task/corpus identity, query text, ordered result refs and explain
 responses in private evidence. A consumer script's readback is a separate
 component check. Capture/indexer queries are not foreground queries.
@@ -18,6 +19,21 @@ First verify mechanical provenance:
 2. Each explain call uses the observed query ref and returned block hash.
 3. In G3, the evaluation input corpus equals its own seed's captured corpus;
    no other repetition's seed or held-out capture enters it.
+
+Successful native body reads such as `Read` or `cat` can also establish
+foreground reading of new seed experience when their actual returned body
+bytes/hash match the exact captured package revision/block reference. Preserve
+the native event, successful result bytes and matching corpus/package/body
+identity in a separate direct-read inventory. A path string, `grep` hit,
+configuration reference or failed read attempt does not establish body reading;
+independent consumer/capture readback is not a foreground read.
+
+Direct reads are not MCP query/explain events and provide no ranked result
+list. Count them separately and exclude them from MCP retrieval-ranking
+denominators and scorer input; do not invent query events or ranks for them.
+Neither direct reading nor query/explain delivery alone proves semantic
+applicability, causal reuse or an efficiency gain. This is an evidence rule,
+not a claim that any particular frozen trial has already supplied such a read.
 
 These checks establish delivery/reference identity, not retrieval relevance.
 For a quality slice, judge relevance against the task's known failing source
