@@ -29,6 +29,11 @@ Inspect every granted runtime root for newer fixed copies, helper tests,
 bytecode, source archives and symlink targets. Merely stripping the task's
 `.git` directory does not remove an answer in installed dependencies.
 
+The reusable owned-image preparation recipe, exact core-image/blob hashes,
+function projection, existing DCMI probe and bounded leakage scanner are in
+[`runtime/README.md`](runtime/README.md). These require a pre-existing exact
+local base image; a new build needs a new identity and fresh soundness.
+
 With a configured interpreter/component/model deployment and an admitted idle
 device, the existing CLI provides the validation and soundness entry points:
 

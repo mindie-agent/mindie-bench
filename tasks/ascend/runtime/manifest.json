@@ -1,0 +1,55 @@
+{
+  "schema": "mindie-bench-ascend-runtime-recipe/1",
+  "upstream_repository": "vllm-project/vllm-ascend",
+  "rmsnorm_failing_sha256": "3782d77a4d1a5493121ee51c676b455304ccfdcd1abccbe58b45f5d4ad861a1e",
+  "sources": [
+    {
+      "family": "rope",
+      "base_commit": "d060c797ed8fd22a1ecdf86c5e26f6eeaf7531f2",
+      "relative_path": "vllm_ascend/ops/rotary_embedding.py",
+      "blob_sha256": "85d8f085309f2ceb0cf6bc04994c192518df912bd69f74b25336eadf769e040c",
+      "function_mappings": {
+        "set_cos_and_sin": "set_cos_and_sin",
+        "update_cos_sin": "update_cos_sin",
+        "get_cos_and_sin_slice": "get_cos_and_sin_slice"
+      }
+    },
+    {
+      "family": "sampler",
+      "base_commit": "d552d03a4851aa4d75420377952b0177c94cd4a5",
+      "relative_path": "vllm_ascend/sample/sampler.py",
+      "blob_sha256": "df46f904ba989b7d3579bd965c67c9f0fac7018bc13958dd2f203b21b2b17829",
+      "function_mappings": {
+        "_apply_top_k_top_p_pytorch": "_apply_top_k_top_p_pytorch",
+        "_apply_top_k_top_p_torch_npu": "_apply_top_k_top_p_ascendc"
+      }
+    }
+  ],
+  "profiles": {
+    "a3": {
+      "base_image": "sha256:b79ae5d9b5a63ed16f92efef70e47a55c8b3c38bf17bd7ab988784e7eae9d187",
+      "original_file_sha256": {
+        "rope": "403e1d0c0cac58a82898fa2596b923b60f19392d23560f4609967e4dfc8a411a",
+        "sampler": "867f1770614bb594baf5ecfb858aa4a20dc413cbfbe4f94e06b3786900b581ee"
+      },
+      "projected_file_sha256": {
+        "rope": "e9b1fc81352cd352b98bda94182e022749e1aef60a2ac6e932ad349659e4acc8",
+        "sampler": "76226d2ac64465362f0bc786a4c1608c3a428fa08716922bb740bbb67511afb2"
+      },
+      "observed_g_multifamily_image": "sha256:90d743487f574f50d9baefbb4438b6590f4a1ddea2676f26de50c01da0b5da27"
+    },
+    "a2": {
+      "base_image": "sha256:d85730f56df057d890f9f1ded8f9d42b55e746e1cd1e9e3bb6a8adf36eeb4a16",
+      "original_file_sha256": {
+        "rope": "18b9dd6ffbe82f0c5a80068b7c9633593b78e36ce9e039c100878754f5c9bcd7",
+        "sampler": "1e99d47a1ba37cc0537248b32d283b01741fab4726f880700a8add09340592ba"
+      },
+      "projected_file_sha256": {
+        "rope": "c597b44a7488a6d30ef70d78266a6231985125d379baba40d560bb9df6c8305a",
+        "sampler": "33fd49c90e4261f7c3351aa63da28d3c77719445dab6e4c0f782519aafe21ab3"
+      },
+      "observed_g_multifamily_image": "sha256:bd78c94305dc7f9f5dc3f225450ec00b73b8f00a1e0829469c362f60441abaf4"
+    }
+  },
+  "boundary": "Exact local base images are operator-owned checkpoints, not public releases or pull URLs. Output file hashes reproduce the observed function projection, not the complete image identity."
+}
