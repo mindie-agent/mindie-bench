@@ -1,0 +1,50 @@
+schema_version = "1.0"
+[task]
+instance_id = "fused-rmsnorm-gate-dispatch-performance"
+domain_category = "native_operator_performance"
+difficulty = "hard"
+evidence = "verified"
+cluster = "fused-rmsnorm-gate"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+base_commit = "f02da291ec0bdbe31af248deffa69f7a97e8f259"
+fix_commit = "5312b32d4825cdbc092501e327fdc3e7366df9aa"
+task_type = "performance"
+gold_patch_scope = "Historical 5312 dispatch and input-preservation repair plus a benchmark-specific native Ascend RMSNorm host-path improvement. This reference is not the unmodified upstream commit."
+gold_patch_provenance = "5312b32d plus measured residual-free native NPU RMSNorm/gate path; original historical reference failed the unchanged warm-service gate."
+validation_scope = "One real Ascend NPU; actual CustomOp dispatch, numerical checks, private shapes, buffer rotation, ACLGraph, allocator peak and warm eight-norm-step HTTP service. No full-model throughput claim."
+memory_budget_scope = "Tiny eight-step service tensor scratch only: 16MiB baseline reserve, 16MiB extra candidate allowance, 32MiB total. No real KV cache exists in this service."
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = ["0bc94d24162470fe8ce3fc189b7eb239aa868d074ff53c78706cad0c5c608243"]
+analogical_task_hashes = ["b22cc1d74932da059115f71fa647370ce76ecfb54317c312e0b3a117cae86d49"]
+target_files = ["vllm_ascend/utils.py", "vllm_ascend/ops/layernorm.py", "vllm_ascend/ops/triton/kda/kda.py"]
+[budget]
+max_turns = 40
+max_npu_runs = 8
+timeout_sec = 1800
+verifier_timeout_sec = 600
+max_output_bytes = 33554432
+[environment.l3]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "f02da291ec0bdbe31af248deffa69f7a97e8f259"
+npu_model = "Ascend910"
+npu_count = 1
+[oracle]
+[[oracle.probes]]
+name = "actual-torch-comparator-control"
+command = ["python3", "-I", "-B", "{oracle}/verifier/torch_control.py"]
+expected_returncode = 0
+stdout_sha256 = "d29f77cf85ba089a2c544aac33f457956c09ca293c6ef76880aa1ee1103945a6"
+[performance]
+private_shape_sha256 = ["2869c075070aff7c08049c50d772f27fa67ecdf9a019a90154191ee9ac00ae2a", "fa2291e2cfb790aa2c30dab849999118d004246e00aa46517c1b54708f0c4b2e"]
+min_buffers = 4
+samples_per_shape = 36
+require_aclgraph_capture = true
+require_workspace_measurement = true
+require_e2e_warm_server = true
+min_speedup_ratio = 1.05
+min_e2e_warm_server_speedup = 1.01
+max_workspace_delta_bytes = 16777216

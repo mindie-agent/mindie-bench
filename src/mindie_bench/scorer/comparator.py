@@ -8,6 +8,7 @@ from statistics import mean
 
 from mindie_bench.io import digest, read_json, write_json
 from mindie_bench.models import TerminalStatus, TrialReceipt
+from mindie_bench.scorer.components import summarize_five_components
 from mindie_bench.scorer.metrics import summarize
 
 CONTROL_KEYS = (
@@ -432,6 +433,103 @@ def comparison(
         ),
         funnel=funnel,
         funnel_measurement_bases=funnel_bases,
+        five_component_attribution=dict(
+            baseline=summarize_five_components(baseline),
+            candidate=summarize_five_components(candidate),
+        ),
+        amortized_k_projection=_amortized_k_projection(a, b),
+    )
+
+
+def _amortized_k_projection(baseline: dict, candidate: dict) -> dict:
+    """Project 1-Seed-to-K-Eval amortized flywheel savings across K in {1, 3, 5, 10}."""
+    base_attempts = baseline.get("attempts") or 0
+    cand_attempts = candidate.get("attempts") or 0
+    base_eval_tokens = (
+        sum(baseline["observed_tokens_lower_bound"].values()) / base_attempts
+        if base_attempts and baseline.get("token_metering_complete")
+        else None
+    )
+    cand_eval_tokens = (
+        sum(candidate["observed_tokens_lower_bound"].values()) / cand_attempts
+        if cand_attempts and candidate.get("token_metering_complete")
+        else None
+    )
+    cand_seed_tokens = (
+        (
+            sum(candidate["observed_tokens_including_seed_lower_bound"].values())
+            - sum(candidate["observed_tokens_lower_bound"].values())
+        )
+        / max(1, candidate.get("seed_setup_lineages_observed", 1))
+        if candidate.get("seed_setup_required")
+        and candidate.get("token_metering_including_seed_complete")
+        else 0.0
+        if not candidate.get("seed_setup_required")
+        else None
+    )
+    base_eval_sec = (
+        baseline["observed_delivery_wall_clock_sec_lower_bound"] / base_attempts
+        if base_attempts and baseline.get("delivery_timing_complete")
+        else None
+    )
+    cand_eval_sec = (
+        candidate["observed_delivery_wall_clock_sec_lower_bound"] / cand_attempts
+        if cand_attempts and candidate.get("delivery_timing_complete")
+        else None
+    )
+    cand_seed_sec = (
+        (
+            candidate["observed_delivery_sec_including_seed_lower_bound"]
+            - candidate["observed_delivery_wall_clock_sec_lower_bound"]
+        )
+        / max(1, candidate.get("seed_setup_lineages_observed", 1))
+        if candidate.get("seed_setup_required")
+        and candidate.get("delivery_timing_including_seed_complete")
+        else 0.0
+        if not candidate.get("seed_setup_required")
+        else None
+    )
+    projections = {}
+    for proj_k in (1, 3, 5, 10):
+        tok_ok = all(v is not None for v in (base_eval_tokens, cand_eval_tokens, cand_seed_tokens))
+        sec_ok = all(v is not None for v in (base_eval_sec, cand_eval_sec, cand_seed_sec))
+        base_k_tok = proj_k * base_eval_tokens if tok_ok else None
+        cand_k_tok = (cand_seed_tokens + proj_k * cand_eval_tokens) if tok_ok else None
+        base_k_sec = proj_k * base_eval_sec if sec_ok else None
+        cand_k_sec = (cand_seed_sec + proj_k * cand_eval_sec) if sec_ok else None
+        projections[str(proj_k)] = dict(
+            k=proj_k,
+            baseline_tokens_total=base_k_tok,
+            candidate_tokens_including_seed_total=cand_k_tok,
+            net_token_savings=(base_k_tok - cand_k_tok) if tok_ok else None,
+            amortized_candidate_tokens_per_eval=(cand_k_tok / proj_k) if tok_ok else None,
+            baseline_delivery_sec_total=base_k_sec,
+            candidate_delivery_sec_including_seed_total=cand_k_sec,
+            net_delivery_sec_savings=(base_k_sec - cand_k_sec) if sec_ok else None,
+            amortized_candidate_delivery_sec_per_eval=(cand_k_sec / proj_k) if sec_ok else None,
+        )
+    break_even_k_tokens = (
+        cand_seed_tokens / (base_eval_tokens - cand_eval_tokens)
+        if all(v is not None for v in (base_eval_tokens, cand_eval_tokens, cand_seed_tokens))
+        and (base_eval_tokens - cand_eval_tokens) > 0
+        else None
+    )
+    break_even_k_sec = (
+        cand_seed_sec / (base_eval_sec - cand_eval_sec)
+        if all(v is not None for v in (base_eval_sec, cand_eval_sec, cand_seed_sec))
+        and (base_eval_sec - cand_eval_sec) > 0
+        else None
+    )
+    return dict(
+        baseline_eval_tokens_mean=base_eval_tokens,
+        candidate_eval_tokens_mean=cand_eval_tokens,
+        candidate_seed_tokens_per_lineage=cand_seed_tokens,
+        baseline_eval_delivery_sec_mean=base_eval_sec,
+        candidate_eval_delivery_sec_mean=cand_eval_sec,
+        candidate_seed_delivery_sec_per_lineage=cand_seed_sec,
+        break_even_k_tokens=break_even_k_tokens,
+        break_even_k_delivery_sec=break_even_k_sec,
+        by_k=projections,
     )
 
 
@@ -588,6 +686,25 @@ def markdown(result: dict) -> str:
             f"| {field} | {fmt(value['baseline_mean']) if value else 'unmeasured'} | "
             f"{fmt(value['candidate_mean']) if value else 'unmeasured'} |"
         )
+    if "amortized_k_projection" in result:
+        proj = result["amortized_k_projection"]
+        rows += [
+            "",
+            "## Amortized flywheel projection (1 Seed -> K Eval)",
+            "",
+            f"Break-even K (tokens): {fmt(proj['break_even_k_tokens'])}; "
+            f"break-even K (delivery sec): {fmt(proj['break_even_k_delivery_sec'])}.",
+            "",
+            "| K | Baseline tokens | Candidate tokens (incl. 1 seed) | Net token savings | Net delivery sec savings |",
+            "| ---: | ---: | ---: | ---: | ---: |",
+        ]
+        for k_key, k_row in proj["by_k"].items():
+            rows.append(
+                f"| {k_key} | {fmt(k_row['baseline_tokens_total'])} | "
+                f"{fmt(k_row['candidate_tokens_including_seed_total'])} | "
+                f"{fmt(k_row['net_token_savings'])} | "
+                f"{fmt(k_row['net_delivery_sec_savings'])} |"
+            )
     return "\n".join(rows) + "\n"
 
 
@@ -626,10 +743,13 @@ def grouped_summaries(receipts, *, expected_cells=None, blocked_cells=None):
         key = (receipt.tier, receipt.evidence, receipt.ablation_group.value)
         groups[key + (("seed",) if receipt.task_role == "seed" else ())].append(receipt)
     result = {
-        "/".join(key): summarize(
-            rows,
-            expected_cells=_declared_scope(expected_cells, key[0], key[2], rows[0].task_role),
-            blocked_cells=_declared_scope(blocked_cells, key[0], key[2], rows[0].task_role),
+        "/".join(key): dict(
+            **summarize(
+                rows,
+                expected_cells=_declared_scope(expected_cells, key[0], key[2], rows[0].task_role),
+                blocked_cells=_declared_scope(blocked_cells, key[0], key[2], rows[0].task_role),
+            ),
+            five_component_attribution=summarize_five_components(rows),
         )
         for key, rows in groups.items()
     }

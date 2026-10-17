@@ -33,7 +33,10 @@ READ_EDIT = {
     "remote_read",
     "Read",
     "remote_edit",
+    "remote_multi_edit",
     "Edit",
+    "MultiEdit",
+    "Write",
     "remote_grep",
     "Grep",
     "read_file",
@@ -71,6 +74,10 @@ def _npu_test_call(call):
 
 def _python_accesses(code: str) -> tuple[list[tuple[str, str]], list[str]]:
     """Follow literal path aliases and executed syntax, never strings containing code."""
+
+    class LiteralPath(str):
+        pass
+
     accesses, unresolved, names = [], [], {}
     path_factories = {"Path", "PurePath"}
     local_callables = set()
@@ -113,12 +120,16 @@ def _python_accesses(code: str) -> tuple[list[tuple[str, str]], list[str]]:
             and node.func.attr == "Path"
         ):
             parts = [value(arg) for arg in node.args]
-            return posixpath.join(*parts) if parts and all(isinstance(p, str) for p in parts) else None
+            return (
+                LiteralPath(posixpath.join(*parts))
+                if parts and all(isinstance(p, str) for p in parts)
+                else None
+            )
         if isinstance(node, ast.BinOp):
             left, right = value(node.left), value(node.right)
             if isinstance(left, str) and isinstance(right, str):
-                if isinstance(node.op, ast.Div):
-                    return posixpath.join(left, right)
+                if isinstance(node.op, ast.Div) and isinstance(left, LiteralPath):
+                    return LiteralPath(posixpath.join(left, right))
                 if isinstance(node.op, ast.Add):
                     return left + right
         return None
@@ -277,6 +288,14 @@ def _python_accesses(code: str) -> tuple[list[tuple[str, str]], list[str]]:
                     accesses.append(("edit" if any(flag in mode for flag in "wax+") else "read", path))
                 else:
                     unresolved.append("python_dynamic_open_path_or_mode")
+            elif isinstance(node.func, ast.Attribute) and node.func.attr == "open":
+                path = value(node.func.value)
+                mode = value(node.args[0]) if node.args else "r"
+                mode = next((value(k.value) for k in node.keywords if k.arg == "mode"), mode)
+                if isinstance(path, str) and isinstance(mode, str):
+                    accesses.append(("edit" if any(flag in mode for flag in "wax+") else "read", path))
+                else:
+                    unresolved.append("python_dynamic_open_path_or_mode")
             elif isinstance(node.func, ast.Attribute) and node.func.attr in {
                 "read_text",
                 "read_bytes",
@@ -286,6 +305,42 @@ def _python_accesses(code: str) -> tuple[list[tuple[str, str]], list[str]]:
                 path = value(node.func.value)
                 if isinstance(path, str):
                     accesses.append(("edit" if node.func.attr.startswith("write") else "read", path))
+                else:
+                    unresolved.append("python_dynamic_path")
+            elif (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"replace", "rename"}
+                and len(node.args) == 1
+                and not node.keywords
+            ):
+                src = value(node.func.value)
+                dst = value(node.args[0])
+                if isinstance(src, LiteralPath) and isinstance(dst, str):
+                    accesses.append(("edit", src))
+                    accesses.append(("edit", dst))
+                elif src is None:
+                    unresolved.append("python_dynamic_path")
+            elif (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and (
+                    (node.func.value.id == "os" and node.func.attr in {"replace", "rename"})
+                    or (
+                        node.func.value.id == "shutil"
+                        and node.func.attr in {"copy", "copy2", "copyfile", "move"}
+                    )
+                )
+                and len(node.args) >= 2
+            ):
+                src = value(node.args[0])
+                dst = value(node.args[1])
+                if isinstance(src, str):
+                    destructive = node.func.attr in {"replace", "rename", "move"}
+                    accesses.append(("edit" if destructive else "read", src))
+                else:
+                    unresolved.append("python_dynamic_path")
+                if isinstance(dst, str):
+                    accesses.append(("edit", dst))
                 else:
                     unresolved.append("python_dynamic_path")
             invalidate_call(node)
@@ -408,7 +463,22 @@ def _shell_accesses(command: str, *, depth=0, remote=False, stdin=None):
             else:
                 unresolved.append("patch_target_payload_unobserved")
             continue
-        if name not in {"cat", "sed", "grep", "rg", "head", "tail"}:
+        if name == "tee":
+            for word in words[1:]:
+                if not word.startswith("-"):
+                    accesses.append(("edit", word, remote))
+            continue
+        if name in {"cp", "mv"}:
+            if any(w == "-t" or w.startswith("--target-directory") for w in words[1:]):
+                unresolved.append("copy_or_move_target_option_unresolved")
+                continue
+            operands = [w for w in words[1:] if not w.startswith("-")]
+            if len(operands) >= 2:
+                src_kind = "read" if name == "cp" else "edit"
+                accesses.extend((src_kind, src, remote) for src in operands[:-1])
+                accesses.append(("edit", operands[-1], remote))
+            continue
+        if name not in {"cat", "sed", "grep", "rg", "head", "tail", "perl"}:
             continue
         if name == "rg" and "--files" in words:
             continue
@@ -433,7 +503,7 @@ def _shell_accesses(command: str, *, depth=0, remote=False, stdin=None):
             if skip:
                 skip = False
                 continue
-            if word in {"-e", "-f"}:
+            if word in {"-e", "-f"} or (name == "perl" and word == "-E"):
                 explicit_pattern = True
                 skip = True
             elif word in options_with_value and (word not in {"-n", "-c"} or name in {"head", "tail"}):
@@ -442,13 +512,20 @@ def _shell_accesses(command: str, *, depth=0, remote=False, stdin=None):
                 continue
             else:
                 operands.append(word)
-        if name in {"grep", "rg", "sed"} and not explicit_pattern and operands:
+        if name in {"grep", "rg", "sed", "perl"} and not explicit_pattern and operands:
             operands = operands[1:]
-        kind = (
-            "edit"
-            if name == "sed" and any(word == "-i" or word.startswith("-i") for word in words[1:])
-            else "read"
+        is_inplace_edit = (
+            name == "sed" and any(word == "-i" or word.startswith("-i") for word in words[1:])
+        ) or (
+            name == "perl"
+            and any(
+                word == "-i"
+                or word.startswith("-i")
+                or (word.startswith("-") and not word.startswith("--") and "i" in word[1:])
+                for word in words[1:]
+            )
         )
+        kind = "edit" if is_inplace_edit else "read"
         accesses.extend((kind, path, remote) for path in operands)
     return accesses, sorted(set(unresolved))
 
@@ -475,6 +552,8 @@ def _call_outcome(call):
         "shell",
         "Read",
         "Edit",
+        "MultiEdit",
+        "Write",
         "Grep",
     }:
         return "success"
@@ -595,7 +674,10 @@ def target_access_observations(
                 if name
                 in {
                     "remote_edit",
+                    "remote_multi_edit",
                     "Edit",
+                    "MultiEdit",
+                    "Write",
                     "edit_file",
                     "remote_apply_patch",
                     "apply_patch",

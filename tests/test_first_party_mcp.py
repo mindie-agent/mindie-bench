@@ -142,3 +142,34 @@ def test_consumer_releases_partly_initialized_store_without_hiding_install_error
         first_party.consumer(tmp_path, tmp_path, "revision")
     assert closed == [True]
     assert any("partial store close failed" in note for note in caught.value.__notes__)
+
+
+def test_consumer_skips_reinstall_when_revision_matches_and_always_refreshes_index(tmp_path, monkeypatch):
+    calls = []
+    module = ModuleType("mindie_knowledge.materials.store")
+
+    class WarmStore:
+        def __init__(self, *args):
+            pass
+
+        def _pointers(self):
+            return {"source_revision": "revision", "feed": {"t1": "r1"}}
+
+        def install_packages(self, *args, **kwargs):
+            calls.append("install")
+
+        def refresh_index(self):
+            calls.append("refresh")
+            return {"complete": True}
+
+        def close(self):
+            calls.append("close")
+
+    module.MaterialStore = WarmStore
+    monkeypatch.setitem(sys.modules, "mindie_knowledge", ModuleType("mindie_knowledge"))
+    monkeypatch.setitem(
+        sys.modules, "mindie_knowledge.materials", ModuleType("mindie_knowledge.materials")
+    )
+    monkeypatch.setitem(sys.modules, "mindie_knowledge.materials.store", module)
+    first_party.consumer(tmp_path, tmp_path, "revision")
+    assert calls == ["refresh"]

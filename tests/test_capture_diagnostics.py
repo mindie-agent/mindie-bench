@@ -136,3 +136,41 @@ def test_capture_interruption_preserves_process_state_and_separate_settled_usage
     assert saved["auxiliary_metrics"]["capture_process"] == expected
     assert not receipt.primary_metrics["tokens"]["complete"]
     assert receipt.primary_metrics["tokens"]["indexer_small_model_total"] == 15
+
+
+def test_corpus_rejection_findings_survive_without_inventing_capture_token_receipts(
+    case, corpus, monkeypatch
+):
+    source, commit = corpus
+    config = case["config"]
+    config.corpora["fixture"] = CorpusConfig(path=str(source), commit=commit)
+    config.groups[Group.G3] = GroupConfig(
+        mcp_servers={
+            "remote": MCPServer(command="/usr/bin/true", component="remote-dev"),
+            "knowledge": MCPServer(command="/usr/bin/true", component="knowledge"),
+        },
+        capture_command=["/usr/bin/true"],
+    )
+    monkeypatch.setattr(orchestrator, "probe_runtime_import", lambda *args: {})
+    monkeypatch.setattr(orchestrator, "native_command", lambda command, **kwargs: command)
+    report = {"status": "rejected", "findings": [{"code": "unconditional_global_ban"}]}
+
+    def process(command, *, output, consume, cwd, **kwargs):
+        if output.name == "native_events.jsonl":
+            (cwd / "module.py").write_text("VALUE = 2\n")
+            consume({"type": "fixture.trajectory", "trajectory": {"native_completed": True}}, 0, 0)
+            return ProcessResult(returncode=0, elapsed=0.1, started=True)
+        consume({"status": "failed", "corpus_lint": report}, 0, 0)
+        return ProcessResult(returncode=1, elapsed=0.1, started=True)
+
+    monkeypatch.setattr(orchestrator, "stream_process", process)
+    output = case["root"] / "rejected"
+    output.mkdir()
+    receipt = orchestrator.run_trial(
+        case["task"], config, tier="l2", group=Group.G3, repetition=1, run_root=output
+    )
+    assert receipt.terminal_status.value == "completed_fail"
+    assert receipt.primary_metrics["reward"] == 0
+    assert receipt.auxiliary_metrics["capture"]["corpus_lint"] == report
+    assert receipt.auxiliary_metrics["business_terminal_status"] == "completed_pass"
+    assert not any(error["stage"] == "scoring" for error in receipt.errors)

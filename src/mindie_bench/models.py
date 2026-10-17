@@ -93,12 +93,70 @@ class SourceEnvironment(StrictModel):
         return values
 
 
+class OracleProbe(StrictModel):
+    """A task-owned negative control, executed outside the foreground process."""
+
+    name: str = Field(min_length=1)
+    command: list[str] = Field(min_length=1)
+    expected_returncode: int
+    stdout_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class OracleContract(StrictModel):
+    # verifier/ and oracle/ are always protected, including newly added files.
+    protected_paths: list[str] = Field(default_factory=list)
+    probes: list[OracleProbe] = Field(default_factory=list)
+
+    @field_validator("protected_paths")
+    @classmethod
+    def confined_paths(cls, values: list[str]) -> list[str]:
+        return [safe_relative(value) for value in values]
+
+
+class PerformanceContract(StrictModel):
+    """Admission requirements; shape contents stay in the private judge."""
+
+    private_shape_sha256: list[str] = Field(min_length=2)
+    min_buffers: int = Field(default=2, ge=2)
+    samples_per_shape: int = Field(default=2, ge=2)
+    require_aclgraph_capture: bool = True
+    require_workspace_measurement: bool = True
+    require_e2e_warm_server: bool = True
+    min_speedup_ratio: float = Field(default=1.0, gt=0)
+    min_e2e_warm_server_speedup: float = Field(default=1.0, gt=0)
+    max_workspace_delta_bytes: int | None = None
+
+    @field_validator("private_shape_sha256")
+    @classmethod
+    def distinct_private_shapes(cls, values: list[str]) -> list[str]:
+        if len(values) != len(set(values)) or any(
+            not re.fullmatch(r"[0-9a-f]{64}", value) for value in values
+        ):
+            raise ValueError("performance requires distinct private shape SHA-256 identities")
+        return values
+
+    @model_validator(mode="after")
+    def rotation_is_admissible(self):
+        if self.samples_per_shape < self.min_buffers:
+            raise ValueError("performance samples must cover every required buffer")
+        return self
+
+
 class TaskSpec(StrictModel):
     schema_version: Literal["1.0"]
     task: TaskInfo
     mindie_knowledge: KnowledgeSpec
     budget: Budget = Field(default_factory=Budget)
     environment: dict[Literal["l1", "l2", "l3"], SourceEnvironment]
+    oracle: OracleContract = Field(default_factory=OracleContract)
+    performance: PerformanceContract | None = None
+
+    @model_validator(mode="after")
+    def performance_admission(self):
+        labels = [self.task.domain_category, str(self.task.source.get("task_type", ""))]
+        if any("performance" in label.casefold() for label in labels) and self.performance is None:
+            raise ValueError("performance task requires an explicit performance contract")
+        return self
 
     @classmethod
     def load(cls, root: Path) -> TaskSpec:
@@ -205,6 +263,7 @@ class RemoteConfig(StrictModel):
     memory_limit_mb: int = Field(default=500, ge=0)
     probe_command: list[str] = Field(min_length=1)
     runtime_read_paths: list[str] = Field(default_factory=list)
+    component_runtime: dict[str, Any] | None = None
 
     @field_validator("devices")
     @classmethod
@@ -235,6 +294,17 @@ class VerifierResult(StrictModel):
     speedup_ratio: float | None = Field(default=None, ge=0)
     max_abs_error: float | None = Field(default=None, ge=0)
     cosine_similarity: float | None = Field(default=None, ge=-1, le=1)
+    aclgraph_capture_compatible: bool | None = Field(default=None, strict=True)
+    memory_workspace_delta_mb: float | None = Field(
+        default=None,
+        strict=True,
+        description="Candidate minus baseline workspace; MB = 1,000,000 bytes.",
+    )
+    e2e_warm_server_speedup: float | None = Field(default=None, ge=0)
+    performance_evidence: dict[str, Any] | None = None
+    oracle_status: Literal["intact", "oracle_tampered"] | None = None
+    failure_reason: str | None = None
+    warnings: list[str] = Field(default_factory=list)
 
     @field_validator("reward", mode="before")
     @classmethod
@@ -242,6 +312,14 @@ class VerifierResult(StrictModel):
         if type(value) not in {int, float}:
             raise ValueError("reward must be a numeric 0 or 1, not a truthy value")
         return value
+
+    @model_validator(mode="after")
+    def tamper_is_failure(self):
+        if self.oracle_status == "oracle_tampered" and (
+            self.reward != 0.0 or not self.failure_reason or not self.warnings
+        ):
+            raise ValueError("oracle_tampered requires reward 0, a failure reason and warning")
+        return self
 
 
 class ToolResultObservation(StrictModel):

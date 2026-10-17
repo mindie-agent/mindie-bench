@@ -79,7 +79,7 @@ def completed_trial(path, arguments, *, status=TerminalStatus.PASS, capture="com
         failure_reason=None if status == TerminalStatus.PASS else "uncertain capture effects",
         primary_metrics=outcome,
         auxiliary_metrics={
-            "capture": {"status": capture},
+            "capture": {"status": capture, "corpus_lint": {"status": "passed"}},
             "captured_corpus_sha256": tree_hash(view),
         },
         artifacts={"private_trial_dir": str(directory), "captured_corpus": str(view)},
@@ -286,6 +286,32 @@ def test_g3_requires_a_seed_in_every_lineage_before_starting(case, corpus, monke
         )
 
 
+@pytest.mark.parametrize("lint", [None, {"status": "rejected"}])
+def test_g3_rejected_or_missing_quality_gate_blocks_held_out_eval(case, corpus, monkeypatch, lint):
+    seed = make_task(case, "seed", "seed")
+    evaluation = make_task(case, "eval", "eval")
+    calls = []
+
+    def run_trial(path, config, **arguments):
+        calls.append(path)
+        receipt = completed_trial(path, arguments)
+        receipt.auxiliary_metrics["capture"]["corpus_lint"] = lint or {}
+        return receipt
+
+    monkeypatch.setattr(orchestrator, "run_trial", run_trial)
+    with pytest.raises(RuntimeError, match="seed prerequisites failed"):
+        orchestrator.run_matrix(
+            [seed, evaluation],
+            configure(case, corpus),
+            tier="l2",
+            groups=[Group.G3],
+            repetitions=1,
+            concurrency=2,
+            output=case["root"] / "lint-blocked",
+        )
+    assert calls == [seed]
+
+
 def test_failed_experience_is_captured_without_eval_to_eval_leakage(case, corpus, monkeypatch):
     seed = make_task(case, "seed", "seed")
     first = make_task(case, "eval-one", "eval")
@@ -353,3 +379,60 @@ def test_failed_lineage_does_not_cancel_independent_admitted_work(case, corpus, 
         )
     ordinary = json.loads((output / "seed-G0-1/trial_receipt.json").read_text())
     assert ordinary["terminal_status"] == "completed_pass"
+
+
+@pytest.mark.parametrize("status", [TerminalStatus.INFRA, TerminalStatus.UNKNOWN])
+def test_canary_first_blocks_remaining_cells_when_initial_cell_fails_infra(
+    case, corpus, monkeypatch, status
+):
+    first = make_task(case, "first", "eval")
+    second = make_task(case, "second", "eval")
+    calls = []
+
+    def run_trial(path, config, **arguments):
+        calls.append((path, arguments["repetition"]))
+        return completed_trial(path, arguments, status=status)
+
+    monkeypatch.setattr(orchestrator, "run_trial", run_trial)
+    output = case["root"] / f"canary-failed-{status.value}"
+    with pytest.raises(RuntimeError, match="canary gate failed"):
+        orchestrator.run_matrix(
+            [first, second],
+            configure(case, corpus),
+            tier="l2",
+            groups=[Group.G0],
+            repetitions=2,
+            concurrency=2,
+            output=output,
+            canary_first=True,
+        )
+    assert calls == [(first, 1)]
+    accounting = json.loads((output / "matrix_accounting.json").read_text())
+    assert accounting["planned_cells"] == 4
+    assert accounting["terminal_receipts"] == 1
+    assert accounting["missing_count"] == 3
+
+
+def test_canary_first_admits_remaining_cells_after_healthy_initial_cell(case, corpus, monkeypatch):
+    first = make_task(case, "first", "eval")
+    second = make_task(case, "second", "eval")
+    calls = []
+
+    def run_trial(path, config, **arguments):
+        calls.append((path, arguments["repetition"]))
+        return completed_trial(path, arguments, status=TerminalStatus.FAIL)
+
+    monkeypatch.setattr(orchestrator, "run_trial", run_trial)
+    output = case["root"] / "canary-healthy"
+    rows = orchestrator.run_matrix(
+        [first, second],
+        configure(case, corpus),
+        tier="l2",
+        groups=[Group.G0],
+        repetitions=2,
+        concurrency=2,
+        output=output,
+        canary_first=True,
+    )
+    assert len(rows) == 4
+    assert calls[0] == (first, 1)

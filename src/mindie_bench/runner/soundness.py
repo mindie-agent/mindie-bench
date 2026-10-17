@@ -8,12 +8,13 @@ import subprocess
 import uuid
 from pathlib import Path
 
+from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.io import task_hash, write_json
 from mindie_bench.models import Group, TaskSpec
 from mindie_bench.runner.orchestrator import runtime_paths
 from mindie_bench.runner.profile_builder import build_profile
 from mindie_bench.runner.remote_slot import RemoteSlot
-from mindie_bench.runner.verifier import local_verifier, parse_verifier
+from mindie_bench.runner.verifier import local_verifier, remote_verifier
 from mindie_bench.runner.worktree_slot import WorktreeSlot
 
 
@@ -46,6 +47,7 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
         source_commit=environment.base_commit,
     )
     try:
+        oracle_manifest = freeze_oracle(task_root, task.oracle)
         workspace = slot.prepare()
         if tier == "l3":
             if not config.remote or environment.npu_count < 1:
@@ -63,31 +65,45 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
         paths = runtime_paths(config, profile)
 
         def verify(stage: str):
-            if remote:
-                result = remote.verify((task_root / "verifier/test.sh").read_bytes())
-                # Preserve the received bytes before decoding or validating the judge.
-                write_json(output / f"verifier_{stage}.remote.json", result, exclusive=True)
-                stdout = base64.b64decode(result["stdout_b64"], validate=True)
-                stderr = base64.b64decode(result["stderr_b64"], validate=True)
-                (output / f"verifier_{stage}.stdout").write_bytes(stdout)
-                (output / f"verifier_{stage}.stderr").write_bytes(stderr)
-                value = parse_verifier(result["exit_code"], stdout.decode())
+            try:
+                if remote:
+                    value, record = remote_verifier(
+                        task_root,
+                        remote,
+                        output,
+                        task.budget.verifier_timeout_sec,
+                        oracle_manifest=oracle_manifest,
+                        oracle_contract=task.oracle,
+                        performance_contract=task.performance,
+                    )
+                else:
+                    value, record = local_verifier(
+                        task_root,
+                        workspace,
+                        profile,
+                        output,
+                        task.budget.verifier_timeout_sec,
+                        paths,
+                        oracle_manifest=oracle_manifest,
+                        oracle_contract=task.oracle,
+                        performance_contract=task.performance,
+                    )
                 write_json(
                     output / f"verifier_{stage}.verdict.json",
-                    dict(returncode=result["exit_code"], result=value.model_dump()),
+                    record,
                     exclusive=True,
                 )
                 return value
-            return local_verifier(
-                task_root, workspace, profile, output, task.budget.verifier_timeout_sec, paths
-            )[0]
+            finally:
+                for suffix in ["stdout", "stderr", "remote.json"]:
+                    path = output / f"verifier.{suffix}"
+                    if path.exists():
+                        path.rename(output / f"verifier_{stage}.{suffix}")
 
         before = verify("before")
-        for name in ["stdout", "stderr"]:
-            path = output / f"verifier.{name}"
-            if path.exists():
-                path.rename(output / f"verifier_before.{name}")
         proof["before_reward"] = before.reward
+        if before.oracle_status == "oracle_tampered":
+            raise ValueError("oracle_tampered cannot establish a valid failing source")
         if before.reward != 0.0:
             raise ValueError("base source already passes; this is not a valid fail-to-pass task")
         if remote:
@@ -106,10 +122,6 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
                 timeout=20,
             )
         after = verify("after")
-        for name in ["stdout", "stderr"]:
-            path = output / f"verifier.{name}"
-            if path.exists():
-                path.rename(output / f"verifier_after.{name}")
         proof["after_reward"] = after.reward
         if after.reward != 1.0:
             raise ValueError("gold source did not pass the external verifier")

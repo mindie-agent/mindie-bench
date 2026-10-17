@@ -32,7 +32,9 @@ def main():
             "this pair is near-exact reuse, not two independent defects or new domains."
         )
         spec.mindie_knowledge.knowledge_gradient = "near_exact"
-        (destination / "task.toml").write_text(_toml_document(spec.model_dump(mode="json")))
+        (destination / "task.toml").write_text(
+            _toml_document(spec.model_dump(mode="json", exclude_none=True))
+        )
         TaskSpec.load(destination)
         pairs.append(dict(role=role, task=str(destination), task_sha256=task_hash(destination)))
     write_json(

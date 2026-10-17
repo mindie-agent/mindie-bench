@@ -1,0 +1,24 @@
+[
+  {
+    "shape": [
+      1,
+      37,
+      4,
+      128
+    ],
+    "dtype": "bfloat16",
+    "strided_gate": false,
+    "activation": "sigmoid"
+  },
+  {
+    "shape": [
+      1,
+      193,
+      8,
+      128
+    ],
+    "dtype": "bfloat16",
+    "strided_gate": true,
+    "activation": "sigmoid"
+  }
+]

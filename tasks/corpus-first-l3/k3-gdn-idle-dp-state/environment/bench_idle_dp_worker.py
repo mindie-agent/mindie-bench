@@ -1,11 +1,17 @@
 # ruff: noqa: E402
 # Platform registration and worker patches must precede dependent module imports.
-import hashlib
 import json
 import os
 import pathlib
+import runpy
 import sys
 import time
+
+if "RANK" not in os.environ:
+    launcher = pathlib.Path(__file__).with_name("test_idle_dp_npu.py")
+    sys.argv = [str(launcher), str(pathlib.Path(__file__).resolve()), *sys.argv[1:]]
+    runpy.run_path(str(launcher), run_name="__main__")
+    raise SystemExit(0)
 
 import vllm_ascend
 
@@ -31,7 +37,6 @@ current_platform.pre_register_and_update()
 from vllm_ascend.utils import adapt_patch
 
 adapt_patch()
-import vllm_ascend.worker.model_runner_v1 as target
 from vllm.config import set_current_vllm_config
 from vllm.engine.arg_utils import EngineArgs
 from vllm.transformers_utils.configs.kimi_linear import KimiLinearConfig
@@ -82,8 +87,6 @@ print(
         {
             "stage": "imports",
             "rank": rank,
-            "target": target.__file__,
-            "target_sha256": hashlib.sha256(pathlib.Path(target.__file__).read_bytes()).hexdigest(),
             "npu_count": torch.npu.device_count(),
         }
     ),
@@ -144,7 +147,6 @@ try:
                     "stage": "worker_init",
                     "rank": rank,
                     "device": str(worker.device),
-                    "has_gdn": worker.model_runner._has_gdn,
                 }
             ),
             flush=True,
@@ -185,7 +187,7 @@ try:
         from vllm.v1.core.sched.output import SchedulerOutput
 
         runner = worker.model_runner
-        original_dummy = runner._dummy_run
+        original_step = runner._dummy_run
         cases = json.loads(os.environ["MINDIE_BENCH_CONTRACT_CASES"])
         checks = 0
         for case_id, (stale_id, token_id, conv_value, ssm_value) in enumerate(cases):
@@ -214,24 +216,19 @@ try:
                 ssm.fill_(ssm_value)
             before_conv = conv.cpu().clone()
             before_ssm = ssm.cpu().clone()
-            observed = []
+            invoked = False
 
-            def run_attention_for_module_contract(*args, **kwargs):
-                # Activate actual attention in eager mode; source execute_model owns skip semantics.
-                observed.append(
-                    {
-                        "source_call_keywords": sorted(kwargs),
-                        "force_attention_supplied_by_contract_harness": True,
-                    }
-                )
+            def _eager_step(*args, **kwargs):
+                global invoked
+                invoked = True
                 kwargs["force_attention"] = True
-                return original_dummy(*args, **kwargs)
+                return original_step(*args, **kwargs)
 
             if rank == 1:
-                runner._dummy_run = run_attention_for_module_contract
+                runner._dummy_run = _eager_step
                 runner.execute_model(SchedulerOutput.make_empty())
             else:
-                original_dummy(1, force_attention=True, cudagraph_runtime_mode=CUDAGraphMode.NONE)
+                original_step(1, force_attention=True, cudagraph_runtime_mode=CUDAGraphMode.NONE)
             torch.npu.synchronize()
             after_conv = conv.cpu()
             after_ssm = ssm.cpu()
@@ -241,7 +238,7 @@ try:
                 torch.equal(after_conv[4], before_conv[4]) and torch.equal(after_ssm[4], before_ssm[4])
             )
             passed = (
-                (conv_changed == 0 and ssm_changed == 0 and bool(observed))
+                (conv_changed == 0 and ssm_changed == 0 and invoked)
                 if rank == 1
                 else (conv_changed > 0 and ssm_changed > 0)
             )
@@ -257,14 +254,12 @@ try:
                 "stale_block_id": stale_id,
                 "input_token": token_id,
                 "rank": rank,
-                "role": "idle" if rank == 1 else "ordinary_one_token_positive_control",
+                "role": "idle" if rank == 1 else "active",
                 "conv_changed_elements": conv_changed,
                 "ssm_changed_elements": ssm_changed,
                 "unrelated_state_row4_unchanged": untouched,
-                "idle_original_call": observed,
                 "hccl_rank_sum": hccl_sum,
                 "pass": passed,
-                "scope": "eager full-module DP2/TP1 state contract; symmetric force_attention activation; no ACLGraph/service claim",
             }
             results = [None, None]
             torch.distributed.all_gather_object(results, record, group=get_dp_group().cpu_group)
@@ -283,7 +278,6 @@ try:
                             "reward": 1.0 if verdict else 0.0,
                             "case_count": checks,
                             "status": "passed" if verdict else "idle_state_corruption",
-                            "validation_scope": "DP2/TP1 eager real Kimi K3 recurrent-state contract",
                         }
                     )
                     + "\n"
@@ -350,4 +344,8 @@ if business_completed:
             raise RuntimeError("peer cleanup acknowledgement missing")
         time.sleep(0.02)
 if not verdict:
+    if rank == 1:
+        sys.stderr.write("AssertionError: GDN recurrent state mutated during idle DP step\n")
+        sys.stderr.flush()
     raise SystemExit(1)
+

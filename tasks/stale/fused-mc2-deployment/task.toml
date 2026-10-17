@@ -1,0 +1,36 @@
+schema_version = "1.0"
+[task]
+instance_id = "stale-fused-mc2-deployment"
+domain_category = "configuration_migration"
+difficulty = "medium"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fixture = "benchmark-constructed deployment override on complete pinned runtime; not an upstream historical bug"
+validation_scope = "real two-NPU TP2/EP2 tiny Qwen3-MoE BF16 eager full-model forward, HCCL, current config and operator trace, two input cases; no pretrained accuracy, ACLGraph, serving or performance claim"
+stale_package = "adc00ab1ad0d5b4d05cecca47bdcef318d9eda10405d667b6e976d21bf59a11e"
+stale_block = "05f4d9d87d7c0f07595dfc310d32e2408af0dd9cd2984796a21d99bab95e082d"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "stale"
+same_origin_task_hashes = []
+analogical_task_hashes = []
+target_files = ["deployment.py"]
+[budget]
+max_turns = 40
+max_npu_runs = 8
+timeout_sec = 1200
+verifier_timeout_sec = 400
+[environment.l3]
+repo_path = "../../../repositories/vllm-ascend-idle-dp"
+base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
+npu_model = "Ascend910"
+npu_count = 2
+[oracle]
+protected_paths = []
+[[oracle.probes]]
+name = "stale-mc2-negative-controls"
+command = ["python3", "-I", "{oracle}/verifier/verify.py", "--self-test"]
+expected_returncode = 0
+stdout_sha256 = "df65252b8c69a29880be2fd6dcd76454f303f42c8a475a631708de2e33ac5309"

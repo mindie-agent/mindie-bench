@@ -7,6 +7,16 @@ import json
 import os
 from pathlib import Path
 
+IGNORED_CACHE_PARTS = frozenset({"__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache"})
+IGNORED_CACHE_SUFFIXES = frozenset({".pyc", ".pyo"})
+
+
+def is_ignored_cache_path(rel_path: Path) -> bool:
+    return (
+        bool(IGNORED_CACHE_PARTS.intersection(rel_path.parts))
+        or rel_path.suffix.lower() in IGNORED_CACHE_SUFFIXES
+    )
+
 
 def digest(value: object) -> str:
     return hashlib.sha256(
@@ -17,14 +27,15 @@ def digest(value: object) -> str:
 def tree_hash(root: Path, *, exclude: set[str] | None = None) -> str:
     files = {}
     for path in sorted(root.rglob("*")):
-        if exclude and path.relative_to(root).as_posix() in exclude:
+        rel = path.relative_to(root)
+        if exclude and rel.as_posix() in exclude:
             continue
-        if ".git" in path.relative_to(root).parts:
+        if ".git" in rel.parts or is_ignored_cache_path(rel):
             continue
         if path.is_symlink():
             raise ValueError(f"symlinks are not allowed in benchmark inputs: {path}")
         if path.is_file():
-            files[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+            files[rel.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return digest(files)
 
 

@@ -40,7 +40,11 @@ def consumer(corpus, state, revision):
 
     store = MaterialStore(state, "vllm-ascend")
     try:
-        store.install_packages(packages(corpus), source_revision=revision)
+        pointers = store._pointers() if hasattr(store, "_pointers") else {}
+        if pointers.get("source_revision") != revision or not pointers.get("feed"):
+            store.install_packages(packages(corpus), source_revision=revision)
+        if hasattr(store, "refresh_index"):
+            store.refresh_index()
     except BaseException as exc:
         try:
             store.close()
@@ -229,6 +233,77 @@ def close_capture_resources(engine, store, timing, *, primary=None):
         primary.add_note(f"{stage} also failed: {type(error).__name__}: {error}")
 
 
+def native_capture_inputs(args, native, root):
+    """Select the installed host adapter and its exact native Stop artifact."""
+    harness = native.get("harness")
+    if harness == "codex":
+        if not args.codex_scripts or not args.codex_bin:
+            raise ValueError("Codex capture requires explicit native scripts and executable")
+        scripts = Path(args.codex_scripts).resolve(strict=True)
+        sys.path.insert(0, str(scripts))
+        import bridge
+        import codex_transcript
+
+        event = bridge.hook_event(Path(native["stop_event_path"]).read_bytes())
+        adapter = codex_transcript
+        worker = "agent_worker.py"
+        os.environ["MINDIE_CODEX_BIN"] = args.codex_bin
+        catalog = json.loads((root / "model-catalog.json").read_text())
+        selected = [model for model in catalog["models"] if model.get("slug") == args.summary_model]
+        if len(selected) != 1:
+            raise ValueError("capture model requires exactly one explicit native catalog record")
+    elif harness == "claude-code":
+        from mindie_bench.integrations.claude_stop import read_stop
+
+        if not args.claude_scripts or not args.claude_bin:
+            raise ValueError("Claude capture requires explicit native scripts and executable")
+        profile = Path(os.environ["CLAUDE_CONFIG_DIR"]).resolve(strict=True)
+        if profile != root / "claude":
+            raise ValueError("Claude capture requires this trial's owned native profile")
+        scripts = Path(args.claude_scripts).resolve(strict=True)
+        config = root / "benchmark-cc-adapter.json"
+        write_json(config, {"claude_config_dir": str(profile)})
+        os.environ["MINDIE_CC_CONFIG"] = str(config)
+        os.environ["MINDIE_CC_BIN"] = args.claude_bin
+        os.environ["ANTHROPIC_MODEL"] = args.summary_model
+        sys.path.insert(0, str(scripts))
+        import transcript
+
+        actual = read_stop(native["stop_event_path"])
+        event = {**actual, "turn_id": actual["prompt_id"]}
+        adapter = transcript
+        worker = "organizer.py"
+    else:
+        raise ValueError("capture requires an actual Codex or Claude Code transcript and Stop event")
+    if (
+        event["session_id"] != native["session_id"]
+        or Path(event["transcript_path"]).resolve() != Path(native["transcript_path"]).resolve()
+        or Path(event["cwd"]).resolve() != Path(native["cwd"]).resolve()
+    ):
+        raise ValueError("native Stop event and completed foreground task differ")
+    source = adapter.capture_source(event["transcript_path"], event["session_id"])
+    if Path(source["project_root"]).resolve() != Path(native["cwd"]).resolve():
+        raise ValueError("native transcript project scope differs from the completed foreground")
+    if not (scripts / worker).is_file():
+        raise ValueError("selected native summary worker is unavailable")
+    return event, source, adapter, scripts, worker
+
+
+def native_summary_command(component_package, scripts, worker):
+    """Load the exact shared package without granting its sibling source trees."""
+    package = str(Path(component_package).resolve(strict=True))
+    loader = (
+        "import sys,runpy,importlib.util;"
+        f"spec=importlib.util.spec_from_file_location('mindie_knowledge',"
+        f"{str(Path(package) / '__init__.py')!r},submodule_search_locations={[package]!r});"
+        "module=importlib.util.module_from_spec(spec);sys.modules[spec.name]=module;"
+        "spec.loader.exec_module(module);"
+        f"sys.path.insert(0,{str(scripts)!r});"
+        f"runpy.run_path({str(scripts / worker)!r},run_name='__main__')"
+    )
+    return [sys.executable, "-I", "-c", loader]
+
+
 def capture(args):
     import mindie_knowledge
     from mindie_knowledge import consent_store
@@ -240,8 +315,6 @@ def capture(args):
 
     payload = json.load(sys.stdin)
     native = payload["native"]
-    if native["harness"] != "codex":
-        raise ValueError("this adapter requires an actual Codex transcript and Stop event")
     root = Path.cwd().resolve(strict=True)
     timing = StageRecorder(root / "capture-stages.json")
     corpus = Path(payload["destination"]).resolve(strict=True)
@@ -253,18 +326,7 @@ def capture(args):
         raise ValueError("capture or publication escapes the owned knowledge private root")
     if git("--git-dir", local_remote, "rev-parse", "--is-bare-repository") != "true":
         raise ValueError("publication target must be this profile's bare Git repository")
-    sys.path.insert(0, str(Path(args.codex_scripts).resolve(strict=True)))
-    import bridge
-    import codex_transcript
-
-    event = bridge.hook_event(Path(native["stop_event_path"]).read_bytes())
-    if (
-        event["session_id"] != native["session_id"]
-        or Path(event["transcript_path"]).resolve() != Path(native["transcript_path"]).resolve()
-        or Path(event["cwd"]).resolve() != Path(native["cwd"]).resolve()
-    ):
-        raise ValueError("native Stop event and completed foreground task differ")
-    source = codex_transcript.capture_source(event["transcript_path"], event["session_id"])
+    event, source, adapter, scripts, worker = native_capture_inputs(args, native, root)
     consent = root / "benchmark-consent.json"
     consent_store.record_choice(consent, "contribute")
     settings = root / "benchmark-community.json"
@@ -288,27 +350,14 @@ def capture(args):
         project_root=source["project_root"],
         not_before=source["created_at"],
     )
-    # Use complete native metadata. A slug-only catalog cannot be consumed by
-    # Codex and would make the strict native worker abort before inference.
-    catalog = json.loads((root / "model-catalog.json").read_text())
-    selected = [model for model in catalog["models"] if model.get("slug") == args.summary_model]
-    if len(selected) != 1:
-        raise ValueError("capture model requires exactly one explicit native catalog record")
-    os.environ["MINDIE_CODEX_BIN"] = args.codex_bin
     store = Store(root / "capture-state", "vllm-ascend")
-    scripts = str(Path(args.codex_scripts).resolve(strict=True))
-    component_root = str(Path(mindie_knowledge.__file__).resolve().parent.parent)
-    summary_loader = (
-        f"import sys,runpy;sys.path[:0]={[component_root, scripts]!r};"
-        f"runpy.run_path({str(Path(scripts) / 'agent_worker.py')!r},run_name='__main__')"
-    )
     engine = Engine(
         store,
         settings_path=settings,
         admission=admission,
-        transcript_adapter=codex_transcript,
+        transcript_adapter=adapter,
         redactor_executable=args.gitleaks,
-        summary_command=[sys.executable, "-I", "-c", summary_loader],
+        summary_command=native_summary_command(Path(mindie_knowledge.__file__).parent, scripts, worker),
     )
     capture_failure = None
     try:
@@ -318,7 +367,7 @@ def capture(args):
                 turn_id=event["turn_id"],
                 transcript_path=event["transcript_path"],
                 cwd=event["cwd"],
-                harness="codex",
+                harness="claude" if native["harness"] == "claude-code" else "codex",
             )
         if "id" not in receipt:
             raise RuntimeError("native capture was not admitted: " + json.dumps(receipt))
@@ -357,6 +406,12 @@ def capture(args):
                     path = staging / "tasks" / package["task_id"] / name
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(text)
+        from mindie_bench.evaluation.corpus_linter import CorpusLintRejected, audit_packages
+
+        with timing.measure("corpus_lint"):
+            corpus_lint = audit_packages(exported)
+            if corpus_lint["status"] != "passed":
+                raise CorpusLintRejected(corpus_lint)
         with timing.measure("local_git_publish"):
             git("init", "--template=", "-q", "-b", "main", staging)
             git("add", ".", cwd=staging)
@@ -417,16 +472,19 @@ def capture(args):
                     path = target / name
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(text)
-        total = usage["input_tokens"] + usage["output_tokens"]
+        total = usage["input_tokens"] + usage["cached_input_tokens"] + usage["output_tokens"]
         result = dict(
             status="completed",
             tokens=dict(total=total, complete=True),
             native_stop_delivered=True,
+            native_harness=native["harness"],
             native_session_id=event["session_id"],
+            native_turn_id=event["turn_id"],
             body_capture=body_receipt,
             indexer_usage=usage,
             publication=dict(kind="local-git", revision=revision),
             packages=[dict(task_id=p["task_id"], package_hash=p["package_hash"]) for p in fetched],
+            corpus_lint=corpus_lint,
             consumer=dict(revision=revision, hits=hits, reads=reads),
             stage_observations=timing.stages.copy(),
             stage_scope="adapter stages; native foreground Stop-hook latency is measured separately",
@@ -447,8 +505,10 @@ def main():
     mcp.add_argument("--corpus", required=True)
     mcp.add_argument("--state", required=True)
     cap = commands.add_parser("capture")
-    cap.add_argument("--codex-scripts", required=True)
-    cap.add_argument("--codex-bin", required=True)
+    cap.add_argument("--codex-scripts")
+    cap.add_argument("--codex-bin")
+    cap.add_argument("--claude-scripts")
+    cap.add_argument("--claude-bin")
     cap.add_argument("--summary-model", required=True)
     cap.add_argument("--gitleaks", required=True)
     cap.add_argument("--query", required=True)
@@ -456,9 +516,14 @@ def main():
     if args.command == "knowledge-mcp":
         serve(args)
     else:
+        from mindie_bench.evaluation.corpus_linter import CorpusLintRejected
+
         try:
             with contextlib.redirect_stdout(sys.stderr):
                 result = capture(args)
+        except CorpusLintRejected as exc:
+            print(json.dumps(dict(status="failed", corpus_lint=exc.report), ensure_ascii=False))
+            raise SystemExit(1) from exc
         except UnknownExternalEffects as exc:
             print(json.dumps(dict(status="unknown", error=str(exc))))
             raise SystemExit(2) from exc

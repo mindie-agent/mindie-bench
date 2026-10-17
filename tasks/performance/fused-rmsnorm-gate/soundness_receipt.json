@@ -1,0 +1,144 @@
+{
+  "after_reward": 1.0,
+  "before_reward": 0.0,
+  "errors": [],
+  "hardware_proof_source": "reports/v0.2.0-performance-5312b32d/final-integrity-proof/proof.json",
+  "measurement_integrity": {
+    "basis": "direct callable bindings/code objects captured before candidate import",
+    "limit": "does not detect arbitrary interpreter or native-extension mutation",
+    "status": "intact"
+  },
+  "model_calls": 0,
+  "operation_unknown": false,
+  "oracle_manifest": {
+    "boundary": "externally read-only files plus separately executed explicit probes",
+    "contract_sha256": "dd525b1353f4d82fb25b7056e2762c207dd05b0525343486bb93d47ad18057fa",
+    "files": {
+      "oracle/cases.json": "2100bdf944ebaa7189aa962e9a2506fd5da24448f85c38b5c74fc33d930105ba",
+      "oracle/gold_patch.diff": "f01efd3a242a3b183e1431d9df6aefb700ba067314c41ad7891c8c249babf2ec",
+      "oracle/runtime/mindie_bench/__init__.py": "7555bbde632b9217153019788425e61560bd8bb2a76ecd60104706eb848e0524",
+      "oracle/runtime/mindie_bench/evaluation/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "oracle/runtime/mindie_bench/evaluation/performance.py": "f27bc13b65cd7f71741f697b04563868a89e18a91500c1f1842e44dbc79012ee",
+      "oracle/runtime/mindie_bench/io.py": "27b0074df3e77673db1735a2f877e6801a2d694bf4eb36ccd47ff79f7d768784",
+      "oracle/runtime/mindie_bench/models.py": "014d46fde3f87d7aa2abac53a12c93d97f26f0eb1c51fa49782c0b846041c94d",
+      "task.toml": "76a4f0db0a9c678838a5c28620ed2093d160bf0aa55bf428c199ac77bb5eeca2",
+      "verifier/comparator_control.py": "16dafc8ba15fccd8c32214c0ff8498dcd0056a544d037482696a3258f66cdc63",
+      "verifier/load_case.py": "1f3cb4963834871c89c516ff75d3d2014626d3f8aaadca3434b5acbe899517c0",
+      "verifier/measure.py": "bc77c926270222f5ab051e1d94abb070df6d39bb66ace05963a83f3f29cd4efe",
+      "verifier/test.sh": "a416917ea8de1e7565647767e81544d35b574cb7be2234d3c16ec683c05ada13",
+      "verifier/torch_control.py": "d128beb892fc13dc749224838da9860bd1d268eab8015a2a88e373b4eef6a76e"
+    },
+    "protected_paths": [
+      "oracle",
+      "task.toml",
+      "verifier"
+    ],
+    "schema_version": "mindie-bench-oracle-freezer/1"
+  },
+  "original_paid_trials_unchanged": [
+    {
+      "new_measurement_guard_was_run": false,
+      "numeric_contract_validation": "passed",
+      "original_overall_status": "completed_pass",
+      "original_task_digest": "f3e900eae2ebe020c6bfd16233cec6afeb608d0e718517604fbacc50e7302d7c",
+      "trial_id": "fused-rmsnorm-gate-dispatch-performance_G0_1_63e22814c0ff"
+    },
+    {
+      "new_measurement_guard_was_run": false,
+      "numeric_contract_validation": "passed",
+      "original_overall_status": "completed_fail",
+      "original_task_digest": "f3e900eae2ebe020c6bfd16233cec6afeb608d0e718517604fbacc50e7302d7c",
+      "trial_id": "fused-rmsnorm-gate-dispatch-performance_G2_1_6697ad3f760d"
+    }
+  ],
+  "performance_contract_validation": {
+    "failed_gates": [],
+    "measurement_scope": "trusted isolated judge receipts; not a static source analysis",
+    "memory_workspace_delta_unit": "MB (1000000 bytes)",
+    "oracle_manifest_sha256": "f343d8a964b8b20a168efcc9b8380e7c5afecffd5a1cd048d0a7cb93c2bd6bf2",
+    "run_nonce": "36275bcb3494b07dd5c48ebd85cecb43f0301ceb400cc1c4206d4344bd492ce8",
+    "speedup_ratio": 1.9848762550277617,
+    "status": "passed"
+  },
+  "postflight": {
+    "12": {
+      "capacity_mb": 65536,
+      "card_id": 6,
+      "chip_id": 0,
+      "model": "Ascend910",
+      "physical_id": 12,
+      "pids": [],
+      "used_mb": 3142
+    },
+    "_environment": {
+      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
+      "driver": "25.5.3",
+      "image_digest": "sha256:333cadf615f4d5174bd23c735d53298689f81291079e9b6ae429971dc2a61f36",
+      "kernel": "5.10.0-216.0.0.115.oe2203sp4.aarch64",
+      "python": "3.12.13 (main, Aug  3 2026, 02:43:47) [GCC 12.3.1 (openEuler 12.3.1-105.oe2403sp3)]",
+      "torch_npu": "2.10.0.post4"
+    }
+  },
+  "preflight": {
+    "12": {
+      "capacity_mb": 65536,
+      "card_id": 6,
+      "chip_id": 0,
+      "model": "Ascend910",
+      "physical_id": 12,
+      "pids": [],
+      "used_mb": 3142
+    },
+    "_environment": {
+      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
+      "driver": "25.5.3",
+      "image_digest": "sha256:333cadf615f4d5174bd23c735d53298689f81291079e9b6ae429971dc2a61f36",
+      "kernel": "5.10.0-216.0.0.115.oe2203sp4.aarch64",
+      "python": "3.12.13 (main, Aug  3 2026, 02:43:47) [GCC 12.3.1 (openEuler 12.3.1-105.oe2403sp3)]",
+      "torch_npu": "2.10.0.post4"
+    }
+  },
+  "reference_provenance": "Historical 5312b32d plus benchmark-specific native Ascend RMSNorm/gate host-path improvement; original historical reference failed the warm-service gate.",
+  "remote_cleanup": {
+    "cleanup": {
+      "errors": [],
+      "files_modified": [
+        "reproduce.py",
+        "vllm_ascend/ops/kimi_kda.py",
+        "vllm_ascend/ops/layernorm.py",
+        "vllm_ascend/ops/triton/kda/kda.py",
+        "vllm_ascend/utils.py"
+      ],
+      "patch_b64": "ZGlmZiAtLWdpdCBhL3ZsbG1fYXNjZW5kL29wcy9raW1pX2tkYS5weSBiL3ZsbG1fYXNjZW5kL29wcy9raW1pX2tkYS5weQppbmRleCA1ZWYyNjk0Li4xMGU3OGU4IDEwMDY0NAotLS0gYS92bGxtX2FzY2VuZC9vcHMva2ltaV9rZGEucHkKKysrIGIvdmxsbV9hc2NlbmQvb3BzL2tpbWlfa2RhLnB5CkBAIC01NjAsOSArNTYwLDggQEAgY2xhc3MgQXNjZW5kS2ltaUszRGVsdGFBdHRlbnRpb24oS2ltaUszRGVsdGFBdHRlbnRpb24pOgogICAgICAgICBlbGlmIGNvcmVfbm9uX3NwZWMgaXMgbm90IE5vbmU6CiAgICAgICAgICAgICBjb3JlX2F0dG5fb3V0WzosIDpudW1fYWN0dWFsX3Rva2Vuc10gPSBjb3JlX25vbl9zcGVjCiAKLSAgICAgICAgIyBMZXQgdkxMTSdzIEN1c3RvbU9wIGRpc3BhdGNoIHNlbGVjdCBGdXNlZFJNU05vcm1HYXRlZC5mb3J3YXJkX25hdGl2ZQotICAgICAgICAjIG9uIEFzY2VuZC4gQ2FsbGluZyB0aGUgQ1VEQS9Ucml0b24gaGVscGVyIGRpcmVjdGx5IGJ5cGFzc2VzIHBsYXRmb3JtCi0gICAgICAgICMgZGlzcGF0Y2guCisgICAgICAgICMgVGhlIHJlZ2lzdGVyZWQgQXNjZW5kIEZ1c2VkUk1TTm9ybUdhdGVkIHVzZXMgdGhlIGZ1c2VkIG5vcm0tZ2F0ZQorICAgICAgICAjIGtlcm5lbCB3aGlsZSBwcmVzZXJ2aW5nIHRoZSB1cHN0cmVhbSBwYXJhbWV0ZXIvbG9hZGluZyBjb250cmFjdC4KICAgICAgICAgbm9ybWFsaXplZCA9IHNlbGYub19ub3JtKGNvcmVfYXR0bl9vdXRbOiwgOm51bV9hY3R1YWxfdG9rZW5zXSwgZzIpCiAgICAgICAgICMgTWFzayBhZ2FpbiBhZnRlciB0aGUgbm9ybSBnYXRlOiB6ZXJvICogc2lnbW9pZChOYU4pIGlzIHN0aWxsIE5hTiBpbgogICAgICAgICAjIHN0YXRpYyBwYWRkaW5nIHJvd3Mgd2hvc2UgY2FwdHVyZWQgZ2F0ZSB2YWx1ZXMgYXJlIG5vdCBsaXZlLgpkaWZmIC0tZ2l0IGEvdmxsbV9hc2NlbmQvb3BzL2xheWVybm9ybS5weSBiL3ZsbG1fYXNjZW5kL29wcy9sYXllcm5vcm0ucHkKaW5kZXggZDg4MjQ2Ny4uZDQ4MTc3OSAxMDA2NDQKLS0tIGEvdmxsbV9hc2NlbmQvb3BzL2xheWVybm9ybS5weQorKysgYi92bGxtX2FzY2VuZC9vcHMvbGF5ZXJub3JtLnB5CkBAIC0xOSw4ICsxOSwxMCBAQCBpbXBvcnQgdG9yY2gKIGZyb20gdG9yY2ggaW1wb3J0IG5uCiBmcm9tIHZsbG0uY29uZmlnIGltcG9ydCBnZXRfY3VycmVudF92bGxtX2NvbmZpZwogZnJvbSB2bGxtLm1vZGVsX2V4ZWN1dG9yLmxheWVycy5sYXllcm5vcm0gaW1wb3J0IEdlbW1hUk1TTm9ybSwgUk1TTm9ybSwgUk1TTm9ybUdhdGVkCitmcm9tIHZsbG0udGhpcmRfcGFydHkuZmxhc2hfbGluZWFyX2F0dGVudGlvbi5vcHMua2RhIGltcG9ydCBGdXNlZFJNU05vcm1HYXRlZAogCiBmcm9tIHZsbG1fYXNjZW5kLmRldmljZS5kZXZpY2Vfb3AgaW1wb3J0IERldmljZU9wZXJhdG9yCitmcm9tIHZsbG1fYXNjZW5kLm9wcy50cml0b24ua2RhLmtkYSBpbXBvcnQgcm1zX25vcm1fZ2F0ZWQKIGZyb20gdmxsbV9hc2NlbmQub3BzLnRyaXRvbi5sYXllcm5vcm1fZ2F0ZWQgaW1wb3J0IGxheWVyX25vcm1fZndkX25wdQogZnJvbSB2bGxtX2FzY2VuZC51dGlscyBpbXBvcnQgZW5hYmxlX2N1c3RvbV9vcAogCkBAIC0xOTQsMyArMTk2LDI4IEBAIGNsYXNzIEFzY2VuZFJNU05vcm1HYXRlZChSTVNOb3JtR2F0ZWQpOgogICAgIGRlZiBmb3J3YXJkX29vdChzZWxmLCB4LCB6PU5vbmUpOgogICAgICAgICAiIiJJZiB6IGlzIG5vdCBOb25lLCB3ZSBkbyBub3JtKHgpICogc2lsdSh6KSBpZiBub3JtX2JlZm9yZV9nYXRlLCBlbHNlIG5vcm0oeCAqIHNpbHUoeikpIiIiCiAgICAgICAgIHJldHVybiBMYXllck5vcm1Gbi5hcHBseSh4LCBzZWxmLndlaWdodCwgc2VsZi5iaWFzLCB6LCBzZWxmLmVwcywgc2VsZi5ncm91cF9zaXplLCBzZWxmLm5vcm1fYmVmb3JlX2dhdGUsIFRydWUpCisKKworY2xhc3MgQXNjZW5kRnVzZWRSTVNOb3JtR2F0ZWQoRnVzZWRSTVNOb3JtR2F0ZWQpOgorICAgICIiIlVzZSBBc2NlbmQncyBmdXNlZCBrZXJuZWwgYXQgdGhlIHVwc3RyZWFtIEZMQSBDdXN0b21PcCBib3VuZGFyeS4iIiIKKworICAgIGRlZiBmb3J3YXJkX29vdChzZWxmLCB4LCBnLCByZXNpZHVhbD1Ob25lLCBwcmVub3JtPUZhbHNlLCByZXNpZHVhbF9pbl9mcDMyPUZhbHNlKToKKyAgICAgICAgIyBBdm9pZCBwZXItY2FsbCBUcml0b24gc3BlY2lhbGl6YXRpb24vcGFja2luZyBvdmVyaGVhZCBpbiB0aGUKKyAgICAgICAgIyByZXNpZHVhbC1mcmVlIGluZmVyZW5jZSBwYXRoOyBrZWVwIHRoZSBnZW5lcmFsIGhpc3RvcmljYWwgY29udHJhY3QuCisgICAgICAgIGlmIHJlc2lkdWFsIGlzIE5vbmUgYW5kIG5vdCBwcmVub3JtIGFuZCBzZWxmLndlaWdodCBpcyBub3QgTm9uZSBhbmQgc2VsZi5iaWFzIGlzIE5vbmU6CisgICAgICAgICAgICBpbXBvcnQgdG9yY2hfbnB1CisKKyAgICAgICAgICAgIG5vcm1hbGl6ZWQsIF8gPSB0b3JjaF9ucHUubnB1X3Jtc19ub3JtKHgsIHNlbGYud2VpZ2h0LCBzZWxmLmVwcykKKyAgICAgICAgICAgIGdhdGUgPSB0b3JjaC5zaWdtb2lkKGcpIGlmIHNlbGYuYWN0aXZhdGlvbiA9PSAic2lnbW9pZCIgZWxzZSB0b3JjaC5ubi5mdW5jdGlvbmFsLnNpbHUoZykKKyAgICAgICAgICAgIHJldHVybiBub3JtYWxpemVkICogZ2F0ZQorICAgICAgICByZXR1cm4gcm1zX25vcm1fZ2F0ZWQoCisgICAgICAgICAgICB4LAorICAgICAgICAgICAgZywKKyAgICAgICAgICAgIHNlbGYud2VpZ2h0LAorICAgICAgICAgICAgc2VsZi5iaWFzLAorICAgICAgICAgICAgc2VsZi5hY3RpdmF0aW9uLAorICAgICAgICAgICAgcmVzaWR1YWw9cmVzaWR1YWwsCisgICAgICAgICAgICBlcHM9c2VsZi5lcHMsCisgICAgICAgICAgICBwcmVub3JtPXByZW5vcm0sCisgICAgICAgICAgICByZXNpZHVhbF9pbl9mcDMyPXJlc2lkdWFsX2luX2ZwMzIsCisgICAgICAgICkKZGlmZiAtLWdpdCBhL3ZsbG1fYXNjZW5kL29wcy90cml0b24va2RhL2tkYS5weSBiL3ZsbG1fYXNjZW5kL29wcy90cml0b24va2RhL2tkYS5weQppbmRleCBmYzA5ZmRlLi4zMTNiM2I4IDEwMDY0NAotLS0gYS92bGxtX2FzY2VuZC9vcHMvdHJpdG9uL2tkYS9rZGEucHkKKysrIGIvdmxsbV9hc2NlbmQvb3BzL3RyaXRvbi9rZGEva2RhLnB5CkBAIC00MTEsNiArNDExLDcgQEAgZGVmIHJtc19ub3JtX2dhdGVkKAogICAgICAgICBhY3RpdmF0aW9uPWFjdGl2YXRpb24sCiAgICAgICAgIGVwcz1lcHMsCiAgICAgICAgIHJlc2lkdWFsPXJlc2lkdWFsLAorICAgICAgICBvdXRfZHR5cGU9eC5kdHlwZSwgICMgUHJlc2VydmUgdGhlIGlucHV0LCBhcyBpbiB0aGUgdjAuMjYgSzMgZnVzZWQgbm9ybSBnYXRlLgogICAgICAgICByZXNpZHVhbF9kdHlwZT1yZXNpZHVhbF9kdHlwZSwKICAgICAgICAgaXNfcm1zX25vcm09VHJ1ZSwKICAgICApCmRpZmYgLS1naXQgYS92bGxtX2FzY2VuZC91dGlscy5weSBiL3ZsbG1fYXNjZW5kL3V0aWxzLnB5CmluZGV4IDg4NDFiMjQuLjI2ZTFlZjcgMTAwNjQ0Ci0tLSBhL3ZsbG1fYXNjZW5kL3V0aWxzLnB5CisrKyBiL3ZsbG1fYXNjZW5kL3V0aWxzLnB5CkBAIC02NzQsNyArNjc0LDcgQEAgZGVmIHJlZ2lzdGVyX2FzY2VuZF9jdXN0b21vcCh2bGxtX2NvbmZpZzogVmxsbUNvbmZpZyB8IE5vbmUgPSBOb25lKToKICAgICBmcm9tIHZsbG1fYXNjZW5kLm9wcy5mdXNlZF9tb2UuZnVzZWRfbW9lIGltcG9ydCBBc2NlbmRNb0VSdW5uZXIKICAgICBmcm9tIHZsbG1fYXNjZW5kLm9wcy5mdXNlZF9tb2Uucm91dGVkX2V4cGVydHMgaW1wb3J0IEFzY2VuZFJvdXRlZEV4cGVydHMKICAgICBmcm9tIHZsbG1fYXNjZW5kLm9wcy5nZG4gaW1wb3J0IEFzY2VuZEdhdGVkRGVsdGFOZXRBdHRlbnRpb24KLSAgICBmcm9tIHZsbG1fYXNjZW5kLm9wcy5sYXllcm5vcm0gaW1wb3J0IEFzY2VuZEdlbW1hUk1TTm9ybSwgQXNjZW5kUk1TTm9ybSwgQXNjZW5kUk1TTm9ybUdhdGVkCisgICAgZnJvbSB2bGxtX2FzY2VuZC5vcHMubGF5ZXJub3JtIGltcG9ydCBBc2NlbmRGdXNlZFJNU05vcm1HYXRlZCwgQXNjZW5kR2VtbWFSTVNOb3JtLCBBc2NlbmRSTVNOb3JtLCBBc2NlbmRSTVNOb3JtR2F0ZWQKICAgICBmcm9tIHZsbG1fYXNjZW5kLm9wcy5saW5lYXIgaW1wb3J0ICgKICAgICAgICAgQXNjZW5kQ29sdW1uUGFyYWxsZWxMaW5lYXIsCiAgICAgICAgIEFzY2VuZE1lcmdlZENvbHVtblBhcmFsbGVsTGluZWFyLApAQCAtNzIyLDYgKzcyMiw3IEBAIGRlZiByZWdpc3Rlcl9hc2NlbmRfY3VzdG9tb3AodmxsbV9jb25maWc6IFZsbG1Db25maWcgfCBOb25lID0gTm9uZSk6CiAgICAgICAgICJNTUVuY29kZXJBdHRlbnRpb24iOiBBc2NlbmRNTUVuY29kZXJBdHRlbnRpb24sCiAgICAgICAgICJBcHBseVJvdGFyeUVtYiI6IEFzY2VuZEFwcGx5Um90YXJ5RW1iLAogICAgICAgICAiUk1TTm9ybUdhdGVkIjogQXNjZW5kUk1TTm9ybUdhdGVkLAorICAgICAgICAiRnVzZWRSTVNOb3JtR2F0ZWQiOiBBc2NlbmRGdXNlZFJNU05vcm1HYXRlZCwKICAgICAgICAgIkNvbnYzZExheWVyIjogQXNjZW5kQ29udjNkTGF5ZXIsCiAgICAgICAgICJSZWxQb3NBdHRlbnRpb24iOiBBc2NlbmRSZWxQb3NBdHRlbnRpb24sCiAgICAgICAgICJDdXN0b21Rd2VuMkRlY29kZXIiOiBBc2NlbmRDdXN0b21Rd2VuMkRlY29kZXIsCg==",
+      "probe": {
+        "12": {
+          "capacity_mb": 65536,
+          "card_id": 6,
+          "chip_id": 0,
+          "model": "Ascend910",
+          "physical_id": 12,
+          "pids": [],
+          "used_mb": 3142
+        },
+        "_environment": {
+          "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
+          "driver": "25.5.3",
+          "image_digest": "sha256:333cadf615f4d5174bd23c735d53298689f81291079e9b6ae429971dc2a61f36",
+          "kernel": "5.10.0-216.0.0.115.oe2203sp4.aarch64",
+          "python": "3.12.13 (main, Aug  3 2026, 02:43:47) [GCC 12.3.1 (openEuler 12.3.1-105.oe2403sp3)]",
+          "torch_npu": "2.10.0.post4"
+        }
+      },
+      "untracked": {
+        "reproduce.py": "IiIiUHVibGljIG9ic2VydmF0aW9uIG9mIHRoZSBhY3R1YWwgbGF5ZXIncyBub3JtYWwgQ3VzdG9tT3AgZXhlY3V0aW9uIHBhdGguIiIiCgojIHJ1ZmY6IG5vcWE6IEU0MDIKCmltcG9ydCBqc29uCmltcG9ydCBzdGF0aXN0aWNzCmltcG9ydCBzeXMKaW1wb3J0IHRpbWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgpzeXMucGF0aC5pbnNlcnQoMCwgc3RyKFBhdGguY3dkKCkpKQoKaW1wb3J0IHRvcmNoCmltcG9ydCB0b3JjaF9ucHUgICMgbm9xYTogRjQwMQppbXBvcnQgdmxsbV9hc2NlbmQKCnZsbG1fYXNjZW5kLl9fcGF0aF9fLmFwcGVuZCgiL3ZsbG0td29ya3NwYWNlL3ZsbG0tYXNjZW5kL3ZsbG1fYXNjZW5kIikKCmZyb20gdmxsbS5jb25maWcgaW1wb3J0IFZsbG1Db25maWcsIHNldF9jdXJyZW50X3ZsbG1fY29uZmlnCmZyb20gdmxsbS50aGlyZF9wYXJ0eS5mbGFzaF9saW5lYXJfYXR0ZW50aW9uLm9wcy5rZGEgaW1wb3J0IEZ1c2VkUk1TTm9ybUdhdGVkCmZyb20gdmxsbV9hc2NlbmQudXRpbHMgaW1wb3J0IHJlZ2lzdGVyX2FzY2VuZF9jdXN0b21vcAoKdG9yY2gubnB1LnNldF9kZXZpY2UoMCkKcmVnaXN0ZXJfYXNjZW5kX2N1c3RvbW9wKCkKY29uZmlnID0gVmxsbUNvbmZpZygpCmNvbmZpZy5jb21waWxhdGlvbl9jb25maWcuY3VzdG9tX29wcyA9IFsiYWxsIl0Kd2l0aCBzZXRfY3VycmVudF92bGxtX2NvbmZpZyhjb25maWcpLCB0b3JjaC5pbmZlcmVuY2VfbW9kZSgpOgogICAgbGF5ZXIgPSBGdXNlZFJNU05vcm1HYXRlZCgxMjgsIGVwcz0xZS02LCBhY3RpdmF0aW9uPSJzaWdtb2lkIiwgZGV2aWNlPSJucHUiLCBkdHlwZT10b3JjaC5iZmxvYXQxNikKICAgIGxheWVyLndlaWdodC5maWxsXygxKQogICAgeCA9IHRvcmNoLnJhbmRuKCgxLCAxNiwgNCwgMTI4KSwgZGV2aWNlPSJucHUiLCBkdHlwZT10b3JjaC5iZmxvYXQxNikKICAgIGdhdGUgPSB0b3JjaC5yYW5kbigoMTYsIDQsIDEyOCksIGRldmljZT0ibnB1IiwgZHR5cGU9dG9yY2guYmZsb2F0MTYpCiAgICBmb3IgXyBpbiByYW5nZSg1KToKICAgICAgICBvdXRwdXQgPSBsYXllcih4LCBnYXRlKQogICAgdG9yY2gubnB1LnN5bmNocm9uaXplKCkKICAgIGR1cmF0aW9ucyA9IFtdCiAgICBmb3IgXyBpbiByYW5nZSgyMCk6CiAgICAgICAgdG9yY2gubnB1LnN5bmNocm9uaXplKCkKICAgICAgICBzdGFydGVkID0gdGltZS5tb25vdG9uaWMoKQogICAgICAgIG91dHB1dCA9IGxheWVyKHgsIGdhdGUpCiAgICAgICAgdG9yY2gubnB1LnN5bmNocm9uaXplKCkKICAgICAgICBkdXJhdGlvbnMuYXBwZW5kKHRpbWUubW9ub3RvbmljKCkgLSBzdGFydGVkKQogICAgcHJpbnQoCiAgICAgICAganNvbi5kdW1wcygKICAgICAgICAgICAgewogICAgICAgICAgICAgICAgInJ1bnRpbWVfY2xhc3MiOiBmInt0eXBlKGxheWVyKS5fX21vZHVsZV9ffS57dHlwZShsYXllcikuX19xdWFsbmFtZV9ffSIsCiAgICAgICAgICAgICAgICAibWVhbl9ob3N0X3NlYyI6IHN0YXRpc3RpY3MubWVhbihkdXJhdGlvbnMpLAogICAgICAgICAgICAgICAgImZpbml0ZV9vdXRwdXQiOiBib29sKG91dHB1dC5pc2Zpbml0ZSgpLmFsbCgpLml0ZW0oKSksCiAgICAgICAgICAgICAgICAic2NvcGUiOiAib25lIHB1YmxpYyBzaGFwZTsgbm90IHRoZSBwcml2YXRlIHBlcmZvcm1hbmNlIHZlcmRpY3QiLAogICAgICAgICAgICB9CiAgICAgICAgKQogICAgKQo="
+      }
+    },
+    "remote_artifact": "/bench/slots-performance-fusedgate-20261017/fusedgate-proof-6f9d611985c0.final.json"
+  },
+  "schema_version": "1.0",
+  "source_commit": "f02da291ec0bdbe31af248deffa69f7a97e8f259",
+  "status": "completed",
+  "task_sha256": "037caeaaa36b14360f45e6e1d6b473f169ce860986f355714a16b082cb11a54e",
+  "tier": "l3",
+  "validation_scope": "One real A3 NPU, two private shapes/four rotated buffers, AB/BA/AB independent operator and eight-norm-step HTTP service blocks. Not full-vLLM throughput."
+}

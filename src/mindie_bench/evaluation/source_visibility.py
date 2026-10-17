@@ -1,4 +1,4 @@
-"""Exact initial Git-blob visibility in recorded native tool outputs.
+"""Exact initial source visibility in recorded native tool outputs.
 
 This observes returned bytes independently of command completion. It does not
 identify a semantic root cause, inspect a final workspace, or certify a fix.
@@ -30,7 +30,38 @@ def _time(value):
     return value
 
 
-def _initial_blobs(environment, targets):
+def _public_asset(public_root: Path, target: str) -> dict:
+    root = Path(public_root)
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("initial public asset root must be a real task-owned directory")
+    path = root / target
+    current = root
+    for part in Path(target).parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError(f"initial public asset must not traverse a symlink: {target!r}")
+    if not path.is_file() or not path.resolve(strict=True).is_relative_to(root.resolve(strict=True)):
+        raise ValueError(
+            f"initial public asset is missing or is not a confined regular file: {target!r}"
+        )
+    size = path.stat().st_size
+    if not 0 < size <= MAX_BLOB_BYTES:
+        raise ValueError("initial public asset is empty or exceeds visibility bound")
+    content = path.read_bytes()
+    content.decode("utf-8")
+    if len(content) != size:
+        raise ValueError("initial public asset size changed during observation")
+    return dict(
+        target=target,
+        git_blob_id=None,
+        source_origin="task_public_asset",
+        source_bytes=size,
+        source_sha256=_sha(content),
+        content=content,
+    )
+
+
+def _initial_blobs(environment, targets, public_root=None):
     def git(*args):
         return subprocess.run(
             ["git", "-C", environment.repo_path, *args],
@@ -48,6 +79,9 @@ def _initial_blobs(environment, targets):
             raise ValueError("source visibility requires an ordinary relative Git path")
         entry = git("ls-tree", "-z", environment.base_commit, "--", target).split(b"\0")
         entries = [item for item in entry if item]
+        if not entries and public_root is not None:
+            blobs.append(_public_asset(public_root, target))
+            continue
         if len(entries) != 1:
             raise ValueError(f"initial target is not a unique Git blob: {target!r}")
         header, path = entries[0].split(b"\t", 1)
@@ -65,6 +99,7 @@ def _initial_blobs(environment, targets):
             dict(
                 target=target,
                 git_blob_id=identity.decode(),
+                source_origin="git_blob",
                 source_bytes=size,
                 source_sha256=_sha(content),
                 content=content,
@@ -118,9 +153,11 @@ def observe_source_visibility(
     trajectory: Trajectory,
     environment: SourceEnvironment,
     targets: list[str],
+    *,
+    public_root: Path | None = None,
 ) -> dict:
     """Read immutable evidence locally; errors are never an empty observation."""
-    blobs = _initial_blobs(environment, targets)
+    blobs = _initial_blobs(environment, targets, public_root)
     calls = {call.id: call for call in trajectory.calls}
     if len(calls) != len(trajectory.calls):
         raise ValueError("source visibility cannot correlate duplicate native call IDs")
@@ -212,7 +249,10 @@ def observe_source_visibility(
                 else None
             ),
         ),
-        scope="whole initial Git blob in actual recorded tool output; no root-cause or fix inference",
+        scope=(
+            "whole initial Git blob or declared task-public asset in actual recorded tool output; "
+            "no final workspace, root-cause or fix inference"
+        ),
     )
 
 

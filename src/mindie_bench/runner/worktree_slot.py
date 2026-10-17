@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from mindie_bench.io import tree_hash
+from mindie_bench.io import is_ignored_cache_path, tree_hash
 from mindie_bench.models import SourceEnvironment
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, diff_paths, project_source
 
@@ -51,17 +51,25 @@ class WorktreeSlot:
         if public.exists():
             tree_hash(public)
             for item in public.iterdir():
+                if is_ignored_cache_path(Path(item.name)):
+                    continue
                 target = self.destination / item.name
                 if target.exists() or target.is_symlink():
                     raise ValueError(f"public task asset overwrites tracked source: {item.name}")
                 if item.is_dir():
-                    shutil.copytree(item, target)
+                    shutil.copytree(
+                        item,
+                        target,
+                        ignore=lambda d, names: {
+                            n for n in names if is_ignored_cache_path(Path(d, n).relative_to(public))
+                        },
+                    )
                 else:
                     shutil.copy2(item, target)
             self.public_files = {
                 path.relative_to(public).as_posix(): hashlib.sha256(path.read_bytes()).digest()
                 for path in public.rglob("*")
-                if path.is_file()
+                if path.is_file() and not is_ignored_cache_path(path.relative_to(public))
             }
         for reserved in ["oracle", "verifier", ".git", *HARNESS_CONFIG_PATHS]:
             if (self.destination / reserved).exists():
@@ -124,7 +132,14 @@ class WorktreeSlot:
                 check=True,
                 capture_output=True,
             ).stdout.split(b"\0")
-            modified = set(changed + [os.fsdecode(name) for name in untracked if name])
+            modified = set(
+                changed
+                + [
+                    os.fsdecode(name)
+                    for name in untracked
+                    if name and not is_ignored_cache_path(Path(os.fsdecode(name)))
+                ]
+            )
             for name, original in self.public_files.items():
                 path = self.destination / name
                 if (
