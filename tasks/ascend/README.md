@@ -79,9 +79,13 @@ uv run mindie-bench run --tasks /absolute/hardware-specific-task-root \
 ```
 
 Within each cluster/repetition, only the seed's completed capture advances
-the corpus. Failed/unknown prerequisites block dependent evals. Held-out
-captures never feed subsequent evaluations. The foreground agent chooses
-whether to query knowledge; consumer readback does not prove foreground use.
+the corpus. A seed with business status `completed_fail` can advance when its
+capture is `completed`: an unsuccessful repair can still provide reference
+experience. Infrastructure failure, `unknown` or incomplete capture blocks
+dependent evals. Capture completion does not change the business verdict.
+Held-out captures never feed subsequent evaluations. The foreground agent
+chooses whether to query knowledge; consumer readback does not prove
+foreground use.
 
 The full three-family plan has 27 baseline eval cells, nine G3 seeds and nine
 G3 evals per hardware class: 45 planned cells, including 36 held-out evals.

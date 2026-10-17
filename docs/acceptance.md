@@ -5,22 +5,27 @@ Implementation, task soundness, native experiment completion and measured
 engineering benefit are separate conclusions. All paths below are relative to
 `reports/acceptance-a2-a3-20261017/`, unless another root is stated.
 
-The source-matched G dual-cluster matrix is currently running. Its 90 planned
-cells must reach terminal audit before this document can call hardware
-acceptance complete. No earlier successful cell substitutes for a missing G
-cell. The [pre-G record](acceptance-pre-g-history.md) preserves prior source
+The source-matched H dual-cluster matrix has terminated with 88 actual receipts
+and two blocked cells across 90 planned cells. It did not pass complete matrix
+acceptance. The later I runtime passed a separate four-cell native canary and
+real zero-model RPC boundary cases on both clusters. These finite checks do not
+replace the H matrix or erase its failures and unknown effects.
+The [pre-G record](acceptance-pre-g-history.md) preserves prior source
 identities, failed/unknown cohorts and the node 153 uncertainty.
 
-## H corrections under validation
+## H corrections and terminal outcomes
 
 The later runtime commit `18e854ec15c9bce8408075f0f8e6786aaccc3db4` has SHA-256
 `f922f0dda22d052679523830782dca52736054978d5922d0233926fe62bb8bc9`.
-Its unified suite passed 235 tests in 56.09 seconds. Capture receipts now retain
+Its initial unified suite passed 235 tests in 56.09 seconds. After reusable
+environment recipes were added, the delivery suite passed 242 tests in 58.24
+seconds, Ruff and formatting for 122 files
+(`h-delivery-source-validation/observed.json`). Capture receipts now retain
 the actual child return code, stop reason, errors, elapsed time and launch
 state before judgment. The inference broker journals a budget rejection before
 returning HTTP 429, including only request hash/counters and no prompt.
 Unknown classification, budgets, no-retry behavior and provider forwarding
-are unchanged. The running G installed runtime remains frozen.
+are unchanged. The original G installed runtime is preserved frozen.
 
 The sampler seed judge had the same capitalization omission previously fixed
 in the oversized variant. A partial wrong solution can pass its public
@@ -38,19 +43,261 @@ were also exercised against a local mock provider without paid calls. A
 controlled out-of-contract tool response can trigger a distinct continuation
 request, cap-1 rejection, and `native_event_error` with complete first-provider
 usage but no completed local summary. H records this chain accurately.
-The real summary request exposes zero tools and uses strict JSON Schema output.
-This mechanism reproduction does not establish the missing original A2
-response body or justify retrying it.
+The captured summary request omits the top-level `tools` field and requests
+strict JSON Schema output. Its `input` also contains an `additional_tools`
+description, so the top-level count alone does not establish absence of tool
+descriptions or executable native capabilities. This mechanism reproduction
+does not establish the missing original A2 response body or justify retrying it.
+`model-review/actual-summary-worker-tool-boundary-corrigendum-20261017.json`
+withdraws the older top-level-only interpretation and binds the unchanged
+original request and mock evidence; successful execution of the described
+capabilities remains unverified.
 
 G also encountered foreground provider EOF. Read-only local relay usage shows
 three matching-duration failed streams in the same time window and successful
 neighboring streams longer than 60 seconds. There is no evidence for a universal
 60-second timeout; request hashes are unavailable for exact cross-log joining.
 No shared relay setting was changed and no uncertain call was replayed.
-H does not claim to fix a provider or network fault. Any fresh H hardware cohort
-must have its own finite plan, installed source identity and terminal audit.
+H does not claim to fix a provider or network fault.
 
-## Frozen implementation and actual dependencies
+H's installed experiment source is
+`b8f22961989de31bbe979a3d24d1e4af9edb1ece`, with the same H runtime digest.
+`a3-h-frozen-manifest.json` and `a2-h-frozen-manifest.json` bind their exact
+45-cell plans, six tasks, configuration hashes, actual installed interpreter,
+model/catalog/components/corpus and unchanged projected images. A3 uses fixed
+baseline devices 11/12 and G3 device 13; A2 uses baseline 3/4 and G3 5.
+These are disjoint from the preceding G pools and are not randomized device
+matching. Both H actual sandbox/MCP canaries passed with zero model calls.
+Global admission included the finite L1/CPU jobs and never exceeded six native
+profiles. Later recipe/documentation commits retain the H runtime bytes.
+
+All four H phase supervisors exited. Each hardware accounts for 44 original
+terminal receipts and one explicitly blocked eval, without a fabricated receipt.
+
+| Hardware / group and role | Planned | Pass | Fail | Infra | Unknown | Blocked |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A3 G0 eval | 9 | 9 | 0 | 0 | 0 | 0 |
+| A3 G1 eval | 9 | 9 | 0 | 0 | 0 | 0 |
+| A3 G2 eval | 9 | 8 | 0 | 0 | 1 | 0 |
+| A3 G3 seed | 9 | 6 | 2 | 0 | 1 | 0 |
+| A3 G3 eval | 9 | 7 | 0 | 1 | 0 | 1 |
+| A2 G0 eval | 9 | 9 | 0 | 0 | 0 | 0 |
+| A2 G1 eval | 9 | 9 | 0 | 0 | 0 | 0 |
+| A2 G2 eval | 9 | 9 | 0 | 0 | 0 | 0 |
+| A2 G3 seed | 9 | 5 | 3 | 0 | 1 | 0 |
+| A2 G3 eval | 9 | 7 | 0 | 0 | 1 | 1 |
+
+These are raw receipt statuses: A3 has 39 pass / 2 fail / 1 infra / 2 unknown;
+A2 has 39 pass / 3 fail / 2 unknown. The A3 infra receipt additionally contains
+an independently adjudicated unknown remote effect, described below. It is
+neither a fifth raw unknown receipt nor a resolved effect. Thus the raw H
+outcome classification is materially incomplete even though every planned
+identity is accounted for. Original receipts are unchanged.
+
+The corrected sampler judge exposes real reward-0 business failures. A
+completed failed seed whose capture succeeds can provide reference knowledge
+to its eval; its failed outcome is retained. Unknown seed prerequisites blocked
+one eval per hardware. Neither task prompts nor the missing cells were altered
+to obtain passing results.
+
+Independent audits observed 888 external-verifier NPU case executions on A3 and
+876 on A2, including successful stages of affected trials. They verified 15
+completed capture/local-Git/independent-consumer loops on each hardware, 15
+actual native Stops on A3 and 16 on A2, and eight seed/eval corpus lineages per
+hardware. These are repeated case and stage counts, not a clean 90-cell pass.
+
+Actual CLI score/freeze/compare reject both incomplete 17/18 G3 roots.
+A2's whole 27-cell baseline and each declared nine-cell baseline group froze;
+A3's whole baseline and G2 freeze were refused because of the retained unknown,
+while its G0/G1 groups froze. Group views select declared conditions, never
+successful outcomes. A3 CLI output is explicitly raw-receipt accounting and
+does not supersede the independent late-RPC adjudication.
+
+Each hardware has a 44-row local export containing all actual seed and eval
+receipts, with first-party redaction, Gitleaks, thirteen typed core fields and
+distinct opaque trial IDs checked against JSON and Parquet. Open the
+self-describing scope reports:
+`model-review/h-a3-actual44-export-audit/scoped-report/index.html` and
+`model-review/h-a2-actual44-export-audit/scoped-report/index.html`.
+Their independently scanned scope states 45 planned / 44 actual / 1 blocked
+and the additional A3 unknown effect, while preserving original raw statuses.
+Nothing was uploaded. Full ledger, loop and CLI evidence is under
+`model-review/h-a{2,3}-terminal-audit/`,
+`model-review/h-a{2,3}-full-loop-audit/` and
+`model-review/h-a{2,3}-terminal-operations/`.
+
+H foreground knowledge MCP query/explain counts are zero. Bounded explicit
+corpus-path inventories found three A3 references without a proven body read
+and zero A2 references; they do not establish absence of all possible reads.
+Consumer readbacks alone are not foreground retrieval.
+See `a3-h-native-corpus-access-final-audit/audit.json` and
+`a2-h-native-corpus-access-final-audit/audit.json`.
+
+## I remote-settlement correction
+
+H exposed a real outcome-classification race in A3 RMSNorm eval repetition 2
+(`rmsnorm-null-description_G3_2_98e7af6bab56`). The native process exhausted
+its 600-second wall-clock budget after ten foreground requests, all with complete
+provider usage. Its external judge returned reward 1, but the native timeout
+made the business outcome fail. No natural Stop was recorded; the subsequent
+required capture failed before any capture-model admission. Its original
+receipt records infrastructure failure.
+
+The same original broker journal also contains a late RPC `remote_unknown`
+after the last model usage settled. H checked gateway uncertainty before the
+judge, while an already admitted remote HTTP handler could still complete later.
+Required quiescence could race with that handler, and a later capture error
+could hide the uncertain RPC result. Clean device cleanup proves resource
+release, not the outcome of a missing RPC acknowledgement. The original receipt
+is preserved; the independent H audit reports this discrepancy separately
+from its raw terminal status.
+
+Commit `620949dab43cf3e87c021d49c608edb8f18dde9e` changes the runtime digest to
+`ddf64cba66341dbcf87d1ef8c87265fecb54c31a6fbf927f3a84778ebae4c278`.
+The broker now closes remote admission after foreground termination and waits
+up to the existing ten-second settlement grace for admitted HTTP handlers,
+including result delivery, before worker quiescence or judging. Expiry remains
+unknown. The runner checks remote uncertainty again before saving its receipt
+and preserves any preceding business, capture or cleanup errors. Sealed
+requests, including bodies completed after sealing, cannot admit remote work.
+There is no new paid retry, expanded task budget or fabricated Stop.
+
+Real local HTTP regression tests first reproduced the wrong fail/infra outcomes.
+The focused related suite then passed 36 tests, including late acknowledgements,
+settlement expiry, client disconnect, both remote transports, blocked new
+admissions and original-error preservation. The unified I delivery suite passed
+252 tests in 68.50 seconds with Ruff, formatting for 123 files and diff checks
+(`i-source-validation/`). The independently installed I wheel/sdist match all
+40 runtime files and eight installed distribution RECORDs
+(`i-installation/`, `model-review/i-artifact-audit/`).
+
+After all H phase supervisors exited, the separate I plan
+`i-controlled-canary-plan/plan.json` admitted one new partial-RoPE seed/eval
+lineage per hardware, one repetition each. The plan SHA-256 is
+`37be43442fa272abb6d29ec6679d69fe96a7c6daaa6475a75ec6baa3d7ef87fd`.
+Both native supervisors exited successfully.
+
+| Hardware | Planned / actual | Native passes | External NPU cases | Foreground / capture provider requests |
+| --- | ---: | ---: | ---: | ---: |
+| A3, assigned device 12 | 2 / 2 | 2 | 36 | 27 / 2 |
+| A2, assigned device 4 | 2 / 2 | 2 | 36 | 47 / 2 |
+
+All four receipts match I's source/task/config/model/image identities. All 74
+foreground and four capture requests have complete usage and matching broker
+receipts. Each cell has an actual Stop tied to its native session, completed
+Luna indexing, local producer/bare Git publication and an independently
+validated clean consumer. Each eval received exactly its own newly captured
+seed corpus, with the new package absent from the initial corpus. All four
+remote snapshots are sealed, active zero and not unknown; required postflight
+was clean. No old unknown request was replayed.
+
+A3's held-out native Agent actually read its own new seed Markdown with `cat`:
+the returned 2,469 UTF-8 bytes exactly match the published canonical block
+SHA-256 `bd412f9a9c2784b8d8a6a1c14494d123a51d3aed59314e4cc1b94ae1919deb24`.
+This is whole Markdown, distinct from its parsed content-body hash. A2's bounded
+native-access audit found a filename-listing call, without a proven body read.
+Both have zero MCP query/explain calls. Direct body access establishes an
+observed foreground read, not a ranking sample or causal knowledge benefit.
+See `model-review/i-a3-native-audit/readback.json` and
+`a2-i-final-diagnostic/diagnostic.json`.
+
+Actual installed-I CLI score and whole two-cell freeze passed on each hardware.
+Each two-row JSON/Parquet export retained all thirteen typed core fields and
+distinct SHA-256 public IDs, passed the first-party privacy gate and Gitleaks,
+and retained original receipt hashes. Their independently scanned scope reports
+are `model-review/i-a3-cli-export-audit/scoped-report/index.html` and
+`model-review/i-a2-cli-export-audit/scoped-report/index.html`.
+Full independent ledger and loop evidence is under
+`model-review/i-a{2,3}-terminal-audit/` and
+`model-review/i-a{2,3}-full-loop-audit/`.
+
+Separate real RemoteSlot/Gateway canaries ran two fresh owned cases per cluster
+on A3 device 11 and A2 device 6, with zero model requests and zero NPU tensor
+commands. A normal admitted pair settled before quiescence. An intentionally
+expired pair kept sticky unknown even after both original HTTP results arrived;
+no operation was repeated. Sealed requests, including a partially read body
+completed after sealing, returned 409 without new remote work. Owned cleanup,
+PID/worktree removal and assigned-device readbacks passed. These are remote
+protocol boundary checks, not native Stop or tensor-compute evidence
+(`model-review/i-remote-settlement-canary/`).
+
+The declared four-cell native canary and both clusters' RPC boundary checks
+passed. They cover one defect family with one repetition, no G0/G1/G2 controls
+and no three-repeat reliability estimate; Pass^3 remains null. They establish
+neither a 90-cell rerun, four independent defect families, controlled speedup
+nor general provider reliability. H's installed runtime and original receipts
+remain unchanged; no H hardware evidence is relabelled as I acceptance.
+`model-review/i-final-independent-readback.json` binds the terminal ledger,
+full-loop, provider, native-access, RPC and actual CLI/export readbacks.
+
+## Preserved G terminal outcomes
+
+All original G runner processes have exited. Each hardware class has 42 original
+terminal receipts and three explicitly blocked G3 sampler evals, accounting
+for all 45 planned cells. No blocked receipt was fabricated.
+
+| Hardware / group and role | Planned | Pass | Fail | Infra | Unknown | Blocked |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A3 G0 eval | 9 | 9 | 0 | 0 | 0 | 0 |
+| A3 G1 eval | 9 | 9 | 0 | 0 | 0 | 0 |
+| A3 G2 eval | 9 | 9 | 0 | 0 | 0 | 0 |
+| A3 G3 seed | 9 | 6 | 0 | 3 | 0 | 0 |
+| A3 G3 eval | 9 | 5 | 0 | 0 | 1 | 3 |
+| A2 G0 eval | 9 | 9 | 0 | 0 | 0 | 0 |
+| A2 G1 eval | 9 | 7 | 0 | 0 | 2 | 0 |
+| A2 G2 eval | 9 | 9 | 0 | 0 | 0 | 0 |
+| A2 G3 seed | 9 | 6 | 0 | 3 | 0 | 0 |
+| A2 G3 eval | 9 | 4 | 0 | 0 | 2 | 3 |
+
+Thus A3 has 38 pass / 1 unknown / 3 infra and A2 has
+35 pass / 4 unknown / 3 infra. All three sampler seeds per hardware hit the
+old judge classification omission and blocked their dependent evals. A3's
+unknown and A2's two G1 unknowns are foreground provider streams; A2's two
+G3 eval unknowns occurred during capture. Their successful business phases
+do not override the overall unknown state. Original required cleanup was clean
+for all 42 A2 receipts and the old G resource readback found no old owning PIDs;
+H resources running at the time of that readback were identified separately.
+
+The independent G audits record 864 observed external-verifier NPU cases for
+A3 and 846 for A2, including stage successes in affected trials. These are
+repeated case executions, not independent tasks or full-cohort passes.
+The source/task/config/model/image identities match their own frozen G plans.
+
+Actual CLI score/freeze/compare reject the incomplete 15/18 G3 roots.
+A3's complete baseline has all 27 passing cells, so its whole baseline and all
+three declared nine-cell groups froze successfully. A2's whole 27-cell baseline
+and complete G1 group retain unknowns and were refused as frozen baselines;
+its complete G0/G2 groups froze. Views select declared groups, never successful
+outcomes. Valid-pair descriptive comparisons keep unknown coverage visible.
+The clean A3 G0/G1 comparison has nine matched solved pairs and delivery ratio
+1.2075; G0/G2 is 0.8703. G2 made no knowledge calls. These finite G observations
+do not establish knowledge benefit or provide H baselines.
+
+Each hardware's full 42 actual receipts, including all nine seeds, also has a
+separate explicitly partial local export. Its input-boundary manifest records
+45 planned / 42 actual / 3 blocked, all original byte hashes, and no fabricated
+experiment manifest. JSON/Parquet identity, status counts and all thirteen typed
+core fields match; mandatory privacy gates passed and nothing was uploaded.
+See `model-review/g-a3-terminal-audit/`,
+`model-review/g-a2-terminal-audit/`,
+`model-review/g-a3-actual42-partial-export-audit/` and
+`model-review/g-a2-actual42-partial-export-audit/`.
+
+G2 and G3 actual foreground knowledge MCP calls were zero. A2 nevertheless has
+one actual native `cat` of its own newly captured RoPE seed block: returned
+2,812 bytes match the seed/eval canonical Markdown SHA-256
+`01e1b960f82b10401df3ebd35cdb3f3a9073adf6f8b8084cde7ffef06eae067e`,
+and the package was absent from the initial corpus. The final native-access
+inventory distinguishes this read from four path/filename discovery calls.
+That held-out trial completed pass, including its business judge and capture.
+This proves a real foreground read via native tools, not an MCP event or
+counterfactual effectiveness gain. Consumer readbacks remain separate.
+Details are in `a2-g-final-diagnostic/` and
+`a2-g-native-corpus-access-final-audit/audit.json`. This inventory covers
+commands explicitly referencing the profile corpus path; it does not prove
+absence of every possible relative-path read.
+
+## Historical G implementation and shared native dependencies
 
 | Item | Measured identity |
 | --- | --- |
@@ -147,7 +394,7 @@ Bare digits inside hashes are not source-origin matches. The RMSNorm tasks
 retain their three known same-origin exclusions, which G2 physically removes.
 Absence of an exact origin does not establish general semantic retrieval quality.
 
-## Planned native matrix and required terminal audit
+## Declared native matrix and terminal audit contract
 
 Each hardware class has the same finite shape:
 
@@ -169,7 +416,8 @@ Fixed device pools are disclosed and are not randomized device matching.
 Terminal audit must account for every planned identity, source/task/config/
 model/image hash, original receipt byte hash, external verifier, native Stop,
 provider/indexer usage, required cleanup, seed corpus lineage and actual
-foreground retrieval. Blocked cells have no fabricated receipt. Unknown and
+foreground retrieval through MCP or exact native body reads. Blocked cells
+have no fabricated receipt. Unknown and
 infra outcomes retain their strict comparison/freeze boundaries.
 G3 resources include every required seed. Per-hardware comparisons must not
 mix A2/A3 or older attempts. A consumer's successful readback is separate from
@@ -177,18 +425,46 @@ the foreground Agent's decision to retrieve knowledge.
 
 ## L1 and real CPU evidence
 
-The separate L1 negative request observations and optional explicit warm-corpus
-retrieval canary have finite independent budgets. They do not enter the L3
-matrix or establish a population false-trigger probability. Background Stop
-and MCP initialization are not foreground triggers. Natural non-use of optional
-knowledge is preserved rather than labelled a false negative.
+The separate L1 observations used G's actual installed native harness/model,
+the same G2 tool/Skill configuration and finite independent budgets. Four
+revised clear-negative local tasks completed pass, with zero observed foreground
+knowledge/remote/Skill/SSH triggers. The actual routing scorer reports
+0/4 false triggers; this is not a population false-trigger probability.
+A single explicit warm-corpus canary also completed pass, with one successful
+native knowledge query followed by one explain. An independent readback matched
+the newly captured seed package revision, block/ref and returned UTF-8 body hash.
+This is a separate retrieval contract, not autonomous NPU effectiveness.
+
+The first four negative native executions completed their model work, but
+their here-document judge could not create a temporary file in the actual
+sandbox. Their original four infrastructure receipts remain unchanged.
+After a direct Python judge was validated with zero-model source/gold checks,
+four new task IDs and a new finite native cohort were run; all passed.
+The old four and new four represent two versions of four request types, not
+eight independent negative scenarios. All 41 actual provider ordinals across
+old negatives, corrected negatives and canary have complete usage
+(18 + 19 + 4); no unknown request was retried. See
+`model-review/l1-final-readback/readback.json`.
+
+Background Stop and MCP initialization are not foreground triggers. Natural
+non-use of optional knowledge is preserved rather than labelled a false
+negative. Direct body reads have their own inventory, outside MCP ranking
+denominators.
 
 The four reusable RoPE/sampler CPU recipes live under `tasks/cpu/`. Each uses
 the exact historical failing/gold source, real CPU PyTorch and its own L2
 soundness proof; no NPU mocking or text-pattern judge is substituted.
 Portable templates remain candidates until materialized and proven against
 the selected interpreter. A native smoke is a separate experiment, not a
-completed CPU G0-G3 effectiveness matrix. RMSNorm has no claimed CPU twin.
+completed CPU G0-G3 effectiveness matrix. The actual one-task G0 CPU smoke
+completed pass on the RoPE held-out task: 18 real CPU cases, seven fully
+metered foreground calls, 60.27 seconds delivery and zero remote/replay/NPU
+calls. Its public reproduction was unchanged and the source was actually
+repaired. The repair omits the upstream gold's `int(rotary_dim)` cast, so it is
+not byte-equivalent or proof of metadata types outside the tested contract.
+All 16,796 CPU runtime files retained their hashes after execution.
+`cpu-l2/native-smoke-readback.json` records the exact receipt and source/body
+hashes. RMSNorm has no claimed CPU twin.
 See `tasks/L1-L2-acceptance.md` for observation definitions and limits.
 
 ## Local distribution and final readback
@@ -200,9 +476,22 @@ RECORDs, seven exact dependency versions, actual CLI help/validation/demo, and
 an extracted-artifact Gitleaks scan with default rules. Its sdist has 139
 tracked G files and no raw reports, profiles, auth, `.git` or `.venv`.
 
+The separately installed H wheel/sdist passed the same 40-file runtime,
+RECORD/dependency and privacy checks against H source
+`b8f22961989de31bbe979a3d24d1e4af9edb1ece`; its sdist contains 177 tracked
+source files. `model-review/h-artifact-audit/` records these checks and the
+runtime change from G in only `gateway.py` and `orchestrator.py`. Component
+payloads were unchanged. Package checks do not establish H hardware acceptance.
+
+The installed I wheel/sdist separately passed runtime byte and RECORD checks
+against commit `620949dab43cf3e87c021d49c608edb8f18dde9e`
+(`model-review/i-artifact-audit/`). Its hardware evidence is only the bounded
+I plan described above.
+
 Documentation and CPU recipe delivery may have a later commit and artifact
-hash than the hardware G source. Such artifacts must retain the exact G runtime
-bytes and record both identities. Final local JSON/Parquet/HTML exports require
+hash than the frozen experiment source. Each artifact must identify and retain
+its corresponding runtime bytes; H delivery retains H bytes and does not turn
+G evidence into H acceptance. Final local JSON/Parquet/HTML exports require
 the native deterministic redactor and Gitleaks, unique SHA-256 public trial IDs,
 typed core-field checks and independent readback. Local staging is not an
 upload, public PR/merge, plugin update or formal Release.

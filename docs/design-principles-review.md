@@ -1,6 +1,12 @@
-# Design-principles review - G and H implementations
+# Design-principles review - current I implementation and G/H history
 
-Reviewed runtime commit: `2b2ea792deafaf7c18820a01749127642252234d`.
+Current reviewed runtime commit:
+`620949dab43cf3e87c021d49c608edb8f18dde9e`, with 40-file runtime SHA-256
+`ddf64cba66341dbcf87d1ef8c87265fecb54c31a6fbf927f3a84778ebae4c278`.
+The final delivery may add documentation while retaining those exact runtime
+bytes. Hardware results from another runtime remain separately identified.
+
+The G runtime reviewed below is `2b2ea792deafaf7c18820a01749127642252234d`.
 The independently installed 40-file runtime SHA-256 is
 `73f7c9d1b4f79e191e0e1bb219075b882ec33af27cfa982e482c75cd1bca59d4`.
 The authoritative product checkout was read at
@@ -14,11 +20,86 @@ reviews and observed defects. It is historical evidence, not G's acceptance.
 Current experiment outcomes are maintained in [acceptance](acceptance.md).
 Report paths here use `reports/acceptance-a2-a3-20261017/`.
 
+## I: late remote-RPC settlement
+
+Actual H evidence exposed a race after a native 600-second timeout. Ten model
+requests had complete provider usage, but an already admitted remote RPC
+reported uncertain effects after the runner's first outcome check. The original
+receipt retained an independent passing judge, capped business failure and
+missing-Stop capture failure, but did not promote that late remote uncertainty
+to the overall status. Clean postflight cannot establish the missing RPC result.
+The H receipt and journal are preserved; I does not rewrite or resume them.
+
+I seals new remote admission and waits for admitted HTTP handlers before
+quiescence and judging, using the existing bounded settlement mechanism.
+Expired settlement prevents judging and capture. Final receipt construction
+checks remote uncertainty again and retains prior business, capture and cleanup
+facts alongside `unknown`. An uncertain operation is never resubmitted.
+
+| Principle | Concrete I review conclusion | Actual validation and boundary |
+| --- | --- | --- |
+| 1. Total cost | Settling the existing request prevents false completion and subsequent duplicate work. The bounded wait adds no inference or user interaction. | The real H failure is tied to its original ten metered requests. I's 252-test suite passed in 68.50 seconds. Four separately frozen native RoPE seed/eval cells have passed on A2/A3; they do not replace H's planned cells or establish a speedup. |
+| 2. Closed tools | Admission, handler completion and uncertain transport delivery are deterministic broker responsibilities. The runner still leaves diagnosis and repair to the native agent. | Actual loopback HTTP tests cover an admitted late error, client disconnect and a partially submitted request; no arbitrary command interpretation is added. |
+| 3. Cognitive load | The internal runner performs settlement without a new end-user command, setting or recovery ritual. | Existing experiment budgets and maintainer entry commands remain sufficient; source and failure references stay in receipts. |
+| 4. Single responsibility | Gateway owns admission, in-flight counts and transport facts. The runner orders judging and merges those facts into its final receipt. | Two runtime files changed; no second scheduler, durable queue or component state machine was added. |
+| 5. Skills give a map | RPC lifetime handling adds no Skill or prompt instruction. Native engineering decisions retain the same advisory context. | The changed source and test commit includes no Skill files or model prompts. |
+| 6. Historical knowledge is advisory | I changes transport accounting, not knowledge authority or G3 corpus advancement. A failed seed still needs known business state and complete capture. | Existing lineage tests remain in the unified suite; direct reads, MCP retrieval and consumer readback retain separate evidence contracts. |
+| 7. On-demand scope | Only an already requested trial's admitted operations are settled. New calls after sealing receive 409 without executing an RPC. | Both SSH transports and an HTTP body completed after sealing are tested. No personal configuration, public write or foreign-process cleanup is added. |
+| 8. Reuse mature mechanisms | Uses the broker's existing lock/condition, bounded settlement, journal and owned remote teardown. It preserves the frozen H installation. | The I wheel, sdist, source commit and non-editable installation have identical runtime bytes; dependency RECORD and lock checks pass independently. |
+| 9. Visible errors | Late remote uncertainty overrides a nominal business or infrastructure result while preserving that earlier result and its original errors. Clean device state does not imply reconciliation. | Four pre-fix failures were retained. Ten new cases cover ordering, expiry, refusal and error preservation; 36 focused tests pass. No fake Stop or retry is introduced. |
+
+`model-review/late-remote-settlement-fix/review.json` records the actual race,
+RED/GREEN evidence and affected-principle review.
+`i-source-validation/observed.json`, `i-installation/installed-identity.json`
+and `model-review/i-artifact-audit/bytehash-and-dependency-audit.json` bind the
+source and installed artifacts. Source/package checks are not substitutes for
+the separate native and real-remote canary evidence in [acceptance](acceptance.md).
+The four-cell native plan is `i-controlled-canary-plan/plan.json`.
+Both hardware classes also completed their two-case real SSH/RemoteSlot canary
+in `model-review/i-remote-settlement-canary/{a2,a3}-attempt-1/observed.json`.
+Normal settlement drains the actual admitted calls; the deliberate short
+deadline preserves sticky unknown after those original calls return and after
+owned cleanup. Post-seal and partially submitted requests receive 409 without
+executing a new RPC. Those transport canaries use zero model calls and zero NPU
+tensor commands; native Stop and NPU correctness require the separate native
+cells.
+
+`model-review/i-{a2,a3}-terminal-audit/cohort-audit.json` now verifies two of
+two planned native cells per hardware, exact source/task/config/image identity,
+complete provider usage and 36 external NPU cases per hardware.
+The corresponding `i-{a2,a3}-full-loop-audit/readback.json` validates actual
+Stop/session/transcript, local Git producer/bare/consumer identity, package/body
+hashes and each held-out view's own seed lineage. A2's independent final resource
+readback is `a2-i-final-owned-resource-readback/readback.json`; A3's independent
+native and resource audit is `model-review/i-a3-native-audit/readback.json`.
+Owned processes and worktrees are absent, and assigned-device DCMI PID lists
+are empty; driver-resident memory is retained as measured rather than called zero.
+
+The A3 held-out native trajectory also returned its own new seed Markdown:
+2,469 UTF-8 bytes match the actual block file, with separate canonical block and
+body hashes. This is direct foreground shell reading, not a query/explain event,
+IR ranking observation or proof of performance benefit. The new package was
+absent from the initial corpus. A2's foreground observation is only a path
+listing; it is not promoted to a body read. These bounded observations preserve
+principles 1, 6 and 9 without changing prompts to force retrieval.
+
+Final documentation review also found an overbroad earlier summary-worker
+inference: no top-level `tools` field does not mean no tool descriptions in
+`input.additional_tools`. The original mock does not prove those described
+capabilities were executable. The old interpretation is explicitly withdrawn
+in `model-review/actual-summary-worker-tool-boundary-corrigendum-20261017.json`,
+with all twelve original evidence files unchanged. This correction applies
+principles 2, 6 and 9: distinguish observed request fields from execution
+capability and unknown original cause, without new inference, retries,
+undocumented feature flags or a budget increase.
+
+## G and H implementation review
+
 The H runtime is `18e854e`, digest
 `f922f0dda22d052679523830782dca52736054978d5922d0233926fe62bb8bc9`.
-Its three added tests and the two-variant verifier classification tests bring
-the unified suite to 235 passing tests. H changes only capture-process
-diagnostic retention and hashed admission-refusal logging in the runtime.
+The final delivery suite has 242 passing zero-model tests, including the
+Ascend runtime preparation recipe. H changes only capture-process diagnostic
+retention and hashed admission-refusal logging in the runtime.
 The sampler seed task has its own revised proof after a case-insensitive
 expected-error correction.
 
@@ -44,12 +125,12 @@ There is no change to the user/Skill/knowledge/scope boundaries (3, 5, 6, 7).
 
 | Principle | Concrete review conclusion | Validation and remaining boundary |
 | --- | --- | --- |
-| 1. Total cost | A finite controlled matrix includes completion, delivery time, foreground/provider usage and required G3 seed/indexer resources. G rejects actual sandbox import/interpreter/digest mismatches before expensive preparation or inference. Baselines are reused only under exact compatible controls; missing prices remain null. | 214 tests passed; actual installed preflights used zero model calls. All planned cells and seed resources still require terminal audit; no desired speedup is filled in. |
+| 1. Total cost | A finite controlled matrix includes completion, delivery time, foreground/provider usage and required G3 seed/indexer resources. G rejects actual sandbox import/interpreter/digest mismatches before expensive preparation or inference. Baselines are reused only under exact compatible controls; missing prices remain null. | 242 final delivery tests passed; actual installed preflights used zero model calls. G's full planned ledger was audited with blocked cells and unknown costs visible. H requires its own terminal audit; no desired speedup is filled in. |
 | 2. Closed tools | Import probing, source projection, budget admission, remote execution, external verification and scoring have mechanical inputs and outputs. Agents retain diagnosis/repair decisions. Recognized NPU command counts are attempt observations, not kernel or successful-test counts. | Import guard tests cover wrong digest/interpreter/module identity, timeout and malformed output. Real source-fail/gold-pass verifiers separately establish bounded NPU behavior. |
 | 3. Cognitive load | This remains an explicit maintainer benchmark with fresh native profiles, not a new end-user activation or closing ceremony. Runtime identity checks run internally and report their paths/errors. | No new product setting, personal login copy or approval queue. Independent local CLI help, validation and zero-model demo passed. Product documentation points to the independent component. |
 | 4. Single responsibility | Runner, inference broker, remote slot, capture adapter, scorer and exporter retain their existing boundaries. G adds an import prerequisite and a narrowly scoped `/proc` disappearance handler; no parallel scheduler or retry queue. | Wrong imports fail before workspace/remote/Gateway admission. The postflight fix catches normal process disappearance but leaves permission/I/O failures visible. |
 | 5. Skills give a map | Frozen native Skills remain advisory. Source snapshots preserve their `AGENTS.md`; private ancestors, answers and root client configuration are excluded. Explicit L1 contract tests are separate from engineering tasks. | Actual G3 engineering prompts do not force knowledge calls. Natural non-use is preserved, not corrected by changing prompts after seeing results. General Skill quality remains outside a finite slice. |
-| 6. Historical knowledge is advisory | G2 removes known origins physically; each G3 seed/eval lineage receives only its own captured seed corpus. Held-out captures do not advance later evaluations. Summary navigation never replaces original body identity. | Corpus origin inventory and local consumer package/ref/body checks are explicit. Foreground use requires actual query/explain events. Three defect families do not establish stale-knowledge or universal transfer benefit. |
+| 6. Historical knowledge is advisory | G2 removes known origins physically; each G3 seed/eval lineage receives only its own captured seed corpus. Held-out captures do not advance later evaluations. Summary navigation never replaces original body identity. | Corpus origin inventory and local consumer package/ref/body checks are explicit. Foreground MCP use requires actual query/explain events; observed native shell body reads have their own exact byte and lineage evidence, outside the MCP ranking denominator. Three defect families do not establish stale-knowledge or universal transfer benefit. |
 | 7. On-demand scope | Only requested finite benchmark runs activate fresh profiles, assigned remote slots and local G3 capture. True credentials remain with the parent relay/broker. No public delivery occurs. | No personal Skill/plugin/MCP/auth changes, no public PR/Issue/HF writes, and no foreign process cleanup. Actual preflight admission is repeated per trial rather than inferred from earlier idle cards. |
 | 8. Reuse mature mechanisms | Uses native Codex events/catalogs, MindIE extraction/redaction/capture, LangMem, MaterialStore/ReMe, Git, uv, Seatbelt/bubblewrap and process ownership. CPU tasks use actual locked PyTorch. | Installed G runtime bytes match the frozen commit/package; helper probes use the real interpreter with `-I` and the same grants. Leakage review retains native binary/vendor limits. No serving/HCCL/hostile-tenant claim. |
 | 9. Visible errors | Business results, required cleanup, capture, usage and uncertain external effects remain separate. Unknown requests are never automatically replayed. G's `/proc` fix suppresses only a proven normal exit race; wrong grants and genuine read failures stay visible. | Regression tests distinguish FileNotFoundError from permission/EIO. Original E/F and prior unknown/infra receipts remain untouched. Artifact identity/redaction checks reject unusable exports instead of emitting success. |
@@ -93,10 +174,28 @@ RED/GREEN guard checks and all nine conclusions.
 independent package/runtime review.
 
 A2/A3 final-image task soundness passed for six task variants per hardware.
-The G 90-cell native matrix must be independently audited after termination;
-current successful stages cannot predeclare completion. Final documentation
-and CPU recipes do not change runtime bytes, but their own archive and installed
-readback must record the later delivery commit and artifacts.
+The G 90-cell plan has terminated: each hardware class has 42 actual receipts
+and three blocked evaluations. The full ledger, original incomplete inputs,
+refused freezes and explicitly partial exports were independently audited in
+`model-review/g-final-independent-readback.json` and the accompanying
+`g-{a2,a3}-terminal-audit/` and `g-{a2,a3}-terminal-operations/` records.
+This is not acceptance of a complete G matrix. H's replacement matrix requires
+its own evidence: both hardware plans have now terminated with 44 actual
+receipts and one blocked held-out evaluation each. Their independent audits
+are in `model-review/h-{a2,a3}-terminal-audit/cohort-audit.json`. A2 retains
+39 pass, three business fail and two unknown; A3 retains 39 pass, two business
+fail, one infrastructure failure and two unknown. A3's infrastructure receipt
+also has the late remote uncertainty described in I's review. Its original
+status is preserved and the independent adjudication marks that uncertainty
+explicitly; H is not endorsed as a clean or complete matrix.
+The all-actual JSON/Parquet/HTML exports retain every seed and original status,
+with separately redacted and scanned scope reports showing 45 planned versus
+44 actual cells and the known classification discrepancy. No missing receipt
+or successful subset is substituted for the original plan.
+`h-delivery-source-validation/observed.json` records the 242-test final source
+check. Final documentation and CPU/runtime recipes do not change H's 40 runtime
+files, but their archive and installed readback must record the later delivery
+commit and artifacts.
 
 No public development PR, component Release or plugin Release is created by
 this work. Any future submission must review its final diff again against the

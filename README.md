@@ -15,17 +15,35 @@ reduce-sampler candidates. Each hardware class has independent source-fail /
 gold-pass NPU proof. Four separate CPU task recipes exercise real PyTorch source
 contracts, with their own task identities and soundness requirements.
 
-The H runtime is commit `18e854e`, digest
+The current runtime fix is commit `620949d`, digest
+`ddf64cba66341dbcf87d1ef8c87265fecb54c31a6fbf927f3a84778ebae4c278`.
+The delivery suite passes 252 zero-model tests. The frozen H native
+GPT-6.1-Sol / GPT-5.6-Luna matrix terminated with 88 receipts and two blocked
+cells across its 90 planned A2/A3 cells. Its raw outcomes are 78 pass, five fail,
+one infrastructure failure and four unknowns. Independent audit also found a
+late remote-RPC unknown hidden by that infrastructure receipt; the original
+receipt is preserved. H did not pass complete matrix acceptance.
+
+The I runtime seals remote admission, waits a bounded time for admitted handlers
+and checks uncertainty again before saving the outcome. Its new bounded
+validation passed one RoPE seed/evaluation pair on each hardware class:
+four native passes, real Stop/indexing/local Git/consumer loops, 72 external NPU
+case executions and complete usage for all 78 provider requests. Separate
+zero-model real RPC cases on both clusters verified normal settlement and
+preserved intentional timeout uncertainty. This validates the finite repair
+contract; it is not a rerun of the 90-cell matrix or proof of general benefit.
+H remains bound to its original runtime
 `f922f0dda22d052679523830782dca52736054978d5922d0233926fe62bb8bc9`.
-Its unified zero-model suite passes 235 tests. The preceding frozen G native
-GPT-6.1-Sol / GPT-5.6-Luna cohort is running on A2 and A3, with 45 planned
-cells per hardware class, including required G3 seeds. It exposed a task
+The preceding G run exposed a task
 verifier classification defect and insufficient capture diagnostics, corrected
 and separately tested in H. Original unknown/infra receipts remain intact.
 See [actual acceptance](docs/acceptance.md) for experiment identities,
 terminal evidence and limits; planned cells are not completed cells.
 Native Stop, real indexing, local Git delivery and independent consumer checks
 remain distinct from observed foreground retrieval and effectiveness.
+Four native negative routing tasks and a separate explicit retrieval canary
+have passed. A real native CPU repair passed its independent 18-case judge.
+These are finite additional observations, separate from the Ascend matrix.
 
 There is no claimed initial twelve-task flagship dataset, universal MindIE speedup,
 full-model serving, AscendC or multi-host HCCL acceptance. Original failed and
