@@ -23,7 +23,10 @@ from mindie_bench.models import HarnessConfig, TaskSpec, UnknownExternalEffects
 from mindie_bench.runner.usage import UsageMeter, sum_usage
 from mindie_bench.scorer.command_observations import is_recognized_npu_command
 
-MODEL_SETTLEMENT_GRACE_SEC = 10.0
+_SETTLEMENT_GRACE_SECONDS = float(
+    os.environ.get("MINDIE_BENCH_SETTLEMENT_GRACE_SECONDS", "30.0")
+)
+MODEL_SETTLEMENT_GRACE_SEC = _SETTLEMENT_GRACE_SECONDS
 
 
 class RemoteBudgetExhausted(ValueError):

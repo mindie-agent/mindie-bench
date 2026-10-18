@@ -167,9 +167,14 @@ while True:
         elif request.get("control")=="exchange_stream":
             value=exchange_stream(request)
         else:
+            outer_timeout = (
+                float(request["timeout"]) + 4.0
+                if request.get("timeout") is not None
+                else None
+            )
             result = subprocess.run(["/bin/bash", "-c", request["command"]],
                 input=base64.b64decode(request["stdin_b64"]), stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, timeout=request["timeout"])
+                stderr=subprocess.PIPE, timeout=outer_timeout)
             value = dict(exit_code=result.returncode, stdout_b64=base64.b64encode(result.stdout).decode(),
                 stderr_b64=base64.b64encode(result.stderr).decode())
     except Exception as exc:

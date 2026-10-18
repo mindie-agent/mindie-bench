@@ -303,6 +303,7 @@ class VerifierResult(StrictModel):
     e2e_warm_server_speedup: float | None = Field(default=None, ge=0)
     performance_evidence: dict[str, Any] | None = None
     oracle_status: Literal["intact", "oracle_tampered"] | None = None
+    timed_out: bool = False
     failure_reason: str | None = None
     warnings: list[str] = Field(default_factory=list)
 

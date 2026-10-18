@@ -1,13 +1,88 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from mindie_bench.models import ExperimentConfig, TaskSpec
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _configure_default_test_env() -> None:
+    for env_key, candidates in (
+        (
+            "MINDIE_BENCH_CPU_PYTHON",
+            (
+                Path("/tmp/mindie-bench-cpu-l2-runtime-20261017/venv/bin/python"),
+            ),
+        ),
+        (
+            "MINDIE_BENCH_STALE_PYTHON",
+            (
+                Path("/Volumes/data/code/mindie-release-20261014/codex-interrupt-final-env-20261016/bin/python"),
+                REPO_ROOT.parent / "knowledge/.venv/bin/python",
+            ),
+        ),
+        (
+            "MINDIE_BENCH_STALE_SOURCE_REPO",
+            (
+                REPO_ROOT / "repositories/vllm-ascend-stale-config",
+            ),
+        ),
+        (
+            "MINDIE_BENCH_TEST_MCP_PYTHON",
+            (
+                Path("/Volumes/data/code/mindie-release-20261014/codex-interrupt-final-env-20261016/bin/python"),
+                REPO_ROOT.parent / "knowledge/.venv/bin/python",
+                REPO_ROOT.parent / "remote-dev/.venv/bin/python",
+            ),
+        ),
+        (
+            "MINDIE_BENCH_TEST_CLAUDE_BIN",
+            tuple(
+                Path(p)
+                for p in (shutil.which("claude"), str(Path.home() / ".local/bin/claude"))
+                if p
+            ),
+        ),
+        (
+            "MINDIE_BENCH_TEST_CLAUDE_SCRIPTS",
+            (
+                Path("/Volumes/data/code/mindie-release-20261014/cc/scripts"),
+                REPO_ROOT.parent / "mindie-agent-cc/plugins/mindie/scripts",
+            ),
+        ),
+        (
+            "MINDIE_BENCH_TEST_CODEX_BIN",
+            tuple(
+                Path(p)
+                for p in (shutil.which("codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex")
+                if p
+            ),
+        ),
+        (
+            "MINDIE_BENCH_TEST_CODEX_CATALOG",
+            (
+                Path.home() / ".codex/models_cache.json",
+            ),
+        ),
+    ):
+        if os.environ.get(env_key):
+            continue
+        for candidate in candidates:
+            if candidate.exists():
+                os.environ[env_key] = str(candidate)
+                break
+
+
+_configure_default_test_env()
+
 
 AGENT = """#!{python}
 import json, os, pathlib, subprocess, sys, time

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -152,10 +153,18 @@ def test_host_timing_keeps_original_clock_when_operation_patches_time_module(mon
     assert all(sample.ended_ns - sample.started_ns > 1_000_000 for sample in run.samples)
 
 
+def _cpu_torch_python() -> Path:
+    explicit = os.environ.get("MINDIE_BENCH_CPU_PYTHON")
+    candidates = [Path(explicit)] if explicit else []
+    candidates.append(Path("/tmp/mindie-bench-cpu-l2-runtime-20261017/venv/bin/python"))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    pytest.skip("actual CPU torch control requires MINDIE_BENCH_CPU_PYTHON or CPU torch runtime")
+
+
 def test_actual_cpu_torch_rejects_sync_and_clock_rebinding_before_or_after_execution(tmp_path):
-    interpreter = Path("/tmp/mindie-bench-cpu-l2-runtime-20261017/venv/bin/python")
-    if not interpreter.is_file():
-        pytest.skip("actual CPU torch control requires the existing optional CPU runtime")
+    interpreter = _cpu_torch_python()
     bench = Path(__file__).resolve().parents[1]
     dependency_paths = [
         str(bench / "src"),
@@ -368,6 +377,14 @@ def test_performance_task_cannot_omit_contract_and_legacy_task_remains_valid(cas
     raw["task"]["source"]["task_type"] = "performance_optimization"
     with pytest.raises(ValidationError, match="requires an explicit performance"):
         TaskSpec.model_validate(raw)
+    with pytest.raises(ValidationError):
+        PerformanceContract(private_shape_sha256=[SHAPES[0], SHAPES[0]])
+    with pytest.raises(ValidationError, match="samples must cover"):
+        PerformanceContract(private_shape_sha256=SHAPES, min_buffers=3, samples_per_shape=2)
+    with pytest.raises(ValidationError, match="oracle_tampered requires reward 0"):
+        VerifierResult(
+            reward=1, oracle_status="oracle_tampered", failure_reason="test", warnings=["warning"]
+        )
 
 
 def test_performance_requires_external_binding_and_legacy_speedup_is_only_a_warning(measured):
@@ -380,20 +397,6 @@ def test_performance_requires_external_binding_and_legacy_speedup_is_only_a_warn
     assert "unvalidated" in legacy.warnings[0]
     with pytest.raises(ValueError, match="structured measured evidence"):
         parse_verifier(0, "everything fast", performance_contract=contract)
-
-
-def test_single_private_shape_or_tampered_reward_cannot_be_admitted():
-    with pytest.raises(ValidationError):
-        PerformanceContract(private_shape_sha256=[SHAPES[0], SHAPES[0]])
-    with pytest.raises(ValidationError, match="oracle_tampered requires reward 0"):
-        VerifierResult(
-            reward=1, oracle_status="oracle_tampered", failure_reason="test", warnings=["warning"]
-        )
-
-
-def test_rotation_must_be_admissible_before_any_performance_execution():
-    with pytest.raises(ValidationError, match="samples must cover"):
-        PerformanceContract(private_shape_sha256=SHAPES, min_buffers=3, samples_per_shape=2)
 
 
 def test_graph_probe_actually_calls_capture_and_replay_for_each_shape():

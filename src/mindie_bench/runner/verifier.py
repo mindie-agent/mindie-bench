@@ -220,11 +220,12 @@ _PRIVATE_REMOTE_JUDGE = r"""
 import base64, hashlib, json, os, pathlib, subprocess, sys, time
 payload=json.loads(base64.b64decode(sys.argv[1], validate=True))
 root=pathlib.Path(os.environ["MINDIE_BENCH_ORACLE_ROOT"])
-deadline=time.monotonic()+max(.001, payload["timeout"]-.1)
+deadline=time.monotonic()+max(.001, float(payload["timeout"]))
 receipt=dict(schema_version="mindie-bench-private-oracle/1",
     nonce=os.environ["MINDIE_BENCH_PERFORMANCE_NONCE"],
     manifest_sha256=os.environ["MINDIE_BENCH_ORACLE_SHA256"],
-    probes=[], judge=None, before=None, after=None, tampered=None, original_error=None)
+    probes=[], judge=None, before=None, after=None, tampered=None, original_error=None,
+    timed_out=False)
 class IntegrityError(Exception): pass
 def inventory():
     result={}
@@ -257,6 +258,7 @@ try:
         directory.chmod(0o555)
     root.chmod(0o555)
     receipt["before"]=inventory()
+    deadline=time.monotonic()+max(.001, float(payload["timeout"]))
     for probe in payload["probes"]:
         command=[part.replace("{oracle}", str(root)) for part in probe["command"]]
         observed=execute(command)
@@ -269,6 +271,9 @@ try:
     receipt["judge"]=execute(["/bin/bash", str(root/"verifier/test.sh")])
 except IntegrityError as error:
     receipt["tampered"]=str(error)
+except subprocess.TimeoutExpired as error:
+    receipt["timed_out"]=True
+    receipt["original_error"]=dict(type=type(error).__name__, message=str(error))
 except Exception as error:
     receipt["original_error"]=dict(type=type(error).__name__, message=str(error))
 finally:
@@ -357,10 +362,13 @@ def remote_verifier(
             or envelope.get("manifest_sha256") != oracle_manifest.sha256
         ):
             raise ValueError("private remote oracle receipt identity mismatch")
+        timed_out = bool(envelope.get("timed_out", False))
+        record["timed_out"] = timed_out
         record["oracle"]["private_bundle"] = {
             "before": envelope["before"],
             "after": envelope["after"],
             "transport_exit_code": result["exit_code"],
+            "timed_out": timed_out,
         }
         for index, observed in enumerate(envelope["probes"]):
             stdout = base64.b64decode(observed["stdout_b64"], validate=True)
@@ -379,12 +387,20 @@ def remote_verifier(
             record["returncode"] = judge["returncode"]
         else:
             (trial_dir / "verifier.stderr").write_bytes(transport_stderr)
-        if envelope["original_error"] is not None:
-            record["original_error"] = envelope["original_error"]
-            raise RuntimeError(f"private remote oracle failed: {envelope['original_error']}")
         if envelope["tampered"] is not None:
             value = tampered_verdict(OracleTampered(envelope["tampered"]))
             record["oracle"].update(status="oracle_tampered", error=envelope["tampered"])
+        elif timed_out:
+            record["original_error"] = envelope["original_error"]
+            value = VerifierResult(
+                reward=0.0,
+                oracle_status="intact",
+                timed_out=True,
+                failure_reason=f"verifier timed out after {timeout}s",
+            )
+        elif envelope["original_error"] is not None:
+            record["original_error"] = envelope["original_error"]
+            raise RuntimeError(f"private remote oracle failed: {envelope['original_error']}")
         else:
             if result["exit_code"] != 0:
                 raise RuntimeError(f"private remote oracle cleanup failed (exit={result['exit_code']})")

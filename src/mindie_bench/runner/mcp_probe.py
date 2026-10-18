@@ -13,12 +13,16 @@ import time
 from mindie_bench.io import digest
 from mindie_bench.runner.sandbox import native_command
 
+_STEP_TIMEOUT_SECONDS = float(
+    os.environ.get("MINDIE_BENCH_MCP_PROBE_TIMEOUT_SECONDS", "15.0")
+)
 
-def close_probe(process):
+
+def close_probe(process, timeout: float | None = None):
     """EOF lets a stdio relay close its independently owned backend session."""
     failure = None
     try:
-        process.communicate(timeout=10)
+        process.communicate(timeout=_STEP_TIMEOUT_SECONDS if timeout is None else timeout)
         if process.returncode:
             raise RuntimeError(f"MCP preflight exited with code {process.returncode}")
     except BaseException as error:

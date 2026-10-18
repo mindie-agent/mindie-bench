@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from mindie_bench.io import read_json, safe_relative, tree_hash, write_json
-from mindie_bench.models import Group, GroupConfig, KnowledgeSpec, MCPServer, VerifierResult
+from mindie_bench.models import Group, GroupConfig, KnowledgeSpec, MCPServer
 from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profile, filtered_corpus
 from mindie_bench.runner.verifier import parse_verifier
 
@@ -107,16 +107,12 @@ def test_structured_verifier(reward, code):
         ("SSH failed", 255),
         ('{"reward":0.5}', 0),
         ('{"reward":1,"surprise":1}', 0),
+        ('{"reward":1,"speedup_ratio":NaN}', 0),
     ],
 )
 def test_verifier_infrastructure_is_not_agent_failure(output, code):
     with pytest.raises((ValueError, ValidationError)):
         parse_verifier(code, output)
-
-
-def test_verifier_rejects_invalid_performance():
-    with pytest.raises(ValidationError):
-        VerifierResult(reward=1, speedup_ratio=float("nan"))
 
 
 def test_symlinks_cannot_smuggle_answers(tmp_path):

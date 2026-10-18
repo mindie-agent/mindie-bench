@@ -165,10 +165,18 @@ def test_probe_hash_uses_actual_bytes_without_newline_normalization(judge):
     assert record["oracle"]["probes"][0]["stdout_sha256"] == hashlib.sha256(raw).hexdigest()
 
 
+def _cpu_torch_runtime() -> tuple[Path, Path]:
+    explicit = os.environ.get("MINDIE_BENCH_CPU_PYTHON")
+    candidates = [Path(explicit)] if explicit else []
+    candidates.append(Path("/tmp/mindie-bench-cpu-l2-runtime-20261017/venv/bin/python"))
+    for interpreter in candidates:
+        if interpreter.is_file():
+            return interpreter.parent.parent, interpreter
+    pytest.skip("actual CPU torch control requires MINDIE_BENCH_CPU_PYTHON or CPU torch runtime")
+
+
 def test_actual_torch_comparator_monkeypatch_cannot_turn_negative_control_into_pass(judge):
-    cpu_runtime = Path("/tmp/mindie-bench-cpu-l2-runtime-20261017/venv")
-    if not (cpu_runtime / "bin/python").is_file():
-        pytest.skip("actual CPU torch control requires the existing optional CPU runtime")
+    cpu_runtime, cpu_python = _cpu_torch_runtime()
     root, workspace, profile, trial = judge
     (root / "verifier/torch_control.py").write_text(
         "import importlib.util,os,pathlib\n"
@@ -189,7 +197,7 @@ def test_actual_torch_comparator_monkeypatch_cannot_turn_negative_control_into_p
             OracleProbe(
                 name="actual-torch-assert-close",
                 command=[
-                    str(cpu_runtime / "bin/python"),
+                    str(cpu_python),
                     "-B",
                     "-I",
                     "{oracle}/verifier/torch_control.py",
@@ -220,9 +228,7 @@ def test_actual_torch_comparator_monkeypatch_cannot_turn_negative_control_into_p
 
 @pytest.mark.parametrize("patch_when", ["import", "execute"])
 def test_actual_judge_rejects_torch_patch_that_separate_probe_does_not_observe(judge, patch_when):
-    cpu_runtime = Path("/tmp/mindie-bench-cpu-l2-runtime-20261017/venv")
-    if not (cpu_runtime / "bin/python").is_file():
-        pytest.skip("actual CPU torch control requires the existing optional CPU runtime")
+    cpu_runtime, cpu_python = _cpu_torch_runtime()
     root, workspace, profile, trial = judge
     control = (
         Path(__file__).resolve().parents[1]
@@ -249,7 +255,7 @@ def test_actual_judge_rejects_torch_patch_that_separate_probe_does_not_observe(j
         "print('{\"reward\":1}')\n"
     )
     (root / "verifier/test.sh").write_text(
-        f'exec "{cpu_runtime}/bin/python" -B -I '
+        f'exec "{cpu_python}" -B -I '
         '"${MINDIE_BENCH_ORACLE_ROOT}/verifier/actual_judge.py"\n'
     )
     contract = OracleContract(
@@ -257,7 +263,7 @@ def test_actual_judge_rejects_torch_patch_that_separate_probe_does_not_observe(j
             OracleProbe(
                 name="separate-process-comparator",
                 command=[
-                    str(cpu_runtime / "bin/python"),
+                    str(cpu_python),
                     "-B",
                     "-I",
                     "{oracle}/verifier/separate_probe.py",
