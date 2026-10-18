@@ -99,6 +99,8 @@ def parser():
     export.add_argument("--gitleaks", type=Path, required=True)
     export.add_argument("--tasks-root", "--tasks", dest="tasks_root", type=Path, default=None)
     export.add_argument("--upload-repo", dest="upload_repo", type=str, default=None)
+    export.add_argument("--private", dest="private", action="store_true", default=True)
+    export.add_argument("--public", dest="private", action="store_false")
     return root
 
 
@@ -227,6 +229,7 @@ def main(argv=None):
                 gitleaks=args.gitleaks,
                 tasks_root=args.tasks_root,
                 upload_repo=args.upload_repo,
+                private=args.private,
             )
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0

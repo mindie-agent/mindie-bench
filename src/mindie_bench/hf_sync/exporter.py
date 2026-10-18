@@ -207,6 +207,7 @@ def export_hf(
     gitleaks: Path,
     tasks_root: Path | None = None,
     upload_repo: str | None = None,
+    private: bool = True,
 ) -> dict:
     if output.exists():
         raise FileExistsError("export destination already exists")
@@ -327,6 +328,7 @@ def export_hf(
             manifest_payload["tasks_count"] = len(data["tasks"])
         if upload_repo:
             manifest_payload["repo_id"] = upload_repo
+            manifest_payload["private"] = private
         write_json(staging / "eval_manifest.json", manifest_payload, exclusive=True)
         (staging / "README.md").write_text(
             _dataset_card(data["leaderboard"], has_tasks="tasks" in data)
@@ -353,7 +355,9 @@ def export_hf(
                     if os.environ.get(key, "").lower().startswith("socks"):
                         os.environ.pop(key, None)
             api = HfApi()
-            api.create_repo(repo_id=upload_repo, repo_type="dataset", exist_ok=True)
+            api.create_repo(
+                repo_id=upload_repo, repo_type="dataset", private=private, exist_ok=True
+            )
             api.upload_folder(
                 folder_path=str(staging),
                 repo_id=upload_repo,
@@ -366,4 +370,5 @@ def export_hf(
         summary["tasks"] = len(data["tasks"])
     if upload_repo:
         summary["repo_id"] = upload_repo
+        summary["private"] = private
     return summary
