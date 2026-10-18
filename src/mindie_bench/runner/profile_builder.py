@@ -287,6 +287,17 @@ def build_profile(
             raise ValueError("oracle context exceeds its explicit 128 KiB prompt budget")
         (root / "oracle-context.md").write_text(oracle_text)
     write_json(root / "settings.json", {"disableAllHooks": True, "autoUpdatesChannel": "stable"})
+    dsh_profile = None
+    if config.harness.name == "dsh":
+        dsh_profile = build_dsh_profile(root, env, config, mcp, servers)
+        runtime_root = Path(config.harness.executable).resolve(strict=True)
+        node = shutil.which("node", path=env["PATH"])
+        dsh_roots = [runtime_root]
+        if len(runtime_root.parents) >= 2:
+            dsh_roots += [runtime_root.parents[1], runtime_root.parents[1].parent]
+        if node:
+            dsh_roots.append(Path(node).resolve(strict=True))
+        runtime_paths.extend(path for path in dsh_roots if path.exists())
     fingerprint = {
         "group": group.value,
         "knowledge_mode": knowledge_mode,
@@ -299,6 +310,7 @@ def build_profile(
             name: hashlib.sha256(text.encode()).hexdigest() for name, text in oracle_files.items()
         },
         "model_catalog_sha256": model_catalog_sha256,
+        "dsh_profile": dsh_profile,
         "skills_sha256": skills_fingerprint,
         "corpus_commit": corpus_commit,
         "corpus_view_sha256": corpus_fingerprint,
@@ -326,6 +338,115 @@ def build_profile(
         private_env=private_env,
         knowledge_servers=knowledge_servers,
     )
+
+
+def build_dsh_profile(root: Path, env: dict[str, str], config, mcp: dict, servers: dict) -> dict:
+    """Create an owned headless DSH profile with the benchmark MCP/model row."""
+    import yaml
+
+    dsh_home = root / "dsh-home"
+    profile_dir = dsh_home / "profiles" / "bench"
+    dsh_home.mkdir(mode=0o700, exist_ok=True)
+    create_env = dict(env)
+    create_env.update(
+        DSH_HOME=str(dsh_home),
+        DSH_PROFILE="bench",
+        DSH_PROFILE_DIR=str(profile_dir),
+        HOME=str(root / "home"),
+    )
+    completed = subprocess.run(
+        [
+            config.harness.executable,
+            "--profile",
+            "bench",
+            "--from-default-profile",
+            "headless",
+            "--dump-config",
+        ],
+        env=create_env,
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if completed.returncode != 0:
+        raise ValueError("DSH profile initialization failed: " + (completed.stderr or "")[-2000:])
+    if not (profile_dir / "package.json").is_file():
+        raise ValueError("DSH profile initialization did not create package.json")
+    lines = [
+        "- id: llm-pi-ai",
+        "  name: '@deepseek-ai/dsh-llm-pi-ai'",
+        "  config:",
+        "    providers:",
+        "      bench:",
+        "        api: openai-responses",
+        "        baseURL: !!js process.env.MINDIE_BENCH_GATEWAY + '/v1'",
+        "        apiKeyEnv: MINDIE_BENCH_DUMMY_KEY",
+        "        models:",
+        f"          - id: {json.dumps(config.harness.model)}",
+    ]
+    if config.harness.reasoning_effort:
+        lines.append(f"        reasoning: {json.dumps(config.harness.reasoning_effort)}")
+    lines += [
+        "- id: agent-default-model",
+        "  name: '@deepseek-ai/dsh-agent-default-model'",
+        "  config:",
+        "    provider: bench",
+        f"    model: {json.dumps(config.harness.model)}",
+    ]
+    insert_rows = []
+    if mcp:
+        for name, server in mcp.items():
+            row_id = "bench-mcp-" + "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in name)
+            insert_rows += [
+                f"    - id: {row_id}",
+                "      name: '@deepseek-ai/dsh-mcp-client'",
+                "      config:",
+                f"        serverName: {json.dumps(name)}",
+                "        transport: stdio",
+                f"        command: {json.dumps(str(server['command']))}",
+                "        args: " + json.dumps([str(a) for a in server.get("args", [])]),
+                "        env:",
+                f"          PATH: {json.dumps(env['PATH'])}",
+                "          MINDIE_BENCH_GATEWAY: !!js process.env.MINDIE_BENCH_GATEWAY",
+            ]
+            for key, value in (server.get("env") or {}).items():
+                insert_rows.append(f"          {key}: {json.dumps(str(value))}")
+            insert_rows += [
+                f"        cwd: {json.dumps(str(root))}",
+                "        toolCallTimeoutMs: 600000",
+                "        failOnStartupError: true",
+            ]
+    if (root / "skills").is_dir():
+        insert_rows += [
+            "    - id: bench-skills",
+            "      name: '@deepseek-ai/dsh-skill-filesystem'",
+            "      config:",
+            "        providerName: bench",
+            "        customSkillDirs:",
+            f"          - {json.dumps(str(root / 'skills'))}",
+        ]
+    if insert_rows:
+        lines.append("- insert:")
+        lines.extend(insert_rows)
+    (profile_dir / "cordis.patch.yml").write_text("\n".join(lines) + "\n")
+    # Validate the generated YAML without evaluating the !!js expressions.
+    class Loader(yaml.SafeLoader):
+        pass
+
+    Loader.add_constructor("tag:yaml.org,2002:js", lambda loader, node: loader.construct_scalar(node))
+    yaml.load((profile_dir / "cordis.patch.yml").read_text(), Loader=Loader)
+    env.update(
+        DSH_HOME=str(dsh_home),
+        DSH_PROFILE="bench",
+        DSH_PROFILE_DIR=str(profile_dir),
+        MINDIE_BENCH_DUMMY_KEY="broker-only",
+    )
+    return {
+        "home": str(dsh_home),
+        "profile": "bench",
+        "patch_sha256": hashlib.sha256((profile_dir / "cordis.patch.yml").read_bytes()).hexdigest(),
+    }
 
 
 def knowledge_prompt(profile: Profile) -> str:

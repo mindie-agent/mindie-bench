@@ -234,7 +234,7 @@ class CorpusConfig(StrictModel):
 
 
 class HarnessConfig(StrictModel):
-    name: Literal["codex", "claude-code", "fixture"]
+    name: Literal["codex", "claude-code", "dsh", "fixture"]
     executable: str
     model: str
     expected_version: str
@@ -326,7 +326,7 @@ class ToolResultObservation(StrictModel):
     """Bounded result facts; original tool payloads stay in the private native log."""
 
     schema_version: Literal["mindie-bench-tool-observation/1"] = "mindie-bench-tool-observation/1"
-    source: Literal["codex_mcp", "claude_tool_result", "native_command", "native_file"]
+    source: Literal["codex_mcp", "claude_tool_result", "dsh_tool_result", "native_command", "native_file"]
     classification: Literal[
         "success",
         "business_success",

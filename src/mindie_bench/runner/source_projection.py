@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-HARNESS_CONFIG_PATHS = (".claude", ".codex", ".kimi", ".gemini", ".agents", ".mcp.json")
+HARNESS_CONFIG_PATHS = (".claude", ".codex", ".dsh", ".kimi", ".gemini", ".agents", ".mcp.json")
 
 PROJECTOR = r"""
 import pathlib,shutil,sys
