@@ -1,4 +1,28 @@
-"""The judge runs after agent termination and must distinguish failure from outage."""
+"""Post-agent task verification and private Oracle integrity enforcement.
+
+[Role]
+Executes local or remote verification scripts (`verifier/test.sh`) and negative-control
+Oracle probes after agent execution finishes, separating business failure (`completed_fail`)
+from infrastructure failure (`infra_failed`) and uncertain state (`unknown`).
+
+[Invariants]
+- `returncode == 0` must match `reward == 1.0`; mismatches raise `ValueError` (infra failure).
+- Local and remote Oracle bundles are verified via SHA-256 inventory before and after the judge runs.
+  Any mutation yields `reward=0.0, oracle_status="oracle_tampered"`.
+- A verifier `subprocess.TimeoutExpired` inside `_PRIVATE_REMOTE_JUDGE` is caught before `finally:`
+  runs `inventory()`, returning structured `timed_out=True` so `remote_verifier` records a clean
+  `completed_fail` (`reward=0.0`) rather than `UnknownExternalEffects`.
+
+[Timeouts & Locks]
+- Inner judge timeout: `timeout` (`verifier_timeout_sec`).
+- Remote worker outer timeout: `outer_timeout = timeout + 10.0s` (gives `_PRIVATE_REMOTE_JUDGE`
+  a 10s grace window to run post-timeout `inventory()` and flush its JSON receipt).
+- Host pipe wait: `timeout + 15.0s`.
+
+[Side-Effect Policy]
+- Staging the remote private Oracle uses a `mktemp -d "${TMPDIR}/mindie-oracle.XXXXXX"` directory
+  protected by `chmod 0444/0555` during execution and removed by an `EXIT` trap afterwards.
+"""
 
 from __future__ import annotations
 

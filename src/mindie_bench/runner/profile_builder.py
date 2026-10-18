@@ -1,4 +1,25 @@
-"""Fresh profiles and physically filtered corpus views, never personal profiles."""
+"""Trial profile materialization and physically filtered corpus projection.
+
+[Role]
+Builds isolated per-trial home directories (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `KIMI_HOME`,
+`DSH_HOME`), MCP configurations (`mcp.json`), and physically filtered Markdown corpus views
+for `G0`..`G3` ablation groups.
+
+[Invariants]
+- Personal credentials (`GITHUB_TOKEN`, `SSH_AUTH_SOCK`, cloud keys, host session IDs) are never
+  inherited into `profile.env`.
+- `filtered_corpus` physically excludes `same_origin_task_hashes` (when required by group/gradient)
+  and rejects non-Markdown files (such as prebuilt `.sqlite` indexes) to prevent data leakage.
+- Component Python executables preserve their virtualenv path (`Path.absolute()`) without
+  dereferencing symlinks to the base system interpreter.
+
+[Timeouts & Locks]
+- Headless DSH profile initialization (`--dump-config`): `120.0s` subprocess timeout.
+
+[Side-Effect Policy]
+- Writes only inside `trial_dir / "profile"` and `trial_dir / "knowledge-private"` (`0o700`),
+  including a bare local Git remote (`local_knowledge.git`) with `publication_policy="local-only"`.
+"""
 
 from __future__ import annotations
 
@@ -75,7 +96,6 @@ def bind_mcp_transport(profile: Profile):
 def filtered_corpus(source: Path, destination: Path, excluded: set[str]) -> str:
     if not (source / "tasks").is_dir():
         raise ValueError("corpus must contain tasks/")
-    tree_hash(source)
     destination.mkdir()
     for package in sorted((source / "tasks").iterdir()):
         if not package.is_dir():

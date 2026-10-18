@@ -1,7 +1,21 @@
-"""File identity and explicit negative controls for an externally isolated judge.
+"""Cryptographic file inventory and negative-control verification for task Oracles.
 
-The caller must freeze before foreground admission and keep the manifest outside
-the agent's grants. Hashes cannot detect arbitrary in-memory Python attacks.
+[Role]
+Freezes SHA-256 digests of protected task Oracle files (`verifier/`, `oracle/`, `task.toml`,
+and `contract.protected_paths`) before foreground agent admission and verifies them before/after
+the verifier executes.
+
+[Invariants]
+- `freeze_oracle` must be called before any foreground agent process starts and kept in parent memory.
+- Any missing file, content SHA-256 mismatch, contract mutation, or failed negative-control
+  `OracleProbe` raises `OracleTampered`, which converts the verdict to `reward=0.0,
+  oracle_status="oracle_tampered"`.
+
+[Timeouts & Locks]
+- Pure synchronous local file hashing; zero subprocesses or locks.
+
+[Side-Effect Policy]
+- Read-only filesystem inspection; never mutates task directories or workspace files.
 """
 
 from __future__ import annotations

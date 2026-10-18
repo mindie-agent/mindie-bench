@@ -1,7 +1,21 @@
-"""Exact initial source visibility in recorded native tool outputs.
+"""Exact initial source blob visibility observer across recorded native tool outputs.
 
-This observes returned bytes independently of command completion. It does not
-identify a semantic root cause, inspect a final workspace, or certify a fix.
+[Role]
+Resolves declared `target_files` against the initial Git commit (`environment.base_commit`)
+or `task_root / "environment"` public assets and scans `native_events.jsonl` to record the
+exact turn and timestamp when the unmodified source blob first appeared in a tool output.
+
+[Invariants]
+- Only actual tool output fields (`command_execution.aggregated_output`, `mcp_tool_call` results,
+  and `tool_result` blocks) are inspected; assistant prose and tool input arguments are ignored.
+- Errors (malformed event lines, missing Git blobs, duplicate call IDs) raise `ValueError`
+  immediately rather than returning an empty observation.
+
+[Timeouts & Locks]
+- Local `git cat-file` / `git ls-tree` subprocesses are bounded to `10.0s` each.
+
+[Side-Effect Policy]
+- Read-only inspection of `environment.repo_path`, `public_root`, and `native_events.jsonl`.
 """
 
 from __future__ import annotations
