@@ -31,6 +31,12 @@ def normalize_tool(name: str, server: str | None, components: dict) -> tuple[str
 def driver_for(name: str):
     from .claude_code import ClaudeCodeDriver
     from .codex import CodexDriver
+    from .dsh import DshDriver
     from .fixture import FixtureDriver
 
-    return {"codex": CodexDriver, "claude-code": ClaudeCodeDriver, "fixture": FixtureDriver}[name]()
+    return {
+        "codex": CodexDriver,
+        "claude-code": ClaudeCodeDriver,
+        "dsh": DshDriver,
+        "fixture": FixtureDriver,
+    }[name]()

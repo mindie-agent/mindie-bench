@@ -451,3 +451,32 @@ def summarize_tool_observations(calls: list[ToolCall]) -> dict:
             "business exits include requested cancellation and must be read with outcome/status."
         ),
     }
+
+
+def observe_dsh_result(event: dict, call: ToolCall) -> ToolResultObservation:
+    """Normalize the DSH headless tool_result event without prose heuristics."""
+    payload = event.get("result")
+    if isinstance(payload, str):
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            parsed = payload
+        payload = parsed
+    status = event.get("status")
+    error = event.get("error")
+    observed = _observation(
+        call,
+        payload,
+        source="dsh_tool_result",
+        native_status=status,
+        error=error,
+    )
+    if (
+        observed.classification == "unclassified"
+        and status == "completed"
+        and not error
+        and call.component is None
+    ):
+        observed.classification = "success"
+        observed.classification_reason = "explicit_native_tool_success"
+    return observed

@@ -4,8 +4,8 @@ An independent evaluation component for MindIE Agent completion rate and total
 engineering cost. It holds the native harness, model, task and budget constant
 while comparing remote tools, public knowledge and cross-task experience.
 
-The runner uses fresh native Codex or Claude Code profiles, OS sandboxes, plain
-source snapshots, external verifiers and finite G0-G3 experiment matrices.
+The runner uses fresh native Codex, Claude Code or DSH profiles, OS sandboxes,
+plain source snapshots, external verifiers and finite G0-G3 experiment matrices.
 Knowledge lives outside foreground file grants and is accessed through the real
 MCP service. G3 connects the actual Codex or Claude Code Stop and transcript
 to deterministic redaction, model-generated navigation, a corpus quality gate,
@@ -26,6 +26,11 @@ revisions and task configuration. Personal client logins are not copied.
 Existing attempts are never overwritten or automatically resumed.
 During development, test only the changed modules. Run the complete test suite
 and packaging check once when the stage is ready for delivery.
+
+DSH is a first-class native harness for L1/L2 G0-G2. It runs a fresh headless
+profile through the benchmark model broker and MCP/skill rows; G3 native capture
+is currently Codex/Claude-only. See [usage and contracts](docs/usage.md#dsh-headless-harness) and the
+[measured acceptance](docs/dsh-harness-acceptance.md).
 
 ## Datasets
 

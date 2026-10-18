@@ -371,6 +371,7 @@ def run_trial(
             Path.home() / ".codex",
             Path.home() / ".claude",
             Path.home() / ".kimi-code",
+            Path.home() / ".dsh",
             *[Path(path).resolve(strict=True) for path in config.knowledge_runtime_read_paths],
         ]
         if profile.private_root:
@@ -384,7 +385,7 @@ def run_trial(
         binary = Path(config.harness.executable).resolve(strict=True)
         fingerprint["harness_binary_sha256"] = hashlib.sha256(binary.read_bytes()).hexdigest()
         version_cmd = native_command(
-            [str(binary), "--version"],
+            [str(Path(config.harness.executable).absolute()), "--version"],
             read=paths,
             write=[profile.root],
             cwd=profile.root,
@@ -401,6 +402,8 @@ def run_trial(
             raise ValueError(
                 f"harness version mismatch: expected {config.harness.expected_version!r}, got {version!r}"
             )
+        if group == Group.G3 and config.harness.name == "dsh":
+            raise ValueError("G3 native capture is not supported for the dsh harness")
         if group == Group.G3:
             fingerprint["capture_git_preflight"] = probe_capture_git(profile, paths, trial_dir)
         if tier == "l3":
@@ -448,6 +451,16 @@ def run_trial(
                 ANTHROPIC_API_KEY="broker-only",
                 ANTHROPIC_BASE_URL=gateway.url,
             )
+            if config.harness.name == "dsh":
+                profile.env.update(
+                    DSH_HOME=profile.env["DSH_HOME"],
+                    DSH_PROFILE="bench",
+                    DSH_PROFILE_DIR=profile.env["DSH_PROFILE_DIR"],
+                    MINDIE_BENCH_DUMMY_KEY="broker-only",
+                    # The benchmark runner already confines the whole native
+                    # process. A nested DSH Seatbelt attempt would fail.
+                    DSH_PERMISSION_MODE="danger-full-access",
+                )
             bind_mcp_transport(profile)
             fingerprint["mcp_config"] = profile.fingerprint["mcp_config"]
             if config.backend == "native":

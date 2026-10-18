@@ -487,7 +487,7 @@ class Gateway(AbstractContextManager):
                         "Content-Type": "application/json",
                         "Accept": self.headers.get("Accept", "*/*"),
                     }
-                    if gateway.harness.name == "codex":
+                    if gateway.harness.name in {"codex", "dsh"}:
                         headers["Authorization"] = "Bearer " + gateway.api_key
                     else:
                         headers["x-api-key"] = gateway.api_key

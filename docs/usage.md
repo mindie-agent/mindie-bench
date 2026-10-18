@@ -99,6 +99,36 @@ the default `"advisory"` condition leaves activation to the Agent.
 physically filtered corpus. Oracle content is fingerprinted and labelled
 separately; it cannot reintroduce excluded same-origin material.
 
+## DSH headless harness
+
+`harness.name = "dsh"` runs the installed launcher as a fresh headless profile.
+The runner creates an owned `DSH_HOME/profiles/bench`, overrides the existing
+`llm-pi-ai` row with an OpenAI Responses route through the benchmark broker, and
+inserts the selected MCP servers and skill directory. The profile never reads a
+personal DSH profile.
+
+```toml
+[harness]
+name = "dsh"
+executable = "/absolute/path/to/dsh"
+expected_version = "0.2.0-rc.2"
+model = "EXPLICIT_OPENAI_RESPONSES_MODEL"
+provider_url = "https://provider.example/v1"
+api_key_env = "MINDIE_BENCH_PROVIDER_KEY"
+```
+
+The broker receives DSH's `/v1/responses` request and forwards it with the
+provider credential. The runner sets `MINDIE_BENCH_GATEWAY` and the profile's
+`baseURL` evaluates it at load time; `apiKeyEnv` is the broker-only placeholder.
+The headless JSON stream supplies the native session id, turn/step status,
+tool calls/results, per-step token counters and the terminal turn reason.
+
+The outer benchmark sandbox already confines the harness process, so the DSH
+profile is launched with `DSH_PERMISSION_MODE=danger-full-access`; a nested DSH
+Seatbelt would fail on macOS. G0, G1 and G2 are supported. G3 native capture is
+unsupported for DSH because the benchmark capture adapter currently consumes
+the Codex/Claude native Stop and transcript protocols.
+
 ## Task contract
 
 ```toml
