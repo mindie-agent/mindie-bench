@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 
@@ -51,9 +52,9 @@ def git(repo, *args):
     ).stdout.strip()
 
 
-@pytest.fixture
-def case(tmp_path):
-    repo = tmp_path / "source"
+@pytest.fixture(scope="session")
+def _case_source_template(tmp_path_factory):
+    repo = tmp_path_factory.mktemp("case-source-template") / "source"
     repo.mkdir()
     git(repo, "init", "-q")
     (repo / "module.py").write_text("VALUE = 1\n")
@@ -68,7 +69,40 @@ def case(tmp_path):
         "-qm",
         "synthetic failing source",
     )
-    commit = git(repo, "rev-parse", "HEAD")
+    return repo, git(repo, "rev-parse", "HEAD")
+
+
+@pytest.fixture(scope="session")
+def _corpus_source_template(tmp_path_factory):
+    root = tmp_path_factory.mktemp("corpus-source-template") / "corpus-source"
+    root.mkdir()
+    for identity in ["origin", "analogy", "stale"]:
+        package = root / "tasks" / identity
+        (package / "materials").mkdir(parents=True)
+        (package / "PACKAGE.md").write_text(f"# {identity}\nNPU ACLGraph debug pytest\n")
+        (package / "materials/0001.md").write_text(
+            "Historical trace: NPU error; pytest failed then fixed.\n"
+        )
+    git(root, "init", "-q")
+    git(root, "add", ".")
+    git(
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "synthetic advisory corpus",
+    )
+    return root, git(root, "rev-parse", "HEAD")
+
+
+@pytest.fixture
+def case(tmp_path, _case_source_template):
+    template_repo, commit = _case_source_template
+    repo = tmp_path / "source"
+    shutil.copytree(template_repo, repo)
     task_root = tmp_path / "task"
     (task_root / "verifier").mkdir(parents=True)
     (task_root / "oracle").mkdir()
@@ -137,26 +171,8 @@ replay_commands = ["pytest"]
 
 
 @pytest.fixture
-def corpus(tmp_path):
+def corpus(tmp_path, _corpus_source_template):
+    template_root, commit = _corpus_source_template
     root = tmp_path / "corpus-source"
-    root.mkdir()
-    for identity in ["origin", "analogy", "stale"]:
-        package = root / "tasks" / identity
-        (package / "materials").mkdir(parents=True)
-        (package / "PACKAGE.md").write_text(f"# {identity}\nNPU ACLGraph debug pytest\n")
-        (package / "materials/0001.md").write_text(
-            "Historical trace: NPU error; pytest failed then fixed.\n"
-        )
-    git(root, "init", "-q")
-    git(root, "add", ".")
-    git(
-        root,
-        "-c",
-        "user.name=Fixture",
-        "-c",
-        "user.email=fixture@example.invalid",
-        "commit",
-        "-qm",
-        "synthetic advisory corpus",
-    )
-    return root, git(root, "rev-parse", "HEAD")
+    shutil.copytree(template_root, root)
+    return root, commit

@@ -36,6 +36,9 @@ def trial(case, **kwargs):
     ],
 )
 def test_end_to_end_four_state_runner(case, mode, status):
+    if mode == "sleep":
+        toml = case["task"] / "task.toml"
+        toml.write_text(toml.read_text().replace("timeout_sec = 3", "timeout_sec = 1"))
     (case["task"] / "instruction.md").write_text(f"mode={mode}\n")
     result = trial(case)
     assert result.terminal_status.value == status, result.model_dump_json(indent=2)

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -333,8 +334,24 @@ def export_hf(
         if upload_repo:
             try:
                 from huggingface_hub import HfApi
-            except ImportError as exc:
-                raise RuntimeError("Hugging Face upload requires huggingface_hub") from exc
+            except ImportError:
+                for candidate in sorted(
+                    (Path.home() / ".local/share/uv/tools/huggingface-hub/lib").glob(
+                        "python*/site-packages"
+                    )
+                ):
+                    if str(candidate) not in sys.path:
+                        sys.path.append(str(candidate))
+                try:
+                    from huggingface_hub import HfApi
+                except ImportError as exc:
+                    raise RuntimeError("Hugging Face upload requires huggingface_hub") from exc
+            try:
+                import socksio  # noqa: F401
+            except ImportError:
+                for key in ("ALL_PROXY", "all_proxy"):
+                    if os.environ.get(key, "").lower().startswith("socks"):
+                        os.environ.pop(key, None)
             api = HfApi()
             api.create_repo(repo_id=upload_repo, repo_type="dataset", exist_ok=True)
             api.upload_folder(
