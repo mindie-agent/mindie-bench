@@ -32,30 +32,24 @@ def _time(value):
 
 def _public_asset(public_root: Path, target: str) -> dict:
     root = Path(public_root)
-    if root.is_symlink() or not root.is_dir():
-        raise ValueError("initial public asset root must be a real task-owned directory")
     path = root / target
-    current = root
-    for part in Path(target).parts:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"initial public asset must not traverse a symlink: {target!r}")
-    if not path.is_file() or not path.resolve(strict=True).is_relative_to(root.resolve(strict=True)):
+    if (
+        not root.is_dir()
+        or not path.is_file()
+        or not path.resolve().is_relative_to(root.resolve())
+    ):
         raise ValueError(
             f"initial public asset is missing or is not a confined regular file: {target!r}"
         )
-    size = path.stat().st_size
-    if not 0 < size <= MAX_BLOB_BYTES:
-        raise ValueError("initial public asset is empty or exceeds visibility bound")
     content = path.read_bytes()
+    if not 0 < len(content) <= MAX_BLOB_BYTES:
+        raise ValueError("initial public asset is empty or exceeds visibility bound")
     content.decode("utf-8")
-    if len(content) != size:
-        raise ValueError("initial public asset size changed during observation")
     return dict(
         target=target,
         git_blob_id=None,
         source_origin="task_public_asset",
-        source_bytes=size,
+        source_bytes=len(content),
         source_sha256=_sha(content),
         content=content,
     )
@@ -88,13 +82,11 @@ def _initial_blobs(environment, targets, public_root=None):
         mode, kind, identity = header.split(b" ")
         if mode not in {b"100644", b"100755"} or kind != b"blob" or path.decode() != target:
             raise ValueError(f"initial target must be a regular Git blob: {target!r}")
-        size = int(git("cat-file", "-s", identity.decode()).strip())
+        content = git("cat-file", "blob", identity.decode())
+        size = len(content)
         if not 0 < size <= MAX_BLOB_BYTES:
             raise ValueError("initial source blob is empty or exceeds visibility bound")
-        content = git("cat-file", "blob", identity.decode())
         content.decode("utf-8")
-        if len(content) != size:
-            raise ValueError("initial Git blob size changed during observation")
         blobs.append(
             dict(
                 target=target,

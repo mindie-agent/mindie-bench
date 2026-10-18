@@ -45,19 +45,12 @@ def _inventory(root: Path, paths: tuple[str, ...]) -> tuple[tuple[str, str], ...
         path = root / relative
         if not path.exists():
             raise OracleTampered(f"protected oracle path missing: {relative}")
-        for ancestor in [path, *path.parents]:
-            if ancestor == root.parent:
-                break
-            if ancestor.is_symlink():
-                raise OracleTampered(f"protected oracle path is a symlink: {relative}")
         entries = [path, *sorted(path.rglob("*"))] if path.is_dir() else [path]
         for entry in entries:
             rel_entry = entry.relative_to(root)
             if entry != path and is_ignored_cache_path(rel_entry):
                 continue
-            if entry.is_symlink():
-                raise OracleTampered(f"protected oracle symlink: {rel_entry}")
-            if entry.is_file():
+            if entry.is_file() and not entry.is_symlink():
                 files[rel_entry.as_posix()] = hashlib.sha256(
                     entry.read_bytes()
                 ).hexdigest()

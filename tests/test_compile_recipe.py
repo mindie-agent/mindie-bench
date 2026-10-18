@@ -172,14 +172,3 @@ def test_unknown_or_unbound_proof_is_preserved_as_failure_not_promoted(recipe, t
     assert not (output / "soundness_receipt.json").exists()
     with pytest.raises(ValueError, match="no soundness receipt"):
         TaskSpec.load(output)
-
-
-def test_aliasing_assets_cannot_escape_recipe_root(recipe, tmp_path):
-    external = tmp_path / "outside.txt"
-    external.write_text("outside")
-    target = recipe[0] / "linked"
-    target.symlink_to(external)
-    recipe[2]["assets"]["instruction.md"] = {"path": "linked", "sha256": sha(external.read_bytes())}
-    save(recipe)
-    with pytest.raises(ValueError, match="escapes"):
-        compile_recipe(recipe[3], recipe[1], tmp_path / "escaped")

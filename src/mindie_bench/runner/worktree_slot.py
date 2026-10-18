@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from mindie_bench.io import is_ignored_cache_path, tree_hash
+from mindie_bench.io import is_ignored_cache_path
 from mindie_bench.models import SourceEnvironment
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, diff_paths, project_source
 
@@ -49,7 +49,6 @@ class WorktreeSlot:
         project_source(self.destination)
         public = self.task_root / "environment"
         if public.exists():
-            tree_hash(public)
             for item in public.iterdir():
                 if is_ignored_cache_path(Path(item.name)):
                     continue

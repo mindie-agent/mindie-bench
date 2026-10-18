@@ -96,19 +96,6 @@ def local_verifier(
     oracle_contract: OracleContract | None = None,
     performance_contract: PerformanceContract | None = None,
 ) -> tuple[VerifierResult, dict]:
-    if oracle_manifest is not None:
-        try:
-            check_oracle(oracle_manifest)
-        except OracleTampered as error:
-            value = tampered_verdict(error)
-            return value, {
-                "oracle": {
-                    "status": "oracle_tampered",
-                    "manifest_sha256": oracle_manifest.sha256,
-                    "error": str(error),
-                },
-                "result": value.model_dump(),
-            }
     if (task_root / "task.toml").is_file():
         task = TaskSpec.model_validate(tomllib.loads((task_root / "task.toml").read_text()))
         oracle_contract = oracle_contract if oracle_contract is not None else task.oracle

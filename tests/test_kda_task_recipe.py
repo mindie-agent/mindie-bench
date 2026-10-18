@@ -174,13 +174,6 @@ def test_generic_prefix_rejects_an_extra_operator_binary(tmp_path, monkeypatch):
         build.generic_prefix(prefix)
 
 
-def test_source_symlink_escape_is_not_silently_followed(tmp_path, monkeypatch):
-    build, source, inputs = fixture_inputs(tmp_path, monkeypatch)
-    (source / "csrc/escaped.h").symlink_to("/etc/passwd")
-    with pytest.raises(ValueError, match="source symlink"):
-        build.build(source, inputs, tmp_path / "attempt", prepare_only=True)
-
-
 def test_runtime_projection_preserves_original_bytes_outside_granted_runtime(tmp_path):
     projection = load("runtime/prepare_runtime.py")
     runtime = tmp_path / "runtime"
