@@ -74,6 +74,7 @@ class ReleaseTarget(StrictModel):
     version: str = Field(min_length=1)
     required_cases: list[str] = Field(min_length=1)
     platforms: list[str] = Field(min_length=1)
+    runner_revision: str | None = Field(default=None, pattern=r"^[a-f0-9]{40}$")
 
 
 class ReleaseManifest(StrictModel):
@@ -171,10 +172,12 @@ class Environment(StrictModel):
 class Tool(StrictModel):
     name: Literal["mindie-bench"]
     version: str
+    source: Source | None = None
+    source_after: Source | None = None
 
 
 class BenchmarkReport(StrictModel):
-    schema_version: Literal["mindie-release-benchmark/1"]
+    schema_version: Literal["mindie-release-benchmark/1", "mindie-release-benchmark/2"]
     repository: str = Field(pattern=r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
     version: str = Field(pattern=r"^[a-zA-Z0-9_.+-]+$")
     source: Source
@@ -191,6 +194,11 @@ class BenchmarkReport(StrictModel):
 
     @model_validator(mode="after")
     def gate_matches_evidence(self):
+        if self.release_gate and self.schema_version == "mindie-release-benchmark/2":
+            before, after = self.tool.source, self.tool.source_after
+            if (before is None or after is None or before.dirty or after.dirty
+                    or before.revision != after.revision):
+                raise ValueError("release gate contradicts runner source evidence")
         if self.release_gate and (
             self.source.dirty or self.source_after.dirty
             or self.source.revision != self.source_after.revision
