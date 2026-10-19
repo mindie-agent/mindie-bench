@@ -203,6 +203,10 @@ def _study(study, rows, sources, runner_patches, source_patches, excluded):
             problems.append(f"identity_mismatch:{row.trial_id}")
         if row.terminal_status not in VALID or row.errors:
             problems.append(f"unsettled_trial:{row.trial_id}")
+        if "budget" in study and env.get("budget") != study["budget"]:
+            problems.append(f"suite_budget_mismatch:{row.trial_id}")
+        if "task_base_commits" in study and env.get("base_commit") != study["task_base_commits"].get(row.instance_id):
+            problems.append(f"suite_base_mismatch:{row.trial_id}")
         if row.primary_metrics.get("tokens", {}).get("complete") is not True:
             problems.append(f"token_metering_incomplete:{row.trial_id}")
         if row.primary_metrics.get("delivery_wall_clock_sec") is None:

@@ -148,6 +148,26 @@ def test_targeted_runner_repair_preserves_existing_results_without_relaxing_mode
     assert not evaluate(suite, inputs)["release_gate"]
 
 
+def test_fixed_suite_rejects_changing_both_sides_budget_or_target_checkout():
+    suite, inputs = evidence()
+    controls = inputs["studies"]["dp2"][0]["environment_fingerprint"]
+    suite["studies"][0].update(
+        budget=copy.deepcopy(controls["budget"]),
+        task_base_commits={
+            inputs["studies"]["dp2"][0]["instance_id"]: controls["base_commit"]
+        },
+    )
+    inputs["suite_identity"] = digest(suite)
+    assert evaluate(suite, inputs)["release_gate"]
+    for row in inputs["studies"]["dp2"]:
+        row["environment_fingerprint"]["budget"]["max_turns"] += 10
+        row["environment_fingerprint"]["base_commit"] = "easier-target"
+    report = evaluate(suite, inputs)
+    assert not report["release_gate"]
+    assert any("suite_budget_mismatch" in reason for reason in report["blocking_reasons"])
+    assert any("suite_base_mismatch" in reason for reason in report["blocking_reasons"])
+
+
 def test_public_projection_retains_measurements_without_native_paths_or_messages():
     _, inputs = evidence()
     raw = inputs["studies"]["dp2"][0]
