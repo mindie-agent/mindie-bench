@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "enabled": false,
+  "checks": [],
+  "reason": "Real CPU execution is required; no string-pattern or NPU replay configured."
+}
