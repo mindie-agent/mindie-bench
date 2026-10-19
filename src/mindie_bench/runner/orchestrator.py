@@ -428,8 +428,8 @@ def run_trial(
             raise ValueError(
                 f"harness version mismatch: expected {config.harness.expected_version!r}, got {version!r}"
             )
-        if group == Group.G3 and config.harness.name == "dsh":
-            raise ValueError("G3 native capture is not supported for the dsh harness")
+        if group == Group.G3 and config.harness.name in {"dsh", "kimi"}:
+            raise ValueError(f"G3 native capture is not supported for the {config.harness.name} harness")
         if group == Group.G3:
             fingerprint["capture_git_preflight"] = probe_capture_git(profile, paths, trial_dir)
         if tier == "l3":

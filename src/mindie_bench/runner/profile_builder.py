@@ -318,6 +318,11 @@ def build_profile(
         if node:
             dsh_roots.append(Path(node).resolve(strict=True))
         runtime_paths.extend(path for path in dsh_roots if path.exists())
+    if config.harness.name == "kimi":
+        from mindie_bench.runner.kimi_profile import build_kimi_profile
+
+        build_kimi_profile(root, env, config)
+        runtime_paths.append(Path(config.harness.executable).resolve(strict=True).parent)
     fingerprint = {
         "group": group.value,
         "knowledge_mode": knowledge_mode,

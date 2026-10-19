@@ -33,10 +33,12 @@ def driver_for(name: str):
     from .codex import CodexDriver
     from .dsh import DshDriver
     from .fixture import FixtureDriver
+    from .kimi import KimiDriver
 
     return {
         "codex": CodexDriver,
         "claude-code": ClaudeCodeDriver,
         "dsh": DshDriver,
         "fixture": FixtureDriver,
+        "kimi": KimiDriver,
     }[name]()

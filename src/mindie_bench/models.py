@@ -239,7 +239,7 @@ class CorpusConfig(StrictModel):
 
 
 class HarnessConfig(StrictModel):
-    name: Literal["codex", "claude-code", "dsh", "fixture"]
+    name: Literal["codex", "claude-code", "dsh", "kimi", "fixture"]
     executable: str
     model: str
     expected_version: str
