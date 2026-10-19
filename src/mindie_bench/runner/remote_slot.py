@@ -239,6 +239,7 @@ for proc in pathlib.Path("/proc").iterdir():
     finally:
         os.close(fd)
 probe=None
+probe_errors=[]
 for attempt in range(20):
     try:
         probe=json.loads(subprocess.run(cfg["probe_command"],check=True,capture_output=True,
@@ -247,10 +248,12 @@ for attempt in range(20):
                for d in cfg["devices"]):
             break
     except Exception as exc:
-        errors.append(type(exc).__name__+": "+str(exc))
+        probe_errors.append(type(exc).__name__+": "+str(exc))
         break
     time.sleep(.5)
 final={"probe":probe,"errors":errors}
+if probe_errors:
+    final["probe_errors"]=probe_errors
 if path.is_dir():
     try:
         common=subprocess.run(["git","-C",cfg["repo_path"],"rev-parse","--git-common-dir"],
@@ -383,6 +386,7 @@ class RemoteSlot:
         self.cleanup_receipt = self.modified_files = self.stderr_file = None
         self.component_runtime = self.slot_environment = self.tmpdir_backing = None
         self.created = self.closed = self.operation_unknown = False
+        self.cleanup_confirmed = False
         self.public_files: dict[str, str] = {}
         self.read_buffer = b""
 
@@ -783,6 +787,10 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         if self.cleanup_receipt:
             final = self.cleanup_receipt.get("cleanup", {})
             errors.extend(final.get("errors", []))
+            # Namespace completion is independent of whole-device occupancy and
+            # local evidence accounting. Coordinator still checks owner/ports.
+            self.cleanup_confirmed = not errors
+            errors.extend(final.get("probe_errors", []))
             if "files_modified" in final:
                 try:
                     names = final["files_modified"]
@@ -822,7 +830,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                 self.component_runtime.finish(
                     cleanup_confirmed=(
                         (self.process is None and not self.created)
-                        or (self.cleanup_receipt is not None and not errors)
+                        or self.cleanup_confirmed
                     )
                 )
             except Exception as exc:

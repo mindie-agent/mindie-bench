@@ -898,6 +898,9 @@ def run_trial(
                         TerminalStatus.INFRA,
                         "remote postflight failed; preserve separate business verdict",
                     )
+            auxiliary["owned_namespace_cleanup_confirmed"] = getattr(
+                remote, "cleanup_confirmed", None
+            )
             auxiliary["files_modified"] = getattr(remote, "modified_files", None)
             auxiliary["files_modified_scope"] = "remote_judged_workspace"
             auxiliary["files_modified_reason"] = (

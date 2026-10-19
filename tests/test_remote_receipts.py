@@ -85,6 +85,34 @@ def test_remote_inventory_excludes_unchanged_public_inputs_and_keeps_their_delet
     assert slot.modified_files == ["deleted.py", "edited.py", "production.py"]
 
 
+@pytest.mark.parametrize("probe_failure", [False, True])
+def test_postflight_occupancy_or_probe_failure_does_not_retain_drained_owner(
+    case, monkeypatch, probe_failure
+):
+    slot = remote_slot(case)
+    probe = {
+        "0": {"used_mb": 3000, "pids": [2478484], "model": "Ascend910"},
+        "_environment": dict.fromkeys(
+            ["image_digest", "cann", "torch_npu", "driver", "python", "kernel"], "test"
+        ),
+    }
+    final = {"probe": probe, "errors": [], "files_modified": ["production.py"]}
+    if probe_failure:
+        final.update(probe=None, probe_errors=["probe transport failed"])
+    slot.cleanup_receipt = {"cleanup": final}
+    finished = []
+    slot.component_runtime = SimpleNamespace(
+        stop_monitor=lambda: None,
+        finish=lambda **kwargs: finished.append(kwargs["cleanup_confirmed"]),
+    )
+    with pytest.raises(RuntimeError, match="probe transport failed" if probe_failure else "occupied"):
+        slot.close()
+    assert finished == [True]
+    assert slot.cleanup_confirmed
+    assert slot.modified_files == ["production.py"]
+    assert json.loads((case["root"] / "remote_cleanup.json").read_text()) == slot.cleanup_receipt
+
+
 def test_soundness_releases_worker_when_prepare_fails(case, monkeypatch):
     manifest = case["task"] / "task.toml"
     manifest.write_text(

@@ -695,7 +695,13 @@ class ComponentRuntime:
             for task in self.leases.values():
                 self._authority("status", task_id=task["task_id"], no_probe=True)
             raise RuntimeError("coordinator mutation unknown; lease requires read-only reconciliation")
-        self.observe("release_preflight", idle=True)
+        observation_error = None
+        try:
+            self.observe("release_preflight", idle=True)
+        except Exception as exc:
+            # A contaminated measurement must stay visible, but cannot retain
+            # a drained owner's lease. Release independently verifies its guard.
+            observation_error = exc
         for task in self.leases.values():
             if type(task.get("fence_token")) is int:
                 result = self._authority(
@@ -711,6 +717,8 @@ class ComponentRuntime:
                 if result.get("status") != "cancelled":
                     raise RuntimeError("coordinator did not cancel this unlaunched queued task")
         self.diagnostic("slot.lease_released")
+        if observation_error is not None:
+            raise observation_error
         if self.failure:
             raise RuntimeError(f"slot monitoring failed before cleanup: {self.failure}")
 

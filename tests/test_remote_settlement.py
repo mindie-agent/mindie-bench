@@ -276,7 +276,10 @@ def test_unsettled_remote_timeout_skips_both_judge_and_capture(case, corpus, mon
     assert "capture_process" not in receipt.auxiliary_metrics
 
 
-def test_successful_remote_handler_finishes_before_worker_quiesce(case, monkeypatch):
+@pytest.mark.parametrize("occupied_postflight", [False, True])
+def test_successful_remote_handler_finishes_before_worker_quiesce(
+    case, monkeypatch, occupied_postflight
+):
     task = case["task"] / "task.toml"
     task.write_text(
         task.read_text()
@@ -298,6 +301,7 @@ def test_successful_remote_handler_finishes_before_worker_quiesce(case, monkeypa
     class Worker:
         preflight = {"_environment": {"image_digest": "synthetic"}}
         modified_files = ["remote-production.py"]
+        cleanup_confirmed = True
 
         def __init__(self, *args, **kwargs):
             self.path = "/synthetic-owned-slot"
@@ -313,7 +317,8 @@ def test_successful_remote_handler_finishes_before_worker_quiesce(case, monkeypa
             quiesced.append(True)
 
         def close(self):
-            pass
+            if occupied_postflight:
+                raise RuntimeError("NPU device 0 is occupied")
 
     def verifier(*args, **kwargs):
         assert quiesced == [True]
@@ -348,7 +353,13 @@ def test_successful_remote_handler_finishes_before_worker_quiesce(case, monkeypa
         remote.release.set()
         for worker in workers:
             worker.join(timeout=2)
-    assert receipt.terminal_status.value == "completed_pass", receipt.model_dump_json(indent=2)
+    assert receipt.terminal_status.value == (
+        "infra_failed" if occupied_postflight else "completed_pass"
+    ), receipt.model_dump_json(indent=2)
+    if occupied_postflight:
+        assert receipt.auxiliary_metrics["business_terminal_status"] == "completed_pass"
+        assert not receipt.auxiliary_metrics["post_flight_npu_clean"]
+    assert receipt.auxiliary_metrics["owned_namespace_cleanup_confirmed"]
     assert quiesced == [True]
     assert not receipt.auxiliary_metrics["remote_settlement"]["unknown"]
     assert receipt.auxiliary_metrics["files_modified"] == ["remote-production.py"]

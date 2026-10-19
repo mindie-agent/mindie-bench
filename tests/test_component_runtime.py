@@ -264,6 +264,28 @@ def test_cleanup_unknown_retains_leases_without_submitting_release(tmp_path, mon
     assert len(calls) == before
 
 
+def test_finish_releases_owned_leases_but_preserves_foreign_occupancy_failure(tmp_path, monkeypatch):
+    subject = runtime(tmp_path)
+    calls = []
+    fake_components(subject, monkeypatch, calls)
+    subject.acquire()
+
+    def occupied(*args, **kwargs):
+        parsed, authority = telemetry()
+        parsed["devices"][0]["processes"].append({"pid": 2478484, "phy_id": 8})
+        authority["busy"]["8"] = [{"kind": "process", "pid": 2478484}]
+        return physical_observation(parsed, authority, [8], [], 3600, idle=True)
+
+    monkeypatch.setattr(subject, "observe", occupied)
+    with pytest.raises(RuntimeError, match="occupied"):
+        subject.finish(cleanup_confirmed=True)
+    releases = [
+        row[2]["request"] for row in calls
+        if row[1] == "coordinator" and row[2]["request"]["action"] == "release"
+    ]
+    assert [row["fence_token"] for row in releases] == [1, 2]
+    assert all(row["completion_confirmed"] for row in releases)
+
 def active_lease(subject):
     subject.epoch = "fixture-epoch"
     subject.owner_identity = {"pid": 42}
