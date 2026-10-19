@@ -57,9 +57,15 @@ def test_attachment_preparation_is_read_only_and_reuses_only_identical_assets(tm
         pytest.fail("read-only preparation attempted an external write")
 
     monkeypatch.setattr(publisher.subprocess, "run", unexpected_write)
+    collector = dict(observations["runner_release"], dirty=False, editable=False)
+    monkeypatch.setattr("mindie_bench.value_controls.runner_source", lambda: collector)
     options = {
         name: tmp_path / f"{name}.json" for name in ("suite", "evidence", "manifest")
     } | {"output": tmp_path / "views", "fetch": fetch}
+    collector["revision"] = "different-collector"
+    with pytest.raises(ValueError, match="loaded collector source"):
+        publisher.attach(**options)
+    collector["revision"] = observations["runner_release"]["revision"]
     planned = publisher.attach(**options)
     assert [item["status"] for item in planned] == ["ready", "ready"]
     with pytest.raises(ValueError, match="missing value attachment"):
