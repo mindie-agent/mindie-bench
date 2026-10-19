@@ -123,7 +123,11 @@ class WorktreeSlot:
         with self.metadata_edit():
             matches = []
             for entry in (self.admin_path / "worktrees").iterdir():
-                target = (entry / "gitdir").read_text().strip()
+                try:
+                    target = (entry / "gitdir").read_text().strip()
+                except FileNotFoundError:
+                    # Other Git processes do not participate in this runner's lock.
+                    continue
                 if target == str(self.destination / ".git"):
                     matches.append(entry)
             if len(matches) != 1:
