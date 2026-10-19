@@ -54,6 +54,9 @@
     }
   ],
   "id": "product-value-v1",
+  "instrumentation_components": [
+    "coordinator"
+  ],
   "purpose": "Release-to-release task completion, measured delivery cost, cross-task reuse and component behavior.",
   "schema_version": "mindie-value-suite/1",
   "studies": [
