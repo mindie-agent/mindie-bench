@@ -19,6 +19,7 @@ body admission.
 [Side-Effect Policy] No filesystem, network, log, DB, subprocess, or global mutation.
 """
 
+import json
 import re
 from typing import Any, NamedTuple
 
@@ -493,8 +494,28 @@ def audit_problem_closure(
             reason(family_ids, "family_merge_required")
         unresolved(edge, family_ids, outcome.reason, outcome.decision)
 
-    for raw in exposures or []:
+    exposure_queue, seen_exposures = list(exposures or []), set()
+    for raw in exposure_queue:
+        identity = json.dumps(raw, sort_keys=True, separators=(",", ":"))
+        if identity in seen_exposures:
+            continue
+        seen_exposures.add(identity)
         purpose = _text(raw.get("purpose")).casefold()
+        review_receipt = None
+        if purpose == "lineage_review" and lineage_review_receipt_bytes is not None:
+            from .lineage_review import verified_lineage_review_receipt
+
+            review_receipt = verified_lineage_review_receipt(
+                raw,
+                lineage_review_receipt_bytes,
+                assets_by_id=assets_by_id,
+                strong_records=strong_records,
+                candidate_records=candidate_records,
+            )
+        reviewed_lineage = review_receipt is not None
+        if reviewed_lineage:
+            # A receipt authenticates its history, not an exemption for that history.
+            exposure_queue.extend(review_receipt["prior_exposures"])
         body = raw.get("body_exposed") is not False
         family_id = _text(raw.get("family_id"))
         asset_ids = _texts(raw.get("asset_ids"))
@@ -511,11 +532,6 @@ def audit_problem_closure(
             "family_id": family_id,
             "asset_ids": asset_ids,
         }
-        reviewed_lineage = False
-        if purpose == "lineage_review" and lineage_review_receipt_bytes is not None:
-            from .lineage_review import verified_lineage_review_exposure
-
-            reviewed_lineage = verified_lineage_review_exposure(raw, lineage_review_receipt_bytes)
         if reviewed_lineage:
             detail["lineage_review_admission_ref"] = raw["admission_ref"]
             detail["lineage_review_admission_sha256"] = raw["admission_sha256"]
@@ -525,7 +541,12 @@ def audit_problem_closure(
             family["refs"].update(detail["evidence_refs"])
             if not detail["evidence_refs"]:
                 family["reasons"].add("exposure_missing_evidence_ref")
-            if body and family["split"] == "heldout" and purpose != "heldout_task" and not reviewed_lineage:
+            if (
+                body
+                and family["split"] == "heldout"
+                and purpose != "heldout_task"
+                and not reviewed_lineage
+            ):
                 family["exposed"] = True
                 text = (
                     f"{purpose}_exposure_on_heldout"
