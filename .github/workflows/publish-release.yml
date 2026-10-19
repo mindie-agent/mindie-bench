@@ -1,0 +1,145 @@
+name: reusable-publish-release
+
+on:
+  workflow_call:
+    inputs:
+      version-files:
+        description: Newline-separated TOML or JSON manifests that must match the tag
+        type: string
+        default: pyproject.toml
+      setup-command:
+        description: Install the candidate runtime from its declared dependency pins
+        type: string
+        default: uv sync --locked --all-extras
+      python:
+        description: Candidate interpreter relative to checkout
+        type: string
+        default: .venv/bin/python
+      build-command:
+        description: Build deliverables into RELEASE_ASSETS_DIR
+        type: string
+        default: uv build --out-dir "$RELEASE_ASSETS_DIR"
+      node:
+        description: Install Node 22 for frontend or npm package builds
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - name: Match all package versions to the exact tag
+        id: version
+        env:
+          VERSION_FILES: ${{ inputs.version-files }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, re, subprocess, tomllib
+          tag = os.environ["GITHUB_REF_NAME"]
+          assert os.environ["GITHUB_REF_TYPE"] == "tag", "formal releases require an existing tag"
+          assert re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag), "formal releases require vMAJOR.MINOR.PATCH"
+          version = tag[1:]
+          files = os.environ["VERSION_FILES"].splitlines()
+          assert files, "at least one version manifest is required"
+          for filename in files:
+              path = pathlib.Path(filename)
+              if path.suffix == ".toml":
+                  actual = tomllib.loads(path.read_text())["project"]["version"]
+              else:
+                  actual = json.loads(path.read_text())["version"]
+              assert actual == version, f"{filename}: {actual} does not match {tag}"
+          revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          assert revision == os.environ["GITHUB_SHA"], "checkout differs from triggering tag"
+          assert not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"]), "candidate checkout is dirty"
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={version}\n")
+          PY
+
+  benchmark:
+    needs: candidate
+    uses: mindie-agent/mindie-bench/.github/workflows/release-benchmark.yml@a11d981a2d4d138e8ca70b15d1d5084992838c8f
+    with:
+      version: ${{ needs.candidate.outputs.version }}
+      benchmark-ref: a11d981a2d4d138e8ca70b15d1d5084992838c8f
+      setup-command: ${{ inputs.setup-command }}
+      python: ${{ inputs.python }}
+
+  publish:
+    needs: [candidate, benchmark]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.candidate.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Select artifact staging directory
+        run: echo "RELEASE_ASSETS_DIR=$RUNNER_TEMP/release-assets" >> "$GITHUB_ENV"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - if: inputs.node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install the candidate runtime
+        env:
+          SETUP_COMMAND: ${{ inputs.setup-command }}
+        run: bash -e -o pipefail -c "$SETUP_COMMAND"
+      - name: Build release deliverables
+        env:
+          BUILD_COMMAND: ${{ inputs.build-command }}
+        run: |
+          mkdir -p "$RELEASE_ASSETS_DIR"
+          bash -e -o pipefail -c "$BUILD_COMMAND"
+          test -n "$(find "$RELEASE_ASSETS_DIR" -maxdepth 1 -type f -print -quit)"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-benchmarks
+          path: ${{ env.RELEASE_ASSETS_DIR }}
+      - name: Verify benchmark provenance and prepare complete checksums
+        run: |
+          (cd "$RELEASE_ASSETS_DIR" && sha256sum -c benchmark-SHA256SUMS)
+          python - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          assets = pathlib.Path(os.environ["RELEASE_ASSETS_DIR"])
+          report = json.loads((assets / "benchmark-results.json").read_text())
+          assert report["schema_version"] == "mindie-release-benchmark/1"
+          assert report["repository"] == os.environ["GITHUB_REPOSITORY"]
+          assert report["version"] == os.environ["RELEASE_VERSION"]
+          assert report["release_gate"] is True and not report["blocking_reasons"]
+          for key in ("source", "source_after"):
+              assert report[key]["revision"] == os.environ["GITHUB_SHA"]
+              assert report[key]["dirty"] is False
+          required = [case for case in report["cases"] if case["required"]]
+          assert required and all(case["status"] == "pass" for case in required)
+          assert report["suite_sha256"] == hashlib.sha256(pathlib.Path("benchmarks/release.json").read_bytes()).hexdigest()
+          assert not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"]), "build changed candidate source"
+          files = sorted(path for path in assets.iterdir() if path.is_file() and path.name != "SHA256SUMS")
+          (assets / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in files))
+          PY
+      - name: Confirm tag still identifies the measured source
+        run: |
+          git fetch --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/release-check/candidate"
+          test "$(git rev-parse 'refs/release-check/candidate^{commit}')" = "$GITHUB_SHA"
+      - name: Create formal release with benchmark evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$RELEASE_ASSETS_DIR"/* \
+            --verify-tag --target "$GITHUB_SHA" --title "$GITHUB_REF_NAME" \
+            --generate-notes --notes-file "$RELEASE_ASSETS_DIR/benchmark-results.md"
