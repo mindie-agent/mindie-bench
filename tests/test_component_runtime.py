@@ -9,6 +9,7 @@ import pytest
 
 from mindie_bench.integrations.component_runtime import (
     HOST_OBSERVATION,
+    ComponentCallError,
     ComponentRuntime,
     physical_observation,
 )
@@ -261,6 +262,128 @@ def test_cleanup_unknown_retains_leases_without_submitting_release(tmp_path, mon
     with pytest.raises(RuntimeError, match="cleanup unconfirmed"):
         subject.finish(cleanup_confirmed=False)
     assert len(calls) == before
+
+
+def active_lease(subject):
+    subject.epoch = "fixture-epoch"
+    subject.owner_identity = {"pid": 42}
+    task = {
+        "task_id": "owned-slot.master",
+        "fence_token": 7,
+        "agent_id": "mindie-bench",
+        "session_id": subject.trace_id,
+        "container_name": "owned-container",
+        "granted_devices": [8],
+        "granted_service_port": 30000,
+        "pid": 42,
+        "state": "active",
+    }
+    subject.leases = {"master": task}
+    return task
+
+
+def test_not_sent_heartbeat_queries_exact_owner_without_replaying_mutation(tmp_path, monkeypatch):
+    subject = runtime(tmp_path)
+    task = active_lease(subject)
+    requests = []
+    # Captured from final remote-dev's real HostQueue call to a closed loopback SSH port.
+    details = {
+        "type": "RemoteExecutionError",
+        "category": "connection_unavailable",
+        "retryable": True,
+        "submission_state": "not_sent",
+        "message": "SSH RPC unavailable; request was not sent: Connection refused",
+    }
+
+    def call(component, action, **payload):
+        request = payload["request"]
+        requests.append(request)
+        if len(requests) == 1:
+            raise ComponentCallError(details)
+        if request["action"] == "status":
+            return {"status": "ok", "coordination_epoch": subject.epoch, "tasks": [task]}
+        return {"status": "active", "task": task}
+
+    monkeypatch.setattr(subject, "_call", call)
+    subject._heartbeat(task)
+    subject.assert_healthy()
+    assert not subject.unknown
+    assert [row["action"] for row in requests] == ["heartbeat", "status"]
+    assert requests[1]["task_id"] == task["task_id"]
+    assert requests[1]["coordination_epoch"] == subject.epoch
+    subject._heartbeat(task)  # The next scheduled heartbeat remains usable.
+    assert [row["action"] for row in requests] == ["heartbeat", "status", "heartbeat"]
+
+
+@pytest.mark.parametrize("changed", [{"fence_token": 8}, {"session_id": "other-owner"}])
+def test_not_sent_heartbeat_cannot_continue_a_reassigned_lease(tmp_path, monkeypatch, changed):
+    subject = runtime(tmp_path)
+    task = active_lease(subject)
+    requests = []
+
+    def call(component, action, **payload):
+        request = payload["request"]
+        requests.append(request)
+        if request["action"] == "heartbeat":
+            raise ComponentCallError({
+                "message": "connection unavailable",
+                "submission_state": "not_sent",
+                "retryable": True,
+            })
+        return {
+            "status": "ok",
+            "coordination_epoch": subject.epoch,
+            "tasks": [{**task, **changed}],
+        }
+
+    monkeypatch.setattr(subject, "_call", call)
+    with pytest.raises(RuntimeError, match="active owner could not be confirmed"):
+        subject._heartbeat(task)
+    assert [row["action"] for row in requests] == ["heartbeat", "status"]
+    assert not subject.unknown
+
+
+def test_uncertain_heartbeat_stays_unknown_and_is_not_replayed(tmp_path, monkeypatch):
+    subject = runtime(tmp_path)
+    task = active_lease(subject)
+    calls = []
+
+    def call(*args, **kwargs):
+        calls.append(kwargs["request"]["action"])
+        raise ComponentCallError({
+            "message": "RPC disconnected after submission",
+            "submission_state": "uncertain",
+            "retryable": False,
+        })
+
+    monkeypatch.setattr(subject, "_call", call)
+    with pytest.raises(ComponentCallError):
+        subject._heartbeat(task)
+    assert subject.unknown
+    with pytest.raises(RuntimeError, match="unknown"):
+        subject._heartbeat(task)
+    assert calls == ["heartbeat"]
+
+
+def test_real_helper_pipe_preserves_not_sent_failure(tmp_path, monkeypatch):
+    subject = runtime(tmp_path)
+    helper = tmp_path / "component_error.py"
+    helper.write_text(
+        "import json\nprint(json.dumps({'component_error': {"
+        "'message': 'SSH RPC unavailable; request was not sent', "
+        "'category': 'connection_unavailable', 'submission_state': 'not_sent', "
+        "'retryable': True}}))\n"
+    )
+    start = subprocess.Popen
+
+    def launch(command, **kwargs):
+        return start([*command[:-1], str(helper)], **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", launch)
+    with pytest.raises(ComponentCallError) as error:
+        subject._authority("heartbeat", task_id="owned-slot.master", fence_token=7)
+    assert error.value.submission_state == "not_sent"
+    assert not subject.unknown
 
 
 def test_acknowledged_helper_cleanup_uses_owner_pipe_without_signalling_a_reaped_group(
