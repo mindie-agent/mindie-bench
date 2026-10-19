@@ -14,7 +14,7 @@
     },
     "instruction.md": {
       "path": "assets/instruction.md",
-      "sha256": "94ff2061a4dc0b2ad10c998d0fd0dddbdb58911e4ea32cf6530ff262c5c884a1"
+      "sha256": "d93fc3544f6e926a6f2584500d09b2b13383cec944286f9920643d22a16c4cbc"
     },
     "oracle/gold_patch.diff": {
       "path": "assets/oracle/gold_patch.diff",
@@ -91,7 +91,7 @@
       "difficulty": "medium",
       "domain_category": "agent_protocol",
       "evidence": "candidate",
-      "instance_id": "publication-export-seed",
+      "instance_id": "publication-export-seed-v2",
       "role": "seed",
       "source": {
         "fix_commit": "23b1516907edfcccf55243f141f414f1d4b8d535",

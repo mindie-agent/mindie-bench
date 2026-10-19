@@ -6,7 +6,7 @@ one input:
 
 | Task | Historical boundary |
 | --- | --- |
-| `publication-export-seed` | `build_batch` must report rejected entries while retaining unrelated valid staging. Base `e65b05c`, fix `23b1516`, limited to `export.py`. |
+| `publication-export-seed-v2` | `build_batch` must report rejected entries while retaining unrelated valid staging. Base `e65b05c`, fix `23b1516`, limited to `export.py`. |
 | `publication-submit-eval` | `PublicationWorker.submit` must return its transport result and preserve it when later local cleanup fails. Base `23b1516`, fix `b1d8d92`. |
 | `publication-flush-eval` | Outer `flush` must retain confirmed or genuinely unknown transport outcomes across quarantine, local receipt and cleanup errors without replay. Same historical revisions, different entry and composite contract. |
 
@@ -33,6 +33,11 @@ This is one historical publication failure family with fixture transport around
 real Store/SQLite/worker behavior. It does not measure a live GitHub publication,
 NPU performance, independent component benefits, or general cross-project
 transfer. A ceiling result or a capture failure remains part of the result.
+
+Seed v2 states the caller-facing exception attributes required by the judge.
+The original seed omitted this public interface while checking it privately;
+its recorded attempts are excluded from repair success rates, with their cost
+retained separately. Eval task definitions and digests are unchanged.
 
 Materialize with the existing entry:
 
