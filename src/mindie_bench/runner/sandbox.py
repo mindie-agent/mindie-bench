@@ -24,6 +24,7 @@ def native_command(
     policy_path: Path,
     gateway_port: int | None = None,
     gateway_socket: Path | None = None,
+    directory_watchers: bool = False,
 ) -> list[str]:
     system = platform.system()
     if system == "Darwin":
@@ -60,6 +61,12 @@ def native_command(
             lines.append(f"(allow file-read* ({predicate} {json.dumps(str(path))}))")
         for path in sorted(set(p.resolve() for p in write)):
             lines.append(f"(allow file-write* (subpath {json.dumps(str(path))}))")
+        if directory_watchers:
+            # Kimi's native file watcher uses FSEvents and visits the workspace
+            # ancestors. Grant directory entries, never sibling file contents.
+            lines.append('(allow mach-lookup (global-name "com.apple.FSEvents"))')
+            for path in cwd.resolve().parents:
+                lines.append(f"(allow file-read* (literal {json.dumps(str(path))}))")
         if gateway_port:
             lines.append(f'(allow network-outbound (remote ip "localhost:{gateway_port}"))')
         policy_path.write_text("\n".join(lines) + "\n")

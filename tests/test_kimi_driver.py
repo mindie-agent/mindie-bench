@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import platform
+import shlex
 import subprocess
 import sys
 import threading
@@ -19,6 +21,7 @@ from mindie_bench.runner.drivers.kimi import KimiDriver
 from mindie_bench.runner.kimi_profile import build_kimi_profile
 from mindie_bench.runner.process import stream_process
 from mindie_bench.runner.profile_builder import Profile
+from mindie_bench.runner.sandbox import native_command
 
 FIXTURES = Path(__file__).parent / "fixtures" / "kimi"
 KIMI_BIN = Path(os.environ.get("MINDIE_BENCH_TEST_KIMI_BIN", Path.home() / ".kimi-code/bin/kimi"))
@@ -373,7 +376,18 @@ def chunk(delta, finish=None, usage=None):
 
 
 @pytest.mark.skipif(not KIMI_BIN.exists(), reason="pinned kimi binary is not installed")
-def test_end_to_end_real_kimi_through_driver_and_stream_process(tmp_path):
+@pytest.mark.parametrize("sandboxed", [False, True])
+def test_end_to_end_real_kimi_through_driver_and_stream_process(tmp_path, sandboxed):
+    if sandboxed and platform.system() != "Darwin":
+        pytest.skip("native FSEvents boundary is macOS-specific")
+    secret = tmp_path / "private-source.txt"
+    secret.write_text("PRIVATE_CORPUS_MUST_NOT_LEAK")
+    tool_command = "printf 'e2e-ok' > out.txt"
+    if sandboxed:
+        tool_command = (
+            f"if cat {shlex.quote(str(secret))} > denied.txt 2>/dev/null; "
+            "then exit 19; fi; " + tool_command
+        )
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -397,7 +411,7 @@ def test_end_to_end_real_kimi_through_driver_and_stream_process(tmp_path):
                                     "function": {
                                         "name": "Bash",
                                         "arguments": json.dumps(
-                                            {"command": "printf 'e2e-ok' > out.txt"}
+                                            {"command": tool_command}
                                         ),
                                     },
                                 }
@@ -462,6 +476,16 @@ def test_end_to_end_real_kimi_through_driver_and_stream_process(tmp_path):
         command = driver.command(profile, harness_config(executable=str(KIMI_BIN)))
         workspace = tmp_path / "workspace"
         workspace.mkdir()
+        if sandboxed:
+            command = native_command(
+                command,
+                read=[Path(sys.prefix), Path(sys.base_prefix), KIMI_BIN.parent],
+                write=[workspace, profile.root],
+                cwd=workspace,
+                policy_path=tmp_path / "agent.sb",
+                gateway_port=server.server_port,
+                directory_watchers=True,
+            )
         gateway = SimpleNamespace(
             unknown=False, infrastructure_error=None, stop_reason=None, model_calls=0
         )
@@ -488,9 +512,12 @@ def test_end_to_end_real_kimi_through_driver_and_stream_process(tmp_path):
     assert [m["text"] for m in trajectory.public_messages] == ["E2E_DONE"]
     assert len(trajectory.calls) == 1
     assert trajectory.calls[0].name == "Bash"
-    assert trajectory.calls[0].arguments == {"command": "printf 'e2e-ok' > out.txt"}
+    assert trajectory.calls[0].arguments == {"command": tool_command}
     assert trajectory.calls[0].ended_sec is not None
     assert (workspace / "out.txt").read_text() == "e2e-ok"
+    if sandboxed:
+        assert (workspace / "denied.txt").read_text() == ""
+        assert "PRIVATE_CORPUS_MUST_NOT_LEAK" not in json.dumps(requests)
     assert [request.get("model") for request in requests] == ["k3", "k3"]
     first = requests[0]
     assert first["stream"] is True

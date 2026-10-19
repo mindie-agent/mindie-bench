@@ -506,6 +506,7 @@ def run_trial(
                 policy_path=trial_dir / "agent.sb",
                 gateway_port=gateway.port,
                 gateway_socket=gateway.unix_socket,
+                directory_watchers=config.harness.name == "kimi",
             )
             from mindie_bench.runner.profile_builder import knowledge_prompt
 
