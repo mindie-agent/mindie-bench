@@ -66,6 +66,18 @@ jobs:
             --evidence "product/docs/releases/$PRODUCT_VERSION/value-evidence.json" \
             --release-manifest "product/docs/releases/$PRODUCT_VERSION/benchmark-manifest.json" \
             --output "$RUNNER_TEMP/product-value"
+      - name: Require matching value attachments on component releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT_VERSION: ${{ steps.product.outputs.version }}
+        run: |
+          uv run --project release-tool --no-sync python \
+            release-tool/.github/scripts/attach_product_value.py \
+            --suite release-tool/benchmarks/product-value-v1.json \
+            --evidence "product/docs/releases/$PRODUCT_VERSION/value-evidence.json" \
+            --manifest "product/docs/releases/$PRODUCT_VERSION/benchmark-manifest.json" \
+            --output "$RUNNER_TEMP/product-value/components" \
+            --require-existing
       - name: Download and validate formal component evidence
         env:
           GH_TOKEN: ${{ github.token }}

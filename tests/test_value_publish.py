@@ -62,6 +62,8 @@ def test_attachment_preparation_is_read_only_and_reuses_only_identical_assets(tm
     } | {"output": tmp_path / "views", "fetch": fetch}
     planned = publisher.attach(**options)
     assert [item["status"] for item in planned] == ["ready", "ready"]
+    with pytest.raises(ValueError, match="missing value attachment"):
+        publisher.attach(**options, require_existing=True)
     for index, item in enumerate(planned):
         release["assets"].append({"name": item["asset"], "id": index})
         binaries[f"repos/{target['repository']}/releases/assets/{index}"] = (
@@ -69,6 +71,14 @@ def test_attachment_preparation_is_read_only_and_reuses_only_identical_assets(tm
         ).read_bytes()
     reused = publisher.attach(**options, publish=True)
     assert [item["status"] for item in reused] == ["already_present", "already_present"]
+    verified = publisher.attach(**options, require_existing=True)
+    assert verified == reused
+    release["assets"].pop()
+    with pytest.raises(ValueError, match="missing value attachment"):
+        publisher.attach(**options, require_existing=True)
+    release["assets"].append({"name": planned[1]["asset"], "id": 1})
     binaries[f"repos/{target['repository']}/releases/assets/0"] = b"older observation"
     with pytest.raises(ValueError, match="attachment differs"):
         publisher.attach(**options, publish=True)
+    with pytest.raises(ValueError, match="attachment differs"):
+        publisher.attach(**options, require_existing=True)
