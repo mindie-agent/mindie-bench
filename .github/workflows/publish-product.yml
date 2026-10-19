@@ -1,0 +1,102 @@
+name: reusable-publish-product
+
+on:
+  workflow_call:
+    inputs:
+      benchmark-ref:
+        description: Exact mindie-bench commit containing this collector and runner
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: product-release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: product
+      - name: Verify formal product tag and publication inputs
+        id: product
+        working-directory: product
+        env:
+          BENCHMARK_REF: ${{ inputs.benchmark-ref }}
+        run: |
+          python - <<'PY'
+          import os, pathlib, re, subprocess
+          tag = os.environ["GITHUB_REF_NAME"]
+          assert os.environ["GITHUB_REF_TYPE"] == "tag", "publication requires an existing product tag"
+          assert re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag), "expected vMAJOR.MINOR.PATCH"
+          assert re.fullmatch(r"[a-f0-9]{40}", os.environ["BENCHMARK_REF"]), "collector must be pinned"
+          assert subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() == os.environ["GITHUB_SHA"]
+          assert not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"])
+          version = tag[1:]
+          manifest = pathlib.Path("docs/releases", version, "benchmark-manifest.json")
+          notes = pathlib.Path("docs/releases", version + ".md")
+          assert manifest.is_file(), f"missing {manifest}"
+          assert notes.is_file(), f"missing {notes}"
+          with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
+              stream.write(f"version={version}\n")
+          PY
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: ${{ inputs.benchmark-ref }}
+          path: release-tool
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - name: Install fixed benchmark collector
+        run: uv sync --project release-tool --locked
+      - name: Download and validate formal component evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT_VERSION: ${{ steps.product.outputs.version }}
+        run: |
+          uv run --project release-tool --no-sync python \
+            release-tool/.github/scripts/collect_product_benchmarks.py \
+            --repository "$GITHUB_REPOSITORY" --version "$PRODUCT_VERSION" \
+            --revision "$GITHUB_SHA" \
+            --manifest "product/docs/releases/$PRODUCT_VERSION/benchmark-manifest.json" \
+            --output "$RUNNER_TEMP/product-benchmarks"
+      - name: Preserve verified public product evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-release-benchmarks
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/product-benchmarks/benchmark-results.json
+            ${{ runner.temp }}/product-benchmarks/benchmark-results.md
+            ${{ runner.temp }}/product-benchmarks/benchmark-SHA256SUMS
+            ${{ runner.temp }}/product-benchmarks/benchmark-manifest.json
+            ${{ runner.temp }}/product-benchmarks/product-release-provenance.json
+            ${{ runner.temp }}/product-benchmarks/SHA256SUMS
+      - name: Recheck product tag and create formal release
+        working-directory: product
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT_VERSION: ${{ steps.product.outputs.version }}
+        run: |
+          git fetch --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/release-check/product"
+          test "$(git rev-parse 'refs/release-check/product^{commit}')" = "$GITHUB_SHA"
+          (cd "$RUNNER_TEMP/product-benchmarks" && sha256sum -c SHA256SUMS)
+          cat "docs/releases/$PRODUCT_VERSION.md" \
+            "$RUNNER_TEMP/product-benchmarks/benchmark-results.md" > "$RUNNER_TEMP/product-release-notes.md"
+          gh release create "$GITHUB_REF_NAME" \
+            "$RUNNER_TEMP/product-benchmarks/benchmark-results.json" \
+            "$RUNNER_TEMP/product-benchmarks/benchmark-results.md" \
+            "$RUNNER_TEMP/product-benchmarks/benchmark-SHA256SUMS" \
+            "$RUNNER_TEMP/product-benchmarks/benchmark-manifest.json" \
+            "$RUNNER_TEMP/product-benchmarks/product-release-provenance.json" \
+            "$RUNNER_TEMP/product-benchmarks/SHA256SUMS" \
+            --verify-tag --target "$GITHUB_SHA" --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/product-release-notes.md"

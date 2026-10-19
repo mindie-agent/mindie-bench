@@ -139,3 +139,36 @@ publishing transcripts or substituting old hardware acceptance for new results.
 Absolute latency samples describe the recorded environment; comparisons require
 matching workloads and environments. Use the existing controlled `compare`
 workflow for causal productivity or ablation claims.
+
+## Automatic product publication
+
+The documentation repository calls `.github/workflows/publish-product.yml` on
+an existing `vMAJOR.MINOR.PATCH` tag and pins both the workflow and its
+`benchmark-ref` input to the same reviewed benchmark commit. It contains no
+runtime installation or collection code of its own:
+
+```yaml
+jobs:
+  publish:
+    permissions:
+      contents: write
+    uses: mindie-agent/mindie-bench/.github/workflows/publish-product.yml@BENCH_COMMIT
+    with:
+      benchmark-ref: BENCH_COMMIT
+```
+
+The product tag must contain `docs/releases/<version>/benchmark-manifest.json`
+and `docs/releases/<version>.md`. The collector downloads the three
+public benchmark assets from each target's formal `v<version>` GitHub Release,
+resolves annotated or lightweight tags to the declared source SHA, verifies
+both report hashes, then runs the existing collection gate. The canonical
+asset names currently carry one platform per component release; request only
+platforms actually present in those assets. Missing platform evidence blocks
+publication.
+
+The product Release carries the aggregate JSON and Markdown, benchmark
+checksums, exact manifest, component-release provenance and a complete
+`SHA256SUMS`. Public component reports remain embedded in the aggregate JSON;
+private subprocess logs are never downloaded. Missing, draft, changed or stale
+component releases stop the workflow before product publication. Re-running
+an already published product tag does not overwrite that Release.
