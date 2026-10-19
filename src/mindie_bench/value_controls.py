@@ -2,7 +2,7 @@
 
 [Role] Check that a replacement still measures the original experiment.
 [Invariants] Model, budget and workload controls cannot change during a retest.
-Source equivalence requires unchanged loaded paths or a declared runner repair.
+Changed instrumentation is disclosed separately from unchanged treatment paths.
 [Timeouts & Locks] Pure in-memory comparisons; no waits or locks.
 [Side-Effect Policy] Never mutate original observations or execute a retry.
 """
@@ -27,7 +27,46 @@ def source_matches(component, actual, expected, group, patches):
     )
 
 
-def _runner_controls(env, patches):
+def validate_infrastructure_patches(suite, evidence):
+    """Scope reviewed revisions to declared, non-treatment instrumentation."""
+    allowed = set(suite.get("instrumentation_components", []))
+    studies = {study["id"]: study for study in suite["studies"]}
+    treatment = {
+        component
+        for study in studies.values()
+        for components in study["group_components"].values()
+        for component in components
+    } | {study["harness"] for study in studies.values()}
+    patches = evidence.get("infrastructure_patches", [])
+    for patch in patches:
+        component = patch["component"]
+        if component not in allowed or component in treatment or component == "mindie-bench":
+            raise ValueError(f"infrastructure mapping cannot change a treatment: {component}")
+        if (
+            not patch["before"]
+            or not patch["after"]
+            or patch["before"] == patch["after"]
+            or patch["after"] != evidence["component_revisions"].get(component)
+            or not patch["scope"]
+        ):
+            raise ValueError("infrastructure mapping needs exact revisions and a review scope")
+        if not patch["studies"] or not set(patch["studies"]) <= studies.keys():
+            raise ValueError("infrastructure mapping must name its declared studies")
+    return patches
+
+
+def infrastructure_source_matches(component, actual, expected, study_id, patches):
+    """Accept a disclosed source change without claiming its code is unchanged."""
+    return any(
+        patch["component"] == component
+        and patch["before"] == actual
+        and patch["after"] == expected
+        and study_id in patch["studies"]
+        for patch in patches
+    )
+
+
+def reviewed_runner_controls(env, patches):
     normalized = dict(env)
     revisions = dict(env.get("component_revisions", {}))
     for patch in patches:
@@ -47,10 +86,12 @@ def _runner_controls(env, patches):
     return normalized
 
 
-def require_retest_controls(original, candidate, evidence):
+def require_retest_controls(
+    original, candidate, evidence, *, study_id=None, infrastructure_patches=()
+):
     """Preserve experimental controls while allowing an explicit transport repair."""
     before, after = [
-        _runner_controls(row["environment_fingerprint"], evidence.get("runner_patches", []))
+        reviewed_runner_controls(row["environment_fingerprint"], evidence.get("runner_patches", []))
         for row in (original, candidate)
     ]
     for field in (*CONTROL_KEYS, "components", "knowledge_mode", "skills_sha256", "corpus_view_sha256"):
@@ -65,6 +106,9 @@ def require_retest_controls(original, candidate, evidence):
             source_matches(
                 component, revision, target, original["ablation_group"],
                 evidence.get("source_patches", []),
+            )
+            or infrastructure_source_matches(
+                component, revision, target, study_id, infrastructure_patches
             )
             for revision in (old.get(component), new.get(component))
         ):

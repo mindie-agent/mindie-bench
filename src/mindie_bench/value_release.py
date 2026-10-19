@@ -20,8 +20,11 @@ from mindie_bench.scorer.comparator import CONTROL_KEYS, comparison
 from mindie_bench.scorer.metrics import summarize
 from mindie_bench.value_controls import (
     first_attempt_statuses,
+    infrastructure_source_matches,
     require_retest_controls,
     retest_chain_problems,
+    reviewed_runner_controls,
+    validate_infrastructure_patches,
 )
 from mindie_bench.value_controls import source_matches as _source_matches
 from mindie_bench.value_homepage import homepage_markdown
@@ -185,10 +188,14 @@ def _transfer_problems(study, rows, lineages):
     return problems
 
 
-def _study(study, rows, sources, runner_patches, source_patches, excluded):
+def _study(study, rows, sources, runner_patches, source_patches, excluded, infrastructure_patches):
     expected = _expected(study)
     observed = Counter(_cell(row) for row in rows)
     problems = []
+    scoped_infrastructure = [
+        patch for patch in infrastructure_patches if study["id"] in patch["studies"]
+    ]
+    infrastructure_components = {patch["component"] for patch in scoped_infrastructure}
     for cell in sorted(expected - observed.keys()):
         problems.append(f"missing:{cell[0]}:{cell[1]}:{cell[2]}")
     for cell, count in observed.items():
@@ -222,10 +229,13 @@ def _study(study, rows, sources, runner_patches, source_patches, excluded):
             problems.append(f"ablation_components_mismatch:{row.trial_id}")
         if group in {"G2", "G3"} and not env.get("skills_sha256"):
             problems.append(f"plugin_skills_missing:{row.trial_id}")
-        for component in [*required_components, study["harness"]]:
+        for component in [*required_components, study["harness"], *sorted(infrastructure_components)]:
             if not _source_matches(
                 component, env.get("component_revisions", {}).get(component), sources.get(component),
                 group, source_patches,
+            ) and not infrastructure_source_matches(
+                component, env.get("component_revisions", {}).get(component), sources.get(component),
+                study["id"], scoped_infrastructure,
             ):
                 problems.append(f"source_mismatch:{row.trial_id}:{component}")
         if group == "G3":
@@ -251,37 +261,29 @@ def _study(study, rows, sources, runner_patches, source_patches, excluded):
     for baseline, candidate in study["comparisons"]:
         if not groups[baseline] or not groups[candidate]:
             continue
-        compared = [groups[baseline], groups[candidate]]
-        applied_patches = []
+        original_groups = [groups[baseline], groups[candidate]]
+        compared = [
+            [
+                row.model_copy(update={
+                    "environment_fingerprint": reviewed_runner_controls(
+                        row.environment_fingerprint, runner_patches
+                    ),
+                })
+                for row in batch
+            ]
+            for batch in original_groups
+        ]
         # A targeted infrastructure repair need not discard completed experiments.
         # Original observations remain unchanged; only reviewed runner identities
         # are treated as equivalent for the paired control check.
-        for patch in runner_patches:
-            before, after = patch["before"], patch["after"]
-            if not patch["reason"] or before == after:
-                raise ValueError("runner patch needs distinct identities and a reason")
+        applied_patches = [
+            patch for patch in runner_patches
             if any(
-                row.environment_fingerprint.get("benchmark_source_sha256") == before
-                for batch in compared
-                for row in batch
-            ):
-                compared = [
-                    [
-                        row.model_copy(
-                            update={
-                                "environment_fingerprint": {
-                                    **row.environment_fingerprint,
-                                    "benchmark_source_sha256": after,
-                                }
-                            }
-                        )
-                        if row.environment_fingerprint.get("benchmark_source_sha256") == before
-                        else row
-                        for row in batch
-                    ]
-                    for batch in compared
-                ]
-                applied_patches.append(patch)
+                row.environment_fingerprint.get("benchmark_source_sha256")
+                in {patch["before"], patch["after"]}
+                for batch in original_groups for row in batch
+            )
+        ]
         try:
             result = comparison(
                 *compared,
@@ -300,6 +302,7 @@ def _study(study, rows, sources, runner_patches, source_patches, excluded):
                 result["comparison_coverage"]["whole_population_reliability_complete"] = False
             result["attempt_scope"] = "selected outcomes after explicit infrastructure repairs"
             result["reviewed_runner_patches"] = applied_patches
+            result["reviewed_infrastructure_patches"] = scoped_infrastructure
             comparisons.append(result)
     return {
         "id": study["id"],
@@ -355,6 +358,7 @@ def evaluate(suite: dict, evidence: dict) -> dict:
     ids = [study["id"] for study in suite["studies"]]
     if len(ids) != len(set(ids)) or set(evidence["studies"]) != set(ids):
         raise ValueError("release must contain exactly the declared studies")
+    infrastructure_patches = validate_infrastructure_patches(suite, evidence)
     excluded = [
         {**item, "receipt": TrialReceipt.model_validate(item["receipt"]).model_dump(mode="json")}
         for item in evidence.get("excluded_attempts", [])
@@ -396,7 +400,10 @@ def evaluate(suite: dict, evidence: dict) -> dict:
                 raise ValueError("a retest must retain the original task and cell")
             if attempt_studies[replacement] != item["study_id"]:
                 raise ValueError("a retest must remain in the same study")
-            require_retest_controls(original, candidate, evidence)
+            require_retest_controls(
+                original, candidate, evidence, study_id=item["study_id"],
+                infrastructure_patches=infrastructure_patches,
+            )
             startup = item.get("startup_observation", {})
             zero_model_startup = (
                 item.get("classification") == "native_startup_infrastructure"
@@ -423,6 +430,7 @@ def evaluate(suite: dict, evidence: dict) -> dict:
             study, rows, evidence["component_revisions"], evidence.get("runner_patches", []),
             evidence.get("source_patches", []),
             [item for item in excluded if item["study_id"] == study["id"]],
+            infrastructure_patches,
         )
         reports.append(result)
         transfer = evidence.get("transfer_lineages", {}).get(study["id"], [])
@@ -487,6 +495,7 @@ def evaluate(suite: dict, evidence: dict) -> dict:
         "excluded_attempts": excluded,
         "native_plugins": list(native.values()),
         "source_patches": evidence.get("source_patches", []),
+        "infrastructure_patches": infrastructure_patches,
         "setup_reports": setup_reports,
         "setup_resources": setup_totals(setup_reports),
         "resources": resource_totals([
@@ -511,6 +520,7 @@ def collect(*, suite: Path, manifest: Path, output: Path) -> dict:
         "component_revisions": inputs["component_revisions"],
         "runner_patches": inputs.get("runner_patches", []),
         "source_patches": inputs.get("source_patches", []),
+        "infrastructure_patches": inputs.get("infrastructure_patches", []),
         "limitations": inputs.get("limitations", []),
         "studies": {},
         "component_cases": [],
@@ -636,6 +646,19 @@ def markdown(report: dict) -> str:
             f"{counts.get('completed_fail', 0)} | {counts.get('infra_failed', 0)} | "
             f"{counts.get('unknown', 0)} |"
         )
+    if report.get("infrastructure_patches"):
+        lines += [
+            "", "## Reviewed benchmark infrastructure changes", "",
+            "These are changed instrumentation sources, not identical-code claims. "
+            "The mappings apply only to the listed studies; raw receipt identities and "
+            "original attempt costs are retained. Component scenarios still require "
+            "the exact release source.",
+        ]
+        for patch in report["infrastructure_patches"]:
+            lines.append(
+                f"- {patch['component']}: `{patch['before']}` to `{patch['after']}`; "
+                f"studies: {', '.join(patch['studies'])}. {patch['scope']}"
+            )
     for study in report["studies"]:
         lines += ["", f"## {study['id']}", "", study["scope"], ""]
         for pair in study["comparisons"]:
