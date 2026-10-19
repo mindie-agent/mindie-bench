@@ -194,6 +194,10 @@ def test_single_cell_recovery_preserves_first_attempt_outcome_and_total_cost():
     old["primary_metrics"].update(resolved=False, reward=0.0)
     with pytest.raises(ValueError, match="valid task outcomes"):
         evaluate(suite, inputs)
+    inputs["excluded_attempts"][0]["replacement_trial_id"] = None
+    with pytest.raises(ValueError, match="unlinked historical"):
+        evaluate(suite, inputs)
+    inputs["excluded_attempts"][0]["replacement_trial_id"] = "candidate"
     old["primary_metrics"]["total_turns"] = 0
     old["primary_metrics"]["tokens"] = {
         "input_uncached": 0, "input_cached": 0, "cache_creation": 0,

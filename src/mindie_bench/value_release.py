@@ -366,11 +366,20 @@ def evaluate(suite: dict, evidence: dict) -> dict:
         if identity in selected:
             raise ValueError("a historical attempt cannot also be scored")
         trial_ids.add(identity)
+        fields = ("instance_id", "tier", "ablation_group", "repetition", "task_digest")
+        if (
+            not replacement
+            and original["terminal_status"] in {status.value for status in VALID}
+            and any(
+                all(original[field] == row[field] for field in fields)
+                for row in evidence["studies"][item["study_id"]]
+            )
+        ):
+            raise ValueError("valid task outcomes cannot be hidden as unlinked historical attempts")
         if replacement:
             candidate = selected.get(replacement)
             if candidate is None or replacement in replacements:
                 raise ValueError("a retest must replace one original attempt with one selected trial")
-            fields = ("instance_id", "tier", "ablation_group", "repetition", "task_digest")
             if any(original[field] != candidate[field] for field in fields):
                 raise ValueError("a retest must retain the original task and cell")
             if candidate not in evidence["studies"][item["study_id"]]:
