@@ -9,7 +9,6 @@ Comparisons keep models, tasks and controls matched and include seed costs.
 
 from __future__ import annotations
 
-import itertools
 import json
 from collections import Counter
 from pathlib import Path
@@ -19,11 +18,17 @@ from mindie_bench.models import TerminalStatus, TrialReceipt
 from mindie_bench.scorer.comparator import CONTROL_KEYS, comparison
 from mindie_bench.scorer.metrics import summarize
 from mindie_bench.value_controls import (
+    expected_cells,
     first_attempt_statuses,
+    infrastructure_markdown,
     infrastructure_source_matches,
+    project_component_runner,
+    require_collector_source,
     require_retest_controls,
     retest_chain_problems,
     reviewed_runner_controls,
+    runner_release_markdown,
+    runner_release_problems,
     validate_infrastructure_patches,
 )
 from mindie_bench.value_controls import source_matches as _source_matches
@@ -109,16 +114,6 @@ def _cell(row):
     return row.instance_id, row.ablation_group.value, row.repetition
 
 
-def _expected(study):
-    if (
-        study["repetitions"] < 1
-        or not study["tasks"]
-        or len(set(study["groups"])) != len(study["groups"])
-    ):
-        raise ValueError("a value study needs distinct groups, tasks and repetitions")
-    return set(itertools.product(study["tasks"], study["groups"], range(1, study["repetitions"] + 1)))
-
-
 def _selected_summary(summary):
     summary["selected_valid_success_rate"] = summary.pop("pass_at_1")
     summary["selected_cell_success_rate"] = summary.pop("all_attempt_success_rate")
@@ -189,7 +184,7 @@ def _transfer_problems(study, rows, lineages):
 
 
 def _study(study, rows, sources, runner_patches, source_patches, excluded, infrastructure_patches):
-    expected = _expected(study)
+    expected = expected_cells(study)
     observed = Counter(_cell(row) for row in rows)
     problems = []
     scoped_infrastructure = [
@@ -363,7 +358,7 @@ def evaluate(suite: dict, evidence: dict) -> dict:
         {**item, "receipt": TrialReceipt.model_validate(item["receipt"]).model_dump(mode="json")}
         for item in evidence.get("excluded_attempts", [])
     ]
-    reports, problems, trial_ids = [], [], set()
+    reports, problems, trial_ids = [], runner_release_problems(evidence), set()
     selected = {
         raw["trial_id"]: raw
         for rows in evidence["studies"].values()
@@ -488,6 +483,10 @@ def evaluate(suite: dict, evidence: dict) -> dict:
         "product_version": evidence["product_version"],
         "suite": suite["id"],
         "component_revisions": evidence["component_revisions"],
+        "runner_release": evidence.get("runner_release"),
+        "collector_source": evidence.get("collector_source"),
+        "runner_release_reviews": evidence.get("runner_release_reviews", []),
+        "component_runner_reports": evidence.get("component_runner_reports", []),
         "limitations": [suite["comparability"]] + evidence.get("limitations", [])
         if "comparability" in suite else evidence.get("limitations", []),
         "studies": reports,
@@ -507,9 +506,10 @@ def evaluate(suite: dict, evidence: dict) -> dict:
     }
 
 
-def collect(*, suite: Path, manifest: Path, output: Path) -> dict:
+def collect(*, suite: Path, manifest: Path, output: Path, collector_source=None) -> dict:
     """Read explicit receipt paths; never discover and silently select a good retry."""
     protocol, inputs = read_json(suite), read_json(manifest)
+    collector = require_collector_source(inputs["runner_release"], collector_source)
     root = manifest.resolve().parent
     evidence = {
         "schema_version": "mindie-value-evidence/1",
@@ -519,6 +519,10 @@ def collect(*, suite: Path, manifest: Path, output: Path) -> dict:
         "product_version": inputs["product_version"],
         "component_revisions": inputs["component_revisions"],
         "runner_patches": inputs.get("runner_patches", []),
+        "runner_release": inputs["runner_release"],
+        "collector_source": collector,
+        "runner_release_reviews": inputs.get("runner_release_reviews", []),
+        "component_runner_reports": [],
         "source_patches": inputs.get("source_patches", []),
         "infrastructure_patches": inputs.get("infrastructure_patches", []),
         "limitations": inputs.get("limitations", []),
@@ -536,7 +540,9 @@ def collect(*, suite: Path, manifest: Path, output: Path) -> dict:
             public_receipt(TrialReceipt.model_validate(read_json(root / path))) for path in paths
         ]
     for path in inputs["component_reports"]:
-        for case in read_json(root / path)["cases"]:
+        record = read_json(root / path)
+        evidence["component_runner_reports"].append(project_component_runner(record))
+        for case in record["cases"]:
             evidence["component_cases"].append(project_component_case(case))
     for item in inputs.get("excluded_attempts", []):
         startup = {}
@@ -604,9 +610,10 @@ def write_report(report: dict, output: Path) -> None:
             path.unlink(missing_ok=True)
 
 
-def verify_publication(*, suite: Path, evidence: Path, manifest: Path) -> dict:
+def verify_publication(*, suite: Path, evidence: Path, manifest: Path, collector_source=None) -> dict:
     """Bind the measured product sources to the component release manifest."""
     report = evaluate(read_json(suite), read_json(evidence))
+    report["collector_source"] = require_collector_source(report["runner_release"], collector_source)
     targets = read_json(manifest)
     if report["product_version"] != targets["product_version"]:
         raise ValueError("value evidence and formal product version differ")
@@ -646,19 +653,8 @@ def markdown(report: dict) -> str:
             f"{counts.get('completed_fail', 0)} | {counts.get('infra_failed', 0)} | "
             f"{counts.get('unknown', 0)} |"
         )
-    if report.get("infrastructure_patches"):
-        lines += [
-            "", "## Reviewed benchmark infrastructure changes", "",
-            "These are changed instrumentation sources, not identical-code claims. "
-            "The mappings apply only to the listed studies; raw receipt identities and "
-            "original attempt costs are retained. Component scenarios still require "
-            "the exact release source.",
-        ]
-        for patch in report["infrastructure_patches"]:
-            lines.append(
-                f"- {patch['component']}: `{patch['before']}` to `{patch['after']}`; "
-                f"studies: {', '.join(patch['studies'])}. {patch['scope']}"
-            )
+    lines += runner_release_markdown(report)
+    lines += infrastructure_markdown(report.get("infrastructure_patches", []))
     for study in report["studies"]:
         lines += ["", f"## {study['id']}", "", study["scope"], ""]
         for pair in study["comparisons"]:

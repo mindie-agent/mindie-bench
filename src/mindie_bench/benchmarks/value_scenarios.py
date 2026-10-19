@@ -13,7 +13,9 @@ import concurrent.futures
 import multiprocessing
 from pathlib import Path
 
-from .value_common import environment, git_source, write_json
+from mindie_bench.value_controls import runner_source
+
+from .value_common import environment, write_json
 
 
 def main(argv=None):
@@ -31,8 +33,7 @@ def main(argv=None):
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     output.chmod(0o700)
-    source_root = Path(__file__).resolve().parents[3]
-    initial_source = git_source(source_root)
+    initial_source = runner_source()
     cases = []
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=1, mp_context=multiprocessing.get_context("spawn")
@@ -65,7 +66,7 @@ def main(argv=None):
     result = {
         "schema_version": "mindie-component-value/1",
         "environment": environment(), "runner_source": initial_source,
-        "runner_source_after": git_source(source_root),
+        "runner_source_after": runner_source(),
         "cases": cases,
     }
     write_json(output / "component-value-results.json", result)

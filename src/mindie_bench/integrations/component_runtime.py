@@ -119,6 +119,7 @@ print(json.dumps(dict(container_id=identity)))
 
 def package_metadata(name, source_paths=()):
     modules = {
+        "mindie-bench": "mindie_bench",
         "mindie-coordinator": "mindie_coordinator",
         "npu-top": "npu_top",
         "mindie-diagnostics": "mindie_diagnostics",

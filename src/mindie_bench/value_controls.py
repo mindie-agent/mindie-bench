@@ -3,13 +3,174 @@
 [Role] Check that a replacement still measures the original experiment.
 [Invariants] Model, budget and workload controls cannot change during a retest.
 Changed instrumentation is disclosed separately from unchanged treatment paths.
-[Timeouts & Locks] Pure in-memory comparisons; no waits or locks.
+[Timeouts & Locks] Comparisons are pure; explicit CLI provenance reads allow
+five seconds for each Git query. No locks or external requests.
 [Side-Effect Policy] Never mutate original observations or execute a retry.
 """
 
 from __future__ import annotations
 
+import importlib.metadata
+import itertools
+import json
+from pathlib import Path
+from urllib.parse import urlsplit
+from urllib.request import url2pathname
+
 from mindie_bench.scorer.comparator import CONTROL_KEYS
+
+
+def runner_source():
+    """Identify the loaded distribution, including noneditable VCS installs."""
+    from mindie_bench.benchmarks.value_common import git_source
+    from mindie_bench.integrations.component_runtime import package_metadata
+    from mindie_bench.runner.orchestrator import implementation_digest
+
+    name = "mindie-bench"
+    metadata = package_metadata(name)
+    state = {"dirty": None}
+    if metadata["editable"]:
+        origin = json.loads(importlib.metadata.distribution(name).read_text("direct_url.json"))
+        location = urlsplit(origin["url"])
+        if location.scheme != "file":
+            raise ValueError("editable runner provenance needs its recorded local source URL")
+        source = Path(url2pathname(location.path))
+        metadata = package_metadata(name, [source])
+        if metadata["installation"] != "explicit_source":
+            raise ValueError("loaded runner does not belong to its editable distribution")
+        state = git_source(source)
+    return {
+        key: metadata[key] for key in ("revision", "version", "installation", "editable")
+    } | state | {"source_sha256": implementation_digest()}
+
+
+def runner_identity(source):
+    return {key: source.get(key) for key in ("revision", "version", "source_sha256")}
+
+
+def require_collector_source(expected, actual=None):
+    """The CLI binds declarations to the collector it actually loaded."""
+    source = runner_source() if actual is None else actual
+    if (
+        not expected
+        or any(source.get(key) != expected.get(key) for key in ("version", "source_sha256"))
+        or (source.get("revision") is not None and source["revision"] != expected.get("revision"))
+        or source.get("dirty") is True
+    ):
+        raise ValueError("declared release runner differs from the loaded collector source")
+    return source
+
+
+def project_component_runner(report):
+    fields = ("revision", "version", "source_sha256", "installation", "editable", "dirty")
+    return {
+        "case_ids": [case["id"] for case in report["cases"]],
+        **{
+            key: {field: value for field, value in report.get(key, {}).items() if field in fields}
+            for key in ("runner_source", "runner_source_after")
+        },
+    }
+
+
+def runner_release_problems(evidence):
+    """Review historical runner identities without relabelling measured sources."""
+    target = evidence.get("runner_release", {})
+    if (
+        not all(target.get(key) for key in ("revision", "version", "source_sha256"))
+        or target.get("revision") != evidence["component_revisions"].get("mindie-bench")
+    ):
+        return ["release_runner_identity_missing_or_mismatched"]
+    reviews = evidence.get("runner_release_reviews", [])
+    for review in reviews:
+        if review["kind"] not in {"trial", "component"} or not review["scope"]:
+            raise ValueError("runner release reviews need a measured kind and a review scope")
+        if review["release"] != target:
+            raise ValueError("runner release review targets a different final source")
+
+    def reviewed(kind, measured):
+        return any(
+            review["kind"] == kind and review["measured"] == measured for review in reviews
+        )
+
+    problems = []
+    attempts = [
+        row for rows in evidence["studies"].values() for row in rows
+    ] + [item["receipt"] for item in evidence.get("excluded_attempts", [])]
+    for row in attempts:
+        env = row["environment_fingerprint"]
+        measured = {
+            "revision": env.get("component_revisions", {}).get("mindie-bench"),
+            "version": env.get("benchmark_version"),
+            "source_sha256": env.get("benchmark_source_sha256"),
+        }
+        if not measured["version"] or not measured["source_sha256"]:
+            problems.append(f"measured_runner_identity_missing:{row['trial_id']}")
+        elif measured != target and not reviewed("trial", measured):
+            problems.append(f"unreviewed_release_runner:{row['trial_id']}")
+    case_ids = {case["id"] for case in evidence["component_cases"]}
+    observed = []
+    for report in evidence.get("component_runner_reports", []):
+        observed.extend(report["case_ids"])
+        measured = {key: report[key] for key in ("runner_source", "runner_source_after")}
+        sources = list(measured.values())
+        if not all(source.get("revision") or source.get("source_sha256") for source in sources):
+            problems.append("component_runner_identity_missing")
+        elif not (
+            all(runner_identity(source) == target and source.get("dirty") is not True
+                for source in sources)
+            or reviewed("component", measured)
+        ):
+            problems.append(f"unreviewed_component_runner:{','.join(report['case_ids'])}")
+    if len(observed) != len(set(observed)) or set(observed) != case_ids:
+        problems.append("component_runner_coverage_mismatch")
+    return problems
+
+
+def runner_release_markdown(report):
+    target = report.get("runner_release")
+    if not target:
+        return []
+    lines = [
+        "", "## Measurement versions and scope", "",
+        f"Release runner: mindie-bench {target['version']} at `{target['revision']}`. "
+        "Tasks ran on the earlier versions listed below. Later infrastructure, cleanup "
+        "and publication changes do not represent new task measurements or identical setup timing.",
+    ]
+    for review in report.get("runner_release_reviews", []):
+        measured = review["measured"]
+        identity = (
+            f"{measured.get('version')} at {measured.get('revision') or 'revision unrecorded'}"
+            if review["kind"] == "trial" else "component scenario sources retained in the data"
+        )
+        lines.append(f"- {review['kind']} `{identity}`: {review['scope']}")
+    return lines
+
+
+def expected_cells(study):
+    if (
+        study["repetitions"] < 1
+        or not study["tasks"]
+        or len(set(study["groups"])) != len(study["groups"])
+    ):
+        raise ValueError("a value study needs distinct groups, tasks and repetitions")
+    return set(itertools.product(study["tasks"], study["groups"], range(1, study["repetitions"] + 1)))
+
+
+def infrastructure_markdown(patches):
+    if not patches:
+        return []
+    return [
+        "", "## Reviewed benchmark infrastructure changes", "",
+        "These are changed instrumentation sources, not identical-code claims. "
+        "The mappings apply only to the listed studies; raw receipt identities and "
+        "original attempt costs are retained. Component scenarios still require "
+        "the exact release source.",
+        *[
+            f"- {patch['component']}: `{patch['before']}` to `{patch['after']}`; "
+            f"studies: {', '.join(patch['studies'])}. {patch['scope']}"
+            for patch in patches
+        ],
+    ]
 
 
 def source_matches(component, actual, expected, group, patches):

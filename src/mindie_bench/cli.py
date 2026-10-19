@@ -158,6 +158,10 @@ def main(argv=None):
                 if args.release_manifest
                 else evaluate(read_json(args.suite), read_json(args.evidence))
             )
+            if not args.release_manifest:
+                from mindie_bench.value_controls import require_collector_source
+
+                result["collector_source"] = require_collector_source(result["runner_release"])
             if args.output:
                 write_report(result, args.output)
                 if args.release_manifest:

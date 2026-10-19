@@ -207,6 +207,11 @@ def component_report():
             },
         })
     observations["suite_identity"] = digest(suite)
+    observations["component_runner_reports"] = [{
+        "case_ids": [case["id"] for case in observations["component_cases"]],
+        "runner_source": observations["runner_release"],
+        "runner_source_after": observations["runner_release"],
+    }]
     return evaluate(suite, observations)
 
 

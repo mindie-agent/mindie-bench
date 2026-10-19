@@ -46,7 +46,32 @@ def evidence():
         "studies": {"dp2": [original, candidate]},
         "component_cases": [],
     }
+    env = original["environment_fingerprint"]
+    inputs["runner_release"] = {
+        "revision": env["component_revisions"]["mindie-bench"],
+        "version": env["benchmark_version"],
+        "source_sha256": env["benchmark_source_sha256"],
+    }
     return suite, inputs
+
+
+def review_runners(inputs, scope="Only instrumentation and publication changed; raw results retained."):
+    inputs["runner_release_reviews"] = [
+        {
+            "kind": "trial",
+            "measured": {
+                "revision": row["environment_fingerprint"].get("component_revisions", {}).get("mindie-bench"),
+                "version": row["environment_fingerprint"].get("benchmark_version"),
+                "source_sha256": row["environment_fingerprint"].get("benchmark_source_sha256"),
+            },
+            "release": copy.deepcopy(inputs["runner_release"]),
+            "scope": scope,
+        }
+        for row in [
+            *(row for rows in inputs["studies"].values() for row in rows),
+            *(item["receipt"] for item in inputs.get("excluded_attempts", [])),
+        ]
+    ]
 
 
 def test_negative_result_is_published_but_missing_or_mismatched_trial_blocks():
@@ -142,6 +167,7 @@ def test_targeted_runner_repair_preserves_existing_results_without_relaxing_mode
             "reason": "Only transport error reporting changed; normal execution is unchanged.",
         }
     ]
+    review_runners(inputs)
     assert evaluate(suite, inputs)["release_gate"]
     assert baseline["environment_fingerprint"]["benchmark_source_sha256"] == before
     candidate["environment_fingerprint"]["base_model"] = "another-model"
@@ -316,6 +342,7 @@ def test_retest_cannot_change_model_budget_or_unreviewed_runtime():
         "after_revision": candidate["environment_fingerprint"]["component_revisions"]["mindie-bench"],
         "reason": "Reviewed startup transport repair.",
     }]
+    review_runners(inputs)
     assert evaluate(suite, inputs)["release_gate"]
 
 
