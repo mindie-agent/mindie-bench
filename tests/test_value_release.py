@@ -225,6 +225,77 @@ def test_plugin_sources_skills_ablation_and_metering_are_required():
     assert "dp2:token_metering_incomplete:candidate" in reasons
 
 
+def test_retest_cannot_change_model_budget_or_unreviewed_runtime():
+    suite, inputs = evidence()
+    candidate = inputs["studies"]["dp2"][1]
+    original = copy.deepcopy(candidate)
+    original.update(trial_id="original", terminal_status="unknown", failure_reason="transport failure")
+    original["primary_metrics"].update(reward=None, resolved=None)
+    inputs["excluded_attempts"] = [{
+        "study_id": "dp2", "reason": "transport repair",
+        "replacement_trial_id": candidate["trial_id"], "receipt": original,
+    }]
+    assert evaluate(suite, inputs)["release_gate"]
+    for field, changed in (
+        ("base_model", "different-model"), ("reasoning_effort", "low"),
+        ("budget", {"max_turns": 1}), ("harness_binary_sha256", "other-native"),
+        ("corpus_view_sha256", "other-knowledge"),
+    ):
+        saved = copy.deepcopy(original["environment_fingerprint"])
+        original["environment_fingerprint"][field] = changed
+        with pytest.raises(ValueError, match="experimental control"):
+            evaluate(suite, inputs)
+        original["environment_fingerprint"] = saved
+    original["environment_fingerprint"]["component_revisions"]["knowledge"] = "other-runtime"
+    with pytest.raises(ValueError, match="unreviewed component"):
+        evaluate(suite, inputs)
+    original["environment_fingerprint"] = copy.deepcopy(candidate["environment_fingerprint"])
+    original["environment_fingerprint"].update(
+        benchmark_source_sha256="prior-runner", benchmark_version="old-version"
+    )
+    original["environment_fingerprint"]["component_revisions"]["mindie-bench"] = "prior-source"
+    inputs["runner_patches"] = [{
+        "before": "prior-runner",
+        "after": candidate["environment_fingerprint"]["benchmark_source_sha256"],
+        "before_version": "old-version",
+        "after_version": candidate["environment_fingerprint"]["benchmark_version"],
+        "before_revision": "prior-source",
+        "after_revision": candidate["environment_fingerprint"]["component_revisions"]["mindie-bench"],
+        "reason": "Reviewed startup transport repair.",
+    }]
+    assert evaluate(suite, inputs)["release_gate"]
+
+
+def test_paid_setup_is_accounted_separately_without_inventing_missing_cost():
+    suite, inputs = evidence()
+    task_totals = evaluate(suite, inputs)["resources"]
+    inputs["setup_reports"] = [{
+        "schema_version": "mindie-setup-costs/1", "plugin": "codex",
+        "scope": "native summary setup", "limitations": [],
+        "totals": {"cost_usd": 0, "elapsed_sec": 99},
+        "operations": [{
+            "id": "summary-probe", "operation": "summary setup", "model": "luna",
+            "reasoning_effort": "max", "status": "pass", "elapsed_sec": None,
+            "tokens": {"input_uncached": 10501, "input_cached": 0, "output": 202,
+                       "cache_creation": 0, "indexer_small_model_total": 0},
+            "token_metering_complete": True, "cost_usd": None,
+            "measurement_basis": "native usage", "private_path": "/private/probe",
+        }],
+    }]
+    report = evaluate(suite, inputs)
+    assert report["resources"] == task_totals
+    totals = report["setup_resources"]
+    assert totals["observed_tokens_lower_bound"]["input_uncached"] == 10501
+    assert totals["observed_elapsed_sec_lower_bound"] is None
+    assert totals["observed_cost_usd_lower_bound"] is None
+    assert not totals["cost_complete"]
+    assert "/private/probe" not in str(report["setup_reports"])
+    assert "summary setup" in markdown(report)
+    inputs["setup_reports"].append(copy.deepcopy(inputs["setup_reports"][0]))
+    with pytest.raises(ValueError, match="setup operation"):
+        evaluate(suite, inputs)
+
+
 def test_source_revision_equivalence_requires_unchanged_loaded_files():
     suite, inputs = evidence()
     original = inputs["studies"]["dp2"][0]["environment_fingerprint"]["component_revisions"]["codex"]

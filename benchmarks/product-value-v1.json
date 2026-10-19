@@ -344,8 +344,11 @@
       "released turn-stopping callback processes actual native event"
     ],
     "codex": [
-      "released plugin tools registered",
-      "native task and summary capture completed"
+      "exact native plugin mounted",
+      "native MCP catalogue matches shipped plugin",
+      "native SessionStart and Stop hooks completed",
+      "unified contribution disabled in isolated profile",
+      "exact noneditable shared runtime"
     ],
     "kimi": [
       "native_install",

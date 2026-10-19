@@ -18,7 +18,15 @@ from mindie_bench.io import digest, read_json, write_json
 from mindie_bench.models import TerminalStatus, TrialReceipt
 from mindie_bench.scorer.comparator import CONTROL_KEYS, comparison
 from mindie_bench.scorer.metrics import summarize
-from mindie_bench.value_resources import TOKEN_FIELDS, project_component_case, resource_totals
+from mindie_bench.value_controls import require_retest_controls
+from mindie_bench.value_controls import source_matches as _source_matches
+from mindie_bench.value_resources import (
+    TOKEN_FIELDS,
+    project_component_case,
+    project_setup_report,
+    resource_totals,
+    setup_totals,
+)
 
 VALID = {TerminalStatus.PASS, TerminalStatus.FAIL}
 METRICS = {
@@ -101,21 +109,6 @@ def _expected(study):
     ):
         raise ValueError("a value study needs distinct groups, tasks and repetitions")
     return set(itertools.product(study["tasks"], study["groups"], range(1, study["repetitions"] + 1)))
-
-
-def _source_matches(component, actual, expected, group, patches):
-    if actual == expected:
-        return actual is not None
-    return any(
-        patch["component"] == component and patch["before"] == actual
-        and patch["after"] == expected and group in patch["groups"] and patch["reason"]
-        and patch.get("loaded_paths")
-        and all(
-            item["before"] and item["before"] == item["after"]
-            for item in patch["loaded_paths"]
-        )
-        for patch in patches
-    )
 
 
 def _selected_summary(summary):
@@ -380,6 +373,9 @@ def evaluate(suite: dict, evidence: dict) -> dict:
             fields = ("instance_id", "tier", "ablation_group", "repetition", "task_digest")
             if any(original[field] != candidate[field] for field in fields):
                 raise ValueError("a retest must retain the original task and cell")
+            if candidate not in evidence["studies"][item["study_id"]]:
+                raise ValueError("a retest must remain in the same study")
+            require_retest_controls(original, candidate, evidence)
             startup = item.get("startup_observation", {})
             zero_model_startup = (
                 item.get("classification") == "native_startup_infrastructure"
@@ -456,6 +452,7 @@ def evaluate(suite: dict, evidence: dict) -> dict:
         checks = {check["name"]: check["status"] for check in observed["checks"]}
         if any(checks.get(name) != "pass" for name in required_checks):
             problems.append(f"native_plugin_checks_incomplete:{plugin}")
+    setup_reports = [project_setup_report(item) for item in evidence.get("setup_reports", [])]
     return {
         "schema_version": "mindie-value-report/1",
         "product_version": evidence["product_version"],
@@ -468,6 +465,8 @@ def evaluate(suite: dict, evidence: dict) -> dict:
         "excluded_attempts": excluded,
         "native_plugins": list(native.values()),
         "source_patches": evidence.get("source_patches", []),
+        "setup_reports": setup_reports,
+        "setup_resources": setup_totals(setup_reports),
         "resources": resource_totals([
             TrialReceipt.model_validate(row)
             for row in [*selected.values(), *(item["receipt"] for item in excluded)]
@@ -496,6 +495,9 @@ def collect(*, suite: Path, manifest: Path, output: Path) -> dict:
         "excluded_attempts": [],
         "native_plugins": [],
         "transfer_lineages": {},
+        "setup_reports": [
+            project_setup_report(read_json(root / path)) for path in inputs.get("setup_reports", [])
+        ],
     }
     for identity, paths in inputs["studies"].items():
         evidence["studies"][identity] = [
@@ -688,6 +690,24 @@ def markdown(report: dict) -> str:
                 for side in ("baseline", "candidate")
             ]
             lines.append(f"| {key} | {values[0]} | {values[1]} |")
+    if report["setup_reports"]:
+        lines += [
+            "", "## Setup and diagnostic model usage", "",
+            "These separately measured operations are additional execution costs. "
+            "They are excluded from task success rates and paired task timing. "
+            "Missing duration or price remains unmeasured.",
+            "",
+            "| Plugin | Operation | Seconds | Uncached input | Cached input | Output |",
+            "| --- | --- | ---: | ---: | ---: | ---: |",
+        ]
+        for setup in report["setup_reports"]:
+            for row in setup["operations"]:
+                tokens = row["tokens"]
+                lines.append(
+                    f"| {setup['plugin']} | {row['operation']} | "
+                    f"{row['elapsed_sec'] if row['elapsed_sec'] is not None else 'unmeasured'} | "
+                    f"{tokens['input_uncached']} | {tokens['input_cached']} | {tokens['output']} |"
+                )
     if report["excluded_attempts"]:
         lines += [
             "",

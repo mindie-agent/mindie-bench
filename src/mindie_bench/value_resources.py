@@ -110,6 +110,49 @@ def resource_totals(rows: list[TrialReceipt]) -> dict:
     }
 
 
+def setup_totals(reports: list[dict]) -> dict:
+    """Keep measured authentication/debug probes outside task gain comparisons."""
+    rows = [(report["plugin"], row) for report in reports for row in report["operations"]]
+    if len({(plugin, row["id"]) for plugin, row in rows}) != len(rows):
+        raise ValueError("a setup operation cannot contribute resource costs more than once")
+    operations = [row for _, row in rows]
+    elapsed, elapsed_count = _observations([row["elapsed_sec"] for row in operations])
+    cost, cost_count = _observations([row["cost_usd"] for row in operations])
+    tokens, counts = {}, {}
+    for field in TOKEN_FIELDS:
+        tokens[field], counts[field] = _observations([row["tokens"].get(field) for row in operations])
+    return {
+        "operations": len(operations),
+        "observed_elapsed_sec_lower_bound": elapsed,
+        "elapsed_observed_operations": elapsed_count,
+        "elapsed_complete": bool(operations) and elapsed_count == len(operations),
+        "observed_tokens_lower_bound": tokens,
+        "token_metering_complete": bool(operations)
+        and all(count == len(operations) for count in counts.values())
+        and all(row["token_metering_complete"] for row in operations),
+        "observed_cost_usd_lower_bound": cost,
+        "cost_complete": bool(operations) and cost_count == len(operations),
+    }
+
+
+def project_setup_report(report: dict) -> dict:
+    """Recompute totals from allowlisted operation measurements, not supplied totals."""
+    if report["schema_version"] != "mindie-setup-costs/1":
+        raise ValueError("unsupported setup cost report")
+    public = {
+        key: report[key] for key in ("schema_version", "plugin", "scope", "limitations")
+    }
+    public["operations"] = [
+        {key: row[key] for key in (
+            "id", "operation", "model", "reasoning_effort", "status", "elapsed_sec",
+            "token_metering_complete", "cost_usd", "measurement_basis",
+        )} | {"tokens": {key: row["tokens"].get(key) for key in TOKEN_FIELDS}}
+        for row in report["operations"]
+    ]
+    public["totals"] = setup_totals([public])
+    return public
+
+
 def project_component_case(case: dict) -> dict:
     """Expose scenario measurements and source identity without private artifacts."""
     allowed = COMPONENT_METRICS[case["id"]]

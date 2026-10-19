@@ -13,6 +13,7 @@ from pathlib import Path
 
 from mindie_bench.io import write_json
 from mindie_bench.value_release import markdown
+from mindie_bench.value_resources import setup_totals
 
 
 def component_name(repository: str) -> str:
@@ -50,6 +51,10 @@ def component_view(report: dict, target: dict) -> dict:
         studies = []
         scope = "Repeated component scenarios; no model-productivity claim."
     study_ids = {row["id"] for row in studies}
+    harnesses = {row["harness"] for row in studies}
+    setup_reports = [
+        row for row in report.get("setup_reports", []) if row["plugin"] in harnesses
+    ]
     view = {
         **report,
         "schema_version": "mindie-component-value-report/1",
@@ -59,6 +64,8 @@ def component_view(report: dict, target: dict) -> dict:
         "component_revision": target["revision"],
         "benchmark_scope": scope,
         "studies": studies,
+        "setup_reports": setup_reports,
+        "setup_resources": setup_totals(setup_reports),
         "component_cases": [
             row for row in report["component_cases"]
             if component == "mindie-bench" or row["component"] == component
