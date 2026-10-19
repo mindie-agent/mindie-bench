@@ -15,6 +15,10 @@ on:
         description: Candidate interpreter relative to checkout
         type: string
         default: .venv/bin/python
+      test-command:
+        description: Run the candidate's local contracts, excluding live NPU tests
+        type: string
+        required: true
       build-command:
         description: Build deliverables into RELEASE_ASSETS_DIR
         type: string
@@ -34,13 +38,28 @@ concurrency:
 jobs:
   candidate:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: candidate
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: candidate
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: 6c9524c809bea3cdab8c2f355b4b02d662221426
+          path: release-tool
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.13'
+      - if: inputs.node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Match all package versions to the exact tag
         id: version
         env:
@@ -67,6 +86,19 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"version={version}\n")
           PY
+      - name: Install the exact candidate dependencies
+        env:
+          SETUP_COMMAND: ${{ inputs.setup-command }}
+        run: bash -e -o pipefail -c "$SETUP_COMMAND"
+      - name: Require formal first-party dependency releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_PYTHON: ${{ inputs.python }}
+        run: '"$CANDIDATE_PYTHON" ../release-tool/.github/scripts/check_release_dependencies.py'
+      - name: Run local component contracts
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+        run: bash -e -o pipefail -c "$TEST_COMMAND"
 
   benchmark:
     needs: candidate
