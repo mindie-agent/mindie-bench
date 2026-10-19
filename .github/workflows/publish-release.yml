@@ -3,6 +3,10 @@ name: reusable-publish-release
 on:
   workflow_call:
     inputs:
+      benchmark-ref:
+        description: Exact mindie-bench commit for the validator and benchmark runner
+        type: string
+        required: true
       version-files:
         description: Newline-separated TOML or JSON manifests that must match the tag
         type: string
@@ -48,11 +52,6 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           path: candidate
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: mindie-agent/mindie-bench
-          ref: 6c9524c809bea3cdab8c2f355b4b02d662221426
-          path: release-tool
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.13'
@@ -64,12 +63,14 @@ jobs:
         id: version
         env:
           VERSION_FILES: ${{ inputs.version-files }}
+          BENCHMARK_REF: ${{ inputs.benchmark-ref }}
         run: |
           python - <<'PY'
           import json, os, pathlib, re, subprocess, tomllib
           tag = os.environ["GITHUB_REF_NAME"]
           assert os.environ["GITHUB_REF_TYPE"] == "tag", "formal releases require an existing tag"
           assert re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag), "formal releases require vMAJOR.MINOR.PATCH"
+          assert re.fullmatch(r"[0-9a-f]{40}", os.environ["BENCHMARK_REF"]), "release tools require an exact commit"
           version = tag[1:]
           files = os.environ["VERSION_FILES"].splitlines()
           assert files, "at least one version manifest is required"
@@ -86,6 +87,11 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"version={version}\n")
           PY
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: ${{ inputs.benchmark-ref }}
+          path: release-tool
       - name: Install the exact candidate dependencies
         env:
           SETUP_COMMAND: ${{ inputs.setup-command }}
@@ -102,10 +108,10 @@ jobs:
 
   benchmark:
     needs: candidate
-    uses: mindie-agent/mindie-bench/.github/workflows/release-benchmark.yml@bc421503b832effbc1d8b62c360262cbc020e331
+    uses: ./.github/workflows/release-benchmark.yml
     with:
       version: ${{ needs.candidate.outputs.version }}
-      benchmark-ref: 44eeaba6c3130e8f56d0e24e073c4d03f3fcf047
+      benchmark-ref: ${{ inputs.benchmark-ref }}
       setup-command: ${{ inputs.setup-command }}
       python: ${{ inputs.python }}
 
@@ -144,19 +150,23 @@ jobs:
           name: release-benchmarks
           path: ${{ env.RELEASE_ASSETS_DIR }}
       - name: Verify benchmark provenance and prepare complete checksums
+        env:
+          BENCHMARK_REF: ${{ inputs.benchmark-ref }}
         run: |
           (cd "$RELEASE_ASSETS_DIR" && sha256sum -c benchmark-SHA256SUMS)
           python - <<'PY'
           import hashlib, json, os, pathlib, subprocess
           assets = pathlib.Path(os.environ["RELEASE_ASSETS_DIR"])
           report = json.loads((assets / "benchmark-results.json").read_text())
-          assert report["schema_version"] == "mindie-release-benchmark/1"
+          assert report["schema_version"] == "mindie-release-benchmark/2"
           assert report["repository"] == os.environ["GITHUB_REPOSITORY"]
           assert report["version"] == os.environ["RELEASE_VERSION"]
           assert report["release_gate"] is True and not report["blocking_reasons"]
           for key in ("source", "source_after"):
               assert report[key]["revision"] == os.environ["GITHUB_SHA"]
               assert report[key]["dirty"] is False
+              assert report["tool"][key]["revision"] == os.environ["BENCHMARK_REF"]
+              assert report["tool"][key]["dirty"] is False
           required = [case for case in report["cases"] if case["required"]]
           assert required and all(case["status"] == "pass" for case in required)
           assert report["suite_sha256"] == hashlib.sha256(pathlib.Path("benchmarks/release.json").read_bytes()).hexdigest()

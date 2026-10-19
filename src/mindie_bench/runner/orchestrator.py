@@ -102,11 +102,24 @@ RUNTIME_HELPER_MODULES = (
 )
 
 
-def native_capture_payload(harness, trajectory, profile, workspace):
+def native_capture_payload(harness, trajectory, profile, workspace, *, native_descriptor=None):
     identity = trajectory.native_session_id
     if not identity:
         raise ValueError("G3 capture requires the actual native session identity")
     stop_path = profile.root / "native-stop.json"
+    if harness == "dsh":
+        from mindie_bench.integrations.dsh_capture import bind_dsh_capture
+
+        if native_descriptor is None or native_descriptor.get("session_id") != identity:
+            raise ValueError(
+                "DSH capture requires this foreground driver's completed session descriptor"
+            )
+        return bind_dsh_capture(
+            profile_root=profile.root,
+            dsh_home=Path(profile.env["DSH_HOME"]),
+            workspace=workspace,
+            observed=native_descriptor,
+        )
     if harness == "codex":
         transcripts = list(
             (Path(profile.env["CODEX_HOME"]) / "sessions").rglob(f"*-{identity}.jsonl")
@@ -428,7 +441,12 @@ def run_trial(
             raise ValueError(
                 f"harness version mismatch: expected {config.harness.expected_version!r}, got {version!r}"
             )
-        if group == Group.G3 and config.harness.name in {"dsh", "kimi"}:
+        if group == Group.G3 and config.harness.name == "dsh":
+            raise ValueError(
+                "G3 DSH capture backend is not configured: the native summary endpoint does not "
+                "survive foreground headless exit; exact session artifact binding alone is insufficient"
+            )
+        if group == Group.G3 and config.harness.name == "kimi":
             raise ValueError(f"G3 native capture is not supported for the {config.harness.name} harness")
         if group == Group.G3:
             fingerprint["capture_git_preflight"] = probe_capture_git(profile, paths, trial_dir)
