@@ -105,7 +105,7 @@ jobs:
     uses: mindie-agent/mindie-bench/.github/workflows/release-benchmark.yml@bc421503b832effbc1d8b62c360262cbc020e331
     with:
       version: ${{ needs.candidate.outputs.version }}
-      benchmark-ref: a11d981a2d4d138e8ca70b15d1d5084992838c8f
+      benchmark-ref: 44eeaba6c3130e8f56d0e24e073c4d03f3fcf047
       setup-command: ${{ inputs.setup-command }}
       python: ${{ inputs.python }}
 
