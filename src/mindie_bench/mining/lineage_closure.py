@@ -12,6 +12,8 @@ body admission.
   denied body admission; it never merges selected families or crosses a split.
 - Heldout rejects body exposure from implementation, seed distillation, static
   corpus, or dev evaluation; `body_exposed=False` review is recorded only.
+- Isolated lineage review requires an exact hash-bound admission receipt;
+  its context remains quarantined and other body exposures still count.
 - Readiness needs accepted independent Seed and Heldout families.
 [Timeouts & Locks] Pure in-memory; no clocks or locks.
 [Side-Effect Policy] No filesystem, network, log, DB, subprocess, or global mutation.
@@ -234,6 +236,7 @@ def audit_problem_closure(
     claims: list[dict],
     decisions: list[dict],
     exposures: list[dict],
+    lineage_review_receipt_bytes: dict[str, bytes] | None = None,
 ) -> dict:
     """Audit selected problem-family closure from metadata and review evidence.
 
@@ -508,13 +511,21 @@ def audit_problem_closure(
             "family_id": family_id,
             "asset_ids": asset_ids,
         }
+        reviewed_lineage = False
+        if purpose == "lineage_review" and lineage_review_receipt_bytes is not None:
+            from .lineage_review import verified_lineage_review_exposure
+
+            reviewed_lineage = verified_lineage_review_exposure(raw, lineage_review_receipt_bytes)
+        if reviewed_lineage:
+            detail["lineage_review_admission_ref"] = raw["admission_ref"]
+            detail["lineage_review_admission_sha256"] = raw["admission_sha256"]
         for target in sorted(targets):
             family = families[target]
             family["exposures"].append(dict(detail))
             family["refs"].update(detail["evidence_refs"])
             if not detail["evidence_refs"]:
                 family["reasons"].add("exposure_missing_evidence_ref")
-            if body and family["split"] == "heldout" and purpose != "heldout_task":
+            if body and family["split"] == "heldout" and purpose != "heldout_task" and not reviewed_lineage:
                 family["exposed"] = True
                 text = (
                     f"{purpose}_exposure_on_heldout"
