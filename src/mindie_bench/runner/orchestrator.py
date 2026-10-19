@@ -575,6 +575,19 @@ def run_trial(
             if gateway.infrastructure_error and not gateway.unknown:
                 status, reason = TerminalStatus.INFRA, gateway.infrastructure_error
             elif (
+                not gateway.unknown
+                and result.stop_reason == "timeout"
+                and gateway.model_calls == 0
+                and trajectory.total_turns == 0
+                and not trajectory.calls
+                and not trajectory.native_completed
+            ):
+                # A native startup stall never attempted the task. Running the
+                # oracle on its untouched source would misreport model failure.
+                status, reason = TerminalStatus.INFRA, "native startup timed out before any model request or tool call"
+                auxiliary["native_process"]["classification"] = "native_startup_infrastructure"
+                auxiliary["native_process"]["observed_model_requests"] = 0
+            elif (
                 gateway.unknown
                 or any(error["stage"] == "agent" for error in result.errors)
                 or (
