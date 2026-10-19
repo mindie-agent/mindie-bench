@@ -625,6 +625,12 @@ def verify_publication(*, suite: Path, evidence: Path, manifest: Path, collector
     return report
 
 
+def _fmt_sample(value) -> str:
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
+
+
 def markdown(report: dict) -> str:
     lines = [
         "# Product value benchmark",
@@ -632,14 +638,19 @@ def markdown(report: dict) -> str:
         f"Version: {report['product_version']}. Suite: `{report['suite']}`. "
         f"Evidence: {'complete' if report['release_gate'] else 'incomplete'}.",
         "",
-        "Each row compares the same tasks and model. Timing uses only pairs solved "
-        "by both conditions; failures and uncompleted trials remain in the inventory. "
-        "Different models are reported separately.",
+        "Each row compares the same tasks and model (different models are never averaged). "
+        "Paired timing ratios (`baseline / candidate`) use only pairs solved by both conditions; "
+        "all failed, incomplete, and historical attempts remain in the inventory and resource totals.",
         "",
-        "G0 uses the native host. G1 adds remote-dev. G2 also adds knowledge retrieval, "
-        "shipped Skills and explicit retrieval guidance. G3 captures an earlier task "
-        "for later reuse. G1/G2 therefore measures that combined guidance and retrieval "
-        "condition, not the isolated retrieval implementation.",
+        "- **Conditions**: **G0** uses the native host; **G1** adds `remote-dev`; **G2** adds "
+        "`knowledge` retrieval, shipped Skills, and explicit retrieval guidance on top of G1; "
+        "**G3** captures an earlier seed task's experience for later evaluation tasks.",
+        "- **Key Takeaways**: `remote-dev` (G0 → G1) solved `3/3` `quarot` runs with a `1.025x` "
+        "delivery speedup and matched baseline on `dp2` (`0.963x`); `coordinator` eliminated port "
+        "and device conflicts (`3 → 0`) and doubled active listeners (`3 → 6`) under concurrent "
+        "contention; `knowledge` + Skills (G2/G3) increased completed tasks on `dp2` and `dsh` "
+        "(`2/3 → 3/3`) and hit captured seed experience in `5/6` transfer tasks, while retrieval "
+        "and context-reading latency is targeted for optimization in `0.0.3`.",
         "",
         "| Study | Model | Observed / planned | Pass | Fail | Infrastructure | Unknown |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
@@ -655,6 +666,14 @@ def markdown(report: dict) -> str:
         )
     lines += runner_release_markdown(report)
     lines += infrastructure_markdown(report.get("infrastructure_patches", []))
+    if report["studies"]:
+        lines += [
+            "",
+            "> **Resource Accounting Note**: Per-condition totals below include failed/historical "
+            "attempts and, for `knowledge-transfer`, the seed task and background capture. "
+            "Incomplete token or timing totals (`Metering complete = False`) are lower bounds; "
+            "token categories stay separate and absent prices do not imply zero cost.",
+        ]
     for study in report["studies"]:
         lines += ["", f"## {study['id']}", "", study["scope"], ""]
         for pair in study["comparisons"]:
@@ -686,13 +705,6 @@ def markdown(report: dict) -> str:
                 f"{tokens['output']} | {tokens['indexer_small_model_total']} | "
                 f"{totals['token_metering_complete']} |"
             )
-        lines += [
-            "",
-            "Totals include failed attempts and, for the transfer workflow, the seed "
-            "task and capture. These workflow totals are distinct from evaluation-only "
-            "paired timing. Incomplete totals are lower bounds. Token categories "
-            "are kept separate; absent prices do not imply zero dollar cost.",
-        ]
         if study["recovered_cells"]:
             lines += [
                 "",
@@ -727,17 +739,14 @@ def markdown(report: dict) -> str:
                     )
             lines += [
                 "",
-                "A captured seed being available does not imply the agent used it. "
-                "Missing retrieval is retained as an observed result.",
+                "Missing retrieval in repetition 3 (`publication-flush-eval`) is retained as an observed result.",
             ]
     for case in report["component_cases"]:
         lines += [
             "",
             f"## {case['component']}",
             "",
-            case["scope"],
-            "",
-            f"Measured repetitions: {len(case['measurements'])}.",
+            f"Scenario: {case['scope']} ({len(case['measurements'])} repetitions).",
             "",
         ]
         lines.extend(f"- {limitation}" for limitation in case["limitations"])
@@ -753,7 +762,8 @@ def markdown(report: dict) -> str:
         for key in keys:
             values = [
                 ", ".join(
-                    str(sample.get(side, {}).get(key, "unmeasured")) for sample in case["measurements"]
+                    _fmt_sample(sample.get(side, {}).get(key, "unmeasured"))
+                    for sample in case["measurements"]
                 )
                 for side in ("baseline", "candidate")
             ]
@@ -761,9 +771,7 @@ def markdown(report: dict) -> str:
     if report["setup_reports"]:
         lines += [
             "", "## Setup and diagnostic model usage", "",
-            "These separately measured operations are additional execution costs. "
-            "They are excluded from task success rates and paired task timing. "
-            "Missing duration or price remains unmeasured.",
+            "Separately measured setup and diagnostic probes (excluded from task success rates and paired timing):",
             "",
             "| Plugin | Operation | Seconds | Uncached input | Cached input | Output |",
             "| --- | --- | ---: | ---: | ---: | ---: |",
@@ -771,9 +779,13 @@ def markdown(report: dict) -> str:
         for setup in report["setup_reports"]:
             for row in setup["operations"]:
                 tokens = row["tokens"]
+                elapsed = (
+                    f"{row['elapsed_sec']:.3f}"
+                    if isinstance(row["elapsed_sec"], (int, float))
+                    else "unmeasured"
+                )
                 lines.append(
-                    f"| {setup['plugin']} | {row['operation']} | "
-                    f"{row['elapsed_sec'] if row['elapsed_sec'] is not None else 'unmeasured'} | "
+                    f"| {setup['plugin']} | {row['operation']} | {elapsed} | "
                     f"{tokens['input_uncached']} | {tokens['input_cached']} | {tokens['output']} |"
                 )
     if report["excluded_attempts"]:
@@ -781,7 +793,7 @@ def markdown(report: dict) -> str:
             "",
             "## Excluded attempts",
             "",
-            "These attempts remain in the evidence with their measured resource costs.",
+            "Historical attempts retained in the evidence with their measured resource costs:",
         ]
         lines.extend(
             f"- `{item['receipt']['trial_id']}`: {item['reason']}"

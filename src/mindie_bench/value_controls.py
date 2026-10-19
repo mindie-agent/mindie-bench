@@ -132,17 +132,23 @@ def runner_release_markdown(report):
         return []
     lines = [
         "", "## Measurement versions and scope", "",
-        f"Release runner: mindie-bench {target['version']} at `{target['revision']}`. "
-        "Tasks ran on the earlier versions listed below. Later infrastructure, cleanup "
-        "and publication changes do not represent new task measurements or identical setup timing.",
+        f"Release runner: `mindie-bench` {target['version']} (`{target['revision']}`). "
+        "Task evaluations ran on the historical runner revisions listed below; later changes "
+        "in `0.3.0` cover cleanup, provenance checks, and report publication without rewriting "
+        "task inputs, models, budgets, or recorded attempt costs.",
     ]
+    grouped: dict[tuple[str, str], list[str]] = {}
     for review in report.get("runner_release_reviews", []):
         measured = review["measured"]
         identity = (
-            f"{measured.get('version')} at {measured.get('revision') or 'revision unrecorded'}"
-            if review["kind"] == "trial" else "component scenario sources retained in the data"
+            f"`{measured.get('version')} at {measured.get('revision') or 'revision unrecorded'}`"
+            if review["kind"] == "trial" else "`component scenario sources retained in the data`"
         )
-        lines.append(f"- {review['kind']} `{identity}`: {review['scope']}")
+        items = grouped.setdefault((review["kind"], review["scope"]), [])
+        if identity not in items:
+            items.append(identity)
+    for (kind, scope), identities in grouped.items():
+        lines.append(f"- {kind} ({', '.join(identities)}): {scope}")
     return lines
 
 
@@ -161,13 +167,11 @@ def infrastructure_markdown(patches):
         return []
     return [
         "", "## Reviewed benchmark infrastructure changes", "",
-        "These are changed instrumentation sources, not identical-code claims. "
-        "The mappings apply only to the listed studies; raw receipt identities and "
-        "original attempt costs are retained. Component scenarios still require "
-        "the exact release source.",
+        "Disclosed non-treatment instrumentation updates (raw receipt identities and "
+        "original attempt costs remain preserved; component scenarios use the final release source):",
         *[
-            f"- {patch['component']}: `{patch['before']}` to `{patch['after']}`; "
-            f"studies: {', '.join(patch['studies'])}. {patch['scope']}"
+            f"- {patch['component']}: `{patch['before']}` to `{patch['after']}` "
+            f"(studies: {', '.join(patch['studies'])}). {patch['scope']}"
             for patch in patches
         ],
     ]

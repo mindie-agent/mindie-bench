@@ -66,12 +66,12 @@ def _component_line(case: dict, language: str) -> str:
             f"{total(candidate, 'duplicate_device_selections')}"
         )
         return (
-            f"- coordinator：{count} 轮竞争，成功监听数 {listeners}，端口冲突 {conflicts}，"
-            f"重复设备选择 {duplicates}。基线是先检查再操作，不是另一种原子调度器。"
+            f"- coordinator：{count} 轮双 Agent 并发抢占实测，成功建立监听数 {listeners}，"
+            f"端口冲突 {conflicts}，重复选卡 {duplicates}（对比无协调的“先检查再绑定”基线）。"
             if zh else
-            f"- coordinator: {count} contention runs; successful listeners {listeners}, "
-            f"port conflicts {conflicts}, duplicate device selections {duplicates}. "
-            "The baseline uses check-then-act, not another atomic scheduler."
+            f"- coordinator: {count} concurrent two-agent contention runs; successful listeners {listeners}, "
+            f"port conflicts {conflicts}, duplicate device selections {duplicates} "
+            "(compared against an uncoordinated check-then-act baseline)."
         )
     if case["id"] == "npu-top-physical-owner-query":
         devices = _span((row.get("golden_physical_devices_correct") for row in candidate), language)
@@ -81,14 +81,14 @@ def _component_line(case: dict, language: str) -> str:
         human_accuracy = _span((row.get("human_answer_accuracy") for row in baseline), language, digits=3)
         human_time = _span((row.get("human_completion_time_sec") for row in baseline), language, digits=2)
         return (
-            f"- npu-top：{count} 轮回放，每轮正确识别设备 {devices} 个、进程归属 {correct}/{expected}；"
-            f"现场容器归属检查 {owners} 通过。人工定位准确率：{human_accuracy}，耗时（秒）：{human_time}。"
-            "重复回放不是独立硬件样本。"
+            f"- npu-top：{count} 轮硬件快照回放，每轮准确识别物理卡 {devices} 张、进程归属 {correct}/{expected}；"
+            f"实机容器归属探测 {owners} 通过。人工排查准确率：{human_accuracy}，耗时（秒）：{human_time}"
+            "（快照回放验证解析确定性，不等同于独立硬件样本）。"
             if zh else
-            f"- npu-top: {count} replay runs; {devices} devices and {correct}/{expected} process "
-            f"assignments correct per run; live container-owner checks passed {owners}. "
-            f"Human accuracy: {human_accuracy}; task time (s): {human_time}. "
-            "Replays are not independent hardware samples."
+            f"- npu-top: {count} hardware-capture replay runs; {devices} physical devices and {correct}/{expected} "
+            f"process assignments identified per run; live container-owner checks passed {owners}. "
+            f"Human accuracy: {human_accuracy}; task time (s): {human_time} "
+            "(capture replays verify parser determinism rather than independent hardware samples)."
         )
     if case["id"] == "diagnostics-fault-delivery":
         failures = total(candidate, "failure_occurrences")
@@ -99,14 +99,14 @@ def _component_line(case: dict, language: str) -> str:
         withdrawal = observed(candidate, "withdrawal_prevented_requests")
         duration = _span((row.get("failure_to_delivery_sec") for row in candidate), language, digits=2)
         return (
-            f"- diagnostics：{count} 轮本地 HTTP 场景中，{failures} 次故障形成 {reports} 条报告、"
-            f"{posts} 次 POST；证据保留 {fields}、脱敏 {privacy}、撤回后停止请求 {withdrawal}。"
-            f"故障到交付耗时 {duration} 秒，包含生产重试等待；不代表 GitHub 可用性或人工排障收益。"
+            f"- diagnostics：{count} 轮本地 HTTP 上报场景中，{failures} 次报错自动去重形成 {reports} 条报告、"
+            f"{posts} 次 POST；关键字段保留 {fields}、隐私脱敏 {privacy}、关闭开关后立即停发 {withdrawal}。"
+            f"从报错到送达耗时 {duration} 秒（含约 60 秒生产重试等待；本地测试不代表 GitHub 线上可用性或人工排障耗时）。"
             if zh else
-            f"- diagnostics: {count} local HTTP runs turned {failures} fault occurrences into "
-            f"{reports} reports and {posts} POSTs; evidence retained {fields}, redaction {privacy}, "
-            f"requests stopped after withdrawal {withdrawal}. Delivery took {duration} s, including "
-            "the production retry wait; GitHub availability and human triage gains were not measured."
+            f"- diagnostics: {count} local HTTP reporting runs deduplicated {failures} faults into "
+            f"{reports} reports and {posts} POSTs; key fault fields retained {fields}, privacy redaction {privacy}, "
+            f"requests stopped after consent withdrawal {withdrawal}. Delivery took {duration} s "
+            "(including the ~60 s production retry wait; local HTTP does not measure GitHub availability or human triage time)."
         )
     raise ValueError(f"unsupported homepage component case: {case['id']}")
 
@@ -124,24 +124,25 @@ def _transfer_lines(study: dict, language: str) -> list[str]:
     lines = [
         "",
         (
-            f"**知识复用：{label}** — {len(lineages)} 轮，每轮 1 个 seed + {evaluations} 个不同 eval。"
+            f"**跨任务经验复用：{label}** — 共 {len(lineages)} 轮，每轮先完成 1 个前置任务并沉淀经验（`seed` + `capture`），"
+            f"再执行 {evaluations} 个不同的后续任务（`eval`）。"
             if zh else
-            f"**Knowledge transfer: {label}** — {len(lineages)} runs, each with 1 seed + "
-            f"{evaluations} distinct eval tasks."
+            f"**Cross-task experience reuse: {label}** — {len(lineages)} runs, each executing 1 seed task "
+            f"with experience capture followed by {evaluations} distinct eval tasks."
         ),
         (
-            f"实际 query 命中 seed {queries}/{len(entries)}，explain 读取 {explains}/{len(entries)}；"
-            "未命中也保留在结果中。以下为全流程累计交付时间，已包含 seed 与 capture，不是仅 eval 的时间。"
+            f"后续任务中检索（`query`）命中前置经验 {queries}/{len(entries)} 次、展开读取（`explain`）{explains}/{len(entries)} 次"
+            "（未命中轮次原样保留）。下表为包含前置任务与经验沉淀在内的全流程总耗时；知识检索与全流程耗时预计在 `0.0.3` 优化："
             if zh else
-            f"Query returned the seed in {queries}/{len(entries)} evals; explain read it in "
-            f"{explains}/{len(entries)}. Misses remain in the results. Workflow totals below "
-            "include seed and capture, unlike the eval-only paired timing above."
+            f"Later eval tasks hit the captured seed via `query` in {queries}/{len(entries)} runs and read it via "
+            f"`explain` in {explains}/{len(entries)} runs (misses are retained). Workflow totals below include the "
+            "seed task and capture cost; retrieval overhead and end-to-end workflow latency are scheduled for optimization in `0.0.3`:"
         ),
         "",
         (
-            "| 条件 | 选定全流程（秒） | 全部已执行，含历史尝试（秒） |"
+            "| 条件 | 选定正式轮次全流程耗时（秒） | 全部已执行（含历史重跑，秒） |"
             if zh else
-            "| Condition | Selected workflow (s) | All executed, including historical attempts (s) |"
+            "| Condition | Selected workflow total (s) | All executed, including historical attempts (s) |"
         ),
         "| --- | ---: | ---: |",
     ]
@@ -167,23 +168,30 @@ def homepage_markdown(report: dict, language: str = "zh") -> str:
         f"### {version} " + ("实测结果" if zh else "measured results"),
         "",
         (
-            "固定任务集的小样本结果，按宿主、模型和对照分开列出，不跨模型求平均，也不代表普遍提效。"
+            "固定任务集上的小样本实测结果（按宿主、模型与对照条件分别列出，不跨模型求平均）："
+            "`remote-dev`（G0 → G1）在 `quarot` 上实现 `3/3` 解出与 `1.025x` 交付提速，在 `dp2` 上与原生基线基本持平（`0.963x`）；"
+            "`coordinator` 在双 Agent 并发抢占下实现零冲突协调；"
+            "`knowledge` + Skills（G2/G3）提升了 `dp2` 与 `dsh` 的解题完成数并跑通跨任务经验复用，检索开销预计在 `0.0.3` 重点优化。"
             if zh else
-            "Small-sample results on fixed tasks, reported separately by host, model and comparison. "
-            "They are not averaged across models and do not establish a general productivity gain."
+            "Small-sample results on the fixed task suite (reported separately by host, model and comparison, never averaged across models): "
+            "`remote-dev` (G0 → G1) solved `3/3` `quarot` runs with a `1.025x` speedup and matched baseline on `dp2` (`0.963x`); "
+            "`coordinator` eliminated port and device conflicts under concurrent contention; "
+            "`knowledge` + Skills (G2/G3) increased solved tasks on `dp2` and `dsh` and validated cross-task reuse, with retrieval latency targeted for optimization in `0.0.3`."
         ),
         "",
         (
-            "G0：原生宿主；G1：加入 remote-dev；G2：再加入知识检索、随包 Skills 和显式检索提示；"
-            "G3：在 G2 上采集前一任务的经验，供后续任务使用。"
+            "**实验条件**：**G0** 原生宿主；**G1** 接入 `remote-dev` 远端执行；"
+            "**G2** 在 G1 上同时启用 `knowledge` 检索、随包 Skills 与显式检索提示；"
+            "**G3** 在 G2 上将前置任务经验沉淀入库，供后续任务检索复用。"
             if zh else
-            "G0: native host. G1: add remote-dev. G2: also add knowledge retrieval, shipped Skills "
-            "and explicit retrieval guidance. G3: capture an earlier task's experience for later tasks."
+            "**Conditions**: **G0** native host; **G1** adds `remote-dev` remote execution; "
+            "**G2** adds `knowledge` retrieval, shipped Skills and explicit retrieval guidance on top of G1; "
+            "**G3** captures an earlier task's experience on top of G2 for later tasks."
         ),
         "",
         (
-            "| 任务集 / 宿主 / 模型 | 每任务重复数 | 对照 | 基线解题数/尝试数 | 候选解题数/尝试数 | "
-            "交付时间比（基线/候选） | 双方均解决的配对数 |"
+            "| 任务集 / 宿主 / 模型 | 每任务重复数 | 对照 | 基线通过/尝试 | 启用后通过/尝试 | "
+            "耗时比（基线/启用后） | 双方均通过的配对数 |"
             if zh else
             "| Study / host / model | Repeats per task | Pair | Baseline solved/attempts | "
             "Candidate solved/attempts | Delivery-time ratio (baseline/candidate) | Mutually solved pairs |"
@@ -210,28 +218,27 @@ def homepage_markdown(report: dict, language: str = "zh") -> str:
     lines += [
         "",
         (
-            "解题数与尝试数使用选定的已结束 eval；失败仍计入分母。时间比仅使用双方均解决的任务，"
-            "大于 1 表示候选在这些配对中更快，小于 1 表示更慢。"
+            "注：通过/尝试统计选定的正式实验轮次（失败计入分母）。耗时比仅统计同一轮双方均通过的配对，"
+            "`> 1.0x` 表示启用后更快，`< 1.0x` 表示因增加检索或工具交互而更慢。"
             if zh else
-            "Solved/attempts uses the selected settled evals, with failures in the denominator. "
-            "Timing includes only tasks solved by both sides: above 1 means the candidate was faster "
-            "on those pairs; below 1 means slower."
+            "Note: Solved/attempts counts the selected settled runs (with failures in the denominator). "
+            "Timing ratios use only pairs solved by both sides: `> 1.0x` means the candidate was faster; `< 1.0x` means slower."
         ),
     ]
     for study in report["studies"]:
         lines.extend(_transfer_lines(study, language))
     if report["component_cases"]:
-        lines += ["", "**组件场景**" if zh else "**Component scenarios**", ""]
+        lines += ["", "**组件实测场景**" if zh else "**Component scenarios**", ""]
         lines.extend(_component_line(case, language) for case in report["component_cases"])
     lines += [
         "",
         (
-            f"[完整结果、条件定义与成本记录]({link})保留原始失败、未知终态、历史尝试和单点重测；"
-            "准备与诊断模型调用单独记账，不混入任务价值。"
+            f"[完整评测报告、条件定义与成本记录]({link})保留全部原始失败、状态未知（`unknown`）记录、历史尝试与单点重测链路；"
+            "环境准备与诊断探针的模型调用单独记账，不混入任务评测。"
             if zh else
-            f"[Full results, condition definitions and costs]({link}) retain original failures, "
+            f"[Full benchmark report, condition definitions and cost records]({link}) retain original failures, "
             "unknown outcomes, historical attempts and targeted retests. Setup and diagnostic "
-            "model usage is accounted for separately from task value."
+            "model usage is accounted for separately from task evaluations."
         ),
         END_MARKER,
     ]

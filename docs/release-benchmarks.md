@@ -140,6 +140,55 @@ Absolute latency samples describe the recorded environment; comparisons require
 matching workloads and environments. Use the existing controlled `compare`
 workflow for causal productivity or ablation claims.
 
+## Product value suite and component attachments
+
+Alongside per-component `benchmarks/release.json` workloads, each product release
+evaluates the fixed product value suite in `benchmarks/product-value-v1.json`:
+
+- **Real-task comparisons (`G0` / `G1` / `G2` / `G3`)**: compares native host
+  baselines (`G0`), `remote-dev` remote execution (`G1`), `knowledge` retrieval
+  with shipped Skills and retrieval guidance (`G2`), and cross-task experience
+  capture/reuse (`G3`) per host and model without averaging across models.
+- **Component scenarios**: repeated scenarios for `coordinator` (concurrent lease
+  and port arbitration), `npu-top` (hardware capture replay and live container
+  ownership), and `diagnostics` (local HTTP fault deduplication, redaction, and
+  consent withdrawal).
+
+Collect and verify the public value report from recorded trial receipts and
+component scenario reports:
+
+```sh
+mindie-bench value-collect \
+  --suite benchmarks/product-value-v1.json \
+  --manifest /path/to/value-inputs.json \
+  --output /tmp/product-value
+
+mindie-bench value-verify \
+  --suite benchmarks/product-value-v1.json \
+  --evidence /tmp/product-value/value-evidence.json \
+  --release-manifest /path/to/mindie-agent/docs/releases/0.0.2/benchmark-manifest.json \
+  --output /tmp/product-value-verified
+```
+
+The output directory contains `value-suite.json`, `value-evidence.json`,
+`value-results.json`, `value-results.md`, and the localized homepage blocks
+(`value-homepage.md` and `value-homepage.en.md`). All completed passes, failures,
+unknown outcomes, historical attempts, and separate setup/diagnostic model calls
+remain accounted for in the public report.
+
+Before publishing the product tag, a maintainer attaches the two versioned
+component-view files (`product-<version>-value-results.json` and
+`product-<version>-value-results.md`) to each component's formal GitHub Release:
+
+```sh
+uv run python .github/scripts/attach_product_value.py \
+  --suite benchmarks/product-value-v1.json \
+  --evidence /path/to/mindie-agent/docs/releases/0.0.2/value-evidence.json \
+  --manifest /path/to/mindie-agent/docs/releases/0.0.2/benchmark-manifest.json \
+  --output /tmp/product-value-components \
+  --publish
+```
+
 ## Automatic product publication
 
 The documentation repository calls `.github/workflows/publish-product.yml` on
@@ -157,18 +206,18 @@ jobs:
       benchmark-ref: BENCH_COMMIT
 ```
 
-The product tag must contain `docs/releases/<version>/benchmark-manifest.json`
-and `docs/releases/<version>.md`. The collector downloads the three
-public benchmark assets from each target's formal `v<version>` GitHub Release,
-resolves annotated or lightweight tags to the declared source SHA, verifies
-both report hashes, then runs the existing collection gate. The canonical
-asset names currently carry one platform per component release; request only
-platforms actually present in those assets. Missing platform evidence blocks
-publication.
+The product tag must contain `docs/releases/<version>/benchmark-manifest.json`,
+`docs/releases/<version>/value-evidence.json`, and `docs/releases/<version>.md`.
+Before creating the product Release, the workflow:
 
-The product Release carries the aggregate JSON and Markdown, benchmark
-checksums, exact manifest, component-release provenance and a complete
-`SHA256SUMS`. Public component reports remain embedded in the aggregate JSON;
-private subprocess logs are never downloaded. Missing, draft, changed or stale
-component releases stop the workflow before product publication. Re-running
-an already published product tag does not overwrite that Release.
+1. Recomputes the value report from `value-evidence.json` against
+   `benchmarks/product-value-v1.json` and verifies that every component revision
+   matches `benchmark-manifest.json`.
+2. Verifies via `attach_product_value.py --require-existing` that every formal
+   component Release already carries matching `product-<version>-value-results.json`
+   and `product-<version>-value-results.md` attachments (using standard read
+   access without requiring a new cross-repository write credential).
+3. Downloads and verifies the public release benchmark assets from each target's
+   formal `v<version>` GitHub Release and publishes the aggregated product Release
+   with `SHA256SUMS`. Re-running an already published product tag does not
+   overwrite that Release.

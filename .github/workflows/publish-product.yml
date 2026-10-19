@@ -135,11 +135,7 @@ jobs:
           git fetch --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/release-check/product"
           test "$(git rev-parse 'refs/release-check/product^{commit}')" = "$GITHUB_SHA"
           (cd "$RUNNER_TEMP/product-benchmarks" && sha256sum -c SHA256SUMS)
-          cat "docs/releases/$PRODUCT_VERSION.md" \
-            "$RUNNER_TEMP/product-benchmarks/value-results.md" \
-            "$RUNNER_TEMP/product-benchmarks/value-homepage.md" \
-            "$RUNNER_TEMP/product-benchmarks/value-homepage.en.md" \
-            "$RUNNER_TEMP/product-benchmarks/benchmark-results.md" > "$RUNNER_TEMP/product-release-notes.md"
+          cp "docs/releases/$PRODUCT_VERSION.md" "$RUNNER_TEMP/product-release-notes.md"
           gh release create "$GITHUB_REF_NAME" \
             "$RUNNER_TEMP/product-benchmarks/benchmark-results.json" \
             "$RUNNER_TEMP/product-benchmarks/benchmark-results.md" \
