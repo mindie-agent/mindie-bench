@@ -249,6 +249,35 @@ def test_plugin_sources_skills_ablation_and_metering_are_required():
     assert "dp2:token_metering_incomplete:candidate" in reasons
 
 
+def test_two_distinct_infrastructure_repairs_keep_the_entire_attempt_chain():
+    suite, inputs = evidence()
+    original = copy.deepcopy(inputs["studies"]["dp2"][1])
+    original.update(trial_id="first", terminal_status="unknown", failure_reason="foreign workload")
+    original["primary_metrics"].update(reward=None, resolved=None, delivery_wall_clock_sec=10)
+    original["primary_metrics"]["tokens"]["complete"] = False
+    second = copy.deepcopy(original)
+    second.update(trial_id="second", terminal_status="infra_failed", failure_reason="postflight lease")
+    second["primary_metrics"]["delivery_wall_clock_sec"] = 20
+    inputs["excluded_attempts"] = [
+        {"study_id": "dp2", "reason": "foreign task ended",
+         "replacement_trial_id": "second", "receipt": original},
+        {"study_id": "dp2", "reason": "owned completion repaired",
+         "replacement_trial_id": "candidate", "receipt": second},
+    ]
+    report = evaluate(suite, inputs)
+    assert report["release_gate"]
+    study = report["studies"][0]
+    assert study["first_attempt_statuses"] == {"completed_pass": 1, "unknown": 1}
+    assert study["resources"]["all_executed"]["attempts"] == 4
+    assert (
+        study["resources"]["all_executed"]["observed_delivery_wall_clock_sec_lower_bound"]
+        == study["resources"]["selected"]["observed_delivery_wall_clock_sec_lower_bound"] + 30
+    )
+    inputs["excluded_attempts"][1]["replacement_trial_id"] = "first"
+    with pytest.raises(ValueError, match="cycle"):
+        evaluate(suite, inputs)
+
+
 def test_retest_cannot_change_model_budget_or_unreviewed_runtime():
     suite, inputs = evidence()
     candidate = inputs["studies"]["dp2"][1]

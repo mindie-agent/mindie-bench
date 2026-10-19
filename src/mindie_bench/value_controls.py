@@ -69,3 +69,36 @@ def require_retest_controls(original, candidate, evidence):
             for revision in (old.get(component), new.get(component))
         ):
             raise ValueError(f"a retest changed an unreviewed component: {component}")
+
+
+def retest_chain_problems(excluded, selected_ids):
+    successors = {
+        item["receipt"]["trial_id"]: item["replacement_trial_id"]
+        for item in excluded if item.get("replacement_trial_id")
+    }
+    problems = []
+    for original in successors:
+        cursor, visited = original, set()
+        while cursor in successors:
+            if cursor in visited:
+                raise ValueError("a retest history cannot contain a cycle")
+            visited.add(cursor)
+            cursor = successors[cursor]
+        if cursor not in selected_ids:
+            problems.append(f"retest_chain_unsettled:{original}")
+    return problems
+
+
+def first_attempt_statuses(rows, excluded):
+    predecessors = {
+        item["replacement_trial_id"]: item["receipt"]
+        for item in excluded if item.get("replacement_trial_id")
+    }
+    statuses = {}
+    for row in rows:
+        cursor, status = row.trial_id, row.terminal_status.value
+        while cursor in predecessors:
+            original = predecessors[cursor]
+            cursor, status = original["trial_id"], original["terminal_status"]
+        statuses[row.trial_id] = status
+    return statuses

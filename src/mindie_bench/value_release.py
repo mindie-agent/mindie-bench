@@ -18,7 +18,11 @@ from mindie_bench.io import digest, read_json, write_json
 from mindie_bench.models import TerminalStatus, TrialReceipt
 from mindie_bench.scorer.comparator import CONTROL_KEYS, comparison
 from mindie_bench.scorer.metrics import summarize
-from mindie_bench.value_controls import require_retest_controls
+from mindie_bench.value_controls import (
+    first_attempt_statuses,
+    require_retest_controls,
+    retest_chain_problems,
+)
 from mindie_bench.value_controls import source_matches as _source_matches
 from mindie_bench.value_homepage import homepage_markdown
 from mindie_bench.value_resources import (
@@ -231,11 +235,7 @@ def _study(study, rows, sources, runner_patches, source_patches, excluded):
         group: [row for row in rows if row.ablation_group.value == group] for group in study["groups"]
     }
     historical = [TrialReceipt.model_validate(item["receipt"]) for item in excluded]
-    first_attempts = {row.trial_id: row.terminal_status.value for row in rows}
-    for item in excluded:
-        replacement = item.get("replacement_trial_id")
-        if replacement:
-            first_attempts[replacement] = item["receipt"]["terminal_status"]
+    first_attempts = first_attempt_statuses(rows, excluded)
     comparisons = []
     inventory = [
         {
@@ -365,6 +365,10 @@ def evaluate(suite: dict, evidence: dict) -> dict:
         for rows in evidence["studies"].values()
         for raw in rows
     }
+    attempts = {**selected, **{item["receipt"]["trial_id"]: item["receipt"] for item in excluded}}
+    attempt_studies = {
+        raw["trial_id"]: study_id for study_id, rows in evidence["studies"].items() for raw in rows
+    } | {item["receipt"]["trial_id"]: item["study_id"] for item in excluded}
     replacements = set()
     for item in excluded:
         original = item["receipt"]
@@ -385,12 +389,12 @@ def evaluate(suite: dict, evidence: dict) -> dict:
         ):
             raise ValueError("valid task outcomes cannot be hidden as unlinked historical attempts")
         if replacement:
-            candidate = selected.get(replacement)
+            candidate = attempts.get(replacement)
             if candidate is None or replacement in replacements:
-                raise ValueError("a retest must replace one original attempt with one selected trial")
+                raise ValueError("a retest must have one recorded predecessor and successor")
             if any(original[field] != candidate[field] for field in fields):
                 raise ValueError("a retest must retain the original task and cell")
-            if candidate not in evidence["studies"][item["study_id"]]:
+            if attempt_studies[replacement] != item["study_id"]:
                 raise ValueError("a retest must remain in the same study")
             require_retest_controls(original, candidate, evidence)
             startup = item.get("startup_observation", {})
@@ -408,6 +412,7 @@ def evaluate(suite: dict, evidence: dict) -> dict:
             if original["terminal_status"] in {status.value for status in VALID} and not zero_model_startup:
                 raise ValueError("valid task outcomes cannot be replaced by a favorable retest")
             replacements.add(replacement)
+    problems.extend(retest_chain_problems(excluded, selected.keys()))
     for study in suite["studies"]:
         rows = [TrialReceipt.model_validate(raw) for raw in evidence["studies"][study["id"]]]
         for row in rows:
