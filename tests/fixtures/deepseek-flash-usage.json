@@ -1,0 +1,31 @@
+{
+  "id": "chatcmpl-public-metering-capture",
+  "object": "chat.completion.chunk",
+  "created": 1792390540,
+  "model": "deepseek-flash",
+  "system_fingerprint": "e72d3c7f663d3e1383b00b3884cb4501",
+  "choices": [
+    {
+      "index": 0,
+      "delta": {
+        "content": "",
+        "reasoning_content": null
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 35,
+    "completion_tokens": 11,
+    "total_tokens": 46,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 9
+    },
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 35
+  }
+}

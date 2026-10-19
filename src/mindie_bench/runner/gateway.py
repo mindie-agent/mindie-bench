@@ -51,9 +51,7 @@ from mindie_bench.models import HarnessConfig, TaskSpec, UnknownExternalEffects
 from mindie_bench.runner.usage import UsageMeter, sum_usage
 from mindie_bench.scorer.command_observations import is_recognized_npu_command
 
-_SETTLEMENT_GRACE_SECONDS = float(
-    os.environ.get("MINDIE_BENCH_SETTLEMENT_GRACE_SECONDS", "30.0")
-)
+_SETTLEMENT_GRACE_SECONDS = float(os.environ.get("MINDIE_BENCH_SETTLEMENT_GRACE_SECONDS", "30.0"))
 MODEL_SETTLEMENT_GRACE_SEC = _SETTLEMENT_GRACE_SECONDS
 
 
@@ -456,6 +454,8 @@ class Gateway(AbstractContextManager):
                     if self.path not in {
                         "/v1/responses",
                         "/responses",
+                        "/v1/chat/completions",
+                        "/chat/completions",
                         "/v1/messages",
                         "/messages",
                         "/v1/messages?beta=true",
@@ -507,7 +507,7 @@ class Gateway(AbstractContextManager):
                         "Content-Type": "application/json",
                         "Accept": self.headers.get("Accept", "*/*"),
                     }
-                    if gateway.harness.name in {"codex", "dsh"}:
+                    if "/messages" not in self.path:
                         headers["Authorization"] = "Bearer " + gateway.api_key
                     else:
                         headers["x-api-key"] = gateway.api_key

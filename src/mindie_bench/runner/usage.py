@@ -1,4 +1,10 @@
-"""Extract provider metering, including inference initiated by component tools."""
+"""Extract provider metering, including inference initiated by component tools.
+
+[Role] Normalize Responses, Messages and Chat Completions usage.
+[Invariants] Cached input is counted once; absent terminal usage remains incomplete.
+[Timeouts & Locks] Incremental parsing has bounded buffers and no waits or locks.
+[Side-Effect Policy] Reads supplied provider bytes only.
+"""
 
 import json
 
@@ -39,8 +45,24 @@ class UsageMeter:
             self.anthropic(
                 value.get("usage", {}), complete=bool(value.get("delta", {}).get("stop_reason"))
             )
+        elif value.get("object") in {"chat.completion", "chat.completion.chunk"}:
+            self.chat_completions(value.get("usage"))
+        elif kind == "message":
+            self.anthropic(value.get("usage", {}), complete=bool(value.get("stop_reason")))
         elif "usage" in value:
             self.openai(value["usage"], complete=kind not in {"response.failed", "error"})
+
+    def chat_completions(self, usage):
+        if not isinstance(usage, dict):
+            return
+        details = usage.get("prompt_tokens_details") or {}
+        total = usage.get("prompt_tokens")
+        cached = usage.get("prompt_cache_hit_tokens", details.get("cached_tokens", 0))
+        output = usage.get("completion_tokens")
+        if all(type(v) is int and v >= 0 for v in (total, cached, output)) and cached <= total:
+            self.tokens = Tokens(
+                input_uncached=total - cached, input_cached=cached, output=output, complete=True
+            )
 
     def openai(self, usage, *, complete):
         if not isinstance(usage, dict):

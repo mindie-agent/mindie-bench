@@ -44,6 +44,8 @@ def test_claude_native_beta_query_is_forwarded_without_opening_arbitrary_queries
                     "type": "message",
                     "role": "assistant",
                     "content": [{"type": "text", "text": "fixture"}],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
                     "usage": {"input_tokens": 3, "output_tokens": 1},
                 }
             ).encode()
