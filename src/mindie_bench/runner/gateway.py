@@ -39,6 +39,7 @@ import os
 import re
 import socket
 import socketserver
+import ssl
 import tempfile
 import threading
 import time
@@ -516,6 +517,7 @@ class Gateway(AbstractContextManager):
                         )
                         if self.headers.get("anthropic-beta"):
                             headers["anthropic-beta"] = self.headers["anthropic-beta"]
+                    transport_stage = "connect"
                     try:
                         connection.connect()
                         transport = connection.sock
@@ -523,7 +525,9 @@ class Gateway(AbstractContextManager):
                             gateway.connections[connection] = transport
                             if gateway.closed or gateway.model_settlement_expired:
                                 raise TimeoutError("model settlement deadline expired before submission")
+                        transport_stage = "submit"
                         connection.request("POST", target, body=body, headers=headers)
+                        transport_stage = "response_headers"
                         response = connection.getresponse()
                         if response.status >= 400:
                             if response.status in {400, 401, 403, 404, 422}:
@@ -551,6 +555,7 @@ class Gateway(AbstractContextManager):
                             self.end_headers()
                         except OSError as exc:
                             delivery_failed(exc)
+                        transport_stage = "response_body"
                         while True:
                             if delivery_deadline is not None:
                                 remaining = delivery_deadline - time.monotonic()
@@ -580,7 +585,17 @@ class Gateway(AbstractContextManager):
                         gateway.record("model_end", ordinal=ordinal, http_status=response.status)
                     except (OSError, http.client.HTTPException) as exc:
                         gateway.unknown = True
-                        gateway.record("model_error", ordinal=ordinal, error=type(exc).__name__)
+                        gateway.record(
+                            "model_error",
+                            ordinal=ordinal,
+                            error=type(exc).__name__,
+                            transport_stage=transport_stage,
+                            errno=exc.errno if isinstance(exc, OSError) else None,
+                            ssl_reason=(
+                                exc.reason or exc.strerror
+                                if isinstance(exc, ssl.SSLError) else None
+                            ),
+                        )
                         self.close_connection = True
                     finally:
                         gateway.record(
