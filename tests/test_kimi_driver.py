@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import mindie_bench
 from mindie_bench.models import ExperimentConfig, HarnessConfig
 from mindie_bench.runner.drivers.kimi import KimiDriver
 from mindie_bench.runner.kimi_profile import build_kimi_profile
@@ -479,7 +480,12 @@ def test_end_to_end_real_kimi_through_driver_and_stream_process(tmp_path, sandbo
         if sandboxed:
             command = native_command(
                 command,
-                read=[Path(sys.prefix), Path(sys.base_prefix), KIMI_BIN.parent],
+                read=[
+                    Path(sys.prefix),
+                    Path(sys.base_prefix),
+                    Path(mindie_bench.__file__).parent.parent,
+                    KIMI_BIN.parent,
+                ],
                 write=[workspace, profile.root],
                 cwd=workspace,
                 policy_path=tmp_path / "agent.sb",
