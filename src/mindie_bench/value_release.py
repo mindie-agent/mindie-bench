@@ -20,6 +20,7 @@ from mindie_bench.scorer.comparator import CONTROL_KEYS, comparison
 from mindie_bench.scorer.metrics import summarize
 from mindie_bench.value_controls import require_retest_controls
 from mindie_bench.value_controls import source_matches as _source_matches
+from mindie_bench.value_homepage import homepage_markdown
 from mindie_bench.value_resources import (
     TOKEN_FIELDS,
     project_component_case,
@@ -305,6 +306,8 @@ def _study(study, rows, sources, runner_patches, source_patches, excluded):
         "scope": study["scope"],
         "harness": study["harness"],
         "model": study["model"],
+        "reasoning_effort": study.get("reasoning_effort"),
+        "repetitions": study["repetitions"],
         "expected_cells": len(expected),
         "observed_cells": len(rows),
         "statuses": dict(Counter(row.terminal_status.value for row in rows)),
@@ -314,6 +317,7 @@ def _study(study, rows, sources, runner_patches, source_patches, excluded):
                 "trial_id": item["replacement_trial_id"],
                 "original_trial_id": item["receipt"]["trial_id"],
                 "original_status": item["receipt"]["terminal_status"],
+                "classification": item.get("classification"),
                 "reason": item["reason"],
             }
             for item in excluded if item.get("replacement_trial_id")
@@ -569,9 +573,20 @@ def collect(*, suite: Path, manifest: Path, output: Path) -> dict:
     output.mkdir(parents=True, exist_ok=True)
     write_json(output / "value-suite.json", protocol)
     write_json(output / "value-evidence.json", evidence)
+    write_report(report, output)
+    return report
+
+
+def write_report(report: dict, output: Path) -> None:
+    output.mkdir(parents=True, exist_ok=True)
     write_json(output / "value-results.json", report)
     (output / "value-results.md").write_text(markdown(report), encoding="utf-8")
-    return report
+    for language, filename in (("zh", "value-homepage.md"), ("en", "value-homepage.en.md")):
+        path = output / filename
+        if report["release_gate"]:
+            path.write_text(homepage_markdown(report, language), encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
 
 
 def verify_publication(*, suite: Path, evidence: Path, manifest: Path) -> dict:
@@ -598,6 +613,11 @@ def markdown(report: dict) -> str:
         "Each row compares the same tasks and model. Timing uses only pairs solved "
         "by both conditions; failures and uncompleted trials remain in the inventory. "
         "Different models are reported separately.",
+        "",
+        "G0 uses the native host. G1 adds remote-dev. G2 also adds knowledge retrieval, "
+        "shipped Skills and explicit retrieval guidance. G3 captures an earlier task "
+        "for later reuse. G1/G2 therefore measures that combined guidance and retrieval "
+        "condition, not the isolated retrieval implementation.",
         "",
         "| Study | Model | Observed / planned | Pass | Fail | Infrastructure | Unknown |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
@@ -652,11 +672,22 @@ def markdown(report: dict) -> str:
         if study["recovered_cells"]:
             lines += [
                 "",
-                "First-attempt outcomes: "
+                "Original recorded first-attempt outcomes: "
                 + ", ".join(f"{key}={value}" for key, value in study["first_attempt_statuses"].items())
                 + ". Paired timing uses the selected settled attempts; totals also include "
                 "the original infrastructure failures and explicit recovery attempts.",
             ]
+            if any(
+                item.get("classification") == "native_startup_infrastructure"
+                and item["original_status"] == "completed_fail"
+                for item in study["recovered_cells"]
+            ):
+                lines += [
+                    "",
+                    "An original completed_fail record was confirmed to be a zero-model "
+                    "native startup failure. Its raw label and costs remain in historical "
+                    "evidence; it is excluded from task comparisons.",
+                ]
         if study["transfer_lineages"]:
             lines += [
                 "",

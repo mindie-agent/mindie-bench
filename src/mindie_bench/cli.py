@@ -148,9 +148,7 @@ def main(argv=None):
             from mindie_bench.value_release import (
                 evaluate,
                 verify_publication,
-            )
-            from mindie_bench.value_release import (
-                markdown as value_markdown,
+                write_report,
             )
 
             result = (
@@ -161,9 +159,7 @@ def main(argv=None):
                 else evaluate(read_json(args.suite), read_json(args.evidence))
             )
             if args.output:
-                args.output.mkdir(parents=True, exist_ok=True)
-                write_json(args.output / "value-results.json", result)
-                (args.output / "value-results.md").write_text(value_markdown(result), encoding="utf-8")
+                write_report(result, args.output)
                 if args.release_manifest:
                     from mindie_bench.value_publish import write_component_views
 

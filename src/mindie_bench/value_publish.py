@@ -36,7 +36,8 @@ def component_view(report: dict, target: dict) -> dict:
         studies = report["studies"]
         scope = (
             "G0/G1 compares the addition of remote-dev; G1/G2 compares the addition "
-            "of knowledge retrieval. G2/G3 measures capture and later reuse, including "
+            "of knowledge retrieval, shipped Skills and explicit retrieval guidance together. "
+            "G2/G3 measures capture and later reuse, including "
             "the seed task. G0/G2 measures their joint effect and cannot attribute "
             "a gain to one component."
         )
