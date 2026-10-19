@@ -194,6 +194,20 @@ def test_single_cell_recovery_preserves_first_attempt_outcome_and_total_cost():
     old["primary_metrics"].update(resolved=False, reward=0.0)
     with pytest.raises(ValueError, match="valid task outcomes"):
         evaluate(suite, inputs)
+    old["primary_metrics"]["total_turns"] = 0
+    old["primary_metrics"]["tokens"] = {
+        "input_uncached": 0, "input_cached": 0, "cache_creation": 0,
+        "output": 0, "indexer_small_model_total": 0, "complete": False,
+    }
+    item = inputs["excluded_attempts"][0]
+    item["classification"] = "native_startup_infrastructure"
+    item["startup_observation"] = {
+        "journal_records": 8, "model_requests": 0, "broker_identity": "recorded-startup-journal"
+    }
+    assert evaluate(suite, inputs)["release_gate"]
+    item["startup_observation"]["model_requests"] = 1
+    with pytest.raises(ValueError, match="valid task outcomes"):
+        evaluate(suite, inputs)
 
 
 def test_plugin_sources_skills_ablation_and_metering_are_required():
@@ -278,6 +292,12 @@ def test_transfer_requires_the_same_captured_seed_and_actual_later_reads():
         "seed_capture_last_model_end_monotonic_sec": 100, "evals": [entry],
     }]}
     assert evaluate(suite, inputs)["release_gate"]
+    entry["seed_query_hit_observed"] = False
+    entry["seed_explain_read_observed"] = False
+    entry["native_query_call_ids"] = []
+    entry["native_explain_call_ids"] = []
+    assert evaluate(suite, inputs)["release_gate"]
+    assert "| False | False |" in markdown(evaluate(suite, inputs))
     evaluation["environment_fingerprint"]["corpus_view_sha256"] = "unrelated-corpus"
     assert not evaluate(suite, inputs)["release_gate"]
     evaluation["environment_fingerprint"]["corpus_view_sha256"] = "captured-seed"

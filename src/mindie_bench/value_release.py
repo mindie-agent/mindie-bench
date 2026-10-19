@@ -10,6 +10,7 @@ Comparisons keep models, tasks and controls matched and include seed costs.
 from __future__ import annotations
 
 import itertools
+import json
 from collections import Counter
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from mindie_bench.io import digest, read_json, write_json
 from mindie_bench.models import TerminalStatus, TrialReceipt
 from mindie_bench.scorer.comparator import CONTROL_KEYS, comparison
 from mindie_bench.scorer.metrics import summarize
-from mindie_bench.value_resources import project_component_case, resource_totals
+from mindie_bench.value_resources import TOKEN_FIELDS, project_component_case, resource_totals
 
 VALID = {TerminalStatus.PASS, TerminalStatus.FAIL}
 METRICS = {
@@ -162,12 +163,20 @@ def _transfer_problems(study, rows, lineages):
                 or row.ablation_group.value != contract["group"]
                 or row.environment_fingerprint.get("corpus_view_sha256") != captured
                 or entry.get("initial_corpus_identity") != captured
-                or entry.get("seed_query_hit_observed") is not True
-                or entry.get("seed_explain_read_observed") is not True
-                or not entry.get("native_query_call_ids")
-                or not entry.get("native_explain_call_ids")
-                or not row.primary_metrics.get("foreground_knowledge_queries_count", 0)
-                or not row.primary_metrics.get("foreground_knowledge_explains_count", 0)
+                or type(entry.get("seed_query_hit_observed")) is not bool
+                or type(entry.get("seed_explain_read_observed")) is not bool
+                or (
+                    entry["seed_query_hit_observed"] and (
+                        not entry.get("native_query_call_ids")
+                        or not row.primary_metrics.get("foreground_knowledge_queries_count", 0)
+                    )
+                )
+                or (
+                    entry["seed_explain_read_observed"] and (
+                        not entry.get("native_explain_call_ids")
+                        or not row.primary_metrics.get("foreground_knowledge_explains_count", 0)
+                    )
+                )
                 or entry.get("time_order_passed") is not True
                 or not isinstance(item.get("seed_capture_last_model_end_monotonic_sec"), (int, float))
                 or not isinstance(entry.get("eval_first_model_start_monotonic_sec"), (int, float))
@@ -371,7 +380,19 @@ def evaluate(suite: dict, evidence: dict) -> dict:
             fields = ("instance_id", "tier", "ablation_group", "repetition", "task_digest")
             if any(original[field] != candidate[field] for field in fields):
                 raise ValueError("a retest must retain the original task and cell")
-            if original["terminal_status"] in {status.value for status in VALID}:
+            startup = item.get("startup_observation", {})
+            zero_model_startup = (
+                item.get("classification") == "native_startup_infrastructure"
+                and startup.get("journal_records", 0) > 0
+                and startup.get("broker_identity")
+                and startup.get("model_requests") == 0
+                and original["primary_metrics"].get("total_turns") == 0
+                and all(
+                    original["primary_metrics"].get("tokens", {}).get(key) == 0
+                    for key in TOKEN_FIELDS
+                )
+            )
+            if original["terminal_status"] in {status.value for status in VALID} and not zero_model_startup:
                 raise ValueError("valid task outcomes cannot be replaced by a favorable retest")
             replacements.add(replacement)
     for study in suite["studies"]:
@@ -484,11 +505,22 @@ def collect(*, suite: Path, manifest: Path, output: Path) -> dict:
         for case in read_json(root / path)["cases"]:
             evidence["component_cases"].append(project_component_case(case))
     for item in inputs.get("excluded_attempts", []):
+        startup = {}
+        if item.get("classification") == "native_startup_infrastructure" and item.get("broker_path"):
+            with (root / item["broker_path"]).open(encoding="utf-8") as stream:
+                events = [json.loads(line) for line in stream if line.strip()]
+            startup = {
+                "broker_identity": digest(events),
+                "journal_records": len(events),
+                "model_requests": sum(row["kind"] == "model_start" for row in events),
+            }
         evidence["excluded_attempts"].append(
             {
                 "reason": item["reason"],
                 "study_id": item["study_id"],
                 "replacement_trial_id": item.get("replacement_trial_id"),
+                "classification": item.get("classification"),
+                "startup_observation": startup,
                 "receipt": public_receipt(TrialReceipt.model_validate(read_json(root / item["path"]))),
             }
         )
@@ -609,6 +641,24 @@ def markdown(report: dict) -> str:
                 + ", ".join(f"{key}={value}" for key, value in study["first_attempt_statuses"].items())
                 + ". Paired timing uses the selected settled attempts; totals also include "
                 "the original infrastructure failures and explicit recovery attempts.",
+            ]
+        if study["transfer_lineages"]:
+            lines += [
+                "",
+                "| Repetition | Evaluation | Seed returned by query | Seed read through explain |",
+                "| ---: | --- | --- | --- |",
+            ]
+            for lineage in study["transfer_lineages"]:
+                for entry in lineage.get("evals", []):
+                    lines.append(
+                        f"| {lineage['repetition']} | {entry['task_id']} | "
+                        f"{entry['seed_query_hit_observed']} | "
+                        f"{entry['seed_explain_read_observed']} |"
+                    )
+            lines += [
+                "",
+                "A captured seed being available does not imply the agent used it. "
+                "Missing retrieval is retained as an observed result.",
             ]
     for case in report["component_cases"]:
         lines += [
