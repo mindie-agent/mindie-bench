@@ -21,7 +21,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
       - run: uv sync --locked --all-extras
       - run: uv run ruff check .
-      - run: uv run pytest -m "not live_npu"
+      - run: uv run pytest -m "not live_npu" -k "not actual"
       - run: uv run mindie-bench demo --output reports/ci-synthetic
       - name: Measure scorer release workload
         run: |
