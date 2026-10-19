@@ -53,6 +53,18 @@ def _identity(repo: Path) -> dict:
     }
 
 
+def _runner_identity() -> dict | None:
+    """Bind the loaded runner to its own tracked Git file, never the candidate."""
+    module = Path(__file__).resolve()
+    try:
+        root = Path(_git(module.parent, "rev-parse", "--show-toplevel"))
+        _git(root, "ls-files", "--error-unmatch", "--", str(module.relative_to(root)))
+    except subprocess.CalledProcessError:
+        # Installed wheels can run exploratory suites but lack Git release evidence.
+        return None
+    return _identity(root)
+
+
 def _execute(command, *, repo, env, destination, timeout):
     """Keep child output private and bound cleanup without parsing arbitrary log text."""
     started = time.perf_counter()
@@ -169,9 +181,11 @@ def _markdown(report):
     ]
     if "repository" in report:
         source = report["source"]
+        runner_source = report["tool"].get("source")
         lines += [
             f"Repository: `{report['repository']}`; version: `{report['version']}`",
             f"Revision: `{source['revision']}`; dirty: `{source['dirty']}`",
+            f"Runner revision: `{runner_source['revision'] if runner_source else 'unavailable'}`",
             f"Suite: `{report['suite']}`; environment: "
             f"`{report['environment']['platform']}/{report['environment']['machine']}`",
             "",
@@ -228,6 +242,7 @@ def run_release_suite(*, repo, repository, version, suite, output, python=sys.ex
     repo, suite, output = repo.resolve(), suite.resolve(), output.resolve()
     contract = ReleaseSuite.model_validate(read_json(suite))
     source = _identity(repo)
+    runner_source = _runner_identity()
     workload_python = subprocess.run(
         [python, "--version"], cwd=repo, capture_output=True, text=True, check=True, timeout=10,
     ).stdout.strip()
@@ -240,6 +255,7 @@ def run_release_suite(*, repo, repository, version, suite, output, python=sys.ex
         for case in contract.cases
     ]
     after = _identity(repo)
+    runner_after = _runner_identity()
     blockers = [
         f"required_case:{case['id']}:{case['status']}"
         for case in cases if case["required"] and case["status"] != "pass"
@@ -248,12 +264,22 @@ def run_release_suite(*, repo, repository, version, suite, output, python=sys.ex
         blockers.append("dirty_checkout")
     if source["revision"] != after["revision"]:
         blockers.append("source_changed_during_run")
+    if runner_source is None or runner_after is None:
+        blockers.append("runner_source_unavailable")
+    else:
+        if runner_source["dirty"] or runner_after["dirty"]:
+            blockers.append("dirty_runner_checkout")
+        if runner_source["revision"] != runner_after["revision"]:
+            blockers.append("runner_changed_during_run")
     report = {
-        "schema_version": "mindie-release-benchmark/1",
+        "schema_version": "mindie-release-benchmark/2",
         "repository": repository, "version": version, "source": source,
         "source_after": after, "suite": contract.suite,
         "suite_sha256": hashlib.sha256(suite.read_bytes()).hexdigest(),
-        "tool": {"name": "mindie-bench", "version": importlib.metadata.version("mindie-bench")},
+        "tool": {
+            "name": "mindie-bench", "version": importlib.metadata.version("mindie-bench"),
+            "source": runner_source, "source_after": runner_after,
+        },
         "environment": {
             "platform": sys.platform, "machine": platform.machine(),
             "os_release": platform.release(), "runner_python": platform.python_version(),
@@ -284,10 +310,16 @@ def collect_release(*, manifest, inputs, output):
         if target is None:
             blockers.append(f"unexpected_repository:{name}")
             continue
-        if report["schema_version"] != "mindie-release-benchmark/1":
-            blockers.append(f"unsupported_schema:{name}")
         if report["source"]["revision"] != target.revision or report["version"] != target.version:
             blockers.append(f"stale_source_or_version:{name}")
+        if report["schema_version"] == "mindie-release-benchmark/2" and not target.runner_revision:
+            blockers.append(f"missing_runner_selection:{name}")
+        if target.runner_revision:
+            before, after = report["tool"].get("source"), report["tool"].get("source_after")
+            if (not before or not after or before["dirty"] or after["dirty"]
+                    or before["revision"] != target.runner_revision
+                    or after["revision"] != target.runner_revision):
+                blockers.append(f"stale_or_missing_runner_source:{name}")
         if report["source"]["dirty"] or not report["release_gate"]:
             blockers.append(f"component_gate_blocked:{name}:{host}")
         cases = {case["id"]: case for case in report["cases"]}

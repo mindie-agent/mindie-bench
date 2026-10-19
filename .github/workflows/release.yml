@@ -9,8 +9,9 @@ permissions:
 
 jobs:
   release:
-    uses: mindie-agent/mindie-bench/.github/workflows/publish-release.yml@f65b6bbe39e6d72110341476a2066e30b2adbf77
+    uses: ./.github/workflows/publish-release.yml
     with:
+      benchmark-ref: ${{ github.sha }}
       setup-command: |
         uv sync --locked --all-extras
       test-command: |
