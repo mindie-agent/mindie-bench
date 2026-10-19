@@ -1,0 +1,92 @@
+{
+  "ablation_group": "G0",
+  "artifacts": {},
+  "auxiliary_metrics": {
+    "capture": {
+      "status": null
+    },
+    "capture_wall_clock_sec": null
+  },
+  "cluster": "kimi-k3-idle-dp-recurrent-state",
+  "environment_fingerprint": {
+    "backend": "native",
+    "base_commit": "c3394206bdd00b132580ae439555b4f1a70d5bf6",
+    "base_model": "home/codex/gpt-6.1-sol",
+    "benchmark_source_sha256": "b48f4f68ff6881dca2d9e8700d72291b2ff5ba7c41485df2719bd062c8d7c86e",
+    "benchmark_version": "0.2.0",
+    "budget": {
+      "max_npu_runs": 8,
+      "max_output_bytes": 33554432,
+      "max_turns": 40,
+      "timeout_sec": 1200.0,
+      "verifier_timeout_sec": 240.0
+    },
+    "component_revisions": {
+      "codex": "0cfb5b7698fe29b792b2835b1c92a8167306bdfb",
+      "coordinator": "daf7fa38b431187c04a6dea4341df4a066100953",
+      "diagnostics": "1b5a0eeb79d498c39002fc1853271c17e0f26e66",
+      "knowledge": "4e328305323eafc7fd43ecc0c53eb3cc0541fdef",
+      "mindie-bench": "fe87041b0c78730c04b8c67e287e0a82a017b4e6",
+      "npu-top": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
+      "remote-dev": "a6649222aae4851deec5774513f8319aece09051"
+    },
+    "components": [],
+    "harness_binary_sha256": "b973d440acac501fd2594a43e7ca9ce41e0a65b9dfb28d0d7a7837c99e1261e3",
+    "harness_name": "codex",
+    "harness_version": "codex-cli 0.153.4",
+    "host_arch": "arm64",
+    "host_os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "knowledge_mode": "advisory",
+    "model_catalog_sha256": "dd856b38c128a40934350e6d5738e37a14389a3fee4b719090cb40e09f112769",
+    "npu_count": 2,
+    "npu_model": "Ascend910",
+    "provider_url": {
+      "private_control_identity": "f32c3d7be3102cfd3fa87c5c81b63f0ac1abad99c8ad6b1541a9493590cc0253"
+    },
+    "reasoning_effort": "xhigh",
+    "remote_environment": {
+      "private_control_identity": "745ae53bea6bed0b1c27e6a8f276cde0554ac22659bca6bfd1797f897913e64b"
+    },
+    "skills_sha256": null
+  },
+  "errors": [],
+  "evidence": "verified",
+  "experiment_digest": "9cef2b51a659708b06d185a3d449ee83759363f980c6975cbf2b7cc6b7f8d59f",
+  "failure_reason": null,
+  "instance_id": "k3-gdn-idle-dp-state",
+  "knowledge_gradient": "analogical",
+  "primary_metrics": {
+    "cost_complete": false,
+    "delivery_wall_clock_sec": 573.1825801659725,
+    "estimated_cost_usd": null,
+    "knowledge_measurement_basis": "broker_tool_start_end/1",
+    "knowledge_query_sec": 0,
+    "llm_and_exploration_sec": 304.0113732519676,
+    "localization_penalty_turns": 40,
+    "npu_execution_wait_sec": 202.96863341500284,
+    "npu_test_runs": 3,
+    "resolved": true,
+    "reward": 1.0,
+    "time_to_first_localization_sec": 20.03885679197265,
+    "time_to_first_target_edit_sec": 367.0434105419554,
+    "tokens": {
+      "cache_creation": 0,
+      "complete": true,
+      "indexer_small_model_total": 0,
+      "input_cached": 2475008,
+      "input_uncached": 116973,
+      "output": 18841
+    },
+    "total_turns": 39,
+    "total_wall_clock_sec": 506.98000666697044,
+    "turns_to_first_localization": 4,
+    "zero_human_intervention": true
+  },
+  "repetition": 1,
+  "schema_version": "mindie-bench-receipt/1.0",
+  "task_digest": "82c87325874bd0923f83f1b9a4da2f9d52bfa52ab7cc62558c7f100b5301c342",
+  "task_role": "eval",
+  "terminal_status": "completed_pass",
+  "tier": "l3",
+  "trial_id": "k3-gdn-idle-dp-state_G0_1_317e85257c12"
+}

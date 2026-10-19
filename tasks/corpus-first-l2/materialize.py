@@ -108,6 +108,7 @@ def main() -> None:
     parser.add_argument("--gitleaks", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--proof-root", type=Path)
+    parser.add_argument("--templates", type=Path)
     args = parser.parse_args()
     result = materialize(**vars(args))
     print(json.dumps(result, indent=2, sort_keys=True))

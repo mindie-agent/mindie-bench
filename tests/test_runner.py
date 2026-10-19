@@ -29,14 +29,15 @@ def trial(case, **kwargs):
     [
         ("pass", "completed_pass"),
         ("fail", "completed_fail"),
-        ("sleep", "completed_fail"),
+        ("sleep", "infra_failed"),
+        ("working_sleep", "completed_fail"),
         ("crash", "unknown"),
         ("malformed", "unknown"),
         ("replay", "completed_pass"),
     ],
 )
 def test_end_to_end_four_state_runner(case, mode, status):
-    if mode == "sleep":
+    if mode in {"sleep", "working_sleep"}:
         toml = case["task"] / "task.toml"
         toml.write_text(toml.read_text().replace("timeout_sec = 3", "timeout_sec = 1"))
     (case["task"] / "instruction.md").write_text(f"mode={mode}\n")
@@ -51,8 +52,11 @@ def test_end_to_end_four_state_runner(case, mode, status):
     if mode == "replay":
         assert result.auxiliary_metrics["replay_test_runs"] == 1
         assert result.primary_metrics["npu_test_runs"] is None
-    if mode in {"crash", "malformed"}:
+    if mode in {"crash", "malformed", "sleep"}:
         assert result.primary_metrics["resolved"] is None
+    if mode == "sleep":
+        assert result.auxiliary_metrics["native_process"]["classification"] == "native_startup_infrastructure"
+        assert not (root / "verifier_trajectory.json").exists()
 
 
 def test_verifier_failure_is_infra_and_never_scored_zero(case):

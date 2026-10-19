@@ -39,6 +39,7 @@ import os
 import re
 import socket
 import socketserver
+import ssl
 import tempfile
 import threading
 import time
@@ -51,9 +52,7 @@ from mindie_bench.models import HarnessConfig, TaskSpec, UnknownExternalEffects
 from mindie_bench.runner.usage import UsageMeter, sum_usage
 from mindie_bench.scorer.command_observations import is_recognized_npu_command
 
-_SETTLEMENT_GRACE_SECONDS = float(
-    os.environ.get("MINDIE_BENCH_SETTLEMENT_GRACE_SECONDS", "30.0")
-)
+_SETTLEMENT_GRACE_SECONDS = float(os.environ.get("MINDIE_BENCH_SETTLEMENT_GRACE_SECONDS", "30.0"))
 MODEL_SETTLEMENT_GRACE_SEC = _SETTLEMENT_GRACE_SECONDS
 
 
@@ -456,6 +455,8 @@ class Gateway(AbstractContextManager):
                     if self.path not in {
                         "/v1/responses",
                         "/responses",
+                        "/v1/chat/completions",
+                        "/chat/completions",
                         "/v1/messages",
                         "/messages",
                         "/v1/messages?beta=true",
@@ -507,7 +508,7 @@ class Gateway(AbstractContextManager):
                         "Content-Type": "application/json",
                         "Accept": self.headers.get("Accept", "*/*"),
                     }
-                    if gateway.harness.name in {"codex", "dsh"}:
+                    if "/messages" not in self.path:
                         headers["Authorization"] = "Bearer " + gateway.api_key
                     else:
                         headers["x-api-key"] = gateway.api_key
@@ -516,6 +517,7 @@ class Gateway(AbstractContextManager):
                         )
                         if self.headers.get("anthropic-beta"):
                             headers["anthropic-beta"] = self.headers["anthropic-beta"]
+                    transport_stage = "connect"
                     try:
                         connection.connect()
                         transport = connection.sock
@@ -523,7 +525,9 @@ class Gateway(AbstractContextManager):
                             gateway.connections[connection] = transport
                             if gateway.closed or gateway.model_settlement_expired:
                                 raise TimeoutError("model settlement deadline expired before submission")
+                        transport_stage = "submit"
                         connection.request("POST", target, body=body, headers=headers)
+                        transport_stage = "response_headers"
                         response = connection.getresponse()
                         if response.status >= 400:
                             if response.status in {400, 401, 403, 404, 422}:
@@ -551,6 +555,7 @@ class Gateway(AbstractContextManager):
                             self.end_headers()
                         except OSError as exc:
                             delivery_failed(exc)
+                        transport_stage = "response_body"
                         while True:
                             if delivery_deadline is not None:
                                 remaining = delivery_deadline - time.monotonic()
@@ -580,7 +585,17 @@ class Gateway(AbstractContextManager):
                         gateway.record("model_end", ordinal=ordinal, http_status=response.status)
                     except (OSError, http.client.HTTPException) as exc:
                         gateway.unknown = True
-                        gateway.record("model_error", ordinal=ordinal, error=type(exc).__name__)
+                        gateway.record(
+                            "model_error",
+                            ordinal=ordinal,
+                            error=type(exc).__name__,
+                            transport_stage=transport_stage,
+                            errno=exc.errno if isinstance(exc, OSError) else None,
+                            ssl_reason=(
+                                exc.reason or exc.strerror
+                                if isinstance(exc, ssl.SSLError) else None
+                            ),
+                        )
                         self.close_connection = True
                     finally:
                         gateway.record(

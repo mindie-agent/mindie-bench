@@ -1,0 +1,2 @@
+Historical mixed export: caller_error=null, built_batch_retained=true, quarantined_count=1.
+The caller receives a normal result even though one requested entry was rejected.

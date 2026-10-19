@@ -1,4 +1,10 @@
-"""Small operator interface; no daemon, activation hook, or publication side effect."""
+"""Small operator interface.
+
+[Role] Dispatch finite benchmark runs, comparisons and release evidence checks.
+[Invariants] Missing evidence and unknown effects remain visible to the caller.
+[Timeouts & Locks] Execution budgets belong to the selected runner operation.
+[Side-Effect Policy] Local reports by default; uploads require explicit CLI options.
+"""
 
 from __future__ import annotations
 
@@ -114,18 +120,66 @@ def parser():
     collect.add_argument("--manifest", type=Path, required=True)
     collect.add_argument("--input", type=Path, action="append", required=True)
     collect.add_argument("--output", type=Path, required=True)
+    value = commands.add_parser(
+        "value-collect", help="collect stable product-value tasks and component scenarios"
+    )
+    value.add_argument("--suite", type=Path, required=True)
+    value.add_argument("--manifest", type=Path, required=True)
+    value.add_argument("--output", type=Path, required=True)
+    verify_value = commands.add_parser(
+        "value-verify", help="recompute a release gate from published value observations"
+    )
+    verify_value.add_argument("--suite", type=Path, required=True)
+    verify_value.add_argument("--evidence", type=Path, required=True)
+    verify_value.add_argument("--release-manifest", type=Path)
+    verify_value.add_argument("--output", type=Path)
     return root
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        if args.command == "release-run":
+        if args.command == "value-collect":
+            from mindie_bench.value_release import collect
+
+            result = collect(suite=args.suite, manifest=args.manifest, output=args.output)
+        elif args.command == "value-verify":
+            from mindie_bench.io import read_json
+            from mindie_bench.value_release import (
+                evaluate,
+                verify_publication,
+                write_report,
+            )
+
+            result = (
+                verify_publication(
+                    suite=args.suite, evidence=args.evidence, manifest=args.release_manifest
+                )
+                if args.release_manifest
+                else evaluate(read_json(args.suite), read_json(args.evidence))
+            )
+            if not args.release_manifest:
+                from mindie_bench.value_controls import require_collector_source
+
+                result["collector_source"] = require_collector_source(result["runner_release"])
+            if args.output:
+                write_report(result, args.output)
+                if args.release_manifest:
+                    from mindie_bench.value_publish import write_component_views
+
+                    write_component_views(
+                        result, read_json(args.release_manifest), args.output / "components"
+                    )
+        elif args.command == "release-run":
             from mindie_bench.release import run_release_suite
 
             result = run_release_suite(
-                repo=args.repo, repository=args.repository, version=args.version,
-                suite=args.suite, output=args.output, python=args.python,
+                repo=args.repo,
+                repository=args.repository,
+                version=args.version,
+                suite=args.suite,
+                output=args.output,
+                python=args.python,
             )
         elif args.command == "release-collect":
             from mindie_bench.release import collect_release

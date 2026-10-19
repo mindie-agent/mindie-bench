@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -15,6 +16,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _configure_default_test_env() -> None:
+    # Native capture must use this test environment's components, not a
+    # historical release interpreter paired with today's adapter scripts.
+    if all(
+        importlib.util.find_spec(name) is not None for name in ("mindie_knowledge", "remote_dev")
+    ):
+        os.environ.setdefault("MINDIE_BENCH_TEST_MCP_PYTHON", sys.executable)
     for env_key, candidates in (
         (
             "MINDIE_BENCH_CPU_PYTHON",
@@ -33,14 +40,6 @@ def _configure_default_test_env() -> None:
             "MINDIE_BENCH_STALE_SOURCE_REPO",
             (
                 REPO_ROOT / "repositories/vllm-ascend-stale-config",
-            ),
-        ),
-        (
-            "MINDIE_BENCH_TEST_MCP_PYTHON",
-            (
-                Path("/Volumes/data/code/mindie-release-20261014/codex-interrupt-final-env-20261016/bin/python"),
-                REPO_ROOT.parent / "knowledge/.venv/bin/python",
-                REPO_ROOT.parent / "remote-dev/.venv/bin/python",
             ),
         ),
         (
@@ -91,6 +90,13 @@ if "--version" in sys.argv:
     raise SystemExit(0)
 prompt=sys.stdin.read()
 if "mode=sleep" in prompt:
+    time.sleep(30)
+if "mode=working_sleep" in prompt:
+    pathlib.Path("module.py").read_text()
+    print(json.dumps({{"type":"fixture.trajectory","trajectory":{{
+        "total_turns":1,"calls":[{{"id":"1","name":"Read",
+        "arguments":{{"file_path":"module.py"}},"turn":1,"started_sec":0.0,"ended_sec":0.001}}]
+    }}}}), flush=True)
     time.sleep(30)
 if "mode=malformed" in prompt:
     print("not JSON", flush=True)

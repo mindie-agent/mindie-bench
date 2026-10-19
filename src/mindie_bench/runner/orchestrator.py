@@ -428,8 +428,8 @@ def run_trial(
             raise ValueError(
                 f"harness version mismatch: expected {config.harness.expected_version!r}, got {version!r}"
             )
-        if group == Group.G3 and config.harness.name == "dsh":
-            raise ValueError("G3 native capture is not supported for the dsh harness")
+        if group == Group.G3 and config.harness.name in {"dsh", "kimi"}:
+            raise ValueError(f"G3 native capture is not supported for the {config.harness.name} harness")
         if group == Group.G3:
             fingerprint["capture_git_preflight"] = probe_capture_git(profile, paths, trial_dir)
         if tier == "l3":
@@ -506,6 +506,7 @@ def run_trial(
                 policy_path=trial_dir / "agent.sb",
                 gateway_port=gateway.port,
                 gateway_socket=gateway.unix_socket,
+                directory_watchers=config.harness.name == "kimi",
             )
             from mindie_bench.runner.profile_builder import knowledge_prompt
 
@@ -573,6 +574,19 @@ def run_trial(
             budget_stop = result.stop_reason in {"timeout", "max_turns", "max_npu_runs"}
             if gateway.infrastructure_error and not gateway.unknown:
                 status, reason = TerminalStatus.INFRA, gateway.infrastructure_error
+            elif (
+                not gateway.unknown
+                and result.stop_reason == "timeout"
+                and gateway.model_calls == 0
+                and trajectory.total_turns == 0
+                and not trajectory.calls
+                and not trajectory.native_completed
+            ):
+                # A native startup stall never attempted the task. Running the
+                # oracle on its untouched source would misreport model failure.
+                status, reason = TerminalStatus.INFRA, "native startup timed out before any model request or tool call"
+                auxiliary["native_process"]["classification"] = "native_startup_infrastructure"
+                auxiliary["native_process"]["observed_model_requests"] = 0
             elif (
                 gateway.unknown
                 or any(error["stage"] == "agent" for error in result.errors)
@@ -884,6 +898,9 @@ def run_trial(
                         TerminalStatus.INFRA,
                         "remote postflight failed; preserve separate business verdict",
                     )
+            auxiliary["owned_namespace_cleanup_confirmed"] = getattr(
+                remote, "cleanup_confirmed", None
+            )
             auxiliary["files_modified"] = getattr(remote, "modified_files", None)
             auxiliary["files_modified_scope"] = "remote_judged_workspace"
             auxiliary["files_modified_reason"] = (

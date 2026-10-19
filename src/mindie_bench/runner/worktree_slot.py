@@ -1,4 +1,12 @@
-"""Owned local worktrees; source repositories and their dirty files are preserved."""
+"""Owned local worktrees; source repositories and their dirty files are preserved.
+
+[Role] Prepare and remove isolated source snapshots for local trials.
+[Invariants] Worktree metadata edits within one runner serialize per common Git
+directory; task execution and independent repositories remain concurrent.
+[Timeouts & Locks] Git metadata commands have 30 seconds; lock acquisition has
+35 seconds. Process-local locks do not coordinate independent runner processes.
+[Side-Effect Policy] Remove only owned worktrees; expose Git failures to callers.
+"""
 
 from __future__ import annotations
 
@@ -6,11 +14,16 @@ import hashlib
 import os
 import shutil
 import subprocess
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from mindie_bench.io import is_ignored_cache_path
 from mindie_bench.models import SourceEnvironment
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, diff_paths, project_source
+
+_METADATA_LOCKS = {}
+_LOCK_REGISTRY = threading.Lock()
 
 
 class WorktreeSlot:
@@ -23,6 +36,38 @@ class WorktreeSlot:
         self.task_root = task_root.resolve(strict=True)
         self.created = False
         self.public_files = {}
+        admin = subprocess.run(
+            ["git", "-C", str(self.repo), "rev-parse", "--git-common-dir"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        ).stdout.strip()
+        self.admin_path = (self.repo / admin).resolve()
+        with _LOCK_REGISTRY:
+            self.metadata_lock = _METADATA_LOCKS.setdefault(self.admin_path, threading.RLock())
+
+    @contextmanager
+    def metadata_edit(self):
+        if not self.metadata_lock.acquire(timeout=35):
+            raise TimeoutError("timed out waiting for this repository's worktree metadata")
+        try:
+            yield
+        finally:
+            self.metadata_lock.release()
+
+    def worktree_command(self, *arguments):
+        try:
+            subprocess.run(
+                ["git", "-C", str(self.repo), "worktree", *arguments],
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f"git worktree {arguments[0]} failed: {exc.stderr.decode(errors='replace').strip()}"
+            ) from exc
 
     def prepare(self) -> Path:
         actual = subprocess.run(
@@ -33,11 +78,10 @@ class WorktreeSlot:
         ).stdout.strip()
         if actual != self.environment.base_commit:
             raise ValueError("base revision did not resolve to exact declared commit")
-        subprocess.run(
-            ["git", "-C", str(self.repo), "worktree", "add", "--detach", str(self.destination), actual],
-            check=True,
-            capture_output=True,
-        )
+        # Git scans sibling admin entries while adding/removing worktrees. A
+        # concurrent edit can expose an entry before its commondir is present.
+        with self.metadata_edit():
+            self.worktree_command("add", "--detach", str(self.destination), actual)
         self.created = True
         # Git records the symlink-resolved worktree path in its admin metadata;
         # resolve here too so destinations reached through symlinked prefixes
@@ -76,31 +120,24 @@ class WorktreeSlot:
         return self.destination
 
     def reattach_metadata(self):
-        admin = subprocess.run(
-            ["git", "-C", str(self.repo), "rev-parse", "--git-common-dir"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        admin_path = Path(admin)
-        if not admin_path.is_absolute():
-            admin_path = self.repo / admin_path
-        matches = []
-        for entry in (admin_path / "worktrees").iterdir():
-            try:
-                target = (entry / "gitdir").read_text().strip()
-            except FileNotFoundError:
-                continue
-            if target == str(self.destination / ".git"):
-                matches.append(entry)
-        if len(matches) != 1:
-            raise RuntimeError("cannot identify owned worktree metadata for cleanup")
-        gitfile = self.destination / ".git"
-        if gitfile.is_symlink() or gitfile.is_file():
-            gitfile.unlink()
-        if gitfile.exists():
-            raise RuntimeError("agent-created .git directory retained for inspection")
-        gitfile.write_text(f"gitdir: {matches[0]}\n")
+        with self.metadata_edit():
+            matches = []
+            for entry in (self.admin_path / "worktrees").iterdir():
+                try:
+                    target = (entry / "gitdir").read_text().strip()
+                except FileNotFoundError:
+                    # Other Git processes do not participate in this runner's lock.
+                    continue
+                if target == str(self.destination / ".git"):
+                    matches.append(entry)
+            if len(matches) != 1:
+                raise RuntimeError("cannot identify owned worktree metadata for cleanup")
+            gitfile = self.destination / ".git"
+            if gitfile.is_symlink() or gitfile.is_file():
+                gitfile.unlink()
+            if gitfile.exists():
+                raise RuntimeError("agent-created .git directory retained for inspection")
+            gitfile.write_text(f"gitdir: {matches[0]}\n")
 
     def snapshot_patch(self, output: Path) -> list[str]:
         self.reattach_metadata()
@@ -155,9 +192,6 @@ class WorktreeSlot:
 
     def cleanup(self):
         if self.created:
-            self.reattach_metadata()
-            subprocess.run(
-                ["git", "-C", str(self.repo), "worktree", "remove", "--force", str(self.destination)],
-                check=True,
-                capture_output=True,
-            )
+            with self.metadata_edit():
+                self.reattach_metadata()
+                self.worktree_command("remove", "--force", str(self.destination))

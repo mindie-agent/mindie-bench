@@ -7,7 +7,9 @@ allocation ledger.
 
 [Invariants]
 - `mindie-coordinator` is the sole device/port allocation authority; `ComponentRuntime` retains
-  its `coordination_epoch` and `fence_token`s and never replays an uncertain mutation (`self.unknown`).
+  its `coordination_epoch` and `fence_token`s and never replays an uncertain mutation.
+- A heartbeat confirmed not sent may continue only after the authority confirms the same active
+  owner. The failed heartbeat is recorded and is not replayed.
 - `physical_observation` joins `npu-top` and `coordinator` live `npu-smi info` parses strictly by
   physical chip `Phy-ID` (0..15 on A3 910C dual-Die cards; 0..7 on A2 910B), never confusing card
   index `npu_id` with `phy_id` or allowing adjacent-Die workloads to contaminate admission.
@@ -17,7 +19,8 @@ allocation ledger.
 [Timeouts & Locks]
 - Helper subprocess RPC (`_call` via `owner.py` pipe): `60.0s` communicate budget + `5.0s` wait.
 - Remote `npu-smi info` host observation (`run_remote_python`): `30.0s` (`20.0s` inner `npu-smi`).
-- Heartbeat monitor join (`stop_monitor`): `65.0s` (`>= _call 60s + 5s grace`).
+- Heartbeat monitor join: `75s` covers one in-flight 60s RPC and up to 10s cleanup;
+  cancellation is checked before each subsequent helper, including reconciliation.
 
 [Side-Effect Policy]
 - Appends structured telemetry and lease events to `artifact_dir / "component_runtime.jsonl"`
@@ -47,6 +50,20 @@ PACKAGES = {
     "knowledge": "mindie-knowledge",
     "remote-dev": "remote-dev",
 }
+
+
+class ComponentCallError(RuntimeError):
+    """Preserve the shared transport's submission certainty across the helper pipe."""
+
+    def __init__(self, details):
+        super().__init__(details["message"])
+        self.details = details
+        self.submission_state = details.get("submission_state")
+        self.retryable = details.get("retryable", False)
+
+
+class _MonitorStopped(Exception):
+    """The owner requested cancellation before the next helper was started."""
 
 # Execute through remote-dev's existing transport, on the physical host. Only
 # matching process identities are returned; no environment contents leave it.
@@ -102,6 +119,7 @@ print(json.dumps(dict(container_id=identity)))
 
 def package_metadata(name, source_paths=()):
     modules = {
+        "mindie-bench": "mindie_bench",
         "mindie-coordinator": "mindie_coordinator",
         "npu-top": "npu_top",
         "mindie-diagnostics": "mindie_diagnostics",
@@ -219,8 +237,12 @@ def _child(request):
         return package_metadata(request["package"], source_paths)
     if action == "coordinator":
         from mindie_coordinator.host_queue import HostQueue
+        from remote_dev.core.errors import error_details
 
-        return HostQueue().request(request["endpoint"], request["request"])
+        try:
+            return HostQueue().request(request["endpoint"], request["request"])
+        except Exception as exc:
+            return {"component_error": {**error_details(exc), "message": str(exc)}}
     if action in {"host_observation", "container_id"}:
         from remote_dev.core.endpoint import resolve_endpoint
         from remote_dev.core.ssh_transport import run_remote_python
@@ -314,6 +336,8 @@ class ComponentRuntime:
                 stream.write(json.dumps(row, sort_keys=True) + "\n")
 
     def _call(self, component, action, **payload):
+        if threading.current_thread() is self.monitor and self.stop.is_set():
+            raise _MonitorStopped()
         request = dict(
             action=action,
             source_paths=self.config.get("python_paths", {}).get(component, []),
@@ -365,6 +389,8 @@ class ComponentRuntime:
             result = json.loads(stdout)
             if not isinstance(result, dict):
                 raise ValueError("component adapter returned a non-object")
+            if "component_error" in result:
+                raise ComponentCallError(result["component_error"])
             return result
         except BaseException as exc:
             primary = exc
@@ -392,6 +418,8 @@ class ComponentRuntime:
                             ) from cleanup
 
     def _authority(self, action, **fields):
+        if threading.current_thread() is self.monitor and self.stop.is_set():
+            raise _MonitorStopped()
         started = time.monotonic()
         mutation = action != "status"
         if mutation and self.unknown:
@@ -407,13 +435,17 @@ class ComponentRuntime:
             response = self._call(
                 "coordinator", "coordinator", endpoint=self.config["endpoint"], request=request
             )
+        except _MonitorStopped:
+            raise
         except Exception as exc:
-            if mutation:
+            submission = getattr(exc, "submission_state", None)
+            if mutation and submission not in {"not_sent", "acknowledged"}:
                 self.unknown = True
             self._journal(
                 "coordinator_error",
                 action=action,
                 unknown=self.unknown,
+                submission_state=submission,
                 error=str(exc),
                 elapsed_sec=time.monotonic() - started,
             )
@@ -425,6 +457,51 @@ class ComponentRuntime:
             elapsed_sec=time.monotonic() - started,
         )
         return response
+
+    def _heartbeat(self, task):
+        try:
+            response = self._authority(
+                "heartbeat",
+                task_id=task["task_id"],
+                fence_token=task["fence_token"],
+                heartbeat_ttl_seconds=self.ttl,
+            )
+        except ComponentCallError as exc:
+            if exc.submission_state != "not_sent" or not exc.retryable:
+                raise
+            snapshot = self._authority(
+                "status", task_id=task["task_id"], no_probe=True, event_limit=0
+            )
+            expected = {
+                "task_id": task["task_id"],
+                "fence_token": task["fence_token"],
+                "agent_id": "mindie-bench",
+                "session_id": self.trace_id,
+                "container_name": self.container,
+                "granted_devices": task["granted_devices"],
+                "granted_service_port": task["granted_service_port"],
+                "pid": self.owner_identity["pid"],
+                "state": "active",
+            }
+            current = snapshot.get("tasks", [])
+            if (
+                snapshot.get("status") != "ok"
+                or snapshot.get("coordination_epoch") != self.epoch
+                or len(current) != 1
+                or any(current[0].get(key) != value for key, value in expected.items())
+            ):
+                raise RuntimeError(
+                    "heartbeat was not sent and its active owner could not be confirmed"
+                ) from exc
+            self._journal(
+                "heartbeat_reconciled",
+                task_id=task["task_id"],
+                fence_token=task["fence_token"],
+                basis="not_sent; unchanged active authority owner; no mutation replay",
+            )
+            return
+        if response.get("status") != "active":
+            raise RuntimeError("coordinator no longer confirms the slot's lease")
 
     def acquire(self):
         for component, package in PACKAGES.items():
@@ -537,15 +614,10 @@ class ComponentRuntime:
                 try:
                     with self.rpc_lock:
                         for task in self.leases.values():
-                            result = self._authority(
-                                "heartbeat",
-                                task_id=task["task_id"],
-                                fence_token=task["fence_token"],
-                                heartbeat_ttl_seconds=self.ttl,
-                            )
-                            if result.get("status") != "active":
-                                raise RuntimeError("coordinator no longer confirms the slot's lease")
+                            self._heartbeat(task)
                         self.observe("active", idle=False)
+                except _MonitorStopped:
+                    return
                 except Exception as exc:
                     self.failure = str(exc)
                     self._journal("monitor_failed", error=self.failure, unknown=self.unknown)
@@ -610,7 +682,7 @@ class ComponentRuntime:
     def stop_monitor(self):
         self.stop.set()
         if self.monitor:
-            self.monitor.join(timeout=65)
+            self.monitor.join(timeout=75)
             if self.monitor.is_alive():
                 raise RuntimeError("component monitor did not settle; lease retained")
 
@@ -624,7 +696,13 @@ class ComponentRuntime:
             for task in self.leases.values():
                 self._authority("status", task_id=task["task_id"], no_probe=True)
             raise RuntimeError("coordinator mutation unknown; lease requires read-only reconciliation")
-        self.observe("release_preflight", idle=True)
+        observation_error = None
+        try:
+            self.observe("release_preflight", idle=True)
+        except Exception as exc:
+            # A contaminated measurement must stay visible, but cannot retain
+            # a drained owner's lease. Release independently verifies its guard.
+            observation_error = exc
         for task in self.leases.values():
             if type(task.get("fence_token")) is int:
                 result = self._authority(
@@ -640,6 +718,8 @@ class ComponentRuntime:
                 if result.get("status") != "cancelled":
                     raise RuntimeError("coordinator did not cancel this unlaunched queued task")
         self.diagnostic("slot.lease_released")
+        if observation_error is not None:
+            raise observation_error
         if self.failure:
             raise RuntimeError(f"slot monitoring failed before cleanup: {self.failure}")
 

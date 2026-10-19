@@ -318,6 +318,11 @@ def build_profile(
         if node:
             dsh_roots.append(Path(node).resolve(strict=True))
         runtime_paths.extend(path for path in dsh_roots if path.exists())
+    if config.harness.name == "kimi":
+        from mindie_bench.runner.kimi_profile import build_kimi_profile
+
+        build_kimi_profile(root, env, config)
+        runtime_paths.append(Path(config.harness.executable).resolve(strict=True).parent)
     fingerprint = {
         "group": group.value,
         "knowledge_mode": knowledge_mode,
@@ -399,7 +404,7 @@ def build_dsh_profile(root: Path, env: dict[str, str], config, mcp: dict, server
         "  config:",
         "    providers:",
         "      bench:",
-        "        api: openai-responses",
+        f"        api: {config.harness.api_protocol}",
         "        baseURL: !!js process.env.MINDIE_BENCH_GATEWAY + '/v1'",
         "        apiKeyEnv: MINDIE_BENCH_DUMMY_KEY",
         "        models:",
@@ -450,6 +455,7 @@ def build_dsh_profile(root: Path, env: dict[str, str], config, mcp: dict, server
         lines.append("- insert:")
         lines.extend(insert_rows)
     (profile_dir / "cordis.patch.yml").write_text("\n".join(lines) + "\n")
+
     # Validate the generated YAML without evaluating the !!js expressions.
     class Loader(yaml.SafeLoader):
         pass

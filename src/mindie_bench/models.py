@@ -1,4 +1,10 @@
-"""Versioned task, experiment, and receipt contracts."""
+"""Versioned task, experiment, and receipt contracts.
+
+[Role] Define the task, native harness, execution and measurement interfaces.
+[Invariants] Missing measurements stay distinct from measured zero or success.
+[Timeouts & Locks] Models declare budgets; parsing owns no locks or subprocesses.
+[Side-Effect Policy] Loads declared local contracts; never starts an experiment.
+"""
 
 from __future__ import annotations
 
@@ -233,7 +239,7 @@ class CorpusConfig(StrictModel):
 
 
 class HarnessConfig(StrictModel):
-    name: Literal["codex", "claude-code", "dsh", "fixture"]
+    name: Literal["codex", "claude-code", "dsh", "kimi", "fixture"]
     executable: str
     model: str
     expected_version: str
@@ -241,6 +247,9 @@ class HarnessConfig(StrictModel):
     model_catalog_path: str | None = None
     provider_url: str | None = None
     api_key_env: str | None = None
+    api_protocol: Literal["openai-responses", "openai-completions", "anthropic-messages"] = (
+        "openai-responses"
+    )
     input_usd_per_million: float | None = Field(default=None, ge=0)
     cached_usd_per_million: float | None = Field(default=None, ge=0)
     output_usd_per_million: float | None = Field(default=None, ge=0)
@@ -326,7 +335,9 @@ class ToolResultObservation(StrictModel):
     """Bounded result facts; original tool payloads stay in the private native log."""
 
     schema_version: Literal["mindie-bench-tool-observation/1"] = "mindie-bench-tool-observation/1"
-    source: Literal["codex_mcp", "claude_tool_result", "dsh_tool_result", "native_command", "native_file"]
+    source: Literal[
+        "codex_mcp", "claude_tool_result", "dsh_tool_result", "native_command", "native_file"
+    ]
     classification: Literal[
         "success",
         "business_success",

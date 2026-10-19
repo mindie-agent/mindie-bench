@@ -1,8 +1,78 @@
+import shutil
+import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
 from mindie_bench.runner.worktree_slot import WorktreeSlot
+
+
+@pytest.mark.parametrize("same_repository", [True, False])
+def test_concurrent_worktree_metadata_edits_are_scoped_to_the_source_repo(
+    case, monkeypatch, same_repository
+):
+    environment = case["spec"].environment["l2"]
+    other_environment = environment
+    if not same_repository:
+        other_repo = case["root"] / "other-source"
+        shutil.copytree(case["repo"], other_repo)
+        other_environment = environment.model_copy(update={"repo_path": str(other_repo)})
+    slots = [
+        WorktreeSlot(env, case["root"] / name / "workspace", case["task"])
+        for name, env in (("first", environment), ("second", other_environment))
+    ]
+    entered, release, second_started, overlap = (threading.Event() for _ in range(4))
+    run = subprocess.run
+
+    def observe(command, *args, **kwargs):
+        if command[3:5] == ["worktree", "add"]:
+            if command[6] == str(slots[0].destination):
+                entered.set()
+                assert release.wait(5), "test did not release the first Git operation"
+            else:
+                overlap.set()
+        return run(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", observe)
+
+    def lifecycle(slot, *, second=False):
+        if second:
+            second_started.set()
+        workspace = slot.prepare()
+        try:
+            assert (workspace / "module.py").read_text() == "VALUE = 1\n"
+            assert not (workspace / ".git").exists()
+            (workspace / "module.py").write_text("VALUE = 2\n")
+            assert slot.snapshot_patch(workspace.parent) == ["module.py"]
+        finally:
+            slot.cleanup()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(lifecycle, slots[0])
+        try:
+            assert entered.wait(5)
+            second = pool.submit(lifecycle, slots[1], second=True)
+            assert second_started.wait(5)
+            assert overlap.wait(0.1 if same_repository else 5) is not same_repository
+        finally:
+            release.set()
+        first.result(timeout=5)
+        second.result(timeout=5)
+    assert all(not slot.destination.exists() for slot in slots)
+    assert (case["repo"] / "module.py").read_text() == "VALUE = 1\n"
+
+
+def test_git_worktree_failure_preserves_its_diagnostic(case):
+    destination = case["root"] / "occupied"
+    destination.mkdir()
+    (destination / "existing").write_text("preserve\n")
+    slot = WorktreeSlot(case["spec"].environment["l2"], destination, case["task"])
+    with pytest.raises(RuntimeError, match=r"git worktree add failed:.*|fatal:") as caught:
+        slot.prepare()
+    assert "already exists" in str(caught.value)
+    assert (destination / "existing").read_text() == "preserve\n"
 
 
 @pytest.mark.parametrize("change_cwd", [False, True])
