@@ -48,6 +48,8 @@ jobs:
           ref: ${{ inputs.benchmark-ref }}
           path: benchmark-tool
       - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
       - name: Install candidate runtime
         working-directory: candidate
         shell: bash
