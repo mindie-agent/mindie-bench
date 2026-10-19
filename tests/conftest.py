@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -15,6 +16,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _configure_default_test_env() -> None:
+    # Native capture must use this test environment's components, not a
+    # historical release interpreter paired with today's adapter scripts.
+    if all(
+        importlib.util.find_spec(name) is not None for name in ("mindie_knowledge", "remote_dev")
+    ):
+        os.environ.setdefault("MINDIE_BENCH_TEST_MCP_PYTHON", sys.executable)
     for env_key, candidates in (
         (
             "MINDIE_BENCH_CPU_PYTHON",
@@ -33,14 +40,6 @@ def _configure_default_test_env() -> None:
             "MINDIE_BENCH_STALE_SOURCE_REPO",
             (
                 REPO_ROOT / "repositories/vllm-ascend-stale-config",
-            ),
-        ),
-        (
-            "MINDIE_BENCH_TEST_MCP_PYTHON",
-            (
-                Path("/Volumes/data/code/mindie-release-20261014/codex-interrupt-final-env-20261016/bin/python"),
-                REPO_ROOT.parent / "knowledge/.venv/bin/python",
-                REPO_ROOT.parent / "remote-dev/.venv/bin/python",
             ),
         ),
         (
