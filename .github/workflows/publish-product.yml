@@ -57,6 +57,15 @@ jobs:
           python-version: '3.13'
       - name: Install fixed benchmark collector
         run: uv sync --project release-tool --locked
+      - name: Require source-matched product value results
+        env:
+          PRODUCT_VERSION: ${{ steps.product.outputs.version }}
+        run: |
+          uv run --project release-tool --no-sync mindie-bench value-verify \
+            --suite release-tool/benchmarks/product-value-v1.json \
+            --evidence "product/docs/releases/$PRODUCT_VERSION/value-evidence.json" \
+            --release-manifest "product/docs/releases/$PRODUCT_VERSION/benchmark-manifest.json" \
+            --output "$RUNNER_TEMP/product-value"
       - name: Download and validate formal component evidence
         env:
           GH_TOKEN: ${{ github.token }}
@@ -68,6 +77,22 @@ jobs:
             --revision "$GITHUB_SHA" \
             --manifest "product/docs/releases/$PRODUCT_VERSION/benchmark-manifest.json" \
             --output "$RUNNER_TEMP/product-benchmarks"
+          cp "product/docs/releases/$PRODUCT_VERSION/value-evidence.json" \
+             "$RUNNER_TEMP/product-value/value-results.json" \
+             "$RUNNER_TEMP/product-value/value-results.md" \
+             release-tool/benchmarks/product-value-v1.json \
+             "$RUNNER_TEMP/product-benchmarks/"
+          tar -C "$RUNNER_TEMP/product-value" -czf \
+            "$RUNNER_TEMP/product-benchmarks/component-value-results.tar.gz" components
+          python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "product-benchmarks"
+          files = [path for path in sorted(root.iterdir()) if path.is_file() and path.name != "SHA256SUMS"]
+          (root / "SHA256SUMS").write_text("".join(
+              f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in files
+          ))
+          PY
       - name: Preserve verified public product evidence
         uses: actions/upload-artifact@v4
         with:
@@ -80,6 +105,11 @@ jobs:
             ${{ runner.temp }}/product-benchmarks/benchmark-manifest.json
             ${{ runner.temp }}/product-benchmarks/product-release-provenance.json
             ${{ runner.temp }}/product-benchmarks/SHA256SUMS
+            ${{ runner.temp }}/product-benchmarks/value-evidence.json
+            ${{ runner.temp }}/product-benchmarks/value-results.json
+            ${{ runner.temp }}/product-benchmarks/value-results.md
+            ${{ runner.temp }}/product-benchmarks/product-value-v1.json
+            ${{ runner.temp }}/product-benchmarks/component-value-results.tar.gz
       - name: Recheck product tag and create formal release
         working-directory: product
         env:
@@ -90,6 +120,7 @@ jobs:
           test "$(git rev-parse 'refs/release-check/product^{commit}')" = "$GITHUB_SHA"
           (cd "$RUNNER_TEMP/product-benchmarks" && sha256sum -c SHA256SUMS)
           cat "docs/releases/$PRODUCT_VERSION.md" \
+            "$RUNNER_TEMP/product-benchmarks/value-results.md" \
             "$RUNNER_TEMP/product-benchmarks/benchmark-results.md" > "$RUNNER_TEMP/product-release-notes.md"
           gh release create "$GITHUB_REF_NAME" \
             "$RUNNER_TEMP/product-benchmarks/benchmark-results.json" \
@@ -98,5 +129,10 @@ jobs:
             "$RUNNER_TEMP/product-benchmarks/benchmark-manifest.json" \
             "$RUNNER_TEMP/product-benchmarks/product-release-provenance.json" \
             "$RUNNER_TEMP/product-benchmarks/SHA256SUMS" \
+            "$RUNNER_TEMP/product-benchmarks/value-evidence.json" \
+            "$RUNNER_TEMP/product-benchmarks/value-results.json" \
+            "$RUNNER_TEMP/product-benchmarks/value-results.md" \
+            "$RUNNER_TEMP/product-benchmarks/product-value-v1.json" \
+            "$RUNNER_TEMP/product-benchmarks/component-value-results.tar.gz" \
             --verify-tag --target "$GITHUB_SHA" --title "$GITHUB_REF_NAME" \
             --notes-file "$RUNNER_TEMP/product-release-notes.md"
