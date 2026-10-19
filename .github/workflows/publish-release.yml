@@ -161,7 +161,9 @@ jobs:
           assert required and all(case["status"] == "pass" for case in required)
           assert report["suite_sha256"] == hashlib.sha256(pathlib.Path("benchmarks/release.json").read_bytes()).hexdigest()
           assert not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"]), "build changed candidate source"
-          files = sorted(path for path in assets.iterdir() if path.is_file() and path.name != "SHA256SUMS")
+          # Match the public upload glob; uv build also creates a private .gitignore.
+          files = sorted(path for path in assets.iterdir()
+                         if path.is_file() and not path.name.startswith(".") and path.name != "SHA256SUMS")
           (assets / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in files))
           PY
       - name: Confirm tag still identifies the measured source
