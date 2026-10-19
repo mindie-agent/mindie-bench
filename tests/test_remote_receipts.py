@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -111,6 +112,40 @@ def test_postflight_occupancy_or_probe_failure_does_not_retain_drained_owner(
     assert slot.cleanup_confirmed
     assert slot.modified_files == ["production.py"]
     assert json.loads((case["root"] / "remote_cleanup.json").read_text()) == slot.cleanup_receipt
+
+
+@pytest.mark.parametrize("failed_artifact", ["remote_cleanup.json", "remote_final.patch"])
+def test_local_cleanup_evidence_failure_still_releases_owned_lease(
+    case, monkeypatch, failed_artifact
+):
+    slot = remote_slot(case)
+    slot.cleanup_receipt = {
+        "cleanup": {
+            "probe": {},
+            "errors": [],
+            "files_modified": ["production.py"],
+            "patch_b64": base64.b64encode(b"patch").decode(),
+        }
+    }
+    monkeypatch.setattr(slot, "validate_probe", lambda value: value)
+    method = "write_text" if failed_artifact.endswith(".json") else "write_bytes"
+    original = getattr(Path, method)
+
+    def write(path, *args, **kwargs):
+        if path.name == failed_artifact:
+            raise OSError("local evidence storage failed")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, method, write)
+    finished = []
+    slot.component_runtime = SimpleNamespace(
+        stop_monitor=lambda: None,
+        finish=lambda **kwargs: finished.append(kwargs["cleanup_confirmed"]),
+    )
+    with pytest.raises(RuntimeError, match="local cleanup evidence.*local evidence storage failed"):
+        slot.close()
+    assert finished == [True]
+    assert slot.cleanup_confirmed
 
 
 def test_soundness_releases_worker_when_prepare_fails(case, monkeypatch):

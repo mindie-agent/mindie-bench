@@ -816,11 +816,16 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             except Exception as exc:
                 errors.append(f"postflight: {type(exc).__name__}: {exc}")
             if self.artifact_dir:
-                (self.artifact_dir / "remote_cleanup.json").write_text(json.dumps(self.cleanup_receipt))
-                if "patch_b64" in final:
-                    (self.artifact_dir / "remote_final.patch").write_bytes(
-                        base64.b64decode(final["patch_b64"])
+                try:
+                    (self.artifact_dir / "remote_cleanup.json").write_text(
+                        json.dumps(self.cleanup_receipt)
                     )
+                    if "patch_b64" in final:
+                        (self.artifact_dir / "remote_final.patch").write_bytes(
+                            base64.b64decode(final["patch_b64"])
+                        )
+                except (OSError, ValueError) as exc:
+                    errors.append(f"local cleanup evidence: {type(exc).__name__}: {exc}")
         else:
             errors.append(
                 "no remote cleanup receipt; do not reuse this slot without read-only reconciliation"
