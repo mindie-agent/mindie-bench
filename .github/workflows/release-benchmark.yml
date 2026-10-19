@@ -1,0 +1,81 @@
+name: reusable-release-benchmark
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      benchmark-ref:
+        description: Exact mindie-bench commit containing the runner
+        type: string
+        required: true
+      setup-command:
+        description: Install the candidate's exact locked runtime once
+        type: string
+        default: uv sync --locked --all-extras
+      python:
+        description: Candidate interpreter, relative to its checkout
+        type: string
+        default: .venv/bin/python
+      suite:
+        type: string
+        default: benchmarks/release.json
+      runner:
+        type: string
+        default: ubuntu-latest
+      artifact-name:
+        type: string
+        default: release-benchmarks
+    outputs:
+      artifact-name:
+        value: ${{ inputs.artifact-name }}
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: candidate
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: ${{ inputs.benchmark-ref }}
+          path: benchmark-tool
+      - uses: astral-sh/setup-uv@v6
+      - name: Install candidate runtime
+        working-directory: candidate
+        shell: bash
+        env:
+          SETUP_COMMAND: ${{ inputs.setup-command }}
+        run: bash -e -o pipefail -c "$SETUP_COMMAND"
+      - name: Install benchmark runner
+        run: uv sync --project benchmark-tool --locked
+      - name: Measure release candidate
+        id: benchmark
+        working-directory: candidate
+        shell: bash
+        env:
+          CANDIDATE_VERSION: ${{ inputs.version }}
+          CANDIDATE_PYTHON: ${{ inputs.python }}
+          CANDIDATE_SUITE: ${{ inputs.suite }}
+        run: |
+          uv run --project ../benchmark-tool --no-sync mindie-bench release-run \
+            --repo . --repository "$GITHUB_REPOSITORY" --version "$CANDIDATE_VERSION" \
+            --python "$CANDIDATE_PYTHON" --suite "$CANDIDATE_SUITE" \
+            --output "$RUNNER_TEMP/release-benchmarks"
+      - name: Preserve public benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/release-benchmarks/benchmark-results.json
+            ${{ runner.temp }}/release-benchmarks/benchmark-results.md
+            ${{ runner.temp }}/release-benchmarks/benchmark-SHA256SUMS
