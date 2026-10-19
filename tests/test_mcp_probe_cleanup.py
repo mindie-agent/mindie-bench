@@ -19,7 +19,7 @@ def test_preflight_closes_the_parent_backend_before_foreground_admission(case, c
     )
     with Gateway(
         config.harness, case["spec"], case["task"], case["repo"], trial / "broker.jsonl",
-        unix_socket=trial / "gateway.sock" if platform.system() == "Linux" else None,
+        use_unix_socket=platform.system() == "Linux",
     ) as gateway:
         gateway.attach_knowledge(profile, paths)
         profile.env["MINDIE_BENCH_GATEWAY"] = gateway.url
@@ -53,7 +53,7 @@ def test_original_catalog_failure_survives_a_separate_backend_shutdown_failure(c
     paths = runtime_paths(config, profile)
     with Gateway(
         config.harness, case["spec"], case["task"], case["repo"], trial / "broker.jsonl",
-        unix_socket=trial / "gateway.sock" if platform.system() == "Linux" else None,
+        use_unix_socket=platform.system() == "Linux",
     ) as gateway:
         gateway.attach_knowledge(profile, paths)
         profile.env["MINDIE_BENCH_GATEWAY"] = gateway.url

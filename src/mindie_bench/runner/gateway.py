@@ -22,8 +22,9 @@ enforcing turn/NPU-test budgets and recording an append-only `broker.jsonl` ledg
 
 [Side-Effect Policy]
 - Writes append-only event records to `journal` (`broker.jsonl`) and one-shot remote receipts to
-  `remote-results/`; `__exit__` deterministically drains model/remote channels, closes the
-  parent `knowledge` broker, and shuts down the HTTP/Unix server.
+  `remote-results/`; owns a short private temporary directory for Unix sockets.
+- `__exit__` drains model/remote channels, closes the parent `knowledge` broker,
+  shuts down the HTTP/Unix server, and removes its temporary socket directory.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ import os
 import re
 import socket
 import socketserver
+import tempfile
 import threading
 import time
 from contextlib import AbstractContextManager
@@ -68,7 +70,7 @@ class Gateway(AbstractContextManager):
         workspace: Path,
         journal: Path,
         *,
-        unix_socket: Path | None = None,
+        use_unix_socket: bool = False,
         remote=None,
     ):
         self.harness, self.task, self.task_root = harness, task, task_root
@@ -90,7 +92,8 @@ class Gateway(AbstractContextManager):
         self.model_delivery_failures: list[dict] = []
         self.remote_delivery_failures: list[dict] = []
         self.stream_input: dict[str, bytes] = {}
-        self.unix_socket, self.remote = unix_socket, remote
+        self.use_unix_socket, self.remote = use_unix_socket, remote
+        self.unix_socket = self.socket_directory = None
         self.api_key = os.environ.get(harness.api_key_env or "", "")
         if harness.name != "fixture" and not self.api_key:
             raise ValueError(f"missing explicitly selected credential: {harness.api_key_env}")
@@ -608,12 +611,19 @@ class Gateway(AbstractContextManager):
             do_DELETE = do_GET
             do_PATCH = do_GET
 
-        if self.unix_socket:
+        if self.use_unix_socket:
 
             class UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
                 daemon_threads = True
 
-            self.server = UnixServer(str(self.unix_socket), Handler)
+            # sockaddr_un has a fixed length bound; report paths are unrestricted.
+            self.socket_directory = tempfile.TemporaryDirectory(prefix="mb-gw-", dir="/tmp")
+            self.unix_socket = Path(self.socket_directory.name) / "gateway.sock"
+            try:
+                self.server = UnixServer(str(self.unix_socket), Handler)
+            except BaseException:
+                self.socket_directory.cleanup()
+                raise
             self.port = 38467
         else:
             self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -711,8 +721,8 @@ class Gateway(AbstractContextManager):
             cleanup("server_close", self.server.server_close)
         if self.thread:
             cleanup("server_join", lambda: self.thread.join(timeout=2))
-        if self.unix_socket:
-            cleanup("socket_unlink", lambda: self.unix_socket.unlink(missing_ok=True))
+        if self.socket_directory:
+            cleanup("socket_directory", self.socket_directory.cleanup)
         if failures:
             primary = failures[0]
             for failure in failures[1:]:

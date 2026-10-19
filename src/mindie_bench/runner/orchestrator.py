@@ -455,14 +455,13 @@ def run_trial(
             slot = WorktreeSlot(environment, trial_dir / "workspace", task_root)
             workspace = slot.prepare()
         _install_shims(profile, environment.replay_commands if tier == "l2" else [], remote=bool(remote))
-        unix_socket = trial_dir / "gateway.sock" if platform.system() == "Linux" else None
         gateway = Gateway(
             config.harness,
             task,
             task_root,
             workspace,
             trial_dir / "broker.jsonl",
-            unix_socket=unix_socket,
+            use_unix_socket=platform.system() == "Linux",
             remote=remote,
         )
         knowledge_paths = [
@@ -506,7 +505,7 @@ def run_trial(
                 cwd=workspace,
                 policy_path=trial_dir / "agent.sb",
                 gateway_port=gateway.port,
-                gateway_socket=unix_socket,
+                gateway_socket=gateway.unix_socket,
             )
             from mindie_bench.runner.profile_builder import knowledge_prompt
 
@@ -672,14 +671,13 @@ def run_trial(
             )
             capture_task = task.model_copy(deep=True)
             capture_task.budget.max_turns = group_config.capture_max_model_calls
-            capture_socket = trial_dir / "capture-gateway.sock" if platform.system() == "Linux" else None
             with Gateway(
                 capture_harness,
                 capture_task,
                 task_root,
                 workspace,
                 trial_dir / "capture_broker.jsonl",
-                unix_socket=capture_socket,
+                use_unix_socket=platform.system() == "Linux",
             ) as capture_gateway:
                 profile.env.update(
                     MINDIE_BENCH_GATEWAY=capture_gateway.url, ANTHROPIC_BASE_URL=capture_gateway.url
@@ -692,7 +690,7 @@ def run_trial(
                     cwd=profile.root,
                     policy_path=trial_dir / "capture.sb",
                     gateway_port=capture_gateway.port,
-                    gateway_socket=capture_socket,
+                    gateway_socket=capture_gateway.unix_socket,
                 )
                 records = []
                 captured = stream_process(
