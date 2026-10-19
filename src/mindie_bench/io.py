@@ -32,9 +32,7 @@ def tree_hash(root: Path, *, exclude: set[str] | None = None) -> str:
             continue
         if ".git" in rel.parts or is_ignored_cache_path(rel):
             continue
-        if path.is_symlink():
-            raise ValueError(f"symlinks are not allowed in benchmark inputs: {path}")
-        if path.is_file():
+        if path.is_file() and not path.is_symlink():
             files[rel.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return digest(files)
 

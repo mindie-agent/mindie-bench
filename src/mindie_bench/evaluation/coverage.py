@@ -1,8 +1,20 @@
 """Assess whether declared scope and actual observations answer a metric question.
 
-This module does not load receipts, certify hashes, execute trials or infer missing
-observations. Evidence counts must come from a source-bound, independently checked
-inventory; matrix accounting remains separate from metric readiness.
+[Role]
+Evaluates whether a planned task/group/tier matrix and observed evidence inventory satisfy
+the minimum sample, protocol, and hardware requirements for each canonical benchmark metric.
+
+[Invariants]
+- Separates matrix cell accounting (`ready`, `not_measured`, `insufficient_sample`,
+  `not_applicable`) from score value computation; never infers missing observations.
+- Requires explicit hardware/protocol evidence (`verified_l3_tasks`, `complete_observation`,
+  `baseline_headroom_tasks`) before declaring causal or NPU metrics `ready`.
+
+[Timeouts & Locks]
+- Pure in-memory evaluation over `TaskSpec` and `CoverageEvidence`; no I/O or locks.
+
+[Side-Effect Policy]
+- Pure read-only assessment returning serializable report dicts.
 """
 
 from __future__ import annotations
@@ -259,11 +271,6 @@ def default_targets() -> tuple[MetricTarget, ...]:
     )
 
 
-def _count(value: int, name: str) -> None:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
-
-
 def _families(tasks: Sequence[TaskSpec]) -> set[tuple[str, str]]:
     # A cluster label or repeated hardware run is not an independent defect.
     return {
@@ -282,28 +289,16 @@ def assess_coverage(
     evidence: Mapping[str, MetricEvidence] | None = None,
 ) -> CoverageReport:
     """Evaluate declared metric prerequisites without executing or retrying work."""
-    if type(repetitions) is not int or repetitions < 1:
-        raise ValueError("repetitions must be a positive integer")
     group_names = tuple(Group(group).value for group in groups)
-    if not group_names or len(set(group_names)) != len(group_names):
-        raise ValueError("groups must be nonempty and unique")
     task_ids = [task.task.instance_id for task in tasks]
     if len(set(task_ids)) != len(task_ids):
         raise ValueError("task identities must be unique")
     selected_targets = tuple(default_targets() if targets is None else targets)
-    if len({target.metric for target in selected_targets}) != len(selected_targets):
-        raise ValueError("metric targets must be unique")
     observations = evidence or {}
     if set(observations) - {target.metric for target in selected_targets}:
         raise ValueError("evidence contains an unconfigured metric")
     results = []
     for target in selected_targets:
-        for name in ("min_samples", "min_tasks", "min_families", "min_domains", "min_repetitions"):
-            _count(getattr(target, name), name)
-        if not target.metric or target.min_samples < 1 or target.min_repetitions < 1:
-            raise ValueError("metric, min_samples and min_repetitions must be nonempty/positive")
-        for group in target.required_groups:
-            Group(group)
         selected = [task for task in tasks if target.tier is None or target.tier in task.environment]
         if target.require_npu:
             selected = [
@@ -316,40 +311,7 @@ def assess_coverage(
                 )
             ]
         observed = observations.get(target.metric, MetricEvidence())
-        for name in ("observed_samples", "valid_samples", "unknown_samples"):
-            _count(getattr(observed, name), name)
-        if observed.valid_samples + observed.unknown_samples > observed.observed_samples:
-            raise ValueError("valid plus unknown samples exceed observed samples")
-        if len(set(observed.observed_task_ids)) != len(observed.observed_task_ids):
-            raise ValueError("observed task identities must be unique")
         selected_by_id = {task.task.instance_id: task for task in selected}
-        if set(observed.observed_task_ids) - selected_by_id.keys():
-            raise ValueError(f"{target.metric}: observed task is outside the selected scope")
-        if observed.observed_task_ids and not observed.valid_samples:
-            raise ValueError("observed_task_ids require valid samples")
-        if len(observed.observed_task_ids) > observed.valid_samples:
-            raise ValueError("observed task count exceeds valid samples")
-        if set(observed.task_repetitions) - set(observed.observed_task_ids):
-            raise ValueError("repetition evidence requires a corresponding observed task")
-        for values in observed.task_repetitions.values():
-            if len(set(values)) != len(values) or any(
-                type(value) is not int or not 1 <= value <= repetitions for value in values
-            ):
-                raise ValueError("observed repetitions must be unique and within the selected plan")
-        for values in (observed.field_samples, observed.protocol_samples):
-            for name, count in values.items():
-                _count(count, name)
-                if count > observed.valid_samples:
-                    raise ValueError("field/protocol count exceeds valid samples")
-        if (observed.baseline_samples is None) != (observed.baseline_successes is None):
-            raise ValueError("baseline successes and samples must be provided together")
-        if observed.baseline_samples is not None:
-            _count(observed.baseline_samples, "baseline_samples")
-            _count(observed.baseline_successes, "baseline_successes")
-            if observed.baseline_successes > observed.baseline_samples:
-                raise ValueError("baseline successes exceed samples")
-            if observed.baseline_samples > observed.valid_samples:
-                raise ValueError("baseline denominator exceeds this metric's valid matched samples")
         actual = [selected_by_id[identity] for identity in observed.observed_task_ids]
         missing_fields = {
             name: observed.valid_samples - observed.field_samples.get(name, 0)

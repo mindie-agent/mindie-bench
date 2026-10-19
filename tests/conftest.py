@@ -109,7 +109,7 @@ if "mode=probe" in prompt:
     try:
         secret.read_text()
         raise RuntimeError("ISOLATION_BROKEN")
-    except PermissionError:
+    except (PermissionError, FileNotFoundError):
         pass
 print(json.dumps({{"type":"fixture.trajectory","trajectory":{{
     "native_completed":True,"total_turns":1,

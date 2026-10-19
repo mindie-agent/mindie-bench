@@ -1,4 +1,27 @@
-"""Outcome, effort, and cost metrics with explicit missing-data semantics."""
+"""Outcome, effort, and cost metrics with explicit missing-data semantics.
+
+[Role]
+Computes trial-level (`trajectory_metrics`) and matrix-level (`summarize`) outcome, effort,
+cost, target-file access, and retrieval/routing metrics from trajectories and trial receipts.
+
+[Invariants]
+- Missing or incomplete observations (unmetered tokens, incomplete tool intervals, unaligned
+  broker clocks, missing matrix cells) must produce `None` or explicit `complete=False`
+  coverage states—never zero-filled fake numbers.
+- `pass@1`, `pass^k`, and valid wall-clock means are computed strictly over valid terminal
+  outcomes (`completed_pass` / `completed_fail`), while `all_attempt_*` metrics explicitly
+  include invalid/infrastructure outcomes.
+- Target file access and edit observations distinguish direct file RPCs, statically resolved
+  shell/Python commands, and unresolved dynamic commands without executing target strings.
+
+[Timeouts & Locks]
+- Pure in-memory AST/shlex analysis and statistical aggregation; no subprocesses, network I/O,
+  or locks (`_python_accesses` bounds AST input to 256 KiB and 64-element literal sequences).
+
+[Side-Effect Policy]
+- Pure side-effect-free functions returning serializable dicts; `canonical_receipt` enforces
+  `allow_nan=False` strict JSON serialization.
+"""
 
 from __future__ import annotations
 
@@ -30,21 +53,9 @@ from mindie_bench.scorer.tool_observations import summarize_tool_observations
 
 REMOTE = {"remote_bash", "remote_job_start", "remote_exec", "remote_command"}
 READ_EDIT = {
-    "remote_read",
-    "Read",
-    "remote_edit",
-    "remote_multi_edit",
-    "Edit",
-    "MultiEdit",
-    "Write",
-    "remote_grep",
-    "Grep",
-    "read_file",
-    "edit_file",
-    "remote_apply_patch",
-    "apply_patch",
-    "remote_write",
-    "write_file",
+    "remote_read", "Read", "remote_edit", "remote_multi_edit", "Edit", "MultiEdit",
+    "Write", "remote_grep", "Grep", "read_file", "edit_file", "remote_apply_patch",
+    "apply_patch", "remote_write", "write_file",
 }
 
 

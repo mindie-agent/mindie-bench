@@ -17,6 +17,24 @@ from mindie_bench.runner.process import ProcessResult
 
 
 def post(gateway, path, payload):
+    if gateway.unix_socket:
+        connection = http.client.HTTPConnection("localhost", timeout=5)
+        connection.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        connection.sock.settimeout(5)
+        connection.sock.connect(str(gateway.unix_socket))
+        try:
+            connection.request(
+                "POST", path, body=json.dumps(payload),
+                headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            if response.status >= 400:
+                raise urllib.error.HTTPError(
+                    gateway.url + path, response.status, response.reason, response.headers, None
+                )
+            return json.load(response)
+        finally:
+            connection.close()
     request = urllib.request.Request(
         gateway.url + path,
         data=json.dumps(payload).encode(),

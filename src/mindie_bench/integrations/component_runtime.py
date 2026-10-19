@@ -1,7 +1,27 @@
-"""Parent-side adapters for the existing coordinator, observer and diagnostics.
+"""Parent-side adapters for shared runtime components (`coordinator`, `npu-top`, `diagnostics`, `remote-dev`).
 
-The coordinator remains the sole allocation authority. These adapters retain its
-epoch and fencing tokens, and never replay an uncertain mutation.
+[Role]
+Bridges `RemoteSlot` lifecycle phases (`acquire`, `activate`, periodic `watch` heartbeats,
+`observe`, `finish`) to the five shared MindIE runtime components without creating a shadow
+allocation ledger.
+
+[Invariants]
+- `mindie-coordinator` is the sole device/port allocation authority; `ComponentRuntime` retains
+  its `coordination_epoch` and `fence_token`s and never replays an uncertain mutation (`self.unknown`).
+- `physical_observation` joins `npu-top` and `coordinator` live `npu-smi info` parses strictly by
+  physical chip `Phy-ID` (0..15 on A3 910C dual-Die cards; 0..7 on A2 910B), never confusing card
+  index `npu_id` with `phy_id` or allowing adjacent-Die workloads to contaminate admission.
+- Process ownership inside the slot is attested by `(boot_id, start_ticks, pid_namespace)` across
+  before/after `/proc` snapshots so recycled PIDs never inherit slot ownership.
+
+[Timeouts & Locks]
+- Helper subprocess RPC (`_call` via `owner.py` pipe): `60.0s` communicate budget + `5.0s` wait.
+- Remote `npu-smi info` host observation (`run_remote_python`): `30.0s` (`20.0s` inner `npu-smi`).
+- Heartbeat monitor join (`stop_monitor`): `65.0s` (`>= _call 60s + 5s grace`).
+
+[Side-Effect Policy]
+- Appends structured telemetry and lease events to `artifact_dir / "component_runtime.jsonl"`
+  and emits `mindie-diagnostics` events under `diagnostics_root`.
 """
 
 from __future__ import annotations

@@ -1,4 +1,30 @@
-"""An explicit finite experiment matrix; uncertain trials are never resubmitted."""
+"""Trial pipeline and finite experiment matrix orchestrator.
+
+[Role]
+Drives the single-trial lifecycle (`run_trial`) and multi-cell ablation matrix (`run_matrix`)
+across `G0`..`G3` and `l2`/`l3` tiers:
+`Workspace Materialization -> MCP Readiness Probe -> Agent Execution -> Settlement Grace 30s -> Verifier -> Scorer Metrics`.
+
+[Invariants]
+- Every started attempt writes `attempt_started.json` exclusively before execution; a missing
+  `trial_receipt.json` is treated as `UNKNOWN` and never automatically retried.
+- Terminal status strictly separates `completed_pass`, `completed_fail`, `infra_failed` (failed
+  before agent execution or during postflight after preserving `business_terminal_status`), and
+  `unknown` (uncertain external model/remote/capture effects).
+- In `G3` lineages, `seed` tasks must complete with a passing `corpus_lint` and modified corpus
+  `tree_hash` before dependent `eval` tasks are admitted.
+
+[Timeouts & Locks]
+- Agent execution budget: `task.budget.timeout_sec`.
+- Gateway model & remote settlement grace: `30.0s` before `remote.quiesce()` and verifier launch.
+- Verifier inner budget: `task.budget.verifier_timeout_sec` (remote worker outer budget `+10.0s`).
+- `device_condition` coordinates non-overlapping NPU device slice allocation across concurrent `l3` cells.
+
+[Side-Effect Policy]
+- Writes immutable trial artifacts (`attempt_started.json`, `native_events.jsonl`, `broker.jsonl`,
+  `trajectory.json`, `trial_receipt.json`) inside `0o700` `trial_dir`, and matrix-level
+  `eval_manifest.json`, `summary.json`, and `matrix_accounting.json` inside `output`.
+"""
 
 from __future__ import annotations
 
@@ -344,9 +370,9 @@ def run_trial(
             and read_json(task_root / "soundness_receipt.json")["tier"] != tier
         ):
             raise ValueError("soundness proof does not cover the requested execution tier")
-        if group == Group.G3 and not config.groups.get(group, None):
-            raise ValueError("G3 requires an explicit offline capture adapter")
-        if group == Group.G3 and not config.groups[group].capture_command:
+        if group == Group.G3 and not (
+            config.groups.get(group) and config.groups[group].capture_command
+        ):
             raise ValueError("G3 requires an explicit offline capture adapter")
         if config.harness.name == "fixture" and (
             config.backend != "fixture" or task.task.evidence != "synthetic"
@@ -429,14 +455,13 @@ def run_trial(
             slot = WorktreeSlot(environment, trial_dir / "workspace", task_root)
             workspace = slot.prepare()
         _install_shims(profile, environment.replay_commands if tier == "l2" else [], remote=bool(remote))
-        unix_socket = trial_dir / "gateway.sock" if platform.system() == "Linux" else None
         gateway = Gateway(
             config.harness,
             task,
             task_root,
             workspace,
             trial_dir / "broker.jsonl",
-            unix_socket=unix_socket,
+            use_unix_socket=platform.system() == "Linux",
             remote=remote,
         )
         knowledge_paths = [
@@ -480,7 +505,7 @@ def run_trial(
                 cwd=workspace,
                 policy_path=trial_dir / "agent.sb",
                 gateway_port=gateway.port,
-                gateway_socket=unix_socket,
+                gateway_socket=gateway.unix_socket,
             )
             from mindie_bench.runner.profile_builder import knowledge_prompt
 
@@ -626,10 +651,6 @@ def run_trial(
             capture_started = time.monotonic()
             auxiliary["business_terminal_status"] = status.value
             group_config = config.groups[group]
-            if not group_config.capture_command:
-                raise ValueError(
-                    "G3 requires an explicit offline capture adapter; a hot snapshot is not a flywheel"
-                )
             public = {
                 "messages": [
                     {"role": "user", "text": (task_root / "instruction.md").read_text()},
@@ -650,14 +671,13 @@ def run_trial(
             )
             capture_task = task.model_copy(deep=True)
             capture_task.budget.max_turns = group_config.capture_max_model_calls
-            capture_socket = trial_dir / "capture-gateway.sock" if platform.system() == "Linux" else None
             with Gateway(
                 capture_harness,
                 capture_task,
                 task_root,
                 workspace,
                 trial_dir / "capture_broker.jsonl",
-                unix_socket=capture_socket,
+                use_unix_socket=platform.system() == "Linux",
             ) as capture_gateway:
                 profile.env.update(
                     MINDIE_BENCH_GATEWAY=capture_gateway.url, ANTHROPIC_BASE_URL=capture_gateway.url
@@ -670,7 +690,7 @@ def run_trial(
                     cwd=profile.root,
                     policy_path=trial_dir / "capture.sb",
                     gateway_port=capture_gateway.port,
-                    gateway_socket=capture_socket,
+                    gateway_socket=capture_gateway.unix_socket,
                 )
                 records = []
                 captured = stream_process(
@@ -1004,6 +1024,7 @@ def run_matrix(
                 raise ValueError("each L3 task must fit the explicitly configured NPU device pool")
     output.mkdir(parents=True, exist_ok=False)
     output.chmod(0o700)
+    task_digests = {path: task_hash(path) for path in task_roots}
     cells = [
         dict(
             instance_id=spec.task.instance_id,
@@ -1011,7 +1032,7 @@ def run_matrix(
             group=group.value,
             repetition=repetition,
             role=spec.task.role,
-            task_digest=task_hash(path),
+            task_digest=task_digests[path],
             cluster=spec.task.cluster,
             corpus_id=spec.mindie_knowledge.corpus_id,
         )

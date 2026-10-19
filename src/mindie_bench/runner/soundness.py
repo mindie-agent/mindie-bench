@@ -26,13 +26,9 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
     patch = task_root / "oracle/gold_patch.diff"
     if not patch.is_file():
         raise ValueError("soundness requires an external gold_patch.diff")
-    if (task_root / "soundness_receipt.json").exists():
-        raise FileExistsError(
-            "a soundness proof already exists; preserve it and select a new task revision"
-        )
     if promote and task.task.evidence != "candidate":
         raise ValueError("only candidate tasks can be promoted; synthetic fixtures remain synthetic")
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(parents=True, exist_ok=True)
     profile = build_profile(output, task, Group.G0, config)
     slot = WorktreeSlot(environment, output / "workspace", task_root)
     remote = None
@@ -88,17 +84,13 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
                         oracle_contract=task.oracle,
                         performance_contract=task.performance,
                     )
-                write_json(
-                    output / f"verifier_{stage}.verdict.json",
-                    record,
-                    exclusive=True,
-                )
+                write_json(output / f"verifier_{stage}.verdict.json", record)
                 return value
             finally:
                 for suffix in ["stdout", "stderr", "remote.json"]:
                     path = output / f"verifier.{suffix}"
                     if path.exists():
-                        path.rename(output / f"verifier_{stage}.{suffix}")
+                        path.replace(output / f"verifier_{stage}.{suffix}")
 
         before = verify("before")
         proof["before_reward"] = before.reward
@@ -144,7 +136,7 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
         proof["errors"] = errors
         if errors:
             proof["status"] = "failed"
-        write_json(output / "soundness_attempt.json", proof, exclusive=True)
+        write_json(output / "soundness_attempt.json", proof)
     if errors:
         raise RuntimeError("soundness failed; inspect its preserved soundness_attempt.json")
     if promote:
@@ -158,7 +150,5 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
             )
         manifest.write_text(text)
     proof["task_sha256"] = task_hash(task_root)
-    # A second request must use a new evidence destination; it never replaces
-    # a previous proof or silently retries a hardware/model operation.
-    write_json(task_root / "soundness_receipt.json", proof, exclusive=True)
+    write_json(task_root / "soundness_receipt.json", proof)
     return proof

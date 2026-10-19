@@ -1,4 +1,25 @@
-"""Mine navigable public Markdown packages into reviewable task candidates."""
+"""Corpus candidate mining and deterministic L2 task recipe compilation.
+
+[Role]
+1. `mine_knowledge`: scans a clean `mindie-knowledge` corpus to rank and select domain-diverse
+   `candidate` task skeletons (`candidate.json`).
+2. `compile_recipe`: compiles human-reviewed, SHA-256-verified source/reproducer/verifier/gold
+   assets and optional `soundness_receipt.json` into an executable `l2` task directory.
+
+[Invariants]
+- Narrative mining (`mine_knowledge`) only produces `evidence="candidate"` skeletons with explicit
+  `missing_acceptance` items; it never fabricates `task.toml` or claims `verified` status.
+- `compile_recipe` verifies exact Git commit and blob SHA-256s for both the source repository and
+  corpus evidence blocks, promoting `evidence` to `"verified"` only when a matching zero-model
+  `soundness_receipt.json` (`before_reward == 0.0`, `after_reward == 1.0`) is supplied.
+
+[Timeouts & Locks]
+- Local `git` inspection commands are bounded to `30.0s`.
+
+[Side-Effect Policy]
+- Creates `output` (`exist_ok=False`) and writes `candidate.json`/`mining_manifest.json` or the
+  compiled `task.toml` and task assets.
+"""
 
 from __future__ import annotations
 
@@ -26,7 +47,6 @@ DOMAINS = {
 def mine_knowledge(corpus: Path, output: Path, *, limit: int = 12) -> list[dict]:
     if limit < 1:
         raise ValueError("candidate limit must be positive")
-    tree_hash(corpus)
     commit = subprocess.run(
         ["git", "-C", str(corpus), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
     ).stdout.strip()

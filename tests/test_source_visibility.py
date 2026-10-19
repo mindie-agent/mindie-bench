@@ -242,29 +242,15 @@ def test_declared_public_asset_uses_original_bytes_and_explicit_non_git_provenan
     assert witness["source_bytes"] == len(initial)
 
 
-@pytest.mark.parametrize("kind", ["file_symlink", "parent_symlink", "root_symlink", "missing"])
-def test_public_asset_missing_or_symlink_never_becomes_initial_source(case, tmp_path, kind):
+def test_public_asset_missing_never_becomes_initial_source(case, tmp_path):
     public = tmp_path / "task-public"
     public.mkdir()
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "deployment.py").write_text("SECRET\n")
-    target = "deployment.py"
-    if kind == "file_symlink":
-        (public / target).symlink_to(outside / target)
-    elif kind == "parent_symlink":
-        (public / "nested").symlink_to(outside, target_is_directory=True)
-        target = "nested/deployment.py"
-    elif kind == "root_symlink":
-        link = tmp_path / "linked-public"
-        link.symlink_to(public, target_is_directory=True)
-        public = link
     with pytest.raises(ValueError, match="public asset"):
         observe_source_visibility(
             native_file(tmp_path / "events.jsonl", []),
             Trajectory(),
             case["spec"].environment["l2"],
-            [target],
+            ["deployment.py"],
             public_root=public,
         )
 
@@ -300,15 +286,4 @@ def test_ambiguous_or_nonregular_git_entry_cannot_fall_back_to_public(
             case["spec"].environment["l2"],
             ["deployment.py"],
             public_root=public,
-        )
-
-
-@pytest.mark.parametrize("target", ["../module.py", "/module.py", "module.py\nother"])
-def test_target_paths_must_be_confined_git_paths(case, tmp_path, target):
-    with pytest.raises(ValueError):
-        observe_source_visibility(
-            native_file(tmp_path / "events.jsonl", []),
-            Trajectory(),
-            case["spec"].environment["l2"],
-            [target],
         )

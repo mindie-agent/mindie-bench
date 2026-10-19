@@ -1,0 +1,15 @@
+{
+  "schema_version": "mindie-release-suite/1",
+  "suite": "scoring-core",
+  "publishable": true,
+  "cases": [
+    {
+      "id": "retrieval-scoring",
+      "kind": "microbenchmark",
+      "required": true,
+      "repetitions": 5,
+      "timeout_seconds": 15,
+      "command": ["{python}", "benchmarks/release.py"]
+    }
+  ]
+}

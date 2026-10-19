@@ -17,12 +17,29 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        run: bash .github/scripts/setup_linux_sandbox.sh
       - run: uv sync --locked --all-extras
       - run: uv run ruff check .
-      - run: uv run pytest
+      - run: uv run pytest -m "not live_npu" -k "not actual" --basetemp=/tmp/mb-ci
       - run: uv run mindie-bench demo --output reports/ci-synthetic
+      - name: Measure scorer release workload
+        run: |
+          uv run mindie-bench release-run --repo . --repository "$GITHUB_REPOSITORY" \
+            --version "$(uv run python -c 'from importlib.metadata import version; print(version("mindie-bench"))')" \
+            --suite benchmarks/release.json \
+            --output "$RUNNER_TEMP/release-benchmarks"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/release-benchmarks/benchmark-results.json
+            ${{ runner.temp }}/release-benchmarks/benchmark-results.md
+            ${{ runner.temp }}/release-benchmarks/benchmark-SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

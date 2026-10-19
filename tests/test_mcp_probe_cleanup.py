@@ -1,4 +1,5 @@
 import json
+import platform
 
 import pytest
 from test_knowledge_broker import setup_profile
@@ -17,7 +18,8 @@ def test_preflight_closes_the_parent_backend_before_foreground_admission(case, c
         mcp_servers={"knowledge": config.groups[Group.G2].mcp_servers["knowledge"]}
     )
     with Gateway(
-        config.harness, case["spec"], case["task"], case["repo"], trial / "broker.jsonl"
+        config.harness, case["spec"], case["task"], case["repo"], trial / "broker.jsonl",
+        use_unix_socket=platform.system() == "Linux",
     ) as gateway:
         gateway.attach_knowledge(profile, paths)
         profile.env["MINDIE_BENCH_GATEWAY"] = gateway.url
@@ -50,7 +52,8 @@ def test_original_catalog_failure_survives_a_separate_backend_shutdown_failure(c
     )
     paths = runtime_paths(config, profile)
     with Gateway(
-        config.harness, case["spec"], case["task"], case["repo"], trial / "broker.jsonl"
+        config.harness, case["spec"], case["task"], case["repo"], trial / "broker.jsonl",
+        use_unix_socket=platform.system() == "Linux",
     ) as gateway:
         gateway.attach_knowledge(profile, paths)
         profile.env["MINDIE_BENCH_GATEWAY"] = gateway.url

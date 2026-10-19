@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from mindie_bench.io import read_json, safe_relative, task_hash, tree_hash
+from mindie_bench.io import read_json, safe_relative, task_hash
 
 
 class StrictModel(BaseModel):
@@ -164,14 +164,13 @@ class TaskSpec(StrictModel):
         for environment in spec.environment.values():
             if not Path(environment.repo_path).is_absolute():
                 environment.repo_path = str((root / environment.repo_path).resolve())
-        tree_hash(root)
         if not (root / "instruction.md").is_file():
             raise ValueError("task is missing instruction.md")
         if not (root / "verifier/test.sh").is_file():
             raise ValueError("task is missing external verifier/test.sh")
-        if spec.task.evidence == "verified" and not (root / "soundness_receipt.json").is_file():
-            raise ValueError("verified task has no soundness receipt")
         if spec.task.evidence == "verified":
+            if not (root / "soundness_receipt.json").is_file():
+                raise ValueError("verified task has no soundness receipt")
             proof = read_json(root / "soundness_receipt.json")
             if (
                 proof.get("task_sha256") != task_hash(root)

@@ -1,4 +1,10 @@
-"""OS-enforced filesystem and network boundaries; no unsandboxed fallback."""
+"""[Role] Build native OS filesystem and network boundaries.
+
+[Invariants] Only declared roots are readable; Python runtime aliases preserve
+the same granted files, never a broader parent or an unsandboxed fallback.
+[Timeouts & Locks] No waits or locks; process budgets belong to the caller.
+[Side-Effect Policy] Write the macOS policy file; return Linux mount arguments.
+"""
 
 from __future__ import annotations
 
@@ -77,8 +83,17 @@ def native_command(
         for directory in ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc"]:
             if Path(directory).exists():
                 args += ["--ro-bind", directory, directory]
-        for path in sorted(set(p.resolve() for p in read)):
+        read_roots = set(p.resolve() for p in read)
+        for path in sorted(read_roots):
             args += ["--ro-bind", str(path), str(path)]
+        # uv virtualenv executables point through a version-independent runtime
+        # symlink, while sys.base_prefix names the versioned directory. The
+        # alias must exist inside the namespace as well as its granted target.
+        base = Path(sys.base_prefix).resolve()
+        if any(base.is_relative_to(path) for path in read_roots):
+            for alias in Path(sys._base_executable).parents:
+                if alias != base and alias.resolve() == base:
+                    args += ["--ro-bind", str(base), str(alias)]
         for path in sorted(set(p.resolve() for p in write)):
             args += ["--bind", str(path), str(path)]
         if gateway_socket:

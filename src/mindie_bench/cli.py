@@ -101,13 +101,37 @@ def parser():
     export.add_argument("--upload-repo", dest="upload_repo", type=str, default=None)
     export.add_argument("--private", dest="private", action="store_true", default=True)
     export.add_argument("--public", dest="private", action="store_false")
+    release = commands.add_parser("release-run", help="measure a repository release candidate")
+    release.add_argument("--repo", type=Path, required=True)
+    release.add_argument("--repository", required=True)
+    release.add_argument("--version", required=True)
+    release.add_argument("--suite", type=Path, required=True)
+    release.add_argument("--output", type=Path, required=True)
+    release.add_argument("--python", default=sys.executable)
+    collect = commands.add_parser(
+        "release-collect", help="gate product publication on exact component benchmark evidence"
+    )
+    collect.add_argument("--manifest", type=Path, required=True)
+    collect.add_argument("--input", type=Path, action="append", required=True)
+    collect.add_argument("--output", type=Path, required=True)
     return root
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        if args.command == "demo":
+        if args.command == "release-run":
+            from mindie_bench.release import run_release_suite
+
+            result = run_release_suite(
+                repo=args.repo, repository=args.repository, version=args.version,
+                suite=args.suite, output=args.output, python=args.python,
+            )
+        elif args.command == "release-collect":
+            from mindie_bench.release import collect_release
+
+            result = collect_release(manifest=args.manifest, inputs=args.input, output=args.output)
+        elif args.command == "demo":
             from mindie_bench.synthetic import demo
 
             result = demo(args.output.resolve())
@@ -232,7 +256,7 @@ def main(argv=None):
                 private=args.private,
             )
         print(json.dumps(result, indent=2, ensure_ascii=False))
-        return 0
+        return 1 if result.get("release_gate") is False else 0
     except Exception as exc:
         print(
             json.dumps(

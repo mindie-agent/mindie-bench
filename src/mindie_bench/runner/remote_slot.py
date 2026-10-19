@@ -1,11 +1,30 @@
-"""One SSH-owned PID/network namespace with cooperative per-device leases.
+"""One SSH-owned PID/network namespace with cooperative per-device NPU leases.
 
-Only the public source snapshot reaches the remote slot. The worker lives for
-the whole trial, so remote-dev jobs survive individual one-shot tool calls.
-Destroying the namespace kills its descendants, including detached jobs.
-The native Ascend driver requires the dedicated container's privileged device
-view. This backend runs trusted evaluation tasks; it is not a hostile-tenant
-security boundary. Source history and local personal profiles are not mounted.
+[Role]
+Manages an isolated remote Ascend NPU trial workspace inside a dedicated container using
+`flock` per-device locks, detached Git worktrees, source-projection stripping, and `bwrap`
+PID/network/IPC namespaces.
+
+[Invariants]
+- Only the public source snapshot reaches the remote slot (`.git` metadata and harness configs
+  are stripped before agent execution and restored only inside `POSTFLIGHT` diff extraction).
+- Any unacknowledged frame or broken SSH pipe sets `operation_unknown = True`, blocking further
+  submissions on the slot and surfacing `UnknownExternalEffects` to the orchestrator.
+- `TMPDIR` is bound to a short `/tmp/bench-<hex12>` path backed by `.bench-home/tmp` so vLLM
+  native TP `sockaddr_un` Unix domain sockets never overflow the 104-byte path limit.
+
+[Timeouts & Locks]
+- Per-command worker timeout: `outer_timeout = float(request["timeout"]) + 10.0s` (`outer >= inner + 10s`),
+  giving structured inner commands (`_PRIVATE_REMOTE_JUDGE`) a 10s grace window to finish post-timeout
+  inventory before `WORKER` kills the child process.
+- Host-side `_request` pipe wait: `limit + 15.0s` (`outer_timeout + 5.0s`).
+- Slot startup readiness wait: `40.0s`; slot teardown (`POSTFLIGHT` + NPU HBM/PID drain) wait: `40.0s`.
+
+[Side-Effect Policy]
+- Acquires `flock -n` on `/tmp/mindie-bench-device-<id>.lock` (and optional `ComponentRuntime`
+  coordinator leases) before creating the worktree; `trap POSTFLIGHT EXIT` kills remaining slot
+  processes via `pidfd_send_signal`, verifies NPU HBM/PID drain, extracts `patch_b64`, and removes
+  the worktree.
 """
 
 from __future__ import annotations
@@ -21,9 +40,24 @@ import time
 import uuid
 from pathlib import Path, PurePosixPath
 
-from mindie_bench.io import safe_relative
+from mindie_bench.io import is_ignored_cache_path, safe_relative
 from mindie_bench.models import RemoteConfig, SourceEnvironment
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, PROJECTOR
+
+_RESERVED_SLOT_ENV = {
+    "REMOTE_DEV_JOB_TOKEN",
+    "MINDIE_BENCH_SLOT_ID",
+    "ASCEND_RT_VISIBLE_DEVICES",
+    "ASCEND_CACHE_PATH",
+    "CCACHE_DIR",
+    "TORCH_EXTENSIONS_DIR",
+    "TORCHINDUCTOR_CACHE_DIR",
+    "TRITON_CACHE_DIR",
+    "TMPDIR",
+    "HCCL_IF_BASE_PORT",
+    "MASTER_PORT",
+    "MINDIE_BENCH_COMPONENT_GUARD",
+}
 
 WORKER = r"""
 import base64, json, os, queue, select, subprocess, sys, threading, uuid
@@ -167,11 +201,7 @@ while True:
         elif request.get("control")=="exchange_stream":
             value=exchange_stream(request)
         else:
-            outer_timeout = (
-                float(request["timeout"]) + 4.0
-                if request.get("timeout") is not None
-                else None
-            )
+            outer_timeout = float(request["timeout"]) + 10.0 if request.get("timeout") is not None else None
             result = subprocess.run(["/bin/bash", "-c", request["command"]],
                 input=base64.b64decode(request["stdin_b64"]), stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, timeout=outer_timeout)
@@ -282,35 +312,23 @@ print(json.dumps({"cleanup":final,"remote_artifact":artifact}),flush=True)
 KDA_BUILD_CACHE_HELPER = r"""
 import hashlib, json, os, pathlib, shutil, subprocess, sys
 GENERATED = {"build", "build_out", "output"}
-def sha256(p):
-    return hashlib.sha256(p.read_bytes()).hexdigest()
+sha256 = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 def current_sources(root):
-    res = {}
-    for p in sorted(root.rglob("*")):
-        rel = p.relative_to(root)
-        if rel.parts[0] in GENERATED or p.is_symlink():
-            continue
-        if p.is_file():
-            res[rel.as_posix()] = sha256(p)
-    return res
-receipt_path = pathlib.Path("../build-receipt.json")
-csrc = pathlib.Path("csrc")
-cache_dir = None
+    return {
+        p.relative_to(root).as_posix(): sha256(p)
+        for p in sorted(root.rglob("*"))
+        if p.relative_to(root).parts[0] not in GENERATED and not p.is_symlink() and p.is_file()
+    }
+receipt_path, csrc, cache_dir = pathlib.Path("../build-receipt.json"), pathlib.Path("csrc"), None
 if receipt_path.is_file() and csrc.is_dir():
     try:
         rec = json.loads(receipt_path.read_text())
-        if (
-            rec.get("schema") == "mindie-bench-kda-source-build/1"
-            and rec.get("status") == "prepared"
-            and current_sources(csrc) == rec.get("source_files_sha256")
-        ):
-            identity = {
-                "source_files_sha256": rec["source_files_sha256"],
-                "input_archives_sha256": rec.get("input_archives_sha256"),
-                "generic_dependency": rec.get("generic_dependency"),
-                "command": rec.get("command"),
-                "args": sys.argv[1:],
-            }
+        if (rec.get("schema") == "mindie-bench-kda-source-build/1" and rec.get("status") == "prepared"
+                and current_sources(csrc) == rec.get("source_files_sha256")):
+            identity = {"source_files_sha256": rec["source_files_sha256"],
+                        "input_archives_sha256": rec.get("input_archives_sha256"),
+                        "generic_dependency": rec.get("generic_dependency"),
+                        "command": rec.get("command"), "args": sys.argv[1:]}
             key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
             cache_dir = pathlib.Path(os.environ["HOME"]) / "cache" / "kda_build_out" / key
             manifest_path = cache_dir / "manifest.json"
@@ -335,9 +353,7 @@ if res.returncode == 0 and cache_dir is not None:
             tmp_dir = cache_dir.with_suffix(".tmp-" + str(os.getpid()))
             tmp_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(pkg, tmp_dir / pkg.name)
-            (tmp_dir / "manifest.json").write_text(
-                json.dumps({"name": pkg.name, "sha256": sha256(pkg)})
-            )
+            (tmp_dir / "manifest.json").write_text(json.dumps({"name": pkg.name, "sha256": sha256(pkg)}))
             if not cache_dir.exists():
                 tmp_dir.rename(cache_dir)
             else:
@@ -361,22 +377,14 @@ class RemoteSlot:
         self.config, self.environment = config, environment
         self.devices, self.timeout = devices, timeout
         self.path = str(PurePosixPath(config.slots_root) / trial_id)
-        self.process = None
-        self.lock = threading.Lock()
-        self.preflight = None
-        self.postflight = None
-        self.created = False
-        self.closed = False
         self.artifact_dir = artifact_dir
-        self.cleanup_receipt = None
-        self.modified_files = None
-        self.public_files = {}
-        self.stderr_file = None
+        self.lock = threading.Lock()
+        self.process = self.preflight = self.postflight = None
+        self.cleanup_receipt = self.modified_files = self.stderr_file = None
+        self.component_runtime = self.slot_environment = self.tmpdir_backing = None
+        self.created = self.closed = self.operation_unknown = False
+        self.public_files: dict[str, str] = {}
         self.read_buffer = b""
-        self.operation_unknown = False
-        self.component_runtime = None
-        self.slot_environment = None
-        self.tmpdir_backing = None
 
     def command(self, command: list[str]) -> list[str]:
         return [
@@ -400,8 +408,7 @@ class RemoteSlot:
             check=True,
             text=True,
         )
-        data = json.loads(result.stdout)
-        return self.validate_probe(data)
+        return self.validate_probe(json.loads(result.stdout))
 
     def validate_probe(self, data: dict) -> dict:
         environment = data.get("_environment")
@@ -463,16 +470,17 @@ class RemoteSlot:
         environment_exports = "\n".join(
             f"export {name}={quote(value)}" for name, value in self.slot_environment.items()
         )
+        cache_keys = (
+            "ASCEND_CACHE_PATH",
+            "CCACHE_DIR",
+            "TORCH_EXTENSIONS_DIR",
+            "TORCHINDUCTOR_CACHE_DIR",
+            "TRITON_CACHE_DIR",
+            "TMPDIR",
+        )
         cache_directories = " ".join(
             quote(self.tmpdir_backing if name == "TMPDIR" else self.slot_environment[name])
-            for name in (
-                "ASCEND_CACHE_PATH",
-                "CCACHE_DIR",
-                "TORCH_EXTENSIONS_DIR",
-                "TORCHINDUCTOR_CACHE_DIR",
-                "TRITON_CACHE_DIR",
-                "TMPDIR",
-            )
+            for name in cache_keys
         )
         locks = "\n".join(
             f"exec {10 + i}>/tmp/mindie-bench-device-{device}.lock\nflock -n {10 + i}"
@@ -532,8 +540,6 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
  --chdir {quote(self.path)} --setenv HOME {quote(self.path + "/.bench-home")} \\
  -- python3 -I -u -c {quote(WORKER)}
 """
-        # The worker holds the leases; the probe happens after its ready
-        # acknowledgement, before any model or agent command is admitted.
         if self.artifact_dir:
             self.stderr_file = (self.artifact_dir / "remote.stderr").open("xb")
         self.process = subprocess.Popen(
@@ -562,19 +568,13 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
 
             self.component_runtime.activate(ready.get("owner_receipt", {}), stop_owned_worker)
         if self.artifact_dir:
-            # The guard marker remains parent-private; the cache/port receipt
-            # contains only settings shared by every process in this slot.
+            public_env = {
+                k: v
+                for k, v in self.slot_environment.items()
+                if k not in {"REMOTE_DEV_JOB_TOKEN", "MINDIE_BENCH_COMPONENT_GUARD"}
+            }
             (self.artifact_dir / "slot_isolation.json").write_text(
-                json.dumps(
-                    {
-                        "TMPDIR_BACKING_PATH": self.tmpdir_backing,
-                        **{
-                            name: value
-                            for name, value in self.slot_environment.items()
-                            if name not in {"REMOTE_DEV_JOB_TOKEN", "MINDIE_BENCH_COMPONENT_GUARD"}
-                        },
-                    }
-                )
+                json.dumps({"TMPDIR_BACKING_PATH": self.tmpdir_backing, **public_env})
             )
         return self
 
@@ -582,10 +582,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         deadline = time.monotonic() + timeout
         while b"\n" not in self.read_buffer:
             remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError("remote worker acknowledgement lost; effects unknown")
-            ready, _, _ = select.select([self.process.stdout], [], [], remaining)
-            if not ready:
+            if remaining <= 0 or not select.select([self.process.stdout], [], [], remaining)[0]:
                 raise TimeoutError("remote worker acknowledgement lost; effects unknown")
             chunk = os.read(self.process.stdout.fileno(), 65536)
             if not chunk:
@@ -598,8 +595,6 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
 
     def _send_frame(self, frame: bytes, deadline: float):
         descriptor = self.process.stdin.fileno()
-        # A stalled SSH peer can fill this pipe before _read's timeout starts.
-        # All writes use this method; leave the owned, unbuffered pipe nonblocking.
         os.set_blocking(descriptor, False)
         remaining = memoryview(frame)
         while remaining:
@@ -615,7 +610,6 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             remaining = remaining[written:]
 
     def _request(self, request, timeout, *, expected=None):
-        # Every caller holds the same lock, including stream control frames.
         if self.closed:
             raise RuntimeError("remote slot is closed")
         if self.operation_unknown:
@@ -654,7 +648,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         with self.lock:
             return self._request(
                 dict(command=command, stdin_b64=stdin_b64, timeout=limit),
-                limit + 5,
+                limit + 15,
             )
 
     def open_stream(self, command: str) -> dict:
@@ -696,9 +690,6 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
     def upload_public(self, source: Path):
         if not source.exists():
             return
-        from mindie_bench.io import is_ignored_cache_path, tree_hash
-
-        tree_hash(source)
         files = {
             p.relative_to(source).as_posix(): base64.b64encode(p.read_bytes()).decode()
             for p in source.rglob("*")
@@ -729,21 +720,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                 or not name.isascii()
                 or not isinstance(value, str)
                 or "\0" in value
-                or name
-                in {
-                    "REMOTE_DEV_JOB_TOKEN",
-                    "MINDIE_BENCH_SLOT_ID",
-                    "ASCEND_RT_VISIBLE_DEVICES",
-                    "ASCEND_CACHE_PATH",
-                    "CCACHE_DIR",
-                    "TORCH_EXTENSIONS_DIR",
-                    "TORCHINDUCTOR_CACHE_DIR",
-                    "TRITON_CACHE_DIR",
-                    "TMPDIR",
-                    "HCCL_IF_BASE_PORT",
-                    "MASTER_PORT",
-                    "MINDIE_BENCH_COMPONENT_GUARD",
-                }
+                or name in _RESERVED_SLOT_ENV
             ):
                 raise ValueError("invalid verifier environment or reserved slot isolation variable")
             variables[name] = value

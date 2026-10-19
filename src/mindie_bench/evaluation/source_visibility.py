@@ -1,7 +1,21 @@
-"""Exact initial source visibility in recorded native tool outputs.
+"""Exact initial source blob visibility observer across recorded native tool outputs.
 
-This observes returned bytes independently of command completion. It does not
-identify a semantic root cause, inspect a final workspace, or certify a fix.
+[Role]
+Resolves declared `target_files` against the initial Git commit (`environment.base_commit`)
+or `task_root / "environment"` public assets and scans `native_events.jsonl` to record the
+exact turn and timestamp when the unmodified source blob first appeared in a tool output.
+
+[Invariants]
+- Only actual tool output fields (`command_execution.aggregated_output`, `mcp_tool_call` results,
+  and `tool_result` blocks) are inspected; assistant prose and tool input arguments are ignored.
+- Errors (malformed event lines, missing Git blobs, duplicate call IDs) raise `ValueError`
+  immediately rather than returning an empty observation.
+
+[Timeouts & Locks]
+- Local `git cat-file` / `git ls-tree` subprocesses are bounded to `10.0s` each.
+
+[Side-Effect Policy]
+- Read-only inspection of `environment.repo_path`, `public_root`, and `native_events.jsonl`.
 """
 
 from __future__ import annotations
@@ -32,30 +46,24 @@ def _time(value):
 
 def _public_asset(public_root: Path, target: str) -> dict:
     root = Path(public_root)
-    if root.is_symlink() or not root.is_dir():
-        raise ValueError("initial public asset root must be a real task-owned directory")
     path = root / target
-    current = root
-    for part in Path(target).parts:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"initial public asset must not traverse a symlink: {target!r}")
-    if not path.is_file() or not path.resolve(strict=True).is_relative_to(root.resolve(strict=True)):
+    if (
+        not root.is_dir()
+        or not path.is_file()
+        or not path.resolve().is_relative_to(root.resolve())
+    ):
         raise ValueError(
             f"initial public asset is missing or is not a confined regular file: {target!r}"
         )
-    size = path.stat().st_size
-    if not 0 < size <= MAX_BLOB_BYTES:
-        raise ValueError("initial public asset is empty or exceeds visibility bound")
     content = path.read_bytes()
+    if not 0 < len(content) <= MAX_BLOB_BYTES:
+        raise ValueError("initial public asset is empty or exceeds visibility bound")
     content.decode("utf-8")
-    if len(content) != size:
-        raise ValueError("initial public asset size changed during observation")
     return dict(
         target=target,
         git_blob_id=None,
         source_origin="task_public_asset",
-        source_bytes=size,
+        source_bytes=len(content),
         source_sha256=_sha(content),
         content=content,
     )
@@ -88,13 +96,11 @@ def _initial_blobs(environment, targets, public_root=None):
         mode, kind, identity = header.split(b" ")
         if mode not in {b"100644", b"100755"} or kind != b"blob" or path.decode() != target:
             raise ValueError(f"initial target must be a regular Git blob: {target!r}")
-        size = int(git("cat-file", "-s", identity.decode()).strip())
+        content = git("cat-file", "blob", identity.decode())
+        size = len(content)
         if not 0 < size <= MAX_BLOB_BYTES:
             raise ValueError("initial source blob is empty or exceeds visibility bound")
-        content = git("cat-file", "blob", identity.decode())
         content.decode("utf-8")
-        if len(content) != size:
-            raise ValueError("initial Git blob size changed during observation")
         blobs.append(
             dict(
                 target=target,

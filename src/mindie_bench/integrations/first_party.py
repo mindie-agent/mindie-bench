@@ -1,8 +1,28 @@
-"""Use installed MindIE capture, LangMem indexing and ReMe retrieval.
+"""First-party `mindie-knowledge` MCP server and `G3` closed-loop capture/indexing adapter.
 
-Run this module with the selected component interpreter. Component dependencies
-remain in that runtime; the benchmark never substitutes its own summarizer or
-search algorithm. Publication is confined to a fresh local bare Git repository.
+[Role]
+Runs inside the selected `mindie-knowledge` component interpreter to provide:
+1. `knowledge-mcp`: stdio FastMCP server exposing `knowledge_query` and `knowledge_explain`
+   backed by `MaterialStore` (SQLite + ReMe retrieval).
+2. `capture`: `G3` post-trial native Stop-event ingestion, `gitleaks` redaction, small-model
+   summarization (`finish_indexes`), corpus linting (`audit_packages`), local bare-Git publication,
+   and independent consumer readback verification.
+
+[Invariants]
+- `MaterialStore` owns SQLite state and ReMe's synchronous `asyncio.Runner`; all store operations
+  execute on a dedicated single-worker `ThreadPoolExecutor(max_workers=1)` outside FastMCP's loop.
+- Any `summary_status == "outcome_unknown"` or `usage["unknown_calls"]` raises
+  `UnknownExternalEffects` immediately without retrying paid indexer calls.
+- Publication is strictly confined to `private_root / "local_knowledge.git"` (`local-only`).
+
+[Timeouts & Locks]
+- Single-thread executor serializes all `MaterialStore` SQLite/ReMe access in `serve()`.
+- `finish_indexes` bounds native summarization to `max_batches=256` deterministic iterations.
+
+[Side-Effect Policy]
+- Writes retrieval telemetry to `state / "retrieval-observations.jsonl"` and full-loop capture
+  receipts to `profile / "full-loop-receipt.json"`, installing verified Markdown packages into
+  `private_root / "corpus/tasks"`.
 """
 
 from __future__ import annotations

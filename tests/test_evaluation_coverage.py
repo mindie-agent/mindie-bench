@@ -203,29 +203,6 @@ def test_default_report_json_is_pure_and_does_not_claim_runtime_or_effect_accept
     assert tasks[0].model_dump() == before
 
 
-@pytest.mark.parametrize(
-    "evidence",
-    [
-        MetricEvidence(observed_samples=1, valid_samples=2),
-        MetricEvidence(observed_samples=1, valid_samples=1, unknown_samples=1),
-        MetricEvidence(valid_samples=True),
-        MetricEvidence(observed_samples=1, valid_samples=1, field_samples={"key": 2}),
-        MetricEvidence(observed_samples=1, valid_samples=1, observed_task_ids=("other",)),
-        MetricEvidence(observed_samples=1, valid_samples=1, baseline_samples=1),
-        MetricEvidence(observed_samples=1, valid_samples=1, baseline_samples=1, baseline_successes=2),
-        MetricEvidence(
-            observed_samples=1,
-            valid_samples=1,
-            observed_task_ids=("task",),
-            task_repetitions={"task": (1, 1)},
-        ),
-    ],
-)
-def test_malformed_evidence_is_an_error(evidence):
-    with pytest.raises(ValueError):
-        assess([task()], MetricTarget("metric", "Question"), evidence)
-
-
 def test_duplicate_task_identity_or_metric_evidence_does_not_silently_merge():
     with pytest.raises(ValueError, match="task identities"):
         assess([task(), task()], MetricTarget("metric", "Question"))

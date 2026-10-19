@@ -1,4 +1,24 @@
-"""Fail visibly when a required component cannot initialize or expose its tools."""
+"""Preflight MCP server readiness probe and deterministic process-group teardown.
+
+[Role]
+Verifies that every configured MCP server (`remote-dev`, `knowledge`, etc.) initializes
+and exposes its required tool schema over stdio before the foreground agent is launched.
+
+[Invariants]
+- Every probed server must answer `initialize` and `tools/list` without pagination (`nextCursor`)
+  and include all declared `required_tools` (or default component capabilities).
+- Primary catalog/protocol failures are never masked by subsequent shutdown errors; shutdown
+  exceptions are attached via `BaseException.add_note`.
+
+[Timeouts & Locks]
+- Per-request RPC read budget: `45.0s`.
+- Graceful EOF drain (`close_probe`): `_STEP_TIMEOUT_SECONDS` (default `15.0s`), followed by
+  `SIGKILL` to the process group and a `5.0s` wait.
+
+[Side-Effect Policy]
+- Runs each MCP probe in an isolated session (`start_new_session=True`) bound to an `owner.py`
+  lifetime pipe (`owner_fd`) so no orphan MCP processes survive preflight before foreground starts.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +40,15 @@ _STEP_TIMEOUT_SECONDS = float(
 
 def close_probe(process, timeout: float | None = None):
     """EOF lets a stdio relay close its independently owned backend session."""
-    failure = None
+    failure: BaseException | None = None
+
+    def record_cleanup(exc: BaseException, label: str) -> None:
+        nonlocal failure
+        if failure is None:
+            failure = exc
+        else:
+            failure.add_note(f"MCP preflight {label} also failed: {exc}")
+
     try:
         process.communicate(timeout=_STEP_TIMEOUT_SECONDS if timeout is None else timeout)
         if process.returncode:
@@ -34,26 +62,17 @@ def close_probe(process, timeout: float | None = None):
             except ProcessLookupError:
                 pass
             except BaseException as cleanup:
-                if failure is None:
-                    failure = cleanup
-                else:
-                    failure.add_note(f"MCP preflight forced cleanup also failed: {cleanup}")
+                record_cleanup(cleanup, "forced cleanup")
             try:
                 process.communicate(timeout=5)
             except BaseException as cleanup:
-                if failure is None:
-                    failure = cleanup
-                else:
-                    failure.add_note(f"MCP preflight forced cleanup also failed: {cleanup}")
+                record_cleanup(cleanup, "forced cleanup")
         for stream in (process.stdin, process.stdout):
             if stream is not None and not stream.closed:
                 try:
                     stream.close()
                 except BaseException as cleanup:
-                    if failure is None:
-                        failure = cleanup
-                    else:
-                        failure.add_note(f"MCP preflight pipe close also failed: {cleanup}")
+                    record_cleanup(cleanup, "pipe close")
     if failure is not None:
         raise failure
 

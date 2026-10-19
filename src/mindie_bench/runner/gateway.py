@@ -1,4 +1,31 @@
-"""Parent-side model/replay broker with deny-by-default egress and no retries."""
+"""Parent-side model, remote-SSH, and knowledge RPC broker with deny-by-default egress.
+
+[Role]
+Mediates all agent egress (LLM inference, L2 deterministic replay, L3 remote SSH/stream
+commands, and parent-hosted `knowledge` stdio RPC) over a local HTTP/Unix-socket gateway,
+enforcing turn/NPU-test budgets and recording an append-only `broker.jsonl` ledger.
+
+[Invariants]
+- Zero automatic retries on model or remote mutations: duplicate paid model requests (`seen` SHA-256)
+  or requests after `unknown=True` are rejected with HTTP 409.
+- NPU test-run budget (`max_npu_runs`) is checked and incremented under `self.lock` before any
+  `/bench/ssh` or `/bench/ssh-stream` command is admitted to the remote worker; patch stdin and
+  uploaded Python worker source are never miscounted as test runs.
+- One-shot `/bench/ssh` results are persisted to `remote-results/<id>.json` before socket write so a
+  broken client pipe records `external_effects="completed"` rather than polluting `unknown`.
+
+[Timeouts & Locks]
+- `self.lock` (`RLock`) serializes budget accounting, journal writes, and connection tracking.
+- `finish_inference()` and `finish_remote()` seal new admissions and wait up to
+  `MODEL_SETTLEMENT_GRACE_SEC` (`30.0s`) for in-flight model/remote handlers to drain before
+  the verifier runs.
+
+[Side-Effect Policy]
+- Writes append-only event records to `journal` (`broker.jsonl`) and one-shot remote receipts to
+  `remote-results/`; owns a short private temporary directory for Unix sockets.
+- `__exit__` drains model/remote channels, closes the parent `knowledge` broker,
+  shuts down the HTTP/Unix server, and removes its temporary socket directory.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +39,7 @@ import os
 import re
 import socket
 import socketserver
+import tempfile
 import threading
 import time
 from contextlib import AbstractContextManager
@@ -42,7 +70,7 @@ class Gateway(AbstractContextManager):
         workspace: Path,
         journal: Path,
         *,
-        unix_socket: Path | None = None,
+        use_unix_socket: bool = False,
         remote=None,
     ):
         self.harness, self.task, self.task_root = harness, task, task_root
@@ -50,29 +78,22 @@ class Gateway(AbstractContextManager):
         self.lock = threading.RLock()
         self.model_idle = threading.Condition(self.lock)
         self.remote_idle = threading.Condition(self.lock)
-        self.models_sealed = False
-        self.model_settlement_expired = False
-        self.remotes_sealed = False
-        self.remote_settlement_expired = False
-        self.remote_active = 0
-        self.remote_unknown = False
-        self.remote_failures: list[dict] = []
-        self.model_calls = self.replay_calls = 0
+        self.models_sealed = self.model_settlement_expired = False
+        self.remotes_sealed = self.remote_settlement_expired = False
+        self.remote_active = self.model_calls = self.replay_calls = 0
+        self.remote_test_calls = self.remote_result_count = self.active = 0
+        self.remote_unknown = self.unknown = self.closed = False
         self.stop_reason: str | None = None
-        self.unknown = False
         self.infrastructure_error: str | None = None
         self.seen: set[str] = set()
-        self.active = 0
-        self.closed = False
-        self.connections = {}
-        self.usage_meters = {}
+        self.connections: dict = {}
+        self.usage_meters: dict = {}
+        self.remote_failures: list[dict] = []
         self.model_delivery_failures: list[dict] = []
-        self.unix_socket = unix_socket
-        self.remote = remote
-        self.remote_test_calls = 0
-        self.stream_input: dict[str, bytes] = {}
-        self.remote_result_count = 0
         self.remote_delivery_failures: list[dict] = []
+        self.stream_input: dict[str, bytes] = {}
+        self.use_unix_socket, self.remote = use_unix_socket, remote
+        self.unix_socket = self.socket_directory = None
         self.api_key = os.environ.get(harness.api_key_env or "", "")
         if harness.name != "fixture" and not self.api_key:
             raise ValueError(f"missing explicitly selected credential: {harness.api_key_env}")
@@ -93,9 +114,7 @@ class Gateway(AbstractContextManager):
                 raise ValueError(
                     "model provider_url requires HTTPS, or numeric loopback HTTP for a local relay"
                 )
-        self.server = None
-        self.thread = None
-        self.knowledge = None
+        self.server = self.thread = self.knowledge = None
 
     def attach_knowledge(self, profile, read_paths):
         """Keep the configured real knowledge runtime in the parent capability domain."""
@@ -398,8 +417,6 @@ class Gateway(AbstractContextManager):
                     if self.path == "/bench/ssh":
                         if gateway.remote is None:
                             return self.reject(403, "no remote slot is assigned")
-                        import base64
-
                         request = json.loads(body)
                         command, stdin_b64 = request["command"], request["stdin_b64"]
                         stdin = base64.b64decode(stdin_b64, validate=True)
@@ -594,12 +611,19 @@ class Gateway(AbstractContextManager):
             do_DELETE = do_GET
             do_PATCH = do_GET
 
-        if self.unix_socket:
+        if self.use_unix_socket:
 
             class UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
                 daemon_threads = True
 
-            self.server = UnixServer(str(self.unix_socket), Handler)
+            # sockaddr_un has a fixed length bound; report paths are unrestricted.
+            self.socket_directory = tempfile.TemporaryDirectory(prefix="mb-gw-", dir="/tmp")
+            self.unix_socket = Path(self.socket_directory.name) / "gateway.sock"
+            try:
+                self.server = UnixServer(str(self.unix_socket), Handler)
+            except BaseException:
+                self.socket_directory.cleanup()
+                raise
             self.port = 38467
         else:
             self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -697,8 +721,8 @@ class Gateway(AbstractContextManager):
             cleanup("server_close", self.server.server_close)
         if self.thread:
             cleanup("server_join", lambda: self.thread.join(timeout=2))
-        if self.unix_socket:
-            cleanup("socket_unlink", lambda: self.unix_socket.unlink(missing_ok=True))
+        if self.socket_directory:
+            cleanup("socket_directory", self.socket_directory.cleanup)
         if failures:
             primary = failures[0]
             for failure in failures[1:]:
