@@ -55,8 +55,9 @@ def run(tmp_path, workspace, mode="pass", *, required=True, kind="microbenchmark
         "publishable": True, "cases": [{
             "id": "latency", "kind": kind, "required": required, "repetitions": 3,
             "timeout_seconds": 0.05 if mode == "timeout" else 5,
-            "command": ["{python}", "measure.py", mode],
-            "side_effects": "external_write" if mode == "unknown" else "local",
+            "command": (["missing-benchmark-executable"]
+                        if mode == "not_started" else ["{python}", "measure.py", mode]),
+            "side_effects": "external_write" if mode in {"unknown", "not_started"} else "local",
         }],
     }))
     return run_release_suite(
@@ -117,6 +118,14 @@ def test_unknown_external_outcome_is_preserved_without_repeat(tmp_path, workspac
     assert report["cases"][0]["status"] == "unknown"
     assert report["cases"][0]["repetitions_completed"] == 1
     assert not (tmp_path / "output/private/latency/2").exists()
+
+
+def test_unstarted_external_command_is_known_failure_not_unknown(tmp_path, workspace):
+    report = run(tmp_path, workspace, "not_started")
+    case = report["cases"][0]
+    assert not report["release_gate"]
+    assert case["status"] == "fail"
+    assert case["attempts"][0]["reason_code"] == "command_not_started"
 
 
 def test_dirty_checkout_cannot_be_presented_as_release_revision(tmp_path, workspace):

@@ -31,6 +31,10 @@ from mindie_bench.release_contract import (
 )
 
 
+class CommandNotStarted(RuntimeError):
+    """The operating system rejected the command before external work could start."""
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -55,10 +59,13 @@ def _execute(command, *, repo, env, destination, timeout):
     with (destination / "stdout.log").open("wb") as out, (
         destination / "stderr.log"
     ).open("wb") as err:
-        process = subprocess.Popen(
-            command, cwd=repo, env=env, stdout=out, stderr=err,
-            start_new_session=os.name == "posix",
-        )
+        try:
+            process = subprocess.Popen(
+                command, cwd=repo, env=env, stdout=out, stderr=err,
+                start_new_session=os.name == "posix",
+            )
+        except OSError as error:
+            raise CommandNotStarted(str(error)) from error
         timed_out = False
         try:
             returncode = process.wait(timeout=timeout)
@@ -117,14 +124,16 @@ def _run_case(case, *, repo, python, private):
                     attempt.update(status="fail", reason_code="measurement_contract_changed")
                 if attempt["status"] == "pass":
                     expected_metrics = signature
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
+        except (CommandNotStarted, OSError, ValueError, subprocess.SubprocessError) as error:
             # The public reason is stable; potentially sensitive diagnostics stay local.
             (destination / "runner-error.log").write_text(
                 f"{type(error).__name__}: {error}\n", encoding="utf-8"
             )
             attempt.update(
-                status="unknown" if case.side_effects == "external_write" else "fail",
-                reason_code="execution_or_measurement_error",
+                status=("unknown" if case.side_effects == "external_write"
+                        and not isinstance(error, CommandNotStarted) else "fail"),
+                reason_code=("command_not_started" if isinstance(error, CommandNotStarted)
+                             else "execution_or_measurement_error"),
             )
         attempts.append(attempt)
         if attempt["status"] != "pass":
