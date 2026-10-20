@@ -92,6 +92,21 @@ class SourceEnvironment(StrictModel):
     npu_model: str | None = None
     npu_count: int = Field(default=0, ge=0)
     replay_commands: list[str] = Field(default_factory=list)
+    topology_scale: Literal["S0", "S1", "S2", "S3"] | None = None
+    die_count: int | None = Field(default=None, ge=1)
+    placement: (
+        Literal[
+            "same_npu_dual_die",
+            "intra_node_hccs",
+            "disaggregated_pd_pair",
+            "multi_node_roce",
+        ]
+        | None
+    ) = None
+    visible_phy_ids: list[int] = Field(default_factory=list)
+    hosts: list[str] = Field(default_factory=list)
+    require_clean_shm: bool = True
+    max_workspace_delta_bytes: int | None = Field(default=None, ge=0)
 
     @field_validator("replay_commands")
     @classmethod
@@ -99,6 +114,42 @@ class SourceEnvironment(StrictModel):
         if any(not re.fullmatch(r"[A-Za-z0-9_-]+", value) for value in values):
             raise ValueError("replay commands must be executable names")
         return values
+
+    @field_validator("visible_phy_ids")
+    @classmethod
+    def unique_phy_ids(cls, values: list[int]) -> list[int]:
+        if any(value < 0 for value in values) or len(values) != len(set(values)):
+            raise ValueError("visible Phy-IDs must be distinct non-negative integers")
+        return values
+
+    @field_validator("hosts")
+    @classmethod
+    def unique_hosts(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() for value in values) or len(values) != len(set(values)):
+            raise ValueError("topology hosts must be non-empty and unique")
+        return values
+
+    @model_validator(mode="after")
+    def topology_is_complete(self):
+        topology_values = (self.topology_scale, self.placement, self.die_count)
+        if any(value is not None for value in topology_values) and any(
+            value is None for value in topology_values
+        ):
+            raise ValueError("topology_scale, placement and die_count must be declared together")
+        if self.topology_scale == "S0" and self.die_count not in (None, 1):
+            raise ValueError("S0 is a single-Die micro-probe")
+        if self.topology_scale == "S1" and self.die_count is not None and not 2 <= self.die_count <= 4:
+            raise ValueError("S1 requires 2..4 Dies")
+        if self.topology_scale == "S2" and self.die_count is not None and not 8 <= self.die_count <= 16:
+            raise ValueError("S2 requires 8..16 Dies")
+        if self.topology_scale == "S3" and self.die_count is not None and self.die_count < 2:
+            raise ValueError("S3 requires at least two Dies")
+        if self.placement == "same_npu_dual_die" and self.die_count is not None:
+            if self.die_count % 2:
+                raise ValueError("same_npu_dual_die requires an even die_count")
+        if self.placement == "multi_node_roce" and self.hosts and len(self.hosts) < 2:
+            raise ValueError("multi_node_roce requires at least two hosts")
+        return self
 
 
 class OracleProbe(StrictModel):
@@ -213,6 +264,7 @@ class NativeDSHPlugin(StrictModel):
     runtime_python: str
     redactor_executable: str
     domain: str = "vllm-ascend"
+    domain_corpora: dict[str, str] = Field(default_factory=dict)
     contribution_enabled: Literal[False] = False
 
 

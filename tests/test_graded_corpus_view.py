@@ -39,7 +39,7 @@ def corpus(tmp_path):
                     "supersedes": [],
                 },
             ),
-            "Check queue ownership before cancellation; the observed request was still queued.",
+            f"Check queue ownership before cancellation for {name}; the observed request was still queued.",
         )
         path = source / f"serving/queue/{name}.md"
         path.parent.mkdir(parents=True, exist_ok=True)

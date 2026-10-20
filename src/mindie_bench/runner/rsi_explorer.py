@@ -20,8 +20,9 @@ record four-gate outcomes.
 
 [Timeouts & Locks]
 - Pure planning/evaluation helpers perform no waits and take no locks.
-- The ledger owns one short O_APPEND write and one atomic markdown replacement;
-  callers own all experiment and NPU timeouts.
+- Execution authority lives in `rsi_execution`; callers there own coordinator
+  lease and command timeouts. The ledger owns one short O_APPEND write and one
+  atomic markdown replacement.
 
 [Side-Effect Policy]
 - Ledger writes are local; the execution entry delegates effects to TaskClient.
@@ -37,10 +38,30 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from mindie_bench.runner.rsi_campaign import (
+    build_isolated_jit_cache_env,
+    build_subagent_fact_pack,
+    classify_candidate_patch_shape,
+    evaluate_hidden_input_generalization,
+    evaluate_speculative_acceptance,
+    harvest_candidate_patch,
+    run_rsi_gate_campaign,
+    verify_sequential_ablation,
+)
+
 SCHEMA_VERSION = "mindie-bench-rsi/1"
 DEFAULT_MIN_SPEEDUP_RATIO = 1.05
 RETURN_TIERS = frozenset({"L1", "L2", "L3", "L4"})
 _COMPILE_PASS = frozenset({"compiled", "ok", "pass", "passed", "success", "succeeded"})
+__all__ = [
+    "append_ledger_and_render_progress", "build_debiased_rsi_context",
+    "evaluate_exploration_axes", "evaluate_hidden_input_generalization",
+    "evaluate_rsi_candidate_gates", "execute_rsi_compile_and_timing",
+    "plan_rsi_compile_and_timing", "run_rsi_gate_campaign",
+    "should_escalate_to_rsi", "verify_sequential_ablation",
+    "build_isolated_jit_cache_env", "classify_candidate_patch_shape",
+    "evaluate_speculative_acceptance", "harvest_candidate_patch",
+]
 
 
 def _seq(value: Any) -> list[Any]:
@@ -57,9 +78,13 @@ def _tier(unit: Mapping[str, Any]) -> str:
     return str(unit.get("tier", "")).strip().upper()
 
 def should_escalate_to_rsi(
-    l3_attempts: Sequence[Mapping[str, Any]], *, max_stalled_attempts: int = 2
+    l3_attempts: Sequence[Mapping[str, Any]] | None = None, *, max_stalled_attempts: int = 2,
+    consecutive_limit: int | None = None,
+    ledger_entries: Sequence[Mapping[str, Any]] | None = None,
 ) -> tuple[bool, str]:
     """Escalate on completed, non-informative experiments; repair failures first."""
+    l3_attempts = ledger_entries if ledger_entries is not None else (l3_attempts or ())
+    max_stalled_attempts = consecutive_limit if consecutive_limit is not None else max_stalled_attempts
     if type(max_stalled_attempts) is not int or max_stalled_attempts < 1:
         raise ValueError("max_stalled_attempts must be a positive integer")
     if not l3_attempts:
@@ -78,7 +103,9 @@ def should_escalate_to_rsi(
             # Only genuinely incomplete execution asks for repair. A completed
             # below-target or within-noise run is a valid, non-attaining result.
             stalled, reason = 0, "l3_execution_incomplete"
-        elif attempt["verdict"] == "supported":
+        elif (attempt["verdict"] in {"supported", "attained", "subtarget_valid"}
+              or attempt.get("axes", {}).get("goal_attainment") == "attained"
+              or attempt.get("goal_attainment") == "attained"):
             stalled, reason = 0, "l3_workflow_progressing"
         else:
             stalled, reason = stalled + 1, attempt.get("failure_reason") or "speedup_below_target"
@@ -113,11 +140,19 @@ def _conditional_avoid(entry: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def build_debiased_rsi_context(
-    *, goal: str, retrieved_units: Sequence[Mapping[str, Any]],
-    bottleneck_summary: Mapping[str, Any], ledger_entries: Sequence[Mapping[str, Any]],
-    conditions: Mapping[str, Any], native_subcontext: bool = False,
+    units: Sequence[Mapping[str, Any]] | None = None, *, goal: str,
+    retrieved_units: Sequence[Mapping[str, Any]] | None = None,
+    bottleneck_summary: Mapping[str, Any] | None = None,
+    ledger_entries: Sequence[Mapping[str, Any]] | None = None,
+    failed_attempts: Sequence[Mapping[str, Any]] | None = None,
+    conditions: Mapping[str, Any] | None = None,
+    native_subcontext: bool = False,
 ) -> dict[str, Any]:
     """Mount L1/L2/L4 evidence while excluding routine L3 heuristic workflow bias."""
+    retrieved_units = units if units is not None else (retrieved_units or [])
+    ledger_entries = failed_attempts if failed_attempts is not None else (ledger_entries or [])
+    summary = dict(bottleneck_summary or {})
+    conditions = dict(conditions or {})
     stripped: list[str] = []
     units: dict[str, list[dict[str, Any]]] = {"L1": [], "L2": [], "L4": []}
     axioms, measurement, inherited = [], [], []
@@ -171,7 +206,6 @@ def build_debiased_rsi_context(
                 observations.extend(_rules(unit, "observations", "bottleneck_observations", "bottleneck"))
             elif tier == "L4":
                 operators.extend(_rules(unit, "mutators", "operators", "mutation_operators"))
-    summary = dict(bottleneck_summary)
     observations = _seq(summary.get("observations")) + observations
     baseline: Any = baselines[0] if len(baselines) == 1 else baselines or None
     avoid = [
@@ -184,9 +218,10 @@ def build_debiased_rsi_context(
                   "inherited_rules": inherited, "foundation_baseline": baseline}
     bottleneck = {"units": units["L2"], "summary": summary, "observations": observations}
     mutators = {"units": units["L4"], "operators": operators}
-    return {
-        "schema_version": SCHEMA_VERSION, "goal": goal, "mounted_tiers": ["L1", "L2", "L4"],
-        "stripped_tiers": ["L3"], "stripped_l3_ids": stripped, "l1_foundation": foundation,
+    context = {
+        "schema_version": SCHEMA_VERSION, "goal": goal, "conditions": conditions,
+        "mounted_tiers": ["L1", "L2", "L4"], "stripped_tiers": ["L3"],
+        "stripped_l3_ids": stripped, "l1_foundation": foundation,
         "l2_bottleneck": bottleneck, "l4_mutators": mutators, "foundation_axioms": axioms,
         "measurement_rules": measurement, "inherited_rules": inherited,
         "foundation_baseline": baseline, "bottleneck_summary": summary,
@@ -194,6 +229,12 @@ def build_debiased_rsi_context(
         "conditional_avoid": avoid,
         "isolation_mode": "native_subcontext" if native_subcontext else "in_session_strategy_shift",
     }
+    context["subagent_fact_pack"] = build_subagent_fact_pack(
+        context=context, goal=goal, retrieved_units=retrieved_units,
+        bottleneck_summary=summary, ledger_entries=ledger_entries,
+        conditions=conditions, native_subcontext=native_subcontext,
+    )
+    return context
 
 def _compile_proof(candidate: Mapping[str, Any]) -> bool | None:
     for key in ("compile_ok", "compile_passed", "compiled", "compile_success"):
@@ -363,14 +404,13 @@ def evaluate_exploration_axes(
         else:
             reuse = "reusable_mutator" if return_tier == "L4" else "reusable_observation"
             state = ("valid", "supported", "verified", "attained", reuse, 4)
-    elif (preserve_subtarget_evidence and speedup > 1.0 + noise_margin
-          and ablation_retained is not False):
+    elif preserve_subtarget_evidence and speedup > 1.0 + noise_margin:
         state = ("valid", "subtarget_valid", "speedup_below_target_valid_evidence",
                  "not_attained", "reusable_observation", 4)
     elif ablation_retained is None:
         state = ("valid", "inconclusive", "ablation_pending", "not_applicable",
                  "inconclusive", 3)
-    elif preserve_subtarget_evidence and 1.0 < speedup <= 1.0 + noise_margin:
+    elif preserve_subtarget_evidence and 1.0 - noise_margin <= speedup <= 1.0 + noise_margin:
         state = ("valid", "inconclusive", "speedup_within_noise",
                  "not_attained", "inconclusive", 4)
     else:
@@ -391,9 +431,18 @@ def evaluate_rsi_candidate_gates(
     min_speedup_ratio: float = DEFAULT_MIN_SPEEDUP_RATIO,
     ablation_retained: bool | None = None, failure_reason: str = "",
     preserve_subtarget_evidence: bool = True, noise_margin: float = 0.01,
-    return_tier: str = "L4",
+    return_tier: str = "L4", hidden_input_summary: Mapping[str, Any] | None = None,
+    ablation_receipt: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Judge observed results using the executor's run ID, without synthetic proof."""
+    generalization_ok = hidden_input_summary.get("generalization_ok") if isinstance(hidden_input_summary, Mapping) else None
+    if generalization_ok is False:
+        oracle_passed = False
+    if isinstance(ablation_receipt, Mapping):
+        if ablation_receipt.get("ablation_retained") is not None:
+            ablation_retained = bool(ablation_receipt["ablation_retained"])
+        elif "pruned_combination_verified" in ablation_receipt:
+            ablation_retained = not bool(ablation_receipt["pruned_combination_verified"])
     result = evaluate_exploration_axes(
         compile_ok=compile_ok, oracle_passed=oracle_passed,
         measurement_passed=measurement_passed, speedup_ratio=speedup_ratio,
@@ -431,6 +480,19 @@ def evaluate_rsi_candidate_gates(
         "distill_ready": result["distill_ready"],
         "failure_reason": failure_reason.strip() or (outcome if verdict != "supported" else ""),
     }
+    if hidden_input_summary is not None:
+        entry.update({"hidden_input_summary": dict(hidden_input_summary), "generalization_ok": generalization_ok})
+        gate = entry["gates"]["gate1_compile_oracle"]
+        if generalization_ok is False:
+            gate["passed"] = False
+            gate["reasons"].append("hidden_input_generalization_failed")
+            entry["failure_reason"] = failure_reason.strip() or "hidden_input_generalization_failed"
+    if ablation_receipt is not None:
+        entry["ablation_receipt"] = dict(ablation_receipt)
+        gate = entry["gates"]["gate3_ablation_gate"]
+        if gate["passed"] is not None and ablation_retained is False:
+            gate["passed"] = False
+            gate["reasons"].append("ablation_receipt_not_retained")
     entry["conditional_avoid"] = _conditional_avoid(entry)
     return entry
 

@@ -78,6 +78,9 @@ def test_owned_busy_work_is_allowed_but_foreign_and_unaccounted_hbm_are_rejected
     parsed["devices"][0]["chips"][0]["hbm"]["used_mb"] = 50000
     with pytest.raises(RuntimeError, match="unaccounted"):
         physical_observation(parsed, authority, [8], [], 3600, idle=False)
+    assert physical_observation(parsed, authority, [8], [42], 3600, idle=False)["8"]["used_mb"] == 50000
+    with pytest.raises(RuntimeError, match="unaccounted"):
+        physical_observation(parsed, authority, [8], [42], 3600, idle=True)
 
 
 def test_missing_or_disagreeing_process_visibility_never_becomes_idle():

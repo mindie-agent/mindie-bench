@@ -718,4 +718,3 @@ def test_tp2_child_command_passes_rank_and_reaches_guard_before_torch(tmp_path):
     assert payload["rank"] == 1
     assert "argument-boundary-reached-guard" in payload["error"]
     assert "usage:" not in payload["error"]
-

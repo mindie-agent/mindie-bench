@@ -46,16 +46,20 @@ def derive_inputs(
     tier: str,
     *,
     knowledge_cutoff: str,
+    native_product: bool | None = None,
+    knowledge_sessions: int | None = None,
 ) -> dict:
     starts, inputs, oracles, task_rows, budgets, permissions = {}, {}, {}, {}, [], {}
     phase_budgets = []
     selected_groups = [group for group in config.groups.values() if group]
-    native_product = any(group.native_dsh_plugin for group in selected_groups)
-    knowledge_sessions = 8 if any(
-        server.component == "knowledge"
-        for group in selected_groups
-        for server in group.mcp_servers.values()
-    ) else 0
+    if native_product is None:
+        native_product = any(group.native_dsh_plugin for group in selected_groups)
+    if knowledge_sessions is None:
+        knowledge_sessions = 8 if any(
+            server.component == "knowledge"
+            for group in selected_groups
+            for server in group.mcp_servers.values()
+        ) else 0
     g3 = config.groups.get(Group.G3)
     capture_timeout_sec = g3.capture_timeout_sec if g3 is not None else None
     for task_id, root in sorted(tasks.items()):
@@ -63,8 +67,11 @@ def derive_inputs(
         if task.task.instance_id != task_id:
             raise ValueError("product task map differs from the actual task identity")
         environment = task.environment[tier]
+        repo_path = Path(environment.repo_path)
+        if not repo_path.is_absolute() and (root / repo_path).exists():
+            repo_path = (root / repo_path).resolve(strict=True)
         git = subprocess.run(
-            ["git", "-C", environment.repo_path, "rev-parse", environment.base_commit + "^{tree}"],
+            ["git", "-C", str(repo_path), "rev-parse", environment.base_commit + "^{tree}"],
             check=True,
             capture_output=True,
             text=True,

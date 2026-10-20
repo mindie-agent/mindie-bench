@@ -39,6 +39,18 @@ from mindie_bench.corpus import read_package
 from mindie_bench.io import tree_hash, write_json
 from mindie_bench.models import ExperimentConfig, Group, TaskSpec
 
+# The pi-ai provider rejects a custom route model that does not advertise the
+# requested effort. Declare the complete supported ladder, including `off`.
+DSH_REASONING_EFFORTS = {"off": None, "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}
+DSH_DEEPSEEK_COMPAT = {
+    "supportsStore": False,
+    "supportsDeveloperRole": False,
+    "maxTokensField": "max_tokens",
+    "requiresReasoningContentOnAssistantMessages": True,
+    "thinkingFormat": "deepseek",
+    "supportsStrictMode": True,
+}
+
 
 @dataclass
 class Profile:
@@ -208,12 +220,20 @@ def build_profile(
         ).stdout
         if actual != declared.commit or dirty:
             raise ValueError("corpus must be clean at its exact declared commit")
-        declared_tasks = {
-            *task.mindie_knowledge.same_origin_task_hashes,
-            *task.mindie_knowledge.analogical_task_hashes,
-        }
-        from mindie_bench.runner.graded_view import identifiers
+        from mindie_bench.runner.graded_view import identifiers, is_graded
 
+        graded_source = is_graded(source)
+        same_origin = [
+            item
+            for item in task.mindie_knowledge.same_origin_task_hashes
+            if not (graded_source and len(item) == 64 and all(c in "0123456789abcdef" for c in item))
+        ]
+        analogical = [
+            item
+            for item in task.mindie_knowledge.analogical_task_hashes
+            if not (graded_source and len(item) == 64 and all(c in "0123456789abcdef" for c in item))
+        ]
+        declared_tasks = {*same_origin, *analogical}
         missing = sorted(declared_tasks - identifiers(source))
         if missing:
             raise ValueError(f"declared knowledge task IDs are absent from the source corpus: {missing}")
@@ -222,15 +242,15 @@ def build_profile(
             or task.task.role == "seed"
             or task.mindie_knowledge.knowledge_gradient != "near_exact"
         ):
-            excluded.update(task.mindie_knowledge.same_origin_task_hashes)
+            excluded.update(same_origin)
         corpus = private_root / "corpus"
         corpus_fingerprint = filtered_corpus(corpus_override or source, corpus, excluded)
         retained_analogies = sorted(
             identity
-            for identity in task.mindie_knowledge.analogical_task_hashes
+            for identity in analogical
             if identity in identifiers(corpus)
         )
-        if retained_analogies != sorted(task.mindie_knowledge.analogical_task_hashes):
+        if retained_analogies != sorted(analogical):
             raise ValueError("declared analogical knowledge must remain in the filtered corpus")
         corpus_commit = declared.commit
     local_bare = private_root / "local_knowledge.git"
@@ -329,7 +349,31 @@ def build_profile(
         if native_plugin:
             from mindie_bench.runner.native_product import prepare
 
-            native_product = prepare(root, env, native_plugin, corpus)
+            domain_corpora_paths = {}
+            for dom_name, dom_cid in sorted((native_plugin.domain_corpora or {}).items()):
+                if dom_cid not in config.corpora:
+                    raise ValueError(f"missing explicitly selected domain corpus: {dom_cid}")
+                dom_decl = config.corpora[dom_cid]
+                dom_src = Path(dom_decl.path).resolve()
+                dom_head = subprocess.run(
+                    ["git", "-C", str(dom_src), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+                ).stdout.strip()
+                dom_dirty = subprocess.run(
+                    ["git", "-C", str(dom_src), "status", "--porcelain"], check=True, capture_output=True, text=True
+                ).stdout
+                if dom_head != dom_decl.commit or dom_dirty:
+                    raise ValueError("domain corpus must be clean at its exact declared commit")
+                dom_dest = private_root / f"corpus-{dom_name}"
+                filtered_corpus(dom_src, dom_dest, excluded if dom_cid == task.mindie_knowledge.corpus_id else set())
+                domain_corpora_paths[dom_name] = dom_dest
+            active_domain = (
+                "operators"
+                if task.task.domain_category == "native_operator_performance" and "operators" in domain_corpora_paths
+                else native_plugin.domain
+            )
+            native_product = prepare(
+                root, env, native_plugin, corpus, domain_corpora=domain_corpora_paths or None, active_domain=active_domain
+            )
             runtime_paths.extend(
                 [
                     Path(native_plugin.package_path),
@@ -450,6 +494,13 @@ def build_dsh_profile(
         raise ValueError("DSH profile initialization failed: " + (completed.stderr or "")[-2000:])
     if not (profile_dir / "package.json").is_file():
         raise ValueError("DSH profile initialization did not create package.json")
+    # Every benchmark arm uses the standard native-tools host and the maximum
+    # default thinking effort; content, retrieval and ablation groups differ,
+    # not the execution mode.
+    effort = config.harness.reasoning_effort or "max"
+    is_deepseek = config.harness.api_protocol == "openai-completions" and (
+        "deepseek.com" in (config.harness.provider_url or "").lower() or config.harness.model.startswith("deepseek-")
+    )
     lines = [
         "- id: llm-pi-ai",
         "  name: '@deepseek-ai/dsh-llm-pi-ai'",
@@ -461,15 +512,18 @@ def build_dsh_profile(
         "        apiKeyEnv: MINDIE_BENCH_DUMMY_KEY",
         "        models:",
         f"          - id: {json.dumps(config.harness.model)}",
-    ]
-    if config.harness.reasoning_effort:
-        lines.append(f"        reasoning: {json.dumps(config.harness.reasoning_effort)}")
-    lines += [
+        "            reasoningEfforts: " + json.dumps(DSH_REASONING_EFFORTS),
+        *(["            compat: " + json.dumps(DSH_DEEPSEEK_COMPAT)] if is_deepseek else []),
         "- id: agent-default-model",
         "  name: '@deepseek-ai/dsh-agent-default-model'",
         "  config:",
         "    provider: bench",
         f"    model: {json.dumps(config.harness.model)}",
+        f"    reasoningEffort: {json.dumps(effort)}",
+        "- id: tools",
+        "  name: '@deepseek-ai/dsh-tools'",
+        "  config:",
+        "    mode: native",
     ]
     insert_rows = []
     if native_product:
@@ -570,11 +624,22 @@ def knowledge_prompt(profile: Profile) -> str:
         if conditions
         else ""
     )
-    if profile.fingerprint.get("native_product"):
+    if native := profile.fingerprint.get("native_product"):
+        graded_hint = (
+            " When querying graded knowledge before all unit condition keys are known, pass "
+            "include_unknown=true, navigation_only=true, and token_budget=3000 to inspect all "
+            "bounded cards first, then call knowledge_explain with the returned ref or "
+            "refs=[...] (omitting conditions unless all missing_conditions keys are supplied, "
+            "and setting token_budget=12000) to load the selected unit bodies and their L1 prerequisites."
+            if (native.get("initialization") or {}).get("corpus_format") == "graded"
+            else ""
+        )
         premises = (
             "Use the installed MindIE Agent for this task. Initialize its current session with "
-            'mindie_entry(op="init") before using its knowledge tools. Contribution is disabled '
-            "in this isolated experiment; retain that setting.\n\n" + premises
+            'mindie_entry(op="init") before using its knowledge tools.'
+            + graded_hint
+            + " Contribution is disabled in this isolated experiment; retain that setting.\n\n"
+            + premises
         )
     if mode == "explicit":
         return premises + (
@@ -614,11 +679,11 @@ def _catalog_identity(payload: dict) -> dict:
         if name == "mindie_entry" or name.startswith(("knowledge_", "remote_"))
     )
     mindie_skills = sorted(name for name, provider in skills if provider == "mindie" or name == "mindie-agent")
-    mindie_rows = sorted(
+    mindie_rows = [
         {"id": row_id, "name": name}
         for row_id, name in rows
         if "mindie-agent" in name.lower() or "mindie-agent" in row_id.lower()
-    )
+    ]
     canonical = json.dumps(
         {"tools": tools, "skills": skills, "rows": rows}, sort_keys=True, separators=(",", ":")
     )
@@ -685,24 +750,12 @@ def probe_dsh_catalog(
     output = Path(profile.root) / "catalog-checkpoint.probe.json"
     if output.exists():
         output.unlink()
-    env = dict(
-        profile.env,
-        MINDIE_BENCH_CATALOG_CHECKPOINT_OUT=str(output),
-        MINDIE_BENCH_CATALOG_CHECKPOINT_EXIT="1",
-    )
-    stdout_path = trial_dir / "preflight-catalog.stdout"
-    stderr_path = trial_dir / "preflight-catalog.stderr"
+    env = dict(profile.env, MINDIE_BENCH_CATALOG_CHECKPOINT_OUT=str(output), MINDIE_BENCH_CATALOG_CHECKPOINT_EXIT="1")
+    stdout_path, stderr_path = trial_dir / "preflight-catalog.stdout", trial_dir / "preflight-catalog.stderr"
     started = time.monotonic()
     with stdout_path.open("w") as stdout, stderr_path.open("w") as stderr:
         process = subprocess.Popen(
-            command,
-            cwd=workspace,
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=stdout,
-            stderr=stderr,
-            start_new_session=True,
-            text=True,
+            command, cwd=workspace, env=env, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr, start_new_session=True, text=True
         )
         try:
             if process.stdin:

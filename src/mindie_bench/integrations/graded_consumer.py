@@ -49,6 +49,7 @@ class GradedConsumer:
         conditions=None,
         include_unknown=False,
         domain_path=None,
+        token_budget=2400,
     ):
         return self.store.query(
             query=query,
@@ -57,6 +58,7 @@ class GradedConsumer:
             conditions=conditions,
             include_unknown=include_unknown,
             domain_path=domain_path,
+            token_budget=token_budget,
         )
 
     def explain(self, ref):

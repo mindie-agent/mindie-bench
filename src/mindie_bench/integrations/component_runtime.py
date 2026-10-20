@@ -218,7 +218,7 @@ def physical_observation(
         if (
             foreign
             or (idle and (pids or aicore > 0))
-            or (not pids and (used >= memory_limit or aicore > 0))
+            or ((idle or not owned_pids) and not pids and (used >= memory_limit or aicore > 0))
         ):
             raise RuntimeError(f"NPU {device} is occupied or unaccounted: foreign_pids={foreign}")
         selected[str(device)] = dict(
