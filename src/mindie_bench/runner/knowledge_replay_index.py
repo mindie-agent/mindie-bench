@@ -27,34 +27,13 @@ small compatibility projection consumed by `knowledge_replay.py`.
 from __future__ import annotations
 
 import json
-import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-_KNOWLEDGE_ROOT = Path("/Users/maoxx241/code/mindie-release-20261014/knowledge")
-
-
-def _import_graded():
-    """Import the production graded index, bootstrapping its checkout if needed."""
-    try:
-        from mindie_knowledge.graded.conditions import match_conditions
-        from mindie_knowledge.graded.index import (
-            RoutingIndex as ProductionRoutingIndex,
-        )
-        from mindie_knowledge.graded.index import token_estimate as body_token_estimate
-    except ImportError:
-        if str(_KNOWLEDGE_ROOT) not in sys.path and _KNOWLEDGE_ROOT.is_dir():
-            sys.path.insert(0, str(_KNOWLEDGE_ROOT))
-        from mindie_knowledge.graded.conditions import match_conditions
-        from mindie_knowledge.graded.index import (
-            RoutingIndex as ProductionRoutingIndex,
-        )
-        from mindie_knowledge.graded.index import token_estimate as body_token_estimate
-    return ProductionRoutingIndex, body_token_estimate, match_conditions
-
-
-ProductionRoutingIndex, _body_tokens, _match_conditions = _import_graded()
+from mindie_knowledge.graded.conditions import match_conditions as _match_conditions
+from mindie_knowledge.graded.index import RoutingIndex as ProductionRoutingIndex
+from mindie_knowledge.graded.index import token_estimate as _body_tokens
 
 RECORD_OVERHEAD = 24
 TIER_RANK = {"L1": 0, "L2": 1, "L3": 2, "L4": 3}

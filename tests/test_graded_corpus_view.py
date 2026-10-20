@@ -1,5 +1,6 @@
 import asyncio
 import json
+from contextlib import closing
 from types import SimpleNamespace
 
 import pytest
@@ -60,7 +61,7 @@ def test_projection_removes_excluded_parent_descendants_and_non_authoritative_do
     ) == ["publication-contract.json", "serving/queue/unit-independent.md"]
 
 
-def test_graded_consumer_preserves_actual_conditions_and_exact_current_read(tmp_path):
+def test_graded_consumer_preserves_conditions_and_exact_current_read(tmp_path):
     source = corpus(tmp_path)
     consumer = GradedConsumer(source, tmp_path / "state")
     try:
@@ -72,18 +73,35 @@ def test_graded_consumer_preserves_actual_conditions_and_exact_current_read(tmp_
         hits = consumer.search("queue cancellation", conditions={"source_revision": "b" * 40})["results"]
         assert hits
         read = consumer.explain(hits[0]["ref"])
-        assert read["content_digest"] == "sha256:" + hits[0]["content_sha256"]
+        assert read["revision"] == hits[0]["revision"]
+        assert read["ref"] == hits[0]["ref"]
         assert "queue ownership" in read["content"]
     finally:
         consumer.close()
 
 
-def test_persisted_graded_body_tamper_cannot_recompute_its_own_digest(tmp_path):
+def test_changed_graded_body_replaces_revision_without_substituting_old_reads(tmp_path):
     source = corpus(tmp_path)
+    state = tmp_path / "state"
     path = source / "serving/queue/unit-independent.md"
-    path.write_text(path.read_text() + "A different unreviewed claim.\n")
-    with pytest.raises(ValueError, match="exact content_digest"):
-        GradedConsumer(source, tmp_path / "state")
+    with closing(GradedConsumer(source, state)) as consumer:
+        hits = consumer.search(
+            "queue cancellation", conditions={"source_revision": "b" * 40}
+        )["results"]
+        previous = next(hit for hit in hits if hit["id"] == "unit-independent")
+        original = consumer.explain(previous["ref"])
+        path.write_text(path.read_text() + "A later reviewed correction.\n")
+        assert consumer.explain(previous["ref"])["content"] == original["content"]
+
+    with closing(GradedConsumer(source, state)) as consumer:
+        hits = consumer.search(
+            "queue cancellation", conditions={"source_revision": "b" * 40}
+        )["results"]
+        current = next(hit for hit in hits if hit["id"] == "unit-independent")
+        assert current["revision"] == previous["revision"] + 1
+        with pytest.raises(ValueError, match="replaced"):
+            consumer.explain(previous["ref"])
+        assert "later reviewed correction" in consumer.explain(current["ref"])["content"]
 
 
 def test_real_mcp_serializes_graded_conditions_and_exact_read(tmp_path, monkeypatch):
@@ -102,7 +120,8 @@ def test_real_mcp_serializes_graded_conditions_and_exact_read(tmp_path, monkeypa
         hit = matched["result"]["results"][0]
         contents = await server.call_tool("knowledge_explain", {"ref": hit["ref"]})
         exact = json.loads(contents[0].text)
-        assert exact["content_digest"] == "sha256:" + hit["content_sha256"]
+        assert exact["revision"] == hit["revision"]
+        assert exact["ref"] == hit["ref"]
         assert "queue ownership" in exact["content"]
 
     def drive(server, transport):
