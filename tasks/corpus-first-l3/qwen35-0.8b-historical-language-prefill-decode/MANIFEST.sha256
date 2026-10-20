@@ -7,5 +7,5 @@ b0bbdc5a804e40a8acd2fcad583d02ced04492cdf5b907826e059b47ffda2940  ./SOURCE.md
 bf9d4adb5f4d261fbb81c07af98f1bfe4d66bc3af37152e3bc4d48310f500d4e  ./instruction.md
 e40fbc853a5c60282bd244bb5b6330041463c80d0d737387ea3640198052bee9  ./reference/reference.json
 09d733f5c7156c4eff224113e26734711be61c141a07be3d096b0038c7dc872a  ./support-set.json
-13a2631da2dc568bcd305db1b513a3d510b5cce3e0bb3c8f21622bf0da3956ef  ./task.toml
+b9d1b10feb2a9e7ab32fae49fab196ebde4584de9e80ef96f609a45803d057ce  ./task.toml
 6b08b634a8b748327bd066e3eb23ced9094eb77e8b932c08b5c6b9ec5c2e73b3  ./verifier/test.sh

@@ -1,0 +1,66 @@
+{
+  "after_reward": 1.0,
+  "before_reward": 0.0,
+  "container_name": "mindie-qwen35hist",
+  "errors": [],
+  "fix_commit": "0f289fa2a8a381a644a5f329af61715a73ec2aec",
+  "host": "192.168.13.165",
+  "model_calls": 0,
+  "schema_version": "1.0",
+  "source_commit": "a78a00e0b1b618f26a3bfce2519055b40cf4bf1e",
+  "ssh_port": 46000,
+  "stage3_source0": {
+    "elapsed_seconds": 114.785,
+    "engine_init_seconds": 41.925,
+    "error_type": "EngineDeadError",
+    "execution_id": "41f24e85e2f31a02d8148ccf9cbb3d0ba59e58fe2568aebabe0434e9b8b34ea8",
+    "resources_released": true,
+    "root_cause": "RuntimeError: npu_recurrent_gated_delta_rule: call aclnnRecurrentGatedDeltaRule failed, error code is 161002; AclNN_Parameter_Error(EZ1001): Tensor params.state not implemented for DT_FLOAT, should be in dtype support list [DT_BFLOAT16,].",
+    "runtime_id": "t41f24e85e2f31a02d8148ccf-h192.168.13.165-default-a44972044585d9ec",
+    "state": "succeeded"
+  },
+  "stage4_after": {
+    "elapsed_seconds": 118.269,
+    "engine_init_seconds": 42.173,
+    "eos_hit": false,
+    "execution_id": "798aab5d6164ac28eeff77f33897ba55d9f0147ff870fd94e61c682ede4d555d",
+    "generate_seconds": 41.267,
+    "generated_ids": [
+      3629,
+      13,
+      353,
+      1044,
+      264,
+      220,
+      17,
+      15
+    ],
+    "generated_text": " John. I am a 20",
+    "logprobs": [
+      -3.409156560897827,
+      -0.9663558006286621,
+      -1.0831592082977295,
+      -0.9453920722007751,
+      -0.9154464602470398,
+      -2.1928813457489014,
+      -1.2564246654510498,
+      -1.5894275903701782
+    ],
+    "prompt_ids": [
+      9419,
+      11,
+      821,
+      803,
+      369
+    ],
+    "resources_released": true,
+    "runtime_id": "t798aab5d6164ac28eeff77f3-h192.168.13.165-default-52801043b43d0358",
+    "state": "succeeded",
+    "verifier_returncode": 0,
+    "verifier_stdout": "PASS exact_prompt_ids exact_8_greedy_ids finite_8_logprobs eos_hit=false"
+  },
+  "status": "completed",
+  "task_sha256": "b9215205b4c0df069d5669d6f8fd52148910c271e482508ca820eccd91fd43a4",
+  "tier": "l3",
+  "vllm_commit": "4034c3d32e30d01639459edd3ab486f56993876d"
+}

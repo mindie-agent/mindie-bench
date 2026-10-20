@@ -4,7 +4,7 @@ schema_version = "1.0"
 instance_id = "qwen35-0.8b-historical-language-prefill-decode"
 domain_category = "model_adaptation"
 difficulty = "hard"
-evidence = "candidate"
+evidence = "verified"
 role = "eval"
 
 [task.source]
@@ -18,10 +18,10 @@ weight_sha256 = "04b1c301231dd422b8860db31311ab2721511346a32cb1e079c4c4e5f1fe469
 vllm_commit = "4034c3d32e30d01639459edd3ab486f56993876d"
 ascend_source0 = "a78a00e0b1b618f26a3bfce2519055b40cf4bf1e"
 ascend_after = "0f289fa2a8a381a644a5f329af61715a73ec2aec"
-runtime_status = "pending_unverified"
+runtime_status = "verified"
 runtime_requirement = "same preprovisioned and verified historical runtime, fixed fullweight cache and same reset snapshot for all three arms"
 cold_provisioning = "separate shared setup cost; not a P2 causal benefit and not hidden in TaskSpec"
-claim_boundary = "candidate registration only; no soundness receipt and no target output"
+claim_boundary = "verified 0-model-cost 1-NPU soundness receipt on 192.168.13.165:46000 (source0 a78a00e0 pre-fix recurrent_gated_delta_rule decode failure; after 0f289fa2 exact 8-token greedy match)"
 
 [mindie_knowledge]
 knowledge_gradient = "no_hit"
