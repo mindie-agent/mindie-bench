@@ -29,8 +29,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import secrets
 import shlex
+import signal
 import subprocess
 import time
 import tomllib
@@ -56,6 +58,75 @@ from mindie_bench.models import (
     VerifierResult,
 )
 from mindie_bench.runner.sandbox import native_command
+
+
+def _local_group_running(group: int) -> bool:
+    """Inspect the owned POSIX group; zombies cannot perform further writes."""
+    result = subprocess.run(
+        ["ps", "-e", "-o", "pgid=,stat="], capture_output=True, text=True, check=True, timeout=1,
+    )
+    return any(
+        int(pgid) == group and not state.startswith("Z")
+        for pgid, state in (line.split() for line in result.stdout.splitlines() if line.strip())
+    )
+
+
+def _drain_local_judge(process: subprocess.Popen) -> tuple[bytes, bytes]:
+    """TERM, then KILL the owned group, and prove it has no running members."""
+    running = True
+    try:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + 2
+        while running := _local_group_running(process.pid):
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+    finally:
+        # Even an inventory error must not prevent the final termination attempt.
+        try:
+            if running:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except PermissionError:
+                    # Darwin may report EPERM for a group containing only zombies.
+                    if _local_group_running(process.pid):
+                        raise
+        finally:
+            output = process.communicate(timeout=2)
+    deadline = time.monotonic() + 1
+    while _local_group_running(process.pid):
+        if time.monotonic() >= deadline:
+            raise RuntimeError("local verifier process group survived termination")
+        time.sleep(0.05)
+    return output
+
+
+def _run_local_judge(command, *, cwd, env, timeout):
+    process = subprocess.Popen(
+        command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+    except BaseException as error:
+        try:
+            stdout, stderr = _drain_local_judge(process)
+        except Exception as cleanup_error:
+            raise UnknownExternalEffects(
+                f"local verifier cleanup could not be confirmed: {cleanup_error}"
+            ) from error
+        if isinstance(error, subprocess.TimeoutExpired):
+            error.stdout, error.stderr = stdout, stderr
+        raise
+    finally:
+        process.stdout.close()
+        process.stderr.close()
 
 
 def parse_verifier(
@@ -185,13 +256,17 @@ def local_verifier(
             cwd=workspace,
             policy_path=trial_dir / f"{name}.sb",
         )
-        result = subprocess.run(
-            command,
-            cwd=workspace,
-            env=env,
-            timeout=max(0.001, deadline - time.monotonic()),
-            capture_output=True,
-        )
+        try:
+            result = _run_local_judge(
+                command, cwd=workspace, env=env,
+                timeout=max(0.001, deadline - time.monotonic()),
+            )
+        except (subprocess.TimeoutExpired, UnknownExternalEffects) as error:
+            timeout_error = error if isinstance(error, subprocess.TimeoutExpired) else error.__cause__
+            if isinstance(timeout_error, subprocess.TimeoutExpired):
+                (trial_dir / f"{name}.stdout").write_bytes(timeout_error.stdout or b"")
+                (trial_dir / f"{name}.stderr").write_bytes(timeout_error.stderr or b"")
+            raise
         (trial_dir / f"{name}.stdout").write_bytes(result.stdout)
         (trial_dir / f"{name}.stderr").write_bytes(result.stderr)
         return result
@@ -220,6 +295,8 @@ def local_verifier(
         try:
             oracle_record["after"] = check_oracle(manifest, oracle_contract)
         except OracleTampered as integrity_error:
+            if isinstance(error, UnknownExternalEffects):
+                raise error from integrity_error
             error = integrity_error
         if not isinstance(error, OracleTampered):
             raise
