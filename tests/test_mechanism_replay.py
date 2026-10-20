@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from mindie_bench.cli import main as cli_main
 from mindie_bench.evaluation.knowledge_tiered import distill_selected
 from mindie_bench.evaluation.knowledge_tiered_support import Engine, GradedUnit, Store
 from mindie_bench.evaluation.mechanism_replay import (
@@ -25,6 +26,7 @@ from mindie_bench.evaluation.mechanism_replay import (
     collect_m6_repository_evidence,
     evaluate_mechanism_replay,
     prepare_learner_prompt_view,
+    run_host_mechanism_replay,
     verify_prompt_isolation,
 )
 
@@ -230,6 +232,25 @@ def test_m1_repeating_the_prior_negative_experiment_is_not_progress():
     assert any(item["id"] == "m1_avoids_repeat" and item["passed"] is False
                for item in result["criteria"])
 
+    bogus = _m1_decision()
+    bogus["next_probe"]["discriminates"] = ["BOGUS_1", "BOGUS_2"]
+    bogus_res = evaluate_mechanism_replay(M1, bogus)
+    assert bogus_res["state"] == "failed"
+    assert any(item["id"] == "m1_distinguishing_next_probe" and item["passed"] is False
+               for item in bogus_res["criteria"])
+
+    custom = _m1_decision()
+    custom["hypothesis_id"] = "H_custom_gm_pack_chain"
+    custom["hypothesis_statement"] = (
+        "Producer FIXPIPE cast and pack writeback fusion eliminate the exposed GM round-trip."
+    )
+    custom["phase0"]["critical_path"] = {"expression": "max(Q+G, P+C)", "on_exposed_path": True}
+    custom["next_probe"]["discriminates"] = [
+        "H_custom_gm_pack_chain",
+        "H3_collective_barrier",
+    ]
+    assert evaluate_mechanism_replay(M1, custom)["state"] == "completed"
+
 
 @pytest.mark.tier0
 def test_m2_requires_logical_alignment_collective_downstream_and_nonadditive_simulation():
@@ -272,6 +293,19 @@ def test_m3_observer_controls_reject_dump_pass_as_fix_and_zero_execution_attribu
     zero_claim = _m3_decision()
     zero_claim["observer"].update({"claim": "fix", "candidate_branch_execution_count": 0})
     assert evaluate_mechanism_replay(M3, zero_claim)["state"] == "failed"
+
+    fabricated_fix = _m3_decision()
+    fabricated_fix["observer"].update({
+        "claim": "fix",
+        "candidate_branch_execution_count": 5,
+        "dump_pass_called_fix": False,
+        "inconclusive_retained": False,
+    })
+    assert evaluate_mechanism_replay(M3, fabricated_fix)["state"] == "failed"
+
+    omitted_count = _m3_decision()
+    omitted_count["observer"].pop("candidate_branch_execution_count")
+    assert evaluate_mechanism_replay(M3, omitted_count)["state"] == "completed"
 
 
 @pytest.mark.tier0
@@ -316,6 +350,14 @@ def test_m5_rejects_shared_defect_acceptance_health_and_first_token_generalizati
     zero = _m5_decision()
     zero["oracle"].update({"claim": "fix", "zero_execution_patch_claimed_fix": True})
     assert evaluate_mechanism_replay(M5, zero)["state"] == "failed"
+
+    fabricated_m5 = _m5_decision()
+    fabricated_m5["oracle"].update({
+        "claim": "fix",
+        "candidate_branch_execution_count": 5,
+        "zero_execution_patch_claimed_fix": False,
+    })
+    assert evaluate_mechanism_replay(M5, fabricated_m5)["state"] == "failed"
 
     generalized = _m5_decision()
     generalized["first_token_generalized"] = True
@@ -587,3 +629,55 @@ def test_m6_real_graded_repository_u1_to_u2_retains_conditions_and_anti_bloat(tm
         revision_context={"before_body": before_body, "before_active_units": before_active,
                           "before_conditions": unit.metadata["conditions"]},
     )["state"] == "failed"
+
+    # Omitting copy-pasted byte/hash fields in decision still passes via repository evidence.
+    minimal_decision = deepcopy(decision)
+    for key in ("before_body_bytes", "after_body_bytes", "net_body_bytes", "body_sha256"):
+        minimal_decision["revision"].pop(key, None)
+    minimal_decision["revision"]["related_unit_snapshot"].pop("body_excerpt_bytes", None)
+    minimal_decision["revision"]["related_unit_snapshot"].pop("body_sha256", None)
+    assert evaluate_mechanism_replay(
+        M6, minimal_decision, repository=store.graded,
+        revision_context={"before_body": before_body, "before_active_units": before_active,
+                          "before_conditions": unit.metadata["conditions"]},
+    )["state"] == "completed"
+
+
+@pytest.mark.tier0
+def test_host_runner_and_cli_dispatch_mechanism_replay(tmp_path):
+    seen_prompts = []
+
+    def fake_host_runner(prompt_view):
+        seen_prompts.append(prompt_view)
+        return {
+            "decision": _m1_decision(),
+            "execution_metrics": {
+                "wall_clock_ms": 14.5,
+                "prompt_tokens": 310,
+                "completion_tokens": 120,
+                "tool_calls": ["read_file"],
+                "commands_executed": ["pytest -q"],
+            },
+        }
+
+    host_report = run_host_mechanism_replay(M1, runner=fake_host_runner)
+    assert host_report["state"] == "completed"
+    assert len(seen_prompts) == 1 and seen_prompts[0]["case_id"] == M1
+    assert host_report["execution_metrics"]["prompt_tokens"] == 310
+    assert host_report["execution_metrics"]["tool_calls"] == ["read_file"]
+
+    prompt_file = tmp_path / "m3_prompt.json"
+    assert cli_main(["mechanism-replay", "--case", M3, "--prompt-only", "--output", str(prompt_file)]) == 0
+    prompt_json = json.loads(prompt_file.read_text(encoding="utf-8"))
+    assert prompt_json["case_id"] == M3
+    assert "Dump changes stream timing" not in json.dumps(prompt_json)
+
+    decision_file = tmp_path / "m3_decision.json"
+    decision_file.write_text(json.dumps(_m3_decision()), encoding="utf-8")
+    out_file = tmp_path / "m3_eval.json"
+    assert cli_main([
+        "mechanism-replay", "--case", M3, "--decision", str(decision_file), "--output", str(out_file)
+    ]) == 0
+    eval_json = json.loads(out_file.read_text(encoding="utf-8"))
+    assert eval_json["state"] == "completed"
+    assert "execution_metrics" in eval_json

@@ -32,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from typing import Any, Callable, Mapping, Sequence
 
 from mindie_knowledge.materials.references import ReadReferenceError
@@ -51,34 +52,15 @@ SOURCES = ("T1", "T2", "T3", "T4", "T5")
 RELATED_BODY_BUDGET_BYTES = 16 * 1024
 MAX_MERGED_BODY_BYTES = 8 * 1024
 __all__ = [
-    "CASES",
-    "DECISION_SCHEMA",
-    "Hypothesis",
-    "MAX_MERGED_BODY_BYTES",
-    "MechanismCase",
-    "PROMPT_SCHEMA",
-    "RELATED_BODY_BUDGET_BYTES",
-    "ReplayFact",
-    "SCHEMA",
-    "SOURCES",
-    "collect_m6_repository_evidence",
-    "evaluate_mechanism_replay",
-    "prepare_learner_prompt_view",
-    "resolve_case",
-    "verify_prompt_isolation",
+    "CASES", "DECISION_SCHEMA", "Hypothesis", "MAX_MERGED_BODY_BYTES", "MechanismCase",
+    "PROMPT_SCHEMA", "RELATED_BODY_BUDGET_BYTES", "ReplayFact", "SCHEMA", "SOURCES",
+    "collect_m6_repository_evidence", "evaluate_mechanism_replay", "prepare_learner_prompt_view",
+    "resolve_case", "run_host_mechanism_replay", "verify_prompt_isolation",
 ]
 
-
 FORBIDDEN_PRIVATE_KEYS = {
-    "post_decision",
-    "post_decision_observations",
-    "perturbation_explanation",
-    "scoring",
-    "rubric",
-    "expected",
-    "correct_action",
-    "private",
-    "answer",
+    "post_decision", "post_decision_observations", "perturbation_explanation",
+    "scoring", "rubric", "expected", "correct_action", "private", "answer",
 }
 
 
@@ -101,20 +83,15 @@ def verify_prompt_isolation(view: Mapping, case: MechanismCase) -> dict[str, Any
     markers = [str(marker) for marker in case.private_judge.get("leak_markers", ())]
     leaked_markers = [marker for marker in markers if marker in public_text]
     fact_anchors = {fact.anchor for fact in case.facts}
-    view_anchors = {
-        anchor
-        for values in view.get("provenance_locators", {}).values()
-        for anchor in values
-    }
+    view_anchors = {anchor for values in view.get("provenance_locators", {}).values() for anchor in values}
     unanchored = sorted(view_anchors - fact_anchors)
-    unknown_sources = sorted(
-        source for source in view.get("provenance_locators", {}) if source not in SOURCES
-    )
-    leaks = []
-    leaks.extend(f"private key: {key}" for key in forbidden)
-    leaks.extend(f"leak marker: {marker}" for marker in leaked_markers)
-    leaks.extend(f"unanchored locator: {anchor}" for anchor in unanchored)
-    leaks.extend(f"unknown source: {source}" for source in unknown_sources)
+    unknown_sources = sorted(source for source in view.get("provenance_locators", {}) if source not in SOURCES)
+    leaks = [
+        *(f"private key: {key}" for key in forbidden),
+        *(f"leak marker: {marker}" for marker in leaked_markers),
+        *(f"unanchored locator: {anchor}" for anchor in unanchored),
+        *(f"unknown source: {source}" for source in unknown_sources),
+    ]
     return {"isolated": not leaks, "leaks": leaks, "checked_markers": markers}
 
 
@@ -167,6 +144,60 @@ def _locators(case: MechanismCase) -> set[str]:
     return {fact.anchor for fact in case.facts}
 
 
+def _case_domain_tokens(case: MechanismCase) -> set[str]:
+    text = " ".join(fact.statement for fact in case.facts) + " " + " ".join(
+        item.statement for item in case.hypotheses
+    )
+    raw = {token.casefold() for token in re.findall(r"[A-Za-z0-9_/-]{3,}", text)}
+    stopwords = {
+        "the", "and", "for", "with", "that", "this", "from", "are", "was", "not", "can",
+        "two", "only", "after", "while", "into", "than", "yet", "has", "have", "been",
+    }
+    return {tok for tok in raw if tok not in stopwords}
+
+
+def _hypothesis_entry_grounded(item: Any, case: MechanismCase, decision: Mapping) -> str | None:
+    known_ids = {hyp.hypothesis_id for hyp in case.hypotheses}
+    custom_map = decision.get("custom_hypotheses")
+    custom_lookup = dict(custom_map) if isinstance(custom_map, Mapping) else {}
+    if isinstance(item, str):
+        ident = item.strip()
+        if not ident:
+            return None
+        if ident in known_ids:
+            return ident
+        statement = str(
+            custom_lookup.get(ident)
+            or (decision.get("hypothesis_statement") if ident == decision.get("hypothesis_id") else "")
+            or ident
+        ).strip()
+    elif isinstance(item, Mapping):
+        ident = str(item.get("hypothesis_id") or item.get("id") or item.get("statement") or "").strip()
+        if ident in known_ids:
+            return ident
+        statement = str(item.get("statement") or item.get("rationale") or "").strip()
+    else:
+        return None
+    lower = (ident + " " + statement).casefold()
+    if any(bad in lower for bad in ("bogus", "fake", "placeholder", "todo", "ungrounded")):
+        return None
+    words = {tok.casefold() for tok in re.findall(r"[A-Za-z0-9_/-]{3,}", statement)}
+    if len(statement) >= 20 and len(words & _case_domain_tokens(case)) >= 2:
+        return ident or statement
+    return None
+
+
+def _critical_path_equivalent(critical: Mapping[str, Any]) -> bool:
+    expr = _expr(critical.get("expression"))
+    if expr in {
+        "max(p+c,q+g)", "max(q+g,p+c)", "max(c+p,q+g)", "max(p+c,g+q)",
+        "max(c+p,g+q)", "max(q+g,c+p)", "max(g+q,p+c)", "max(g+q,c+p)",
+    }:
+        return True
+    branches = {_expr(item) for item in (critical.get("branches") or [])}
+    return bool(branches & {"p+c", "c+p"}) and bool(branches & {"q+g", "g+q"})
+
+
 def _evidence(decision: Mapping, case: MechanismCase) -> tuple[bool, str]:
     cited = decision.get("evidence_locators")
     if not isinstance(cited, list) or len(cited) < 2:
@@ -190,7 +221,7 @@ def _m1_phase0(decision, case, context):
     boundaries = " ".join(str(item).casefold() for item in phase0.get("hard_boundaries") or [])
     boundaries_ok = "collective" in boundaries and ("capacity" in boundaries or "ub" in boundaries)
     critical = phase0.get("critical_path") or {}
-    path_ok = _expr(critical.get("expression")) == "max(p+c,q+g)" and (
+    path_ok = _critical_path_equivalent(critical) and (
         critical.get("on_exposed_path") is True
     )
     deferred = phase0.get("single_kernel_tweaks_deferred") is True
@@ -204,14 +235,15 @@ def _m1_phase0(decision, case, context):
 def _m1_probe(decision, case, context):
     probe = decision.get("next_probe") or {}
     local = probe.get("kind") in {"local_forward_comparison", "boundary_ablation"}
-    hypotheses = set(probe.get("discriminates") or [])
-    discriminating = len(hypotheses) >= 2
+    raw_items = list(probe.get("discriminates") or [])
+    grounded_items = [_hypothesis_entry_grounded(item, case, decision) for item in raw_items]
+    discriminating = bool(raw_items) and all(grounded_items) and len(set(grounded_items)) >= 2
     rejected = probe.get("alternative_rejected") == "cross_version_bisect"
     hours = probe.get("estimated_hours")
     cheap = isinstance(hours, (int, float)) and not isinstance(hours, bool) and 0 < hours <= 1
     passed = local and discriminating and rejected and cheap
     return passed, (
-        f"local_probe={local} discriminates={discriminating} "
+        f"local_probe={local} discriminates={discriminating} grounded={grounded_items} "
         f"bisect_rejected={rejected} cost_hours={hours}"
     )
 
@@ -259,7 +291,7 @@ def _m2_simulation(decision, case, context):
     kept_missing = missing is None
     unmeasured = bool(simulation.get("unmeasured_stages"))
     critical = simulation.get("critical_path") or {}
-    path_ok = _expr(critical.get("expression")) == "max(p+c,q+g)"
+    path_ok = _critical_path_equivalent(critical)
     passed = ("max cycle mean" in kind or "karp" in kind) and non_additive and kept_missing \
         and unmeasured and path_ok
     return passed, (
@@ -287,16 +319,28 @@ def _m3_controls(decision, case, context):
 def _m3_branch(decision, case, context):
     observer = decision.get("observer") or {}
     claim = _choice(observer.get("claim"))
-    count = observer.get("candidate_branch_execution_count")
+    observed = {**dict(case.observed_results), **(context.get("observed_results") or {})}
+    actual_count = observed.get("candidate_branch_execution_count", 0)
+    actual_uninstrumented = observed.get("uninstrumented_passed", False)
+    count = observer.get("candidate_branch_execution_count", actual_count)
+    count_consistent = isinstance(count, int) and not isinstance(count, bool) and count == actual_count
     dump_as_fix = observer.get("dump_pass_called_fix") is True
     inconclusive = observer.get("inconclusive_retained") is True
     if claim in {"inconclusive", "observer effect"}:
-        passed = inconclusive and not dump_as_fix
+        passed = count_consistent and inconclusive and not dump_as_fix
     elif claim == "fix":
-        passed = isinstance(count, int) and count > 0 and not dump_as_fix
+        passed = (
+            count_consistent
+            and actual_count > 0
+            and actual_uninstrumented is True
+            and not dump_as_fix
+        )
     else:
         passed = False
-    return passed, f"claim={claim} branch_count={count} inconclusive={inconclusive} dump_as_fix={dump_as_fix}"
+    return passed, (
+        f"claim={claim} branch_count={count} actual_branch_count={actual_count} "
+        f"uninstrumented_passed={actual_uninstrumented} inconclusive={inconclusive} dump_as_fix={dump_as_fix}"
+    )
 
 
 def _m3_dfx(decision, case, context):
@@ -316,12 +360,20 @@ def _subsequence(small: Sequence, large: Sequence) -> bool:
 
 def _m4_history(decision, case, context):
     repro = decision.get("reproduction") or {}
+    observed = {**dict(case.observed_results), **(context.get("observed_results") or {})}
     fresh = repro.get("fresh_process") or {}
     history = repro.get("historical_process") or {}
-    passed = fresh.get("passes") is True and history.get("fails") is True \
+    fresh_passes = fresh.get("passes", observed.get("fresh_process_passes"))
+    history_fails = history.get("fails", observed.get("historical_process_fails"))
+    passed = (
+        fresh_passes is True
+        and history_fails is True
+        and fresh_passes == observed.get("fresh_process_passes", True)
+        and history_fails == observed.get("historical_process_fails", True)
         and repro.get("only_final_input") is False
+    )
     return passed, (
-        f"fresh_passes={fresh.get('passes')} history_fails={history.get('fails')} "
+        f"fresh_passes={fresh_passes} history_fails={history_fails} "
         f"only_final_input={repro.get('only_final_input')}"
     )
 
@@ -368,11 +420,12 @@ def _m4_no_fix(decision, case, context):
 
 def _m5_oracle(decision, case, context):
     oracle = decision.get("oracle") or {}
+    observed = {**dict(case.observed_results), **(context.get("observed_results") or {})}
     independent = oracle.get("independent") is True
     shared = bool(oracle.get("shared_defect"))
     shared_as_proof = oracle.get("uses_shared_defect_as_proof") is True
     rate_as_correctness = oracle.get("acceptance_rate_used_as_correctness") is True
-    accepted = oracle.get("acceptance_rate")
+    accepted = oracle.get("acceptance_rate", observed.get("acceptance_rate"))
     high_acceptance = isinstance(accepted, (int, float)) and accepted >= 1.0
     passed = independent and shared and not shared_as_proof and not rate_as_correctness \
         and high_acceptance
@@ -385,17 +438,23 @@ def _m5_oracle(decision, case, context):
 def _m5_path(decision, case, context):
     oracle = decision.get("oracle") or {}
     claim = _choice(oracle.get("claim"))
-    count = oracle.get("candidate_branch_execution_count")
+    observed = {**dict(case.observed_results), **(context.get("observed_results") or {})}
+    actual_count = observed.get("candidate_branch_execution_count", 0)
+    actual_continued = observed.get("continued_decode_passed", False)
+    count = oracle.get("candidate_branch_execution_count", actual_count)
+    count_consistent = isinstance(count, int) and not isinstance(count, bool) and count == actual_count
     zero_claim = oracle.get("zero_execution_patch_claimed_fix") is True
     exit_zero = oracle.get("exit_zero_used_as_accuracy") is True
     health = oracle.get("health_used_as_accuracy") is True
-    if claim == "fix" and (not isinstance(count, int) or count < 1):
+    if not count_consistent:
+        passed = False
+    elif claim == "fix" and (actual_count < 1 or actual_continued is not True):
         passed = False
     else:
         passed = not zero_claim and not exit_zero and not health
     return passed, (
-        f"claim={claim} branch_count={count} zero_execution_claim={zero_claim} "
-        f"exit_zero={exit_zero} health={health}"
+        f"claim={claim} branch_count={count} actual_branch_count={actual_count} "
+        f"zero_execution_claim={zero_claim} exit_zero={exit_zero} health={health}"
     )
 
 
@@ -445,12 +504,12 @@ def _m6_merge(decision, case, context):
 def _m6_body_complete(decision, case, context):
     revision = decision.get("revision") or {}
     snapshot = revision.get("related_unit_snapshot") or {}
-    size = snapshot.get("body_excerpt_bytes")
+    actual = (context.get("m6_repository") or {})
+    size = snapshot.get("body_excerpt_bytes", actual.get("before_body_bytes"))
     complete = snapshot.get("body_complete") is True
     within = isinstance(size, int) and 0 < size <= RELATED_BODY_BUDGET_BYTES
-    actual = (context.get("m6_repository") or {})
-    hash_matches = snapshot.get("body_sha256") == actual.get("before_body_sha256") \
-        if actual else None
+    expected_sha = snapshot.get("body_sha256", actual.get("before_body_sha256"))
+    hash_matches = expected_sha == actual.get("before_body_sha256") if actual else None
     passed = complete and within and hash_matches is not False
     return passed, (
         f"body_complete={complete} excerpt_bytes={size} <= {RELATED_BODY_BUDGET_BYTES} "
@@ -460,17 +519,28 @@ def _m6_body_complete(decision, case, context):
 
 def _m6_anti_bloat(decision, case, context):
     revision = decision.get("revision") or {}
+    actual = (context.get("m6_repository") or {})
     compact = revision.get("rewrite_to_compact") is True
     append = revision.get("append_only") is True
-    net = revision.get("net_body_bytes")
-    after = revision.get("after_body_bytes")
-    cap = revision.get("max_body_bytes")
-    within = isinstance(net, int) and net <= 0 and isinstance(after, int) \
-        and isinstance(cap, int) and 0 < after <= cap <= MAX_MERGED_BODY_BYTES
+    adds_valid = revision.get("adds_valid_branch") is True
+    after = revision.get("after_body_bytes", actual.get("current_body_bytes"))
+    before = revision.get("before_body_bytes", actual.get("before_body_bytes"))
+    net = revision.get(
+        "net_body_bytes",
+        (after - before) if isinstance(after, int) and isinstance(before, int) else None,
+    )
+    cap = revision.get("max_body_bytes", MAX_MERGED_BODY_BYTES)
+    net_ok = isinstance(net, int) and (net <= 0 or adds_valid)
+    within = (
+        net_ok
+        and isinstance(after, int)
+        and isinstance(cap, int)
+        and 0 < after <= cap <= MAX_MERGED_BODY_BYTES
+    )
     passed = compact and not append and within
     return passed, (
         f"rewrite_to_compact={compact} append_only={append} net_bytes={net} "
-        f"after_bytes={after} max_body_bytes={cap}"
+        f"after_bytes={after} max_body_bytes={cap} adds_valid_branch={adds_valid}"
     )
 
 
@@ -502,6 +572,8 @@ def _m6_repository(decision, case, context):
         return None, "no real GradedRepository revision evidence was supplied"
     revision = decision.get("revision") or {}
     previous_revision = revision.get("previous_revision", 1)
+    adds_valid = revision.get("adds_valid_branch") is True
+    expected_sha = revision.get("body_sha256", actual.get("current_body_sha256"))
     checks = {
         "revision_advanced": isinstance(actual.get("current_revision"), int)
         and actual["current_revision"] == int(previous_revision) + 1,
@@ -515,8 +587,8 @@ def _m6_repository(decision, case, context):
         and 0 < actual["current_body_bytes"] <= MAX_MERGED_BODY_BYTES,
         "body_shrank": isinstance(actual.get("current_body_bytes"), int)
         and isinstance(actual.get("before_body_bytes"), int)
-        and actual["current_body_bytes"] < actual["before_body_bytes"],
-        "body_sha_matches": actual.get("current_body_sha256") == revision.get("body_sha256"),
+        and (actual["current_body_bytes"] < actual["before_body_bytes"] or adds_valid),
+        "body_sha_matches": bool(expected_sha) and actual.get("current_body_sha256") == expected_sha,
         "complete_body_hash": actual.get("body_complete_hash_matches") is True,
     }
     failed = sorted(name for name, passed in checks.items() if not passed)
@@ -649,11 +721,12 @@ def evaluate_mechanism_replay(
     })
     hypothesis = decision.get("hypothesis_id")
     hypothesis_ids = {item.hypothesis_id for item in selected.hypotheses}
-    hypothesis_ok = hypothesis in hypothesis_ids
+    grounded_hypothesis = _hypothesis_entry_grounded(hypothesis, selected, decision)
+    hypothesis_ok = grounded_hypothesis is not None
     criteria.append({
         "id": "hypothesis_grounded",
         "passed": hypothesis_ok,
-        "detail": f"hypothesis={hypothesis} competing={sorted(hypothesis_ids)}",
+        "detail": f"hypothesis={hypothesis} grounded_as={grounded_hypothesis} competing={sorted(hypothesis_ids)}",
     })
     evidence_ok, evidence_detail = _evidence(decision, selected)
     criteria.append({"id": "public_evidence", "passed": evidence_ok, "detail": evidence_detail})
@@ -680,3 +753,40 @@ def evaluate_mechanism_replay(
         "prompt_isolation": leak_report,
         "sources": list(selected.sources),
     }
+
+
+def run_host_mechanism_replay(
+    case: str | MechanismCase,
+    *,
+    runner: Callable[[dict[str, Any]], Mapping[str, Any]] | None = None,
+    decision_payload: Mapping[str, Any] | None = None,
+    repository=None,
+    revision_context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute a mechanism replay case via a host runner or decision payload and capture metrics."""
+    selected = resolve_case(case) if isinstance(case, str) else case
+    prompt_view = prepare_learner_prompt_view(selected)
+    started = time.perf_counter()
+    if runner is not None:
+        raw_out = dict(runner(prompt_view))
+    elif decision_payload is not None:
+        raw_out = dict(decision_payload)
+    else:
+        raise ValueError("either runner or decision_payload is required")
+    elapsed_ms = round((time.perf_counter() - started) * 1000.0, 3)
+    decision = raw_out.get("decision") if isinstance(raw_out.get("decision"), Mapping) else raw_out
+    metrics = raw_out.get("execution_metrics") if isinstance(raw_out.get("execution_metrics"), Mapping) else {}
+    report = evaluate_mechanism_replay(
+        selected,
+        decision,
+        repository=repository,
+        revision_context=revision_context,
+    )
+    report["execution_metrics"] = {
+        "wall_clock_ms": float(metrics.get("wall_clock_ms", elapsed_ms)),
+        "prompt_tokens": int(metrics.get("prompt_tokens", 0)),
+        "completion_tokens": int(metrics.get("completion_tokens", 0)),
+        "tool_calls": list(metrics.get("tool_calls", ())),
+        "commands_executed": list(metrics.get("commands_executed", ())),
+    }
+    return report

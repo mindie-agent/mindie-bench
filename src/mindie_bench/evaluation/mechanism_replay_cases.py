@@ -18,7 +18,7 @@ private post-decision judges for the six Section 4.6 mechanism cases.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 
@@ -43,6 +43,7 @@ class MechanismCase:
     hypotheses: tuple[Hypothesis, ...]
     criteria: tuple[str, ...]
     private_judge: Mapping[str, Any]
+    observed_results: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def sources(self) -> tuple[str, ...]:
@@ -154,14 +155,14 @@ _M3 = MechanismCase(
     title="Observer perturbation control",
     facts=(
         _fact("F1", "T3:3028",
-              "The candidate fix branch execution count is zero after the patch; the dump-enabled run "
-              "passes while the identical uninstrumented run still fails."),
+              "After applying the candidate patch, the candidate fix branch execution count is zero; "
+              "the dump-enabled run exits 0 while the identical uninstrumented run still fails."),
         _fact("F2", "T3:22797",
-              "Dump changes stream timing; the failure disappears only when the observer is enabled, "
-              "and no uninstrumented baseline has yet been compared."),
+              "The failure is absent in the dump-enabled capture, and no uninstrumented baseline "
+              "comparison has been recorded yet."),
         _fact("F3", "T3:22844",
-              "An observer-only control without the candidate patch can separate timing perturbation "
-              "from a real repair."),
+              "The test runner exposes independent flags for the candidate patch and the tensor "
+              "dump toggle."),
         _fact("F4", "T1:pipeline-experiments.md",
               "A repeated public baseline and interleaved ABBA timing control are available."),
         _fact("F5", "T3:draft-causal-dfx",
@@ -180,13 +181,20 @@ _M3 = MechanismCase(
             "The DFX-disabled final run still fails; the candidate branch never executed, so the pass "
             "under dump is an observer effect and the causal question remains inconclusive."
         ),
-        "perturbation_explanation": "Dump serializes the stream and changes the failing timing window.",
+        "perturbation_explanation": "Dump changes stream timing and serializes the failing window.",
         "scoring": {
             "uninstrumented_baseline": 2, "observer_only_control": 2, "inconclusive": 1,
             "dfx_disabled_final": 2, "dump_pass_as_fix": -4, "zero_branch_attribution": -3,
         },
         "leak_markers": ("DFX-disabled final run still fails", "never executed",
-                         "observer effect and the causal question remains inconclusive"),
+                         "observer effect and the causal question remains inconclusive",
+                         "Dump changes stream timing"),
+    },
+    observed_results={
+        "candidate_branch_execution_count": 0,
+        "uninstrumented_passed": False,
+        "dump_enabled_passed": True,
+        "dfx_matrix_frozen": False,
     },
 )
 
@@ -230,6 +238,12 @@ _M4 = MechanismCase(
             "preserve_concurrency": 2, "fresh_process_as_fix": -4,
         },
         "leak_markers": ("requests 1-2 healthy", "request 3 pollutes", "resetting slot ownership"),
+    },
+    observed_results={
+        "fresh_process_passes": True,
+        "historical_process_fails": True,
+        "serial_passes": True,
+        "concurrent_deadlocks": True,
     },
 )
 
@@ -277,6 +291,13 @@ _M5 = MechanismCase(
         },
         "leak_markers": ("Continued decode still fails", "concurrent scope remains unmeasured",
                          "zero-execution patch does not explain"),
+    },
+    observed_results={
+        "candidate_branch_execution_count": 0,
+        "acceptance_rate": 1.0,
+        "first_token_passed": True,
+        "continued_decode_passed": False,
+        "concurrent_measured": False,
     },
 )
 
