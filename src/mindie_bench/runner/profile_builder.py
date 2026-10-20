@@ -649,11 +649,11 @@ def _catalog_identity(payload: dict) -> dict:
         if name == "mindie_entry" or name.startswith(("knowledge_", "remote_"))
     )
     mindie_skills = sorted(name for name, provider in skills if provider == "mindie" or name == "mindie-agent")
-    mindie_rows = sorted(
+    mindie_rows = [
         {"id": row_id, "name": name}
         for row_id, name in rows
         if "mindie-agent" in name.lower() or "mindie-agent" in row_id.lower()
-    )
+    ]
     canonical = json.dumps(
         {"tools": tools, "skills": skills, "rows": rows}, sort_keys=True, separators=(",", ":")
     )
