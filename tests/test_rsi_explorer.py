@@ -8,6 +8,7 @@ import pytest
 from mindie_bench.runner.rsi_explorer import (
     append_ledger_and_render_progress,
     build_debiased_rsi_context,
+    evaluate_exploration_axes,
     evaluate_rsi_candidate_gates,
     plan_rsi_compile_and_timing,
     should_escalate_to_rsi,
@@ -356,3 +357,161 @@ def test_ledger_and_progress_persist_supported_and_refuted_directions(tmp_path):
     )
     assert len(ledger_path.read_text().splitlines()) == 4
     assert progress_path.read_text().split("## Experiments To Complete")[1].strip() == "- none"
+
+
+def test_information_progress_resets_stall_and_never_escalates_as_a_stall():
+    stalled = evaluate_rsi_candidate_gates(
+        run_id="remote-stalled", candidate_id="tiling-a", mutation_summary="retry wider tile",
+        conditions={"soc": "A2"}, compile_ok=True, oracle_passed=True,
+        measurement_passed=True, speedup_ratio=0.99, ablation_retained=True,
+    )
+    observed = {**stalled, "run_id": "remote-observed", "verdict": "refuted",
+                "new_observation": True, "failure_reason": "same failure"}
+    divergent = {**stalled, "run_id": "remote-divergent", "verdict": "refuted",
+                 "divergent_layer_identified": True, "failure_reason": "same failure"}
+    escalate, reason = should_escalate_to_rsi([stalled, observed])
+    assert escalate is False
+    assert "l3_information_progress" in reason
+    assert should_escalate_to_rsi([divergent, divergent])[0] is False
+    assert should_escalate_to_rsi([stalled, observed, stalled])[0] is False
+    assert should_escalate_to_rsi(
+        [stalled, {**stalled, "run_id": "remote-stalled-2"}]
+    )[0] is True
+
+
+def test_subtarget_speedup_keeps_valid_evidence_and_never_becomes_conditional_avoid():
+    entry = evaluate_rsi_candidate_gates(
+        run_id="remote-subtarget", candidate_id="tiling-b", mutation_summary="narrower tile",
+        conditions={"soc": "A2", "shape": [32, 4096]}, compile_ok=True, oracle_passed=True,
+        measurement_passed=True, speedup_ratio=1.04, min_speedup_ratio=1.05,
+        ablation_retained=True, preserve_subtarget_evidence=True, return_tier="L3",
+    )
+    assert entry["verdict"] == "subtarget_valid"
+    assert entry["outcome"] == "speedup_below_target_valid_evidence"
+    assert entry["distill_ready"] is True
+    assert entry["conditional_avoid"] == []
+    assert entry["return_tier"] == "L3"
+    assert entry["axes"] == {
+        "evidence_validity": "valid",
+        "goal_attainment": "not_attained",
+        "reusability": "reusable_observation",
+    }
+    context = build_debiased_rsi_context(
+        goal="Improve reduction", retrieved_units=[], bottleneck_summary={},
+        ledger_entries=[entry], conditions=entry["conditions"],
+    )
+    assert context["conditional_avoid"] == []
+
+    noisy = evaluate_rsi_candidate_gates(
+        run_id="remote-noise", candidate_id="tiling-c", mutation_summary="no-op launch change",
+        conditions={"soc": "A2"}, compile_ok=True, oracle_passed=True,
+        measurement_passed=True, speedup_ratio=1.005, min_speedup_ratio=1.05,
+        ablation_retained=True, preserve_subtarget_evidence=True,
+    )
+    assert noisy["verdict"] == "inconclusive"
+    assert noisy["outcome"] == "speedup_within_noise"
+    assert noisy["distill_ready"] is False
+    assert noisy["conditional_avoid"] == []
+
+
+def test_backward_compatible_below_target_still_refutes_without_opt_in():
+    entry = evaluate_rsi_candidate_gates(
+        run_id="remote-legacy", candidate_id="tiling-legacy", mutation_summary="wider tile",
+        conditions={"soc": "A2"}, compile_ok=True, oracle_passed=True,
+        measurement_passed=True, speedup_ratio=1.04, min_speedup_ratio=1.05,
+        ablation_retained=True,
+    )
+    assert entry["verdict"] == "refuted"
+    assert entry["axes"]["evidence_validity"] == "valid"
+    assert entry["axes"]["goal_attainment"] == "not_attained"
+    assert entry["axes"]["reusability"] == "reusable_negative_boundary"
+    assert entry["conditional_avoid"][0]["candidate_id"] == "tiling-legacy"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "evidence", "goal", "reuse", "verdict"),
+    [
+        ({"compile_ok": False}, "compile_failed", "not_applicable", "inconclusive", "inconclusive"),
+        ({"oracle_passed": False}, "oracle_failed", "not_applicable",
+         "reusable_negative_boundary", "refuted"),
+        ({"measurement_passed": False}, "measurement_invalid", "not_applicable",
+         "inconclusive", "inconclusive"),
+        ({"ablation_retained": None}, "valid", "not_applicable", "inconclusive", "inconclusive"),
+        ({"speedup_ratio": 1.3, "return_tier": "L1"}, "valid", "attained",
+         "reusable_observation", "supported"),
+        ({"speedup_ratio": 1.3, "return_tier": "L4"}, "valid", "attained",
+         "reusable_mutator", "supported"),
+    ],
+)
+def test_every_outcome_carries_three_independent_axes(kwargs, evidence, goal, reuse, verdict):
+    values = {"compile_ok": True, "oracle_passed": True, "measurement_passed": True,
+              "speedup_ratio": 1.2, "ablation_retained": True, "return_tier": "L4"}
+    values.update(kwargs)
+    result = evaluate_exploration_axes(**values)
+    assert result["verdict"] == verdict
+    assert result["axes"] == {"evidence_validity": evidence, "goal_attainment": goal,
+                              "reusability": reuse}
+    assert result["evidence_validity"] == evidence
+    assert result["return_tier"] == values["return_tier"]
+
+
+def test_timing_uses_the_assigned_device_lease_instead_of_npu_zero():
+    candidates = [{"candidate_id": "proved", "compile_ok": True}]
+    plan = plan_rsi_compile_and_timing(
+        candidates, state_dir="/tmp/rsi-lease", npu_device=0,
+        assigned_devices=[3, 4],
+    )
+    timing = plan["timing_wave"]
+    assert plan["npu_device"] == 3
+    assert plan["assigned_devices"] == [3, 4]
+    assert timing["device"] == 3
+    assert timing["resources"] == {"devices": [3, 4]}
+    assert timing["items"][0]["resources"] == {"devices": [3, 4]}
+    fallback = plan_rsi_compile_and_timing(
+        candidates, state_dir="/tmp/rsi-lease", npu_device=2, assigned_devices=[],
+    )
+    assert fallback["assigned_devices"] == [2]
+    assert fallback["timing_wave"]["resources"] == {"devices": [2]}
+
+
+def test_isolation_mode_declares_whether_a_native_subcontext_really_exists():
+    def context(native_subcontext=False):
+        return build_debiased_rsi_context(
+            goal="Explore a new mechanism", retrieved_units=[], bottleneck_summary={},
+            ledger_entries=[], conditions={}, native_subcontext=native_subcontext,
+        )
+    assert context()["isolation_mode"] == "in_session_strategy_shift"
+    assert context(native_subcontext=True)["isolation_mode"] == "native_subcontext"
+
+
+def test_progress_keeps_subtarget_evidence_under_active_hypotheses(tmp_path):
+    subtarget = evaluate_rsi_candidate_gates(
+        run_id="remote-subtarget-progress", candidate_id="valid-small-win",
+        mutation_summary="one launch-config knob", conditions={"device": "A2"},
+        compile_ok=True, oracle_passed=True, measurement_passed=True,
+        speedup_ratio=1.04, min_speedup_ratio=1.05, ablation_retained=True,
+        preserve_subtarget_evidence=True,
+    )
+    append_ledger_and_render_progress(
+        tmp_path / "experiment-ledger.jsonl", tmp_path / "PROGRESS.md", subtarget,
+        campaign_id="campaign-subtarget", goal="Keep valid evidence below target",
+    )
+    progress = (tmp_path / "PROGRESS.md").read_text()
+    assert "## Active Hypotheses" in progress
+    assert "valid-small-win" in progress
+    assert "## Refuted Directions" in progress
+    assert "avoid valid-small-win" not in progress
+
+
+def test_subtarget_evidence_does_not_require_a_finished_ablation_to_be_valid():
+    entry = evaluate_rsi_candidate_gates(
+        run_id="remote-subtarget-pending-ablation", candidate_id="small-win",
+        mutation_summary="narrower tile", conditions={"soc": "A2"},
+        compile_ok=True, oracle_passed=True, measurement_passed=True,
+        speedup_ratio=1.04, min_speedup_ratio=1.05,
+        preserve_subtarget_evidence=True,
+    )
+    assert entry["verdict"] == "subtarget_valid"
+    assert entry["gate_reached"] == 4
+    assert entry["gates"]["gate3_ablation_gate"]["passed"] is None
+    assert entry["distill_ready"] is True

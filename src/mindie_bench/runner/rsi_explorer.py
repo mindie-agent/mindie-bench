@@ -7,11 +7,13 @@ record four-gate outcomes.
 
 [Invariants]
 - L3 workflow units never enter L4 context; only IDs survive in `stripped_l3_ids`.
-- Negative experience applies only to its observed conditions. Compile failures
-  and invalid measurements remain inconclusive; only supported candidates are
-  `distill_ready`.
+- A new observation or a located divergence layer is information progress, not
+  a stalled attempt; only consecutive non-informative attempts escalate.
+- Negative experience applies only to its observed conditions. Invalid
+  measurements and valid sub-target speedups are not refutations; only
+  supported and sub-target-valid candidates are `distill_ready`.
 - Compiles are CPU-only (`npu_count == 0`); NPU timing is serial, exclusive to
-  the declared device, and admitted only for proved compiles.
+  the assigned device lease, and admitted only for proved compiles.
 - The ledger is append-only; PROGRESS.md is deterministic and atomically replaced.
 
 [Timeouts & Locks]
@@ -35,16 +37,14 @@ from typing import Any
 
 SCHEMA_VERSION = "mindie-bench-rsi/1"
 DEFAULT_MIN_SPEEDUP_RATIO = 1.05
+RETURN_TIERS = frozenset({"L1", "L2", "L3", "L4"})
 _COMPILE_PASS = frozenset({"compiled", "ok", "pass", "passed", "success", "succeeded"})
 
 
 def _seq(value: Any) -> list[Any]:
     if value is None:
         return []
-    if isinstance(value, str):
-        return [value]
-    return list(value) if isinstance(value, Sequence) else [value]
-
+    return [value] if isinstance(value, str) else list(value) if isinstance(value, Sequence) else [value]
 
 def _unit_id(unit: Mapping[str, Any], index: int) -> str:
     raw = unit.get("unit_id", unit.get("id", unit.get("workflow_id")))
@@ -54,11 +54,10 @@ def _unit_id(unit: Mapping[str, Any], index: int) -> str:
 def _tier(unit: Mapping[str, Any]) -> str:
     return str(unit.get("tier", "")).strip().upper()
 
-
 def should_escalate_to_rsi(
     l3_attempts: Sequence[Mapping[str, Any]], *, max_stalled_attempts: int = 2
 ) -> tuple[bool, str]:
-    """Escalate on completed experiments; repair execution failures first."""
+    """Escalate on completed, non-informative experiments; repair failures first."""
     if type(max_stalled_attempts) is not int or max_stalled_attempts < 1:
         raise ValueError("max_stalled_attempts must be a positive integer")
     if not l3_attempts:
@@ -66,7 +65,9 @@ def should_escalate_to_rsi(
     stalled, reason = 0, "l3_workflow_progressing"
     # Polling or resuming one remote run cannot create a second experiment.
     for attempt in {row["run_id"]: row for row in l3_attempts}.values():
-        if attempt["verdict"] == "inconclusive":
+        if attempt.get("new_observation") is True or attempt.get("divergent_layer_identified") is True:
+            stalled, reason = 0, "l3_information_progress"
+        elif attempt["verdict"] == "inconclusive":
             stalled, reason = 0, "l3_execution_incomplete"
         elif attempt["verdict"] == "supported":
             stalled, reason = 0, "l3_workflow_progressing"
@@ -93,31 +94,25 @@ def _same_conditions(required: Mapping[str, Any], observed: Mapping[str, Any]) -
 
 
 def _conditional_avoid(entry: Mapping[str, Any]) -> list[dict[str, Any]]:
-    if entry["verdict"] != "refuted" or not entry["conditions"]:
+    invalid = entry["verdict"] != "refuted" or not entry["conditions"]
+    invalid |= entry.get("outcome") == "speedup_below_target_valid_evidence"
+    if invalid:
         return []
     return [{"candidate_id": entry["candidate_id"], "run_id": entry["run_id"],
-             "conditions": dict(entry["conditions"]),
-             "mutation_summary": entry["mutation_summary"],
+             "conditions": dict(entry["conditions"]), "mutation_summary": entry["mutation_summary"],
              "reason": entry["failure_reason"]}]
 
 
 def build_debiased_rsi_context(
-    *,
-    goal: str,
-    retrieved_units: Sequence[Mapping[str, Any]],
-    bottleneck_summary: Mapping[str, Any],
-    ledger_entries: Sequence[Mapping[str, Any]],
-    conditions: Mapping[str, Any],
+    *, goal: str, retrieved_units: Sequence[Mapping[str, Any]],
+    bottleneck_summary: Mapping[str, Any], ledger_entries: Sequence[Mapping[str, Any]],
+    conditions: Mapping[str, Any], native_subcontext: bool = False,
 ) -> dict[str, Any]:
     """Mount L1/L2/L4 evidence while excluding routine L3 heuristic workflow bias."""
     stripped: list[str] = []
     units: dict[str, list[dict[str, Any]]] = {"L1": [], "L2": [], "L4": []}
-    axioms: list[Any] = []
-    measurement: list[Any] = []
-    inherited: list[Any] = []
-    baselines: list[Any] = []
-    observations: list[Any] = []
-    operators: list[Any] = []
+    axioms, measurement, inherited = [], [], []
+    baselines, observations, operators = [], [], []
     mounted: set[tuple[str, Any]] = set()
 
     def mount(unit: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -176,13 +171,8 @@ def build_debiased_rsi_context(
         if entry["verdict"] == "refuted" and _same_conditions(entry["conditions"], conditions)
         for rule in _conditional_avoid(entry)
     ]
-    foundation = {
-        "units": units["L1"],
-        "axioms": axioms,
-        "measurement_rules": measurement,
-        "inherited_rules": inherited,
-        "foundation_baseline": baseline,
-    }
+    foundation = {"units": units["L1"], "axioms": axioms, "measurement_rules": measurement,
+                  "inherited_rules": inherited, "foundation_baseline": baseline}
     bottleneck = {"units": units["L2"], "summary": summary, "observations": observations}
     mutators = {"units": units["L4"], "operators": operators}
     return {
@@ -193,8 +183,8 @@ def build_debiased_rsi_context(
         "foundation_baseline": baseline, "bottleneck_summary": summary,
         "bottleneck_observations": observations, "mutator_operators": operators,
         "conditional_avoid": avoid,
+        "isolation_mode": "native_subcontext" if native_subcontext else "in_session_strategy_shift",
     }
-
 
 def _compile_proof(candidate: Mapping[str, Any]) -> bool | None:
     for key in ("compile_ok", "compile_passed", "compiled", "compile_success"):
@@ -214,24 +204,32 @@ def _compile_proof(candidate: Mapping[str, Any]) -> bool | None:
 
 
 def _item(candidate_id: str, phase: str, resources: dict[str, Any], **extra: Any) -> dict[str, Any]:
-    return {
-        "candidate_id": candidate_id,
-        "phase": phase,
-        "parallel": phase == "compile",
-        "resources": resources,
-        **extra,
-    }
+    return {"candidate_id": candidate_id, "phase": phase, "parallel": phase == "compile",
+            "resources": resources, **extra}
+
+
+def _device_lease(npu_device: int, assigned_devices: Sequence[int] | None) -> list[int]:
+    """A timing wave uses the full assigned lease and never silently falls back to NPU 0."""
+    devices = list(assigned_devices or [])
+    if devices:
+        if any(type(device) is not int or device < 0 for device in devices) or len(set(devices)) != len(devices):
+            raise ValueError("assigned_devices must be unique non-negative integers")
+        return devices
+    if type(npu_device) is not int or npu_device < 0:
+        raise ValueError("npu_device must be a non-negative integer")
+    return [npu_device]
 
 
 def plan_rsi_compile_and_timing(
     candidates: Sequence[Mapping[str, Any]], *, state_dir: str | Path,
-    npu_device: int = 0, max_compile_slots: int = 3
+    npu_device: int = 0, max_compile_slots: int = 3,
+    assigned_devices: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """Plan a CPU compile wave, then a serial exclusive-device timing wave."""
     if type(max_compile_slots) is not int or max_compile_slots < 1:
         raise ValueError("max_compile_slots must be a positive integer")
-    if type(npu_device) is not int or npu_device < 0:
-        raise ValueError("npu_device must be a non-negative integer")
+    devices = _device_lease(npu_device, assigned_devices)
+    primary = devices[0]
     ids = [str(c.get("candidate_id", c.get("id", c.get("unit_id"))) or f"candidate-{i}")
            for i, c in enumerate(candidates)]
     if len(set(ids)) != len(ids):
@@ -247,20 +245,19 @@ def plan_rsi_compile_and_timing(
              "state_dir": state_dir}
     compile_phase = {
         "phase": "compile", "name": "compile", "phase_index": 1,
-        "mode": "parallel_cpu_compile", "parallel": True,
-        "resources": {"npu_count": 0}, "max_parallel": max_compile_slots,
-        "max_compile_slots": max_compile_slots, "progress_owner": "CoordinatorService",
-        "progress_owner_detail": owner, "coordinator": owner,
-        "coordinator_service": "CoordinatorService",
+        "mode": "parallel_cpu_compile", "parallel": True, "resources": {"npu_count": 0},
+        "max_parallel": max_compile_slots, "max_compile_slots": max_compile_slots,
+        "progress_owner": "CoordinatorService", "progress_owner_detail": owner,
+        "coordinator": owner, "coordinator_service": "CoordinatorService",
         "state_dir": state_dir, "candidates": ids, "items": compile_items, "waves": waves,
         "initial_wave": waves[0] if waves else [],
     }
     timing_phase = {
         "phase": "timing", "name": "timing", "phase_index": 2,
-        "mode": "serial_exclusive_npu_timing",
-        "parallel": False, "resources": {"devices": [npu_device]}, "device": npu_device,
+        "mode": "serial_exclusive_npu_timing", "parallel": False,
+        "resources": {"devices": devices}, "device": primary,
         "depends_on": "compile_proof_succeeded", "candidates": timing_ids,
-        "items": [_item(identity, "timing", {"devices": [npu_device]}, exclusive_npu=True)
+        "items": [_item(identity, "timing", {"devices": devices}, exclusive_npu=True)
                   for identity in timing_ids],
         "skipped_candidates": [
             {"candidate_id": identity, "reason": "compile_proof_not_succeeded"
@@ -269,7 +266,7 @@ def plan_rsi_compile_and_timing(
         ],
     }
     return {
-        "schema_version": SCHEMA_VERSION, "npu_device": npu_device,
+        "schema_version": SCHEMA_VERSION, "npu_device": primary, "assigned_devices": devices,
         "max_compile_slots": max_compile_slots, "state_dir": state_dir,
         "progress_owner": "CoordinatorService", "progress_owner_detail": owner,
         "compile_wave": compile_phase, "timing_wave": timing_phase,
@@ -278,45 +275,95 @@ def plan_rsi_compile_and_timing(
     }
 
 
-def evaluate_rsi_candidate_gates(
-    *,
-    run_id: str,
-    candidate_id: str,
-    mutation_summary: str,
-    conditions: Mapping[str, Any],
-    compile_ok: bool,
-    oracle_passed: bool,
-    measurement_passed: bool,
-    speedup_ratio: float | None,
-    min_speedup_ratio: float = DEFAULT_MIN_SPEEDUP_RATIO,
-    ablation_retained: bool | None = None,
-    failure_reason: str = "",
+def evaluate_exploration_axes(
+    *, compile_ok: bool, oracle_passed: bool, measurement_passed: bool,
+    speedup_ratio: float | None, min_speedup_ratio: float = DEFAULT_MIN_SPEEDUP_RATIO,
+    ablation_retained: bool | None = None, preserve_subtarget_evidence: bool = False,
+    noise_margin: float = 0.01, return_tier: str = "L4",
 ) -> dict[str, Any]:
-    """Judge observed results using the executor's run ID, without synthetic proof."""
-    speedup = None if speedup_ratio is None else float(speedup_ratio)
+    """Separate evidence validity, goal attainment and reuse on every outcome."""
+    if return_tier not in RETURN_TIERS:
+        raise ValueError("return_tier must be one of L1, L2, L3, L4")
+    if not math.isfinite(noise_margin) or noise_margin < 0:
+        raise ValueError("noise_margin must be finite and non-negative")
     minimum = float(min_speedup_ratio)
     if not math.isfinite(minimum) or minimum <= 0:
         raise ValueError("min_speedup_ratio must be finite and positive")
+    speedup = None if speedup_ratio is None else float(speedup_ratio)
+    measured = (compile_ok and oracle_passed and measurement_passed
+                and speedup is not None and math.isfinite(speedup) and speedup >= 0)
+    if not compile_ok:
+        state = ("compile_failed", "inconclusive", "compile_failed",
+                 "not_applicable", "inconclusive", 1)
+    elif not oracle_passed:
+        state = ("oracle_failed", "refuted", "oracle_failed", "not_applicable",
+                 "reusable_negative_boundary", 1)
+    elif not measured:
+        state = ("measurement_invalid", "inconclusive", "measurement_invalid",
+                 "not_applicable", "inconclusive", 2)
+    elif (preserve_subtarget_evidence and speedup < minimum
+          and speedup > 1.0 + noise_margin and ablation_retained is not False):
+        state = ("valid", "subtarget_valid", "speedup_below_target_valid_evidence",
+                 "not_attained", "reusable_observation", 4)
+    elif ablation_retained is None:
+        state = ("valid", "inconclusive", "ablation_pending", "not_applicable",
+                 "inconclusive", 3)
+    elif not ablation_retained:
+        state = ("valid", "refuted", "ablation_not_retained", "not_applicable",
+                 "reusable_negative_boundary", 3)
+    elif speedup >= minimum:
+        reuse = "reusable_mutator" if return_tier == "L4" else "reusable_observation"
+        state = ("valid", "supported", "verified", "attained", reuse, 4)
+    elif preserve_subtarget_evidence:
+        state = ("valid", "inconclusive", "speedup_within_noise",
+                 "not_attained", "inconclusive", 4)
+    else:
+        state = ("valid", "refuted", "speedup_below_target",
+                 "not_attained", "reusable_negative_boundary", 4)
+    evidence, verdict, outcome, goal, reuse, gate = state
+    axes = {"evidence_validity": evidence, "goal_attainment": goal, "reusability": reuse}
+    return {
+        "axes": axes, **axes, "return_tier": return_tier, "verdict": verdict,
+        "outcome": outcome, "gate_reached": gate,
+        "distill_ready": verdict in {"supported", "subtarget_valid"},
+    }
+
+def evaluate_rsi_candidate_gates(
+    *, run_id: str, candidate_id: str, mutation_summary: str,
+    conditions: Mapping[str, Any], compile_ok: bool, oracle_passed: bool,
+    measurement_passed: bool, speedup_ratio: float | None,
+    min_speedup_ratio: float = DEFAULT_MIN_SPEEDUP_RATIO,
+    ablation_retained: bool | None = None, failure_reason: str = "",
+    preserve_subtarget_evidence: bool = False, noise_margin: float = 0.01,
+    return_tier: str = "L4",
+) -> dict[str, Any]:
+    """Judge observed results using the executor's run ID, without synthetic proof."""
+    result = evaluate_exploration_axes(
+        compile_ok=compile_ok, oracle_passed=oracle_passed,
+        measurement_passed=measurement_passed, speedup_ratio=speedup_ratio,
+        min_speedup_ratio=min_speedup_ratio, ablation_retained=ablation_retained,
+        preserve_subtarget_evidence=preserve_subtarget_evidence,
+        noise_margin=noise_margin, return_tier=return_tier,
+    )
+    minimum = float(min_speedup_ratio)
+    speedup = None if speedup_ratio is None else float(speedup_ratio)
     measured = (compile_ok and oracle_passed and measurement_passed
                 and speedup is not None and math.isfinite(speedup) and speedup >= 0)
     # Gates stop at the first incomplete or failed stage. A later stage did not
     # pass merely because its caller supplied a default True value.
     checks = [
-        ("gate1_compile_oracle", compile_ok and oracle_passed,
-         "inconclusive" if not compile_ok else "refuted",
-         "compile_failed" if not compile_ok else "oracle_failed"),
-        ("gate2_measurement_guard", measured, "inconclusive", "measurement_invalid"),
-        ("gate3_ablation_gate", ablation_retained,
-         "inconclusive" if ablation_retained is None else "refuted",
-         "ablation_pending" if ablation_retained is None else "ablation_not_retained"),
-        ("gate4_distill_or_refute", measured and speedup >= minimum, "refuted", "speedup_below_target"),
+        ("gate1_compile_oracle", compile_ok and oracle_passed),
+        ("gate2_measurement_guard", measured),
+        ("gate3_ablation_gate", ablation_retained),
+        ("gate4_distill_or_refute", measured and speedup >= minimum),
     ]
-    gates = {name: {"passed": None, "reasons": []} for name, *_ in checks}
-    verdict, outcome, gate_reached = "supported", "verified", 4
-    for number, (name, passed, rejected_verdict, rejected_outcome) in enumerate(checks, 1):
-        gates[name] = {"passed": passed, "reasons": [] if passed else [rejected_outcome]}
-        if not passed:
-            verdict, outcome, gate_reached = rejected_verdict, rejected_outcome, number
+    gates = {name: {"passed": None, "reasons": []} for name, _ in checks}
+    verdict, outcome, gate_reached = result["verdict"], result["outcome"], result["gate_reached"]
+    for number, (name, passed) in enumerate(checks, 1):
+        if number < gate_reached:
+            gates[name] = {"passed": passed, "reasons": []}
+        elif number == gate_reached:
+            gates[name] = {"passed": passed, "reasons": [] if passed else [outcome]}
             break
     entry = {
         "schema_version": SCHEMA_VERSION, "run_id": run_id,
@@ -324,7 +371,8 @@ def evaluate_rsi_candidate_gates(
         "verdict": verdict, "outcome": outcome, "gate_reached": gate_reached,
         "speedup_ratio": speedup if measured else None,
         "min_speedup_ratio": minimum, "conditions": dict(conditions), "gates": gates,
-        "distill_ready": verdict == "supported",
+        "axes": result["axes"], "return_tier": result["return_tier"],
+        "distill_ready": result["distill_ready"],
         "failure_reason": failure_reason.strip() or (outcome if verdict != "supported" else ""),
     }
     entry["conditional_avoid"] = _conditional_avoid(entry)
@@ -387,9 +435,11 @@ def _line(value: Any) -> str:
 def _render_progress(entries: Sequence[Mapping[str, Any]], *, campaign_id: str, goal: str) -> str:
     entries = list({entry["run_id"]: entry for entry in entries}.values())
     supported = [entry for entry in entries if str(entry.get("verdict", "")).lower() == "supported"]
+    subtarget = [entry for entry in entries if entry.get("verdict") == "subtarget_valid"]
     refuted = [entry for entry in entries if str(entry.get("verdict", "")).lower() == "refuted"]
     incomplete = [entry for entry in entries if entry.get("verdict") == "inconclusive"]
     supported.sort(key=lambda entry: (-_speedup(entry), str(entry.get("candidate_id", ""))))
+    subtarget.sort(key=lambda entry: (-_speedup(entry), str(entry.get("candidate_id", ""))))
     lines = [f"# RSI Progress: {campaign_id}", "", "## Goal", "",
              goal.strip() or "(not recorded)", "", "## Best Supported Candidate", ""]
     if supported:
@@ -401,10 +451,11 @@ def _render_progress(entries: Sequence[Mapping[str, Any]], *, campaign_id: str, 
     else:
         lines.append("- none (no candidate has passed all four gates)")
     lines.extend(["", "## Active Hypotheses", ""])
+    hypotheses = supported + subtarget
     lines.extend([f"- `{entry.get('candidate_id', 'unknown')}`: "
                   f"{_line(entry.get('mutation_summary', '')) or '(no mutation summary)'} "
                   f"(speedup `{_speedup(entry):.6g}`, run `{entry.get('run_id', 'unknown')}`)"
-                  for entry in supported] or ["- none"])
+                  for entry in hypotheses] or ["- none"])
     lines.extend(["", "## Refuted Directions", ""])
     directions = [f"avoid {rule['candidate_id']} when "
                   f"{json.dumps(rule['conditions'], sort_keys=True, ensure_ascii=False)}: "
@@ -418,12 +469,8 @@ def _render_progress(entries: Sequence[Mapping[str, Any]], *, campaign_id: str, 
 
 
 def append_ledger_and_render_progress(
-    ledger_path: Path,
-    progress_path: Path,
-    entry: Mapping[str, Any],
-    *,
-    campaign_id: str,
-    goal: str,
+    ledger_path: Path, progress_path: Path, entry: Mapping[str, Any],
+    *, campaign_id: str, goal: str,
 ) -> None:
     """Atomically append one ledger result and rewrite deterministic PROGRESS.md."""
     ledger = _artifact(Path(ledger_path), "experiment-ledger.jsonl")
