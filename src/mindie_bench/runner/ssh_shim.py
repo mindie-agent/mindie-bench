@@ -1,4 +1,10 @@
-"""One-shot SSH transport into the runner-owned, network-isolated NPU slot."""
+"""One-shot SSH transport into the runner-owned, network-isolated NPU slot.
+
+[Role] Forward SSH and knowledge RPC to the runner's local broker.
+[Invariants] Broker requests stay local regardless of enterprise proxy settings.
+[Timeouts & Locks] Each broker request retains its bounded 3600-second timeout.
+[Side-Effect Policy] Submit once; the parent owns execution and receipt accounting.
+"""
 
 import base64
 import json
@@ -17,7 +23,8 @@ def _post(gateway, path, payload):
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=3600) as response:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=3600) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
         detail = exc.read(64 * 1024).decode(errors="replace")

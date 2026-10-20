@@ -1,4 +1,10 @@
-"""A thin client: oracle rules never enter the agent's process or filesystem."""
+"""A thin client: oracle rules never enter the agent's process or filesystem.
+
+[Role] Send replay arguments to the runner-owned local broker.
+[Invariants] Local replay never uses an enterprise proxy.
+[Timeouts & Locks] One bounded 60-second request, with no retry or client lock.
+[Side-Effect Policy] The parent owns replay rules; failures remain infrastructure errors.
+"""
 
 import json
 import os
@@ -14,7 +20,8 @@ def main():
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=60) as response:
             result = json.load(response)
     except (OSError, ValueError, urllib.error.HTTPError) as exc:
         print(f"replay infrastructure error: {type(exc).__name__}", file=sys.stderr)

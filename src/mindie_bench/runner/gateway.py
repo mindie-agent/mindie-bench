@@ -54,6 +54,7 @@ from urllib.parse import urlsplit
 
 from mindie_bench.io import read_json, safe_relative, write_json
 from mindie_bench.models import HarnessConfig, TaskSpec, UnknownExternalEffects
+from mindie_bench.runner.provider_transport import provider_connection
 from mindie_bench.runner.usage import UsageMeter, sum_usage
 from mindie_bench.scorer.command_observations import is_recognized_npu_command
 
@@ -506,6 +507,9 @@ class Gateway(AbstractContextManager):
                     if json.loads(body).get("model") != gateway.harness.model:
                         gateway.infrastructure_error = "request attempted to change the pinned model"
                         return self.reject(403, gateway.infrastructure_error)
+                    connection, target = provider_connection(
+                        gateway.harness.provider_url, self.path
+                    )
                     request_hash = hashlib.sha256(body).hexdigest()
                     with gateway.lock:
                         if gateway.closed or gateway.unknown or gateway.models_sealed:
@@ -529,19 +533,11 @@ class Gateway(AbstractContextManager):
                         ordinal = gateway.model_calls
                         gateway.usage_meters[ordinal] = UsageMeter()
                     gateway.record("model_start", ordinal=ordinal, request_sha256=request_hash)
-                    endpoint = urlsplit(gateway.harness.provider_url)
-                    connection_type = (
-                        http.client.HTTPSConnection
-                        if endpoint.scheme == "https"
-                        else http.client.HTTPConnection
-                    )
-                    connection = connection_type(endpoint.hostname, endpoint.port, timeout=120)
                     # A concurrent settlement close must never make request()
                     # silently reconnect and submit after the deadline.
                     connection.auto_open = 0
                     with gateway.lock:
                         gateway.connections[connection] = None
-                    target = endpoint.path.rstrip("/") + "/" + self.path.removeprefix("/v1/").lstrip("/")
                     headers = {
                         "Content-Type": "application/json",
                         "Accept": self.headers.get("Accept", "*/*"),
