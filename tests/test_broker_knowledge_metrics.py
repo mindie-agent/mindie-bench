@@ -175,3 +175,32 @@ def test_origin_mismatch_does_not_destroy_absolute_knowledge_measurement(tmp_pat
     assert observed["timing"]["observed_union_sec"] == 3
     assert observed["relative_intervals"] is None
     assert observed["alignment_reason"] == "broker_call_precedes_native_process_origin"
+
+
+def test_completed_preflight_query_does_not_inflate_native_agent_reuse(case, tmp_path):
+    path = journal(
+        tmp_path,
+        paired(start=90, end=93, session="preflight")
+        + paired(start=102, end=104, session="agent"),
+    )
+    observed = summarize_broker_knowledge(
+        path, process_origin_monotonic_sec=100, preflight_finished_monotonic_sec=95
+    )
+    primary, _ = trajectory_metrics(
+        Trajectory(), case["spec"], case["config"].harness, 10, tier="l2", broker_knowledge=observed
+    )
+    assert observed["preflight"]["completed_calls"] == 1
+    assert observed["preflight"]["calls"][0]["session_id"] == "preflight"
+    assert primary["foreground_knowledge_queries_count"] == 1
+    assert primary["knowledge_query_sec"] == 2
+    assert observed["relative_intervals"] == [dict(started_sec=2, ended_sec=4)]
+
+
+def test_unsettled_read_is_not_hidden_by_a_preflight_boundary(tmp_path):
+    path = journal(tmp_path, [event("knowledge_tool_start", 90)])
+    observed = summarize_broker_knowledge(
+        path, process_origin_monotonic_sec=100, preflight_finished_monotonic_sec=95
+    )
+    assert observed["preflight"]["completed_calls"] == 0
+    assert observed["incomplete_calls"] == 1
+    assert observed["alignment_reason"] == "broker_call_precedes_native_process_origin"

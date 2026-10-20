@@ -1,0 +1,770 @@
+{
+  "benchmark": {
+    "revision": "cccccccccccccccccccccccccccccccccccccccc",
+    "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "version": "0.3.0"
+  },
+  "collector_source": {
+    "dirty": false,
+    "editable": false,
+    "revision": "cccccccccccccccccccccccccccccccccccccccc",
+    "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "version": "0.3.0"
+  },
+  "component_cases": [],
+  "component_revisions": {
+    "claude-code": "80af30d34b9c8f92e825df8e770bcd185484c357",
+    "codex": "6e482a2aeaf65e47c998339de6442ba899bba46f",
+    "coordinator": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
+    "diagnostics": "e581f83d0c752738600cf67202a72fb409cabea2",
+    "dsh": "e6f034b82c4afc541f6ec8785e034b5a438d7ee4",
+    "kimi": "b05707ea1c0f3f0492645ed0d174d19bf5bdae9c",
+    "knowledge": "3abdebac568714e29536991415c12059cc308357",
+    "mindie-bench": "cccccccccccccccccccccccccccccccccccccccc",
+    "npu-top": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
+    "remote-dev": "4bde385536a4a7e2a06fb5ff63a332aa3a490807"
+  },
+  "component_runner_reports": [],
+  "excluded_attempts": [],
+  "final_release_sha256": "172122949be51d9d71244103478b4f2cba17a829e3f3e2a4ac2b2363b1c1cfb5",
+  "formal_baseline_sha256": "bea95edb546cf348d4f578509614bba431fcd8014db0f8ff33e5f03c671eb27b",
+  "limitations": [],
+  "native_plugins": [],
+  "plan_sha256": "5771b7a5e0670b34220c589d1e3c23a3be1e7fb676833f243ff3eec0f4dd90e1",
+  "private_suite_sha256": "312a47ea67eff1149726cb0e64595f6d002977b6f6205801c841399aed2f8620",
+  "public_projection": "Paths, endpoints, commands, credentials and native logs stay private.",
+  "receipts": [
+    {
+      "ablation_group": "G0",
+      "artifacts": {},
+      "auxiliary_metrics": {
+        "budget_exceeded": false,
+        "business_terminal_status": "completed_pass",
+        "capture": {
+          "consumer": {
+            "revision": "consumer-1"
+          },
+          "corpus_lint": {
+            "status": "passed"
+          },
+          "publication": {
+            "revision": "publication-1"
+          },
+          "status": "completed"
+        },
+        "lifecycle_budget": {
+          "budget_exceeded": false,
+          "declared_total_sec": 3361.65,
+          "measured_total_sec": 100.0,
+          "overrun": false,
+          "overrun_sec": 0.0
+        },
+        "verifier_wall_clock_sec": 2.0
+      },
+      "cluster": null,
+      "environment_fingerprint": {
+        "backend": "native",
+        "base_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_model": "deepseek-flash",
+        "benchmark_source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "benchmark_version": "0.3.0",
+        "budget": {
+          "max_turns": 40
+        },
+        "component_revisions": {
+          "mindie-bench": "cccccccccccccccccccccccccccccccccccccccc"
+        },
+        "components": [],
+        "experiment_context": {
+          "actual_runtime": {
+            "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "cell": {
+            "cohort": "fused-shared-budget",
+            "group": "P0_bare_host",
+            "hardware_tier": "A2",
+            "order": 0,
+            "profile_id": "fused-shared-budget-P0_bare_host",
+            "protocol": "matched-product/1",
+            "repetition": 1,
+            "task_family": "performance",
+            "task_id": "fused-rmsnorm-gate-dispatch-performance"
+          },
+          "cohort": "fused-shared-budget",
+          "derived_inputs_sha256": "c739b2bff1fed912df281971c98605584c00c0735dd639abe572b38d789b68b9",
+          "execution_tier": "l3",
+          "internal_capability_mode": "G0",
+          "max_wall_clock_sec": 3361.65,
+          "native_config_sha256": "46e636fa5bc945923062675aba4b2c4dc49d50fd1928d2a7032e8c05b96827a8",
+          "profile_group": "P0_bare_host",
+          "profile_id": "fused-shared-budget-P0_bare_host",
+          "profile_sha256": "dabe9b5f8a56e9a71f7ceb704971d8d985c89a25e01a7394d7106cb1c9a8184a",
+          "protocol": "matched-product/1",
+          "runtime_manifest_sha256": "d8594fd7c2e6fe7adb8ee924dce5f8fa262a87db32dc64130012475923f4589f",
+          "schema": "mindie-bench-product-execution/1",
+          "task_sha256": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff"
+        },
+        "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "harness_name": "dsh",
+        "harness_version": "native",
+        "host_arch": "arm64",
+        "host_os": "test",
+        "npu_count": 1,
+        "npu_model": "910B",
+        "provider_url": {
+          "private_control_identity": "5bb5bdeaf0253ace30cb3ffcda2620f4cbd5649f6e04b2bcf391fc9b3932af6d"
+        },
+        "reasoning_effort": "high",
+        "remote_environment": {
+          "private_control_identity": "c5d35525c7090e80d4b05ab5d5387a233f93051f51ce180f1cf5ba84b2de9783"
+        }
+      },
+      "errors": [],
+      "evidence": "synthetic",
+      "experiment_digest": "46e636fa5bc945923062675aba4b2c4dc49d50fd1928d2a7032e8c05b96827a8",
+      "failure_reason": null,
+      "instance_id": "fused-rmsnorm-gate-dispatch-performance",
+      "knowledge_gradient": "no_hit",
+      "primary_metrics": {
+        "cost_complete": true,
+        "delivery_wall_clock_sec": 100.0,
+        "estimated_cost_usd": 0.1,
+        "manual_interventions": 0,
+        "model_calls": 5,
+        "npu_test_runs": 1,
+        "resolved": true,
+        "reward": 1.0,
+        "tokens": {
+          "cache_creation": 0,
+          "complete": true,
+          "indexer_small_model_total": 0,
+          "input_cached": 10,
+          "input_uncached": 100,
+          "output": 20
+        },
+        "total_wall_clock_sec": 90.0,
+        "zero_human_intervention": true
+      },
+      "repetition": 1,
+      "schema_version": "mindie-bench-receipt/1.0",
+      "task_digest": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff",
+      "task_role": "eval",
+      "terminal_status": "completed_pass",
+      "tier": "l3",
+      "trial_id": "fused-shared-budget-P0_bare_host-fused-rmsnorm-gate-dispatch-performance"
+    },
+    {
+      "ablation_group": "G1",
+      "artifacts": {},
+      "auxiliary_metrics": {
+        "budget_exceeded": false,
+        "business_terminal_status": "completed_pass",
+        "capture": {
+          "consumer": {
+            "revision": "consumer-1"
+          },
+          "corpus_lint": {
+            "status": "passed"
+          },
+          "publication": {
+            "revision": "publication-1"
+          },
+          "status": "completed"
+        },
+        "lifecycle_budget": {
+          "budget_exceeded": false,
+          "declared_total_sec": 3361.65,
+          "measured_total_sec": 110.0,
+          "overrun": false,
+          "overrun_sec": 0.0
+        },
+        "verifier_wall_clock_sec": 2.0
+      },
+      "cluster": null,
+      "environment_fingerprint": {
+        "backend": "native",
+        "base_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_model": "deepseek-flash",
+        "benchmark_source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "benchmark_version": "0.3.0",
+        "budget": {
+          "max_turns": 40
+        },
+        "component_revisions": {
+          "coordinator": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
+          "diagnostics": "1b5a0eeb79d498c39002fc1853271c17e0f26e66",
+          "dsh": "d3a1e1282356b65b51fba49072c1842918746f8f",
+          "knowledge": "4e328305323eafc7fd43ecc0c53eb3cc0541fdef",
+          "mindie-bench": "cccccccccccccccccccccccccccccccccccccccc",
+          "npu-top": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
+          "remote-dev": "a6649222aae4851deec5774513f8319aece09051"
+        },
+        "components": [
+          "coordinator",
+          "diagnostics",
+          "knowledge",
+          "npu-top",
+          "remote-dev",
+          "dsh"
+        ],
+        "experiment_context": {
+          "actual_runtime": {
+            "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "native_product": {
+              "contribution_enabled": false,
+              "host_entry_sha256": "e5b629df839b9615bd976009e5e29695e8d8a5e426d2e24d87dc11862d1ad775",
+              "package_sha256": "3a980b2b3fb4ac6f1690bf89c28738ab095e4854d7f763b7d2be45b536b8b708",
+              "runtime_identity": {
+                "components": {
+                  "coordinator": {
+                    "commit": null,
+                    "distribution": null,
+                    "editable": null,
+                    "module_source_file_count": 21,
+                    "module_sources_sha256": "ac4f6675789d6340ee1afc0812de5e93998239a0d76e32e76a9b9cf1cc4231d7",
+                    "requested_revision": null,
+                    "revision": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
+                    "subdirectory": null,
+                    "version": "0.5.3"
+                  },
+                  "diagnostics": {
+                    "commit": null,
+                    "distribution": null,
+                    "editable": null,
+                    "module_source_file_count": 21,
+                    "module_sources_sha256": "c3c91f287aa5562428611c51bbc31866eb3c1c74e50f876ca36dec8920f2d1af",
+                    "requested_revision": null,
+                    "revision": "1b5a0eeb79d498c39002fc1853271c17e0f26e66",
+                    "subdirectory": null,
+                    "version": "0.4.3"
+                  },
+                  "knowledge": {
+                    "commit": null,
+                    "distribution": null,
+                    "editable": null,
+                    "module_source_file_count": 19,
+                    "module_sources_sha256": "eeb9b6339550e0845c3b49ba0bbba61d90ec6b614a2d2589db6faae76421b2c8",
+                    "requested_revision": null,
+                    "revision": "4e328305323eafc7fd43ecc0c53eb3cc0541fdef",
+                    "subdirectory": null,
+                    "version": "0.12.2"
+                  },
+                  "npu-top": {
+                    "commit": null,
+                    "distribution": null,
+                    "editable": null,
+                    "module_source_file_count": 17,
+                    "module_sources_sha256": "a2f147eaeb94e614d349b6cabf878fca21aa0c0a566c7c948a773240fe5c6041",
+                    "requested_revision": null,
+                    "revision": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
+                    "subdirectory": null,
+                    "version": "0.1.9"
+                  },
+                  "remote-dev": {
+                    "commit": null,
+                    "distribution": null,
+                    "editable": null,
+                    "module_source_file_count": 20,
+                    "module_sources_sha256": "d0fbf26e1c3e7ecb025327a57dce33f5d108f4fa8251c2229fc7b98ca7b77030",
+                    "requested_revision": null,
+                    "revision": "a6649222aae4851deec5774513f8319aece09051",
+                    "subdirectory": null,
+                    "version": "0.10.1"
+                  }
+                }
+              }
+            }
+          },
+          "cell": {
+            "cohort": "fused-shared-budget",
+            "group": "P1_v002_baseline",
+            "hardware_tier": "A2",
+            "order": 1,
+            "profile_id": "fused-shared-budget-P1_v002_baseline",
+            "protocol": "matched-product/1",
+            "repetition": 1,
+            "task_family": "performance",
+            "task_id": "fused-rmsnorm-gate-dispatch-performance"
+          },
+          "cohort": "fused-shared-budget",
+          "derived_inputs_sha256": "c739b2bff1fed912df281971c98605584c00c0735dd639abe572b38d789b68b9",
+          "execution_tier": "l3",
+          "internal_capability_mode": "G1",
+          "max_wall_clock_sec": 3361.65,
+          "native_config_sha256": "8f220b499c8704432521613648f55b658c4ce4ecd16b428966daffe6288a9ed3",
+          "profile_group": "P1_v002_baseline",
+          "profile_id": "fused-shared-budget-P1_v002_baseline",
+          "profile_sha256": "98c6ab27504fc3d015814f780caaf4f14a7b9d8fee9c8f6e30f43458ee2fc6db",
+          "protocol": "matched-product/1",
+          "runtime_manifest_sha256": "54d51762962fb93ba3dc1be5f888ff60e9b295fffcc84bf62302fb8465a26d5d",
+          "schema": "mindie-bench-product-execution/1",
+          "task_sha256": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff"
+        },
+        "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "harness_name": "dsh",
+        "harness_version": "native",
+        "host_arch": "arm64",
+        "host_os": "test",
+        "npu_count": 1,
+        "npu_model": "910B",
+        "provider_url": {
+          "private_control_identity": "5bb5bdeaf0253ace30cb3ffcda2620f4cbd5649f6e04b2bcf391fc9b3932af6d"
+        },
+        "reasoning_effort": "high",
+        "remote_environment": {
+          "private_control_identity": "c5d35525c7090e80d4b05ab5d5387a233f93051f51ce180f1cf5ba84b2de9783"
+        }
+      },
+      "errors": [],
+      "evidence": "synthetic",
+      "experiment_digest": "8f220b499c8704432521613648f55b658c4ce4ecd16b428966daffe6288a9ed3",
+      "failure_reason": null,
+      "instance_id": "fused-rmsnorm-gate-dispatch-performance",
+      "knowledge_gradient": "no_hit",
+      "primary_metrics": {
+        "cost_complete": true,
+        "delivery_wall_clock_sec": 110.0,
+        "estimated_cost_usd": 0.1,
+        "manual_interventions": 0,
+        "model_calls": 5,
+        "npu_test_runs": 1,
+        "resolved": true,
+        "reward": 1.0,
+        "tokens": {
+          "cache_creation": 0,
+          "complete": true,
+          "indexer_small_model_total": 0,
+          "input_cached": 10,
+          "input_uncached": 100,
+          "output": 20
+        },
+        "total_wall_clock_sec": 100.0,
+        "zero_human_intervention": true
+      },
+      "repetition": 1,
+      "schema_version": "mindie-bench-receipt/1.0",
+      "task_digest": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff",
+      "task_role": "eval",
+      "terminal_status": "completed_pass",
+      "tier": "l3",
+      "trial_id": "fused-shared-budget-P1_v002_baseline-fused-rmsnorm-gate-dispatch-performance"
+    },
+    {
+      "ablation_group": "G2",
+      "artifacts": {},
+      "auxiliary_metrics": {
+        "budget_exceeded": false,
+        "business_terminal_status": "completed_pass",
+        "capture": {
+          "consumer": {
+            "revision": "consumer-1"
+          },
+          "corpus_lint": {
+            "status": "passed"
+          },
+          "publication": {
+            "revision": "publication-1"
+          },
+          "status": "completed"
+        },
+        "lifecycle_budget": {
+          "budget_exceeded": false,
+          "declared_total_sec": 3361.65,
+          "measured_total_sec": 120.0,
+          "overrun": false,
+          "overrun_sec": 0.0
+        },
+        "verifier_wall_clock_sec": 2.0
+      },
+      "cluster": null,
+      "environment_fingerprint": {
+        "backend": "native",
+        "base_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_model": "deepseek-flash",
+        "benchmark_source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "benchmark_version": "0.3.0",
+        "budget": {
+          "max_turns": 40
+        },
+        "component_revisions": {
+          "coordinator": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
+          "diagnostics": "e581f83d0c752738600cf67202a72fb409cabea2",
+          "dsh": "e6f034b82c4afc541f6ec8785e034b5a438d7ee4",
+          "knowledge": "3abdebac568714e29536991415c12059cc308357",
+          "mindie-bench": "cccccccccccccccccccccccccccccccccccccccc",
+          "npu-top": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
+          "remote-dev": "4bde385536a4a7e2a06fb5ff63a332aa3a490807"
+        },
+        "components": [
+          "coordinator",
+          "diagnostics",
+          "knowledge",
+          "npu-top",
+          "remote-dev",
+          "dsh"
+        ],
+        "experiment_context": {
+          "actual_runtime": {
+            "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "native_product": {
+              "contribution_enabled": false,
+              "host_entry_sha256": "3150fcfb8e0968a83e58886c45b48f3d261267b207a92d5cea71bbe498036a7a",
+              "package_sha256": "5b4f08e9585da4f997f51995187c94e3654bdf427653d1763830737fa2dd0cf8",
+              "runtime_identity": {
+                "components": {
+                  "coordinator": {
+                    "commit": null,
+                    "distribution": null,
+                    "editable": null,
+                    "module_source_file_count": 21,
+                    "module_sources_sha256": "ac4f6675789d6340ee1afc0812de5e93998239a0d76e32e76a9b9cf1cc4231d7",
+                    "requested_revision": null,
+                    "revision": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
+                    "subdirectory": null,
+                    "version": "0.5.3"
+                  },
+                  "diagnostics": {
+                    "commit": null,
+                    "distribution": null,
+                    "editable": null,
+                    "module_source_file_count": 21,
+                    "module_sources_sha256": "d7516417f7ff656945938ebd093b95af7c625b6718bf4b1950462b73e2319969",
+                    "requested_revision": null,
+                    "revision": "e581f83d0c752738600cf67202a72fb409cabea2",
+                    "subdirectory": null,
+                    "version": "0.0.3"
+                  },
+                  "knowledge": {
+                    "commit": null,
+                    "distribution": null,
+                    "editable": null,
+                    "module_source_file_count": 19,
+                    "module_sources_sha256": "884c96c6d8801428bee7a2553c5fd47ecf55ba895ffedbbc6fb91400623e6145",
+                    "requested_revision": null,
+                    "revision": "3abdebac568714e29536991415c12059cc308357",
+                    "subdirectory": null,
+                    "version": "0.0.3"
+                  },
+                  "npu-top": {
+                    "commit": null,
+                    "distribution": null,
+                    "editable": null,
+                    "module_source_file_count": 17,
+                    "module_sources_sha256": "a2f147eaeb94e614d349b6cabf878fca21aa0c0a566c7c948a773240fe5c6041",
+                    "requested_revision": null,
+                    "revision": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
+                    "subdirectory": null,
+                    "version": "0.1.9"
+                  },
+                  "remote-dev": {
+                    "commit": null,
+                    "distribution": null,
+                    "editable": null,
+                    "module_source_file_count": 20,
+                    "module_sources_sha256": "e582d479b3027ea4bd7c86bd3c4f3264cb9bcd540ff2d4f01160bdf95cf7fd9e",
+                    "requested_revision": null,
+                    "revision": "4bde385536a4a7e2a06fb5ff63a332aa3a490807",
+                    "subdirectory": null,
+                    "version": "0.0.3"
+                  }
+                }
+              }
+            }
+          },
+          "cell": {
+            "cohort": "fused-shared-budget",
+            "group": "P2_v003_full",
+            "hardware_tier": "A2",
+            "order": 2,
+            "profile_id": "fused-shared-budget-P2_v003_full",
+            "protocol": "matched-product/1",
+            "repetition": 1,
+            "task_family": "performance",
+            "task_id": "fused-rmsnorm-gate-dispatch-performance"
+          },
+          "cohort": "fused-shared-budget",
+          "derived_inputs_sha256": "c739b2bff1fed912df281971c98605584c00c0735dd639abe572b38d789b68b9",
+          "execution_tier": "l3",
+          "internal_capability_mode": "G2",
+          "max_wall_clock_sec": 3361.65,
+          "native_config_sha256": "8b7ab41adcc42839ff5572d05678e76a1bd956c39d25a5198cb621de71e2e27b",
+          "profile_group": "P2_v003_full",
+          "profile_id": "fused-shared-budget-P2_v003_full",
+          "profile_sha256": "926762deaa591f7eb4a69231722eacddc6d4eeed97623be99a66771ac10d42f1",
+          "protocol": "matched-product/1",
+          "runtime_manifest_sha256": "6e35440d1b349e9b95a8d2439cb427c66af56d98bf3fb6eda3117d9c0500aee8",
+          "schema": "mindie-bench-product-execution/1",
+          "task_sha256": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff"
+        },
+        "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "harness_name": "dsh",
+        "harness_version": "native",
+        "host_arch": "arm64",
+        "host_os": "test",
+        "npu_count": 1,
+        "npu_model": "910B",
+        "provider_url": {
+          "private_control_identity": "5bb5bdeaf0253ace30cb3ffcda2620f4cbd5649f6e04b2bcf391fc9b3932af6d"
+        },
+        "reasoning_effort": "high",
+        "remote_environment": {
+          "private_control_identity": "c5d35525c7090e80d4b05ab5d5387a233f93051f51ce180f1cf5ba84b2de9783"
+        }
+      },
+      "errors": [],
+      "evidence": "synthetic",
+      "experiment_digest": "8b7ab41adcc42839ff5572d05678e76a1bd956c39d25a5198cb621de71e2e27b",
+      "failure_reason": null,
+      "instance_id": "fused-rmsnorm-gate-dispatch-performance",
+      "knowledge_gradient": "no_hit",
+      "primary_metrics": {
+        "cost_complete": true,
+        "delivery_wall_clock_sec": 120.0,
+        "estimated_cost_usd": 0.1,
+        "manual_interventions": 0,
+        "model_calls": 5,
+        "npu_test_runs": 1,
+        "resolved": true,
+        "reward": 1.0,
+        "tokens": {
+          "cache_creation": 0,
+          "complete": true,
+          "indexer_small_model_total": 0,
+          "input_cached": 10,
+          "input_uncached": 100,
+          "output": 20
+        },
+        "total_wall_clock_sec": 110.0,
+        "zero_human_intervention": true
+      },
+      "repetition": 1,
+      "schema_version": "mindie-bench-receipt/1.0",
+      "task_digest": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff",
+      "task_role": "eval",
+      "terminal_status": "completed_pass",
+      "tier": "l3",
+      "trial_id": "fused-shared-budget-P2_v003_full-fused-rmsnorm-gate-dispatch-performance"
+    }
+  ],
+  "runner_release": {
+    "revision": "cccccccccccccccccccccccccccccccccccccccc",
+    "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "version": "0.3.0"
+  },
+  "runtime_manifests": [
+    {
+      "actual_runtime_sha256": "b74d07953bf25335c2b046427e97359f426b3a8be7f8e141eebe68d090284e4b",
+      "benchmark": {
+        "revision": "cccccccccccccccccccccccccccccccccccccccc",
+        "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "version": "0.3.0"
+      },
+      "budget": {
+        "human_interventions": 0,
+        "max_wall_clock_sec": 3361.65,
+        "npu_runs": 8,
+        "total_model_calls": 40
+      },
+      "catalog": {
+        "empty_proof_sha256": null,
+        "schema": "mindie-catalog/1",
+        "sha256": "6ba3d288ee0b059739ef6d598cab0c9217d9c38511a4cbb795f9fbbfd2945a28",
+        "source_revision": null,
+        "units": 0
+      },
+      "catalog_sha256": "29f999cadabf3cbc1f94ea8ce4f8e8f66622cda62817a7f14af6241d40671236",
+      "conditions": {
+        "inference_profile": "temperature=0",
+        "input_digest": "input:fused-rmsnorm-gate-dispatch-performance",
+        "knowledge_cutoff": "2026-10-01",
+        "model_id": "deepseek-flash",
+        "oracle_digest": "3d37c49ce17b48de5965383d6a1fbf4af8f221b1d88f483ecffe2281bcdc41c8",
+        "persistence_permission_digest": "persist-sha",
+        "task_start_digest": "start:fused-rmsnorm-gate-dispatch-performance",
+        "tool_permission_digest": "tools-sha"
+      },
+      "derived_inputs_sha256": "c739b2bff1fed912df281971c98605584c00c0735dd639abe572b38d789b68b9",
+      "group": "P0_bare_host",
+      "loaded_identity_sha256": "d4af84403743121fd18402afc2e59783d8f4c43c2c83a86e786d8dd568b7aee9",
+      "native_config_sha256": "46e636fa5bc945923062675aba4b2c4dc49d50fd1928d2a7032e8c05b96827a8",
+      "native_plugin": null,
+      "profile_id": "fused-shared-budget-P0_bare_host",
+      "runtime_modules": {},
+      "schema": "mindie-product-public-runtime/1",
+      "sha256": "d8594fd7c2e6fe7adb8ee924dce5f8fa262a87db32dc64130012475923f4589f",
+      "tasks": {
+        "fused-rmsnorm-gate-dispatch-performance": {
+          "oracle_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "task_sha256": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff"
+        }
+      }
+    },
+    {
+      "actual_runtime_sha256": "3a1ff463d04ecf09151f8cbffa1f7e5344468af628dd2646c8aad4d7c1b2de8e",
+      "benchmark": {
+        "revision": "cccccccccccccccccccccccccccccccccccccccc",
+        "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "version": "0.3.0"
+      },
+      "budget": {
+        "human_interventions": 0,
+        "max_wall_clock_sec": 3361.65,
+        "npu_runs": 8,
+        "total_model_calls": 40
+      },
+      "catalog": {
+        "empty_proof_sha256": null,
+        "schema": "mindie-catalog/1",
+        "sha256": "003e668590c06d95b76f419c508db998b77095c98023d5c91cb8e2dbcad3562c",
+        "source_revision": null,
+        "units": 3
+      },
+      "catalog_sha256": "2a0d46ed632f96d041bb28d260f5c7cf6273f436e85fcfc9c84ec97f269f135f",
+      "conditions": {
+        "inference_profile": "temperature=0",
+        "input_digest": "input:fused-rmsnorm-gate-dispatch-performance",
+        "knowledge_cutoff": "2026-10-01",
+        "model_id": "deepseek-flash",
+        "oracle_digest": "3d37c49ce17b48de5965383d6a1fbf4af8f221b1d88f483ecffe2281bcdc41c8",
+        "persistence_permission_digest": "persist-sha",
+        "task_start_digest": "start:fused-rmsnorm-gate-dispatch-performance",
+        "tool_permission_digest": "tools-sha"
+      },
+      "derived_inputs_sha256": "c739b2bff1fed912df281971c98605584c00c0735dd639abe572b38d789b68b9",
+      "group": "P1_v002_baseline",
+      "loaded_identity_sha256": "655653bb8df6192cfa53ee6e3e5fdb102f0743492bdd463e768ef87af00e1c93",
+      "native_config_sha256": "8f220b499c8704432521613648f55b658c4ce4ecd16b428966daffe6288a9ed3",
+      "native_plugin": {
+        "contribution_enabled": false,
+        "host_entry_sha256": "e5b629df839b9615bd976009e5e29695e8d8a5e426d2e24d87dc11862d1ad775",
+        "package_sha256": "3a980b2b3fb4ac6f1690bf89c28738ab095e4854d7f763b7d2be45b536b8b708"
+      },
+      "profile_id": "fused-shared-budget-P1_v002_baseline",
+      "runtime_modules": {
+        "coordinator": {
+          "module_source_file_count": 21,
+          "module_sources_sha256": "ac4f6675789d6340ee1afc0812de5e93998239a0d76e32e76a9b9cf1cc4231d7",
+          "revision": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
+          "version": "0.5.3"
+        },
+        "diagnostics": {
+          "module_source_file_count": 21,
+          "module_sources_sha256": "c3c91f287aa5562428611c51bbc31866eb3c1c74e50f876ca36dec8920f2d1af",
+          "revision": "1b5a0eeb79d498c39002fc1853271c17e0f26e66",
+          "version": "0.4.3"
+        },
+        "knowledge": {
+          "module_source_file_count": 19,
+          "module_sources_sha256": "eeb9b6339550e0845c3b49ba0bbba61d90ec6b614a2d2589db6faae76421b2c8",
+          "revision": "4e328305323eafc7fd43ecc0c53eb3cc0541fdef",
+          "version": "0.12.2"
+        },
+        "npu-top": {
+          "module_source_file_count": 17,
+          "module_sources_sha256": "a2f147eaeb94e614d349b6cabf878fca21aa0c0a566c7c948a773240fe5c6041",
+          "revision": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
+          "version": "0.1.9"
+        },
+        "remote-dev": {
+          "module_source_file_count": 20,
+          "module_sources_sha256": "d0fbf26e1c3e7ecb025327a57dce33f5d108f4fa8251c2229fc7b98ca7b77030",
+          "revision": "a6649222aae4851deec5774513f8319aece09051",
+          "version": "0.10.1"
+        }
+      },
+      "schema": "mindie-product-public-runtime/1",
+      "sha256": "54d51762962fb93ba3dc1be5f888ff60e9b295fffcc84bf62302fb8465a26d5d",
+      "tasks": {
+        "fused-rmsnorm-gate-dispatch-performance": {
+          "oracle_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "task_sha256": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff"
+        }
+      }
+    },
+    {
+      "actual_runtime_sha256": "bca801b78551d6b60fca13eb50032e04e87da38516e8b91e5f6a5b57a3d0f4ed",
+      "benchmark": {
+        "revision": "cccccccccccccccccccccccccccccccccccccccc",
+        "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "version": "0.3.0"
+      },
+      "budget": {
+        "human_interventions": 0,
+        "max_wall_clock_sec": 3361.65,
+        "npu_runs": 8,
+        "total_model_calls": 40
+      },
+      "catalog": {
+        "empty_proof_sha256": null,
+        "schema": "mindie-catalog/1",
+        "sha256": "3ad10f93c2a47bd6cea5a0dc06ac2ff21dbde69ca087fa7a80f9016f2440b4b2",
+        "source_revision": null,
+        "units": 3
+      },
+      "catalog_sha256": "622882e3982f8a2be7eda874ac0ec771524b12c8482258a3ce1ea59a30d1f1f5",
+      "conditions": {
+        "inference_profile": "temperature=0",
+        "input_digest": "input:fused-rmsnorm-gate-dispatch-performance",
+        "knowledge_cutoff": "2026-10-01",
+        "model_id": "deepseek-flash",
+        "oracle_digest": "3d37c49ce17b48de5965383d6a1fbf4af8f221b1d88f483ecffe2281bcdc41c8",
+        "persistence_permission_digest": "persist-sha",
+        "task_start_digest": "start:fused-rmsnorm-gate-dispatch-performance",
+        "tool_permission_digest": "tools-sha"
+      },
+      "derived_inputs_sha256": "c739b2bff1fed912df281971c98605584c00c0735dd639abe572b38d789b68b9",
+      "group": "P2_v003_full",
+      "loaded_identity_sha256": "42fa61d033412a0847d4983a078d8f1a9fe9623f3a2d29f11fffd8ae4eced613",
+      "native_config_sha256": "8b7ab41adcc42839ff5572d05678e76a1bd956c39d25a5198cb621de71e2e27b",
+      "native_plugin": {
+        "contribution_enabled": false,
+        "host_entry_sha256": "3150fcfb8e0968a83e58886c45b48f3d261267b207a92d5cea71bbe498036a7a",
+        "package_sha256": "5b4f08e9585da4f997f51995187c94e3654bdf427653d1763830737fa2dd0cf8"
+      },
+      "profile_id": "fused-shared-budget-P2_v003_full",
+      "runtime_modules": {
+        "coordinator": {
+          "module_source_file_count": 21,
+          "module_sources_sha256": "ac4f6675789d6340ee1afc0812de5e93998239a0d76e32e76a9b9cf1cc4231d7",
+          "revision": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
+          "version": "0.5.3"
+        },
+        "diagnostics": {
+          "module_source_file_count": 21,
+          "module_sources_sha256": "d7516417f7ff656945938ebd093b95af7c625b6718bf4b1950462b73e2319969",
+          "revision": "e581f83d0c752738600cf67202a72fb409cabea2",
+          "version": "0.0.3"
+        },
+        "knowledge": {
+          "module_source_file_count": 19,
+          "module_sources_sha256": "884c96c6d8801428bee7a2553c5fd47ecf55ba895ffedbbc6fb91400623e6145",
+          "revision": "3abdebac568714e29536991415c12059cc308357",
+          "version": "0.0.3"
+        },
+        "npu-top": {
+          "module_source_file_count": 17,
+          "module_sources_sha256": "a2f147eaeb94e614d349b6cabf878fca21aa0c0a566c7c948a773240fe5c6041",
+          "revision": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
+          "version": "0.1.9"
+        },
+        "remote-dev": {
+          "module_source_file_count": 20,
+          "module_sources_sha256": "e582d479b3027ea4bd7c86bd3c4f3264cb9bcd540ff2d4f01160bdf95cf7fd9e",
+          "revision": "4bde385536a4a7e2a06fb5ff63a332aa3a490807",
+          "version": "0.0.3"
+        }
+      },
+      "schema": "mindie-product-public-runtime/1",
+      "sha256": "6e35440d1b349e9b95a8d2439cb427c66af56d98bf3fb6eda3117d9c0500aee8",
+      "tasks": {
+        "fused-rmsnorm-gate-dispatch-performance": {
+          "oracle_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "task_sha256": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff"
+        }
+      }
+    }
+  ],
+  "schema_version": "mindie-value-evidence/2",
+  "setup_reports": [],
+  "suite_identity": "a9ea076bddd8135c96679130baf26786ccbceb29737df6ecfa40207a17c76e7c"
+}

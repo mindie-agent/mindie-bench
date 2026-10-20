@@ -1,7 +1,10 @@
-"""Foreground knowledge calls observed by the parent-owned MCP broker.
+"""[Role] Measure foreground knowledge calls in the parent-owned MCP broker.
 
-Native tool lists miss MCP clients launched inside a shell. Broker request and
-response records cover those calls without counting catalogs or G3 consumers.
+[Invariants] Native tool lists can miss shell-launched MCP clients. Completed
+preflight reads are separated only by the runner's explicit preflight boundary;
+incomplete calls and clock mismatches remain visible.
+[Timeouts & Locks] Local bounded journal parsing; no waits or locks.
+[Side-Effect Policy] Reads original request/response receipts without mutation.
 """
 
 from __future__ import annotations
@@ -38,10 +41,17 @@ def _identity(event):
     return server, session, type(request).__name__, request
 
 
-def summarize_broker_knowledge(path: Path, *, process_origin_monotonic_sec: float | None = None) -> dict:
+def summarize_broker_knowledge(
+    path: Path,
+    *,
+    process_origin_monotonic_sec: float | None = None,
+    preflight_finished_monotonic_sec: float | None = None,
+) -> dict:
     """Read one foreground broker journal; malformed settlement is never zero."""
     if process_origin_monotonic_sec is not None:
         _number(process_origin_monotonic_sec)
+    if preflight_finished_monotonic_sec is not None:
+        _number(preflight_finished_monotonic_sec)
     calls, active, last_finished, digest = [], {}, {}, hashlib.sha256()
     with path.open("rb") as stream:
         for line_number, line in enumerate(stream, 1):
@@ -95,7 +105,14 @@ def summarize_broker_knowledge(path: Path, *, process_origin_monotonic_sec: floa
                     last_finished[key] = observed
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"invalid broker knowledge event line {line_number}: {exc}") from exc
-    rows = calls
+    preflight = [
+        row
+        for row in calls
+        if preflight_finished_monotonic_sec is not None
+        and row["ended_monotonic_sec"] is not None
+        and row["ended_monotonic_sec"] <= preflight_finished_monotonic_sec
+    ]
+    rows = [row for row in calls if row not in preflight]
     completed = [row for row in rows if row["ended_monotonic_sec"] is not None]
     intervals = sorted((row["started_monotonic_sec"], row["ended_monotonic_sec"]) for row in completed)
     merged = []
@@ -139,6 +156,12 @@ def summarize_broker_knowledge(path: Path, *, process_origin_monotonic_sec: floa
         failed_calls=sum(row["is_error"] is True for row in completed),
         incomplete_calls=len(rows) - len(completed),
         calls=rows,
+        preflight=dict(
+            finished_monotonic_sec=preflight_finished_monotonic_sec,
+            completed_calls=len(preflight),
+            calls=preflight,
+            scope="completed reads before the runner's explicit MCP preflight boundary",
+        ),
         timing=dict(
             calls=len(rows),
             observed_intervals=len(completed),
@@ -168,5 +191,5 @@ def summarize_broker_knowledge(path: Path, *, process_origin_monotonic_sec: floa
         process_origin_monotonic_sec=process_origin_monotonic_sec,
         relative_intervals=relative,
         alignment_reason=alignment_reason,
-        scope="foreground broker admitted tools only; catalogs and independent G3 consumers excluded",
+        scope="foreground broker tools; completed preflight reads, catalogs and G3 consumers excluded",
     )

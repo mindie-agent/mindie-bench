@@ -1,0 +1,219 @@
+{
+  "ablation_group": "G1",
+  "artifacts": {
+    "private_trial_dir": "/private/trial"
+  },
+  "auxiliary_metrics": {
+    "budget_exceeded": false,
+    "business_terminal_status": "completed_pass",
+    "capture": {
+      "consumer": {
+        "revision": "consumer-1"
+      },
+      "corpus_lint": {
+        "status": "passed"
+      },
+      "publication": {
+        "revision": "publication-1"
+      },
+      "status": "completed"
+    },
+    "lifecycle_budget": {
+      "budget_exceeded": false,
+      "declared_total_sec": 3361.65,
+      "measured_total_sec": 110.0,
+      "overrun": false,
+      "overrun_sec": 0.0
+    },
+    "verifier_wall_clock_sec": 2.0
+  },
+  "environment_fingerprint": {
+    "backend": "native",
+    "base_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "base_model": "deepseek-flash",
+    "benchmark_source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "benchmark_version": "0.3.0",
+    "budget": {
+      "max_turns": 40
+    },
+    "component_revisions": {
+      "coordinator": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
+      "diagnostics": "1b5a0eeb79d498c39002fc1853271c17e0f26e66",
+      "dsh": "d3a1e1282356b65b51fba49072c1842918746f8f",
+      "knowledge": "4e328305323eafc7fd43ecc0c53eb3cc0541fdef",
+      "mindie-bench": "cccccccccccccccccccccccccccccccccccccccc",
+      "npu-top": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
+      "remote-dev": "a6649222aae4851deec5774513f8319aece09051"
+    },
+    "components": [
+      "coordinator",
+      "diagnostics",
+      "knowledge",
+      "npu-top",
+      "remote-dev",
+      "dsh"
+    ],
+    "experiment_context": {
+      "actual_runtime": {
+        "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "native_product": {
+          "contribution_enabled": false,
+          "host_entry_sha256": "e5b629df839b9615bd976009e5e29695e8d8a5e426d2e24d87dc11862d1ad775",
+          "package_sha256": "3a980b2b3fb4ac6f1690bf89c28738ab095e4854d7f763b7d2be45b536b8b708",
+          "runtime_identity": {
+            "components": {
+              "coordinator": {
+                "module_source_file_count": 21,
+                "module_sources_sha256": "ac4f6675789d6340ee1afc0812de5e93998239a0d76e32e76a9b9cf1cc4231d7",
+                "revision": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
+                "version": "0.5.3"
+              },
+              "diagnostics": {
+                "module_source_file_count": 21,
+                "module_sources_sha256": "c3c91f287aa5562428611c51bbc31866eb3c1c74e50f876ca36dec8920f2d1af",
+                "revision": "1b5a0eeb79d498c39002fc1853271c17e0f26e66",
+                "version": "0.4.3"
+              },
+              "knowledge": {
+                "module_source_file_count": 19,
+                "module_sources_sha256": "eeb9b6339550e0845c3b49ba0bbba61d90ec6b614a2d2589db6faae76421b2c8",
+                "revision": "4e328305323eafc7fd43ecc0c53eb3cc0541fdef",
+                "version": "0.12.2"
+              },
+              "npu-top": {
+                "module_source_file_count": 17,
+                "module_sources_sha256": "a2f147eaeb94e614d349b6cabf878fca21aa0c0a566c7c948a773240fe5c6041",
+                "revision": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
+                "version": "0.1.9"
+              },
+              "remote-dev": {
+                "module_source_file_count": 20,
+                "module_sources_sha256": "d0fbf26e1c3e7ecb025327a57dce33f5d108f4fa8251c2229fc7b98ca7b77030",
+                "revision": "a6649222aae4851deec5774513f8319aece09051",
+                "version": "0.10.1"
+              }
+            }
+          }
+        }
+      },
+      "cell": {
+        "cohort": "fused-shared-budget",
+        "group": "P1_v002_baseline",
+        "hardware_tier": "A2",
+        "order": 1,
+        "profile_id": "fused-shared-budget-P1_v002_baseline",
+        "protocol": "matched-product/1",
+        "repetition": 1,
+        "task_family": "performance",
+        "task_id": "fused-rmsnorm-gate-dispatch-performance"
+      },
+      "cohort": "fused-shared-budget",
+      "derived_inputs_sha256": "c739b2bff1fed912df281971c98605584c00c0735dd639abe572b38d789b68b9",
+      "execution_tier": "l3",
+      "internal_capability_mode": "G1",
+      "max_wall_clock_sec": 3361.65,
+      "native_config_sha256": "8f220b499c8704432521613648f55b658c4ce4ecd16b428966daffe6288a9ed3",
+      "profile": {
+        "budget": {
+          "capture_cost_usd": 0.0,
+          "capture_model_calls": 0,
+          "capture_organizer_cost_usd": 0.0,
+          "capture_organizer_model_calls": 0,
+          "child_model_calls": 0,
+          "foreground_model_calls": 40,
+          "human_interventions": 0,
+          "independent_review_cost_usd": 0.0,
+          "independent_review_model_calls": 0,
+          "lifecycle_cost_usd": null,
+          "lifecycle_model_calls": null,
+          "max_cost_usd": 2.0,
+          "max_wall_clock_sec": 3361.65,
+          "npu_runs": 8,
+          "organizer_cost_usd": 0.0,
+          "organizer_model_calls": 0,
+          "review_cost_usd": 0.0,
+          "review_model_calls": 0,
+          "seed_cost_usd": 0.0,
+          "seed_model_calls": 0,
+          "seed_npu_runs": 0,
+          "total_model_calls": 40,
+          "unknown_cost_roles": []
+        },
+        "cohort": "fused-shared-budget",
+        "conditions": {
+          "inference_profile": "temperature=0",
+          "input_digest": "input:fused-rmsnorm-gate-dispatch-performance",
+          "knowledge_cutoff": "2026-10-01",
+          "model_id": "deepseek-flash",
+          "oracle_digest": "3d37c49ce17b48de5965383d6a1fbf4af8f221b1d88f483ecffe2281bcdc41c8",
+          "persistence_permission_digest": "persist-sha",
+          "task_start_digest": "start:fused-rmsnorm-gate-dispatch-performance",
+          "tool_permission_digest": "tools-sha"
+        },
+        "conditions_fingerprint": "b8df464268138c0d1064e4454689fbed5e90de37b8c2cd67a36fe3d8dfdeb76c",
+        "description": "MindIE Agent v0.0.2",
+        "experiment_profile": "profile:7a802e9679c341a241760e2cad470ddefc3a7a08d77447d04591928f7141230b",
+        "fidelity": "matched",
+        "group": "P1_v002_baseline",
+        "notes": "",
+        "p3_lineage": null,
+        "preserved_capabilities": [],
+        "profile_id": "fused-shared-budget-P1_v002_baseline",
+        "protocol": "matched-product/1"
+      },
+      "profile_group": "P1_v002_baseline",
+      "profile_id": "fused-shared-budget-P1_v002_baseline",
+      "profile_sha256": "a567f342fe22e0823aabca4d947076a10fc50d488886cf87e36450bc851bbd6d",
+      "protocol": "matched-product/1",
+      "runtime_manifest": "/private/runtime.json",
+      "runtime_manifest_sha256": "54d51762962fb93ba3dc1be5f888ff60e9b295fffcc84bf62302fb8465a26d5d",
+      "schema": "mindie-bench-product-execution/1",
+      "task_sha256": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff"
+    },
+    "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "harness_name": "dsh",
+    "harness_version": "native",
+    "host_arch": "arm64",
+    "host_os": "test",
+    "npu_count": 1,
+    "npu_model": "910B",
+    "provider_url": "http://private-service",
+    "reasoning_effort": "high",
+    "remote_environment": {
+      "host": "private-host"
+    }
+  },
+  "errors": [],
+  "evidence": "synthetic",
+  "experiment_digest": "8f220b499c8704432521613648f55b658c4ce4ecd16b428966daffe6288a9ed3",
+  "failure_reason": null,
+  "instance_id": "fused-rmsnorm-gate-dispatch-performance",
+  "knowledge_gradient": "no_hit",
+  "primary_metrics": {
+    "cost_complete": true,
+    "delivery_wall_clock_sec": 110.0,
+    "estimated_cost_usd": 0.1,
+    "manual_interventions": 0,
+    "model_calls": 5,
+    "npu_test_runs": 1,
+    "resolved": true,
+    "reward": 1.0,
+    "tokens": {
+      "cache_creation": 0,
+      "complete": true,
+      "indexer_small_model_total": 0,
+      "input_cached": 10,
+      "input_uncached": 100,
+      "output": 20
+    },
+    "total_wall_clock_sec": 100.0,
+    "zero_human_intervention": true
+  },
+  "repetition": 1,
+  "schema_version": "mindie-bench-receipt/1.0",
+  "task_digest": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff",
+  "task_role": "eval",
+  "terminal_status": "completed_pass",
+  "tier": "l3",
+  "trial_id": "fused-shared-budget-P1_v002_baseline-fused-rmsnorm-gate-dispatch-performance"
+}
