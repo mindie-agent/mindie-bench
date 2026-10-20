@@ -46,16 +46,20 @@ def derive_inputs(
     tier: str,
     *,
     knowledge_cutoff: str,
+    native_product: bool | None = None,
+    knowledge_sessions: int | None = None,
 ) -> dict:
     starts, inputs, oracles, task_rows, budgets, permissions = {}, {}, {}, {}, [], {}
     phase_budgets = []
     selected_groups = [group for group in config.groups.values() if group]
-    native_product = any(group.native_dsh_plugin for group in selected_groups)
-    knowledge_sessions = 8 if any(
-        server.component == "knowledge"
-        for group in selected_groups
-        for server in group.mcp_servers.values()
-    ) else 0
+    if native_product is None:
+        native_product = any(group.native_dsh_plugin for group in selected_groups)
+    if knowledge_sessions is None:
+        knowledge_sessions = 8 if any(
+            server.component == "knowledge"
+            for group in selected_groups
+            for server in group.mcp_servers.values()
+        ) else 0
     g3 = config.groups.get(Group.G3)
     capture_timeout_sec = g3.capture_timeout_sec if g3 is not None else None
     for task_id, root in sorted(tasks.items()):
