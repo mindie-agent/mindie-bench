@@ -117,10 +117,8 @@ def test_shared_phase_budget_uses_real_owner_bounds_and_shared_allowance():
 
     import pytest
 
-    from mindie_bench.models import TerminalStatus
     from mindie_bench.runner.orchestrator import (
         ProductDeadlineExhausted,
-        budget_outcome,
         product_execution_window,
     )
     from mindie_bench.runner.phase_budget import lifecycle_overrun, product_phase_budget
@@ -164,14 +162,6 @@ def test_shared_phase_budget_uses_real_owner_bounds_and_shared_allowance():
     assert overtime["overrun"] is True and overtime["overrun_sec"] == 7.5
     inside = lifecycle_overrun(budget["total_delivery_sec"], budget["total_delivery_sec"] - 1.0)
     assert inside["overrun"] is False and inside["overrun_sec"] == 0.0
-
-    # Over-budget keeps an irreversible unknown unknown, but never keeps PASS.
-    over = budget["total_delivery_sec"] + 1.0
-    assert budget_outcome(TerminalStatus.PASS, over, budget["total_delivery_sec"]) is TerminalStatus.FAIL
-    assert budget_outcome(TerminalStatus.FAIL, over, budget["total_delivery_sec"]) is TerminalStatus.FAIL
-    assert budget_outcome(TerminalStatus.UNKNOWN, over, budget["total_delivery_sec"]) is TerminalStatus.UNKNOWN
-    assert budget_outcome(TerminalStatus.INFRA, over, budget["total_delivery_sec"]) is TerminalStatus.INFRA
-    assert budget_outcome(TerminalStatus.PASS, 1.0, 2.0) is TerminalStatus.PASS
 
     with_capture = product_phase_budget(
         100.0, 20.0, remote=True, native_product=True, knowledge_sessions=8, capture_timeout_sec=120.0

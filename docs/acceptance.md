@@ -5,6 +5,11 @@ It introduces no Kimi driver, public publication, PR or Release. The experiments
 below use real models unless explicitly marked zero-model. Raw trials remain
 under `reports/`; development configuration errors are repaired in place.
 
+Budget classifications below preserve the historical runner policy. Since
+2026-10-20, a settled budget stop no longer rejects an independently verified
+artifact: business acceptance and budget compliance are reported separately.
+Original receipts and result tables are not rewritten or silently rescored.
+
 ## Implemented contracts
 
 | Requirement | Implementation and acceptance |

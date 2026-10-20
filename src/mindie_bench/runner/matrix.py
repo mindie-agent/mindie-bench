@@ -328,7 +328,8 @@ def observation_from_receipt(receipt: TrialReceipt, *, cell: ProductCell) -> Pro
         model_calls=primary.get("model_calls"),
         tokens_total=_receipt_tokens_total(primary.get("tokens")),
         estimated_cost_usd=cost,
-        total_wall_clock_sec=primary.get("total_wall_clock_sec"),
+        # Product budgets cover delivery, including preparation, verification and cleanup.
+        total_wall_clock_sec=primary.get("delivery_wall_clock_sec"),
         npu_runs=npu_runs,
         manual_interventions=manual_interventions,
         notes=notes,
@@ -461,37 +462,27 @@ def _budget_contract(profile: ProductProfile) -> dict:
     }
 
 
-def _budget_overruns(
-    cells: Sequence[ProductCell],
-    observations: Mapping[tuple[ProductGroup, str, int], ProductObservation],
-    profile: ProductProfile,
-) -> tuple[dict, ...]:
-    """Keep observed-vs-declared overruns visible instead of silently averaging."""
+def observation_budget(observation: ProductObservation, profile: ProductProfile) -> dict:
+    """Report actual resource compliance independently of the business result."""
     declared = {
         "model_calls": profile.budget.total_model_calls,
         "npu_runs": profile.budget.npu_runs,
         "total_wall_clock_sec": profile.budget.max_wall_clock_sec,
+        "manual_interventions": profile.budget.human_interventions,
     }
     if profile.budget.max_cost_usd is not None:
         declared["estimated_cost_usd"] = profile.budget.max_cost_usd
-    overruns = []
-    for cell in cells:
-        observation = observations.get(cell.key())
-        if observation is None:
-            continue
-        for field, limit in declared.items():
-            observed = getattr(observation, field)
-            if observed is not None and observed > limit:
-                overruns.append(
-                    {
-                        "task_id": cell.task_id,
-                        "repetition": cell.repetition,
-                        "field": field,
-                        "observed": observed,
-                        "declared": limit,
-                    }
-                )
-    return tuple(overruns)
+    missing = [field for field in declared if getattr(observation, field) is None]
+    overruns = [
+        dict(task_id=observation.task_id, repetition=observation.repetition,
+             field=field, observed=getattr(observation, field), declared=limit)
+        for field, limit in declared.items()
+        if getattr(observation, field) is not None and getattr(observation, field) > limit
+    ]
+    return dict(
+        exceeded=True if overruns else None if missing else False,
+        unmeasured_fields=missing, overruns=overruns,
+    )
 
 
 def build_product_report(
@@ -533,7 +524,10 @@ def build_product_report(
             tuple(cell.to_dict() for cell in cells if cell.key() not in by_key),
             present,
             p3_lineage=profile.p3_lineage.to_dict() if profile.p3_lineage else None,
-            budget_overruns=_budget_overruns(cells, by_key, profile),
+            budget_overruns=tuple(
+                item for observation in present
+                for item in observation_budget(observation, profile)["overruns"]
+            ),
             budget_contract=_budget_contract(profile),
             **_attempt_totals(present, len(cells)),
         )

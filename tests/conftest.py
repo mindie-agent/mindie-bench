@@ -91,8 +91,11 @@ if "--version" in sys.argv:
 prompt=sys.stdin.read()
 if "mode=sleep" in prompt:
     time.sleep(30)
-if "mode=working_sleep" in prompt:
-    pathlib.Path("module.py").read_text()
+if "mode=working_sleep" in prompt or "mode=repair_then_sleep" in prompt:
+    if "mode=repair_then_sleep" in prompt:
+        pathlib.Path("module.py").write_text("VALUE = 2\\n")
+    else:
+        pathlib.Path("module.py").read_text()
     print(json.dumps({{"type":"fixture.trajectory","trajectory":{{
         "total_turns":1,"calls":[{{"id":"1","name":"Read",
         "arguments":{{"file_path":"module.py"}},"turn":1,"started_sec":0.0,"ended_sec":0.001}}]

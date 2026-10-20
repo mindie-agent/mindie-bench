@@ -82,6 +82,34 @@ def test_empty_summary_has_no_measured_zero_or_matrix_reliability_claim():
     assert result["reliability_coverage"]["state"] == "empty"
     assert result["matrix_coverage"]["complete"] is None
     assert result["matrix_coverage"]["reason"] == "plan_inventory_unavailable"
+    assert result["budget"]["pass_at_1_within_delivery_budget"] is None
+
+
+def test_budget_observation_coverage_keeps_missing_unknown_and_infra_visible():
+    rows = [
+        row(), row("late"), row("wrong", status="completed_fail"),
+        row("uncertain", status="unknown"), row("infra", status="infra_failed"),
+    ]
+    for index, receipt in enumerate(rows):
+        receipt.auxiliary_metrics["lifecycle_budget"] = dict(
+            overrun=index != 0, declared_total_sec=100, measured_total_sec=90 if index == 0 else 110,
+            overrun_sec=0 if index == 0 else 10,
+        )
+    result = summarize(rows)
+    assert result["pass_at_1"] == pytest.approx(2 / 3)
+    assert result["budget"]["pass_at_1_within_delivery_budget"] == pytest.approx(1 / 3)
+    assert result["budget"]["delivery_budget_exceeded_attempts"] == 4
+    assert result["budget"]["completed_pass_over_delivery_budget"] == 1
+    assert result["budget"]["delivery_budget_valid_attempts"] == 3
+    assert result["budget"]["agent_limit_observed_attempts"] == 0
+    del rows[0].auxiliary_metrics["lifecycle_budget"]
+    assert summarize(rows)["budget"]["pass_at_1_within_delivery_budget"] is None
+
+
+def test_explicit_plan_evidence_mismatch_cannot_claim_complete_coverage():
+    result = summarize([row()], expected_cells=[dict(cell(), evidence="verified")])
+    assert result["matrix_coverage"]["complete"] is False
+    assert result["matrix_coverage"]["identity_mismatches"][0]["fields"] == ["evidence"]
 
 
 def test_knowledge_timing_comparison_rejects_different_measurement_scopes():

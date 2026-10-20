@@ -18,7 +18,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from dataclasses import replace
 from pathlib import Path
 
 from mindie_bench.io import digest, read_json, write_json
@@ -346,10 +345,7 @@ def evaluate_product(suite: dict, evidence: dict, *, base: Path | None = None) -
             or row.environment_fingerprint.get("benchmark_source_sha256") != benchmark["source_sha256"]
         ):
             raise ValueError("receipt model or common benchmark runner differs")
-        observation = replace(
-            observation_from_receipt(row, cell=cell),
-            total_wall_clock_sec=row.primary_metrics.get("delivery_wall_clock_sec"),
-        )
+        observation = observation_from_receipt(row, cell=cell)
         return cohort_id, cell.group, cell.task_id, cell.repetition, observation, row
 
     for raw in evidence.get("receipts", []):

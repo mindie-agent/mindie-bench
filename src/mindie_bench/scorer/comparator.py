@@ -6,6 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 from statistics import mean
 
+from mindie_bench.evaluation.accounting import scope_cells
 from mindie_bench.io import digest, read_json, write_json
 from mindie_bench.models import TerminalStatus, TrialReceipt
 from mindie_bench.scorer.components import summarize_five_components
@@ -76,6 +77,8 @@ def comparison(
     role: str = "eval",
     expected_cells: list[dict] | None = None,
     blocked_cells: list[dict] | None = None,
+    baseline_cells: list[dict] | None = None,
+    candidate_cells: list[dict] | None = None,
 ) -> dict:
     if role not in {"seed", "eval"}:
         raise ValueError("comparison role must be seed or eval")
@@ -116,18 +119,25 @@ def comparison(
         skills = [row.environment_fingerprint.get("skills_sha256") for row in (a, b)]
         if all(skills) and skills[0] != skills[1]:
             raise ValueError("shared skill snapshot changed")
+    plans = [
+        baseline_cells if baseline_cells is not None else expected_cells,
+        candidate_cells if candidate_cells is not None else expected_cells,
+    ]
+    plans_available = all(plan is not None for plan in plans)
     a, b = [
         summarize(
             rows,
             k=k,
-            expected_cells=_declared_scope(
-                expected_cells, rows[0].tier, rows[0].ablation_group.value, role
+            expected_cells=scope_cells(
+                plan, rows[0].tier, rows[0].ablation_group.value, role,
+                evidence=rows[0].evidence, receipts=rows,
             ),
-            blocked_cells=_declared_scope(
-                blocked_cells, rows[0].tier, rows[0].ablation_group.value, role
+            blocked_cells=scope_cells(
+                blocked_cells, rows[0].tier, rows[0].ablation_group.value, role,
+                evidence=rows[0].evidence, receipts=rows,
             ),
         )
-        for rows in (baseline, candidate)
+        for rows, plan in zip((baseline, candidate), plans, strict=True)
     ]
     if any(
         side["matrix_coverage"].get(field)
@@ -292,7 +302,7 @@ def comparison(
         and b["matrix_coverage"]["complete"]
         and a["seed_setup_complete"]
         and b["seed_setup_complete"]
-        if expected_cells is not None
+        if plans_available
         else None
     )
     time_observed_pairs = sum(
@@ -331,7 +341,7 @@ def comparison(
             complete=declared_complete,
             reason=(
                 "plan_inventory_unavailable"
-                if expected_cells is None
+                if not plans_available
                 else "incomplete_declared_cells_or_seed_setup"
                 if not declared_complete
                 else None
@@ -339,7 +349,7 @@ def comparison(
             whole_population_reliability_complete=(
                 a["reliability_coverage"]["complete_for_declared_cells"]
                 and b["reliability_coverage"]["complete_for_declared_cells"]
-                if expected_cells is not None
+                if plans_available
                 else None
             ),
         ),
@@ -419,7 +429,7 @@ def comparison(
                 and b["reliability_coverage"]["complete_for_observed_tasks"],
                 reason=(
                     "plan_inventory_unavailable"
-                    if expected_cells is None
+                    if not plans_available
                     else "incomplete_declared_cells_or_seed_setup"
                     if not declared_complete
                     else "insufficient_valid_independent_repetitions"
@@ -575,6 +585,21 @@ def markdown(result: dict) -> str:
                         f"{fmt(values['observed_score'])} | {values['tasks_with_valid_evidence']} / "
                         f"{values['tasks']} |"
                     )
+    rows += [
+        "", "## Budget observations", "",
+        "Business completion and measured performance are retained when a budget is reached or exceeded.",
+        "Agent-limit stops do not imply that the stopped artifact failed verification.", "",
+        "| Observation | Baseline | Candidate |", "| --- | ---: | ---: |",
+    ]
+    for field in (
+        "agent_budget_exhausted_attempts", "completed_pass_at_agent_limit",
+        "delivery_budget_observed_attempts", "delivery_budget_exceeded_attempts",
+        "completed_pass_over_delivery_budget", "pass_at_1_within_delivery_budget",
+    ):
+        rows.append(
+            f"| {field} | {fmt(result['baseline']['budget'][field])} | "
+            f"{fmt(result['candidate']['budget'][field])} |"
+        )
     rows += [
         "",
         "Timing means above use valid completed-pass/completed-fail attempts with recorded times; "
@@ -738,18 +763,6 @@ def freeze(receipts: list[TrialReceipt], destination: Path):
     )
 
 
-def _declared_scope(cells, tier, group, role):
-    if cells is None:
-        return None
-    if any(not isinstance(cell, dict) or not {"tier", "group", "role"} <= cell.keys() for cell in cells):
-        raise ValueError("declared cells require tier, group and role")
-    return [
-        cell
-        for cell in cells
-        if cell["tier"] == tier and cell["group"] == group and cell["role"] == role
-    ]
-
-
 def grouped_summaries(receipts, *, expected_cells=None, blocked_cells=None):
     groups = defaultdict(list)
     for receipt in receipts:
@@ -759,8 +772,14 @@ def grouped_summaries(receipts, *, expected_cells=None, blocked_cells=None):
         "/".join(key): dict(
             **summarize(
                 rows,
-                expected_cells=_declared_scope(expected_cells, key[0], key[2], rows[0].task_role),
-                blocked_cells=_declared_scope(blocked_cells, key[0], key[2], rows[0].task_role),
+                expected_cells=scope_cells(
+                    expected_cells, key[0], key[2], rows[0].task_role,
+                    evidence=key[1], receipts=receipts,
+                ),
+                blocked_cells=scope_cells(
+                    blocked_cells, key[0], key[2], rows[0].task_role,
+                    evidence=key[1], receipts=receipts,
+                ),
             ),
             five_component_attribution=summarize_five_components(rows),
         )

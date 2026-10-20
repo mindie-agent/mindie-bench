@@ -290,6 +290,10 @@ Two zero-model native checks passed:
 Pilots 1-3 used `home/codex/gpt-6.1-sol`, Codex adapter `4e4efca...` and the
 original runtime image. They are not cells of the new matched comparison.
 
+These terminal states retain the policy used by the historical runner. Since
+2026-10-20, settled budget stops are assessed by the independent judge and budget
+compliance is reported separately; the archived receipts are unchanged.
+
 | Original attempt | Preserved terminal state | What the evidence establishes |
 | --- | --- | --- |
 | `native-g0-smoke-1/` | `completed_fail`, `max_turns` at 20 | External final judge passed, but the capped trial earns no pass |

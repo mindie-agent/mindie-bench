@@ -9,7 +9,8 @@
 from collections import Counter, defaultdict
 from statistics import geometric_mean, mean
 
-from mindie_bench.evaluation.accounting import cell_key, receipt_cell
+from mindie_bench.evaluation.accounting import cell_key, receipt_cell, scope_cells
+from mindie_bench.evaluation.budget import receipt_budget, summarize_budget
 from mindie_bench.evaluation.inference import evaluate_inference
 from mindie_bench.evaluation.performance import validate_performance
 from mindie_bench.inference_models import InferenceContract, InferenceEvidence
@@ -30,7 +31,8 @@ def _observation(receipt, contract):
     evidence = InferenceEvidence.model_validate(raw)
     result = evaluate_inference(contract, evidence)
     fingerprint = receipt.environment_fingerprint
-    native_failed = bool(fingerprint.get("inference_native_stop_reason"))
+    result["budget"] = receipt_budget(receipt)
+    native_failed = False
     if fingerprint.get("performance_contract"):
         gates = validate_performance(
             VerifierResult(reward=receipt.primary_metrics["reward"],
@@ -41,7 +43,15 @@ def _observation(receipt, contract):
         native_failed = native_failed or gates["status"] == "failed"
     if receipt.terminal_status == TerminalStatus.PASS and (not result["accepted"] or native_failed):
         raise ValueError("successful native receipt contradicts inference gates")
-    if receipt.terminal_status == TerminalStatus.FAIL and (result["accepted"] or native_failed):
+    # Older delivery-budget receipts explicitly retained the pre-overrun verdict.
+    # Use that evidence without changing their historical terminal classification.
+    budget_only_failure = (
+        result["budget"]["delivery_budget_exceeded"] is True
+        and receipt.auxiliary_metrics.get("business_terminal_status") == TerminalStatus.PASS.value
+    )
+    if receipt.terminal_status == TerminalStatus.FAIL and (
+        native_failed or (result["accepted"] and not budget_only_failure)
+    ):
         # Other native gates (ACLGraph, workspace, final process state) still
         # reject the candidate. A fast but rejected patch is never a scored gain.
         result = dict(result, score=0.0 if contract.category == "model_support" else 1.0,
@@ -69,9 +79,9 @@ def summarize_inference(receipts, *, expected_cells=None):
         cohorts[key].append(row)
     reports = []
     for key, rows in sorted(cohorts.items()):
-        planned = [cell for cell in declared if (
-            cell["tier"], cell["group"], cell.get("role", "eval")
-        ) == (key[0], key[2], key[3])]
+        planned = scope_cells(
+            declared, key[0], key[2], key[3], evidence=key[1], receipts=selected,
+        )
         expected = {cell_key(cell): cell for cell in planned}
         if len(expected) != len(planned):
             raise ValueError("duplicate planned inference cells")
@@ -121,6 +131,7 @@ def summarize_inference(receipts, *, expected_cells=None):
         reports.append(dict(
             tier=key[0], evidence=key[1], group=key[2], role=key[3], experiment_digest=key[4],
             harness_controls_sha256=key[5], tasks=tasks, tracks=tracks,
+            budget=summarize_budget(rows),
         ))
     return dict(
         schema_version="mindie-bench-inference-summary/1", cohorts=reports,

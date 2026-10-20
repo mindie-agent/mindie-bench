@@ -17,6 +17,11 @@ def render(summaries: dict) -> str:
             display(summary["pass_pow_k"]),
             display(summary.get("mean_delivery_wall_clock_sec")),
             display(summary["cost_per_resolved_task"]),
+            (
+                f"{display(summary.get('budget', {}).get('delivery_budget_exceeded_attempts'))} / "
+                f"{display(summary.get('budget', {}).get('delivery_budget_observed_attempts'))}"
+            ),
+            display(summary.get("budget", {}).get("pass_at_1_within_delivery_budget")),
             str(summary["statuses"]),
         ]
         rows.append("<tr>" + "".join("<td>" + escape(value) + "</td>" for value in values) + "</tr>")
@@ -39,11 +44,14 @@ footer{font-size:15px;color:#48584e;max-width:850px;line-height:1.7}
 do not establish live NPU performance. Infrastructure failures and unknown attempts
 remain visible alongside valid-attempt scores.</p><div class="table"><table><thead><tr>
 <th>Tier / evidence / group</th><th>Attempts</th><th>Valid</th><th>Pass@1</th><th>Pass^k estimate</th>
-<th>Delivery seconds</th><th>$/resolved</th><th>All terminal counts</th>
+<th>Delivery seconds</th><th>$/resolved</th><th>Delivery overruns / observed</th>
+<th>Pass@1 within delivery budget</th><th>All terminal counts</th>
 </tr></thead><tbody>"""
         + "".join(rows)
         + """</tbody></table></div><footer>
 Pass^k is a per-task estimate requiring k valid repetitions, not a guarantee.
+Pass@1 retains verified business outcomes, including over-budget completions.
+Delivery overruns and within-budget success are reported separately.
 Unmeasured values are not zero. G3 seed rows are separate; the JSON ledger additionally
 records seed setup cost and cost per resolved evaluation including setup.
 Inspect receipts.json, leaderboard.json, trials.parquet and eval_manifest.json

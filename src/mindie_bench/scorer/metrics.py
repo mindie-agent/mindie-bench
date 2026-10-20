@@ -36,6 +36,7 @@ from statistics import mean
 
 from mindie_bench.evaluation.broker_knowledge import BASIS as BROKER_KNOWLEDGE_BASIS
 from mindie_bench.evaluation.broker_knowledge import SCHEMA as BROKER_KNOWLEDGE_SCHEMA
+from mindie_bench.evaluation.budget import summarize_budget
 from mindie_bench.evaluation.source_visibility import source_evidence_metrics
 from mindie_bench.models import (
     HarnessConfig,
@@ -1237,7 +1238,8 @@ def _matrix_coverage(receipts, expected_cells, blocked_cells) -> dict:
                 raise ValueError("duplicate declared matrix cell")
             indexed_cells[identity] = {
                 field: cell[field]
-                for field in ("instance_id", "tier", "group", "repetition", "role", "task_digest")
+                for field in ("instance_id", "tier", "group", "repetition", "role", "task_digest", "evidence")
+                if field in cell
             }
         return indexed_cells
 
@@ -1253,8 +1255,9 @@ def _matrix_coverage(receipts, expected_cells, blocked_cells) -> dict:
             raise ValueError("a blocked cell cannot also have a terminal receipt")
         if any(
             any(
-                blocked[identity][field] != expected[identity][field]
-                for field in ("role", "task_digest")
+                field in blocked[identity]
+                and blocked[identity][field] != expected[identity].get(field)
+                for field in ("role", "task_digest", "evidence")
             )
             for identity in blocked
         ):
@@ -1270,8 +1273,9 @@ def _matrix_coverage(receipts, expected_cells, blocked_cells) -> dict:
                 for field, value in (
                     ("role", actual[identity].task_role),
                     ("task_digest", actual[identity].task_digest),
+                    ("evidence", actual[identity].evidence),
                 )
-                if expected[identity][field] != value
+                if field in expected[identity] and expected[identity][field] != value
             ]
         )
     ]
@@ -1535,6 +1539,7 @@ def summarize(
     matrix = _matrix_coverage(receipts, expected_cells, blocked_cells)
     return dict(
         inference=summarize_inference(receipts, expected_cells=expected_cells),
+        budget=summarize_budget(receipts),
         attempts=len(receipts),
         statuses={s.value: statuses[s.value] for s in TerminalStatus},
         valid_attempts=len(valid),

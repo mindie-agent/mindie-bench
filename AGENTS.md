@@ -36,11 +36,12 @@ Every core module starts with a standardized **Module-Top Agent Invariant Header
 
 ### 2.1 Four-State Terminal Receipt Boundary (`TerminalStatus`)
 Every trial produces a `TrialReceipt` with one of four strictly separated terminal states:
-1. **`completed_pass` (`TerminalStatus.PASS`)**: Pre-flight probes succeeded, agent exited cleanly, read-only and environment guards held, and all sealed oracle tests passed (`exit 0`).
+1. **`completed_pass` (`TerminalStatus.PASS`)**: Pre-flight probes succeeded, agent completed or stopped at a known execution budget with settled effects, read-only and environment guards held, and all sealed oracle tests passed (`exit 0`).
 2. **`completed_fail` (`TerminalStatus.FAIL`)**: Infrastructure was healthy and workspace boundaries remained intact, but the agent's patch failed oracle tests, violated read-only paths, or left unauthorized residual processes.
 3. **`infra_failed` (`TerminalStatus.INFRA`)**: Pre-trial MCP probe failure, SSH/container connectivity loss, NPU hardware/driver fault, or clean test timeout where post-execution inventory proves zero residual processes and zero unauthorized writes.
 4. **`unknown` (`TerminalStatus.UNKNOWN`)**: Post-execution state is indeterminate (e.g., workspace inventory failed after timeout, oracle restoration failed, or residual processes survived termination).
    - **Scoring Invariant**: `pass@1`, `pass^k`, and valid wall-clock means are computed **strictly over valid terminal outcomes (`completed_pass` + `completed_fail`)**. `infra_failed` and `unknown` are reported in `statuses` and `matrix_coverage`—never silently folded into `completed_fail` or dropped from denominator reporting.
+   - **Budget Invariant**: Agent-limit exhaustion and total delivery overruns are separate resource observations. They never overwrite a verified business verdict, erase a measured slowdown, or promote an `infra_failed`/`unknown` outcome. Reports retain actual time/cost and expose budget compliance separately; complete plan coverage does not imply budget compliance.
 
 ### 2.2 Timeout Arithmetic Invariants (`outer_timeout >= sum(inner_budgets) + cleanup_grace`)
 All layered execution paths enforce strict timeout hierarchy so inner cleanup and inventory always complete before the outer caller gives up:

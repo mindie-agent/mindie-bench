@@ -10,7 +10,7 @@ observation beside the original trial receipt. No automatic retries.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -171,10 +171,7 @@ class ProductExecutor:
             raise ValueError("trial did not retain its pre-execution product binding")
         if receipt.task_digest != context["task_sha256"]:
             raise ValueError("trial used a different task")
-        observation = replace(
-            observation_from_receipt(receipt, cell=cell),
-            total_wall_clock_sec=receipt.primary_metrics.get("delivery_wall_clock_sec"),
-        )
+        observation = observation_from_receipt(receipt, cell=cell)
         trial_dir = Path(receipt.artifacts["private_trial_dir"])
         write_json(
             trial_dir / "product_observation.json",
