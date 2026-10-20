@@ -12,6 +12,8 @@ record four-gate outcomes.
 - Negative experience applies only to its observed conditions. Invalid
   measurements and valid sub-target speedups are not refutations; only
   supported and sub-target-valid candidates are `distill_ready`.
+- Speedup is the default objective. Correctness, localization and diagnosis
+  tasks report `goal_met`/`diagnostic_gain` instead of a synthetic ratio.
 - Compiles are CPU-only (`npu_count == 0`); NPU timing is serial, exclusive to
   the assigned device lease, and admitted only for proved compiles.
 - The ledger is append-only; PROGRESS.md is deterministic and atomically replaced.
@@ -63,16 +65,23 @@ def should_escalate_to_rsi(
     if not l3_attempts:
         return False, "no_l3_attempts_recorded"
     stalled, reason = 0, "l3_workflow_progressing"
+    incomplete_outcomes = {"compile_failed", "measurement_invalid", "ablation_incomplete"}
     # Polling or resuming one remote run cannot create a second experiment.
     for attempt in {row["run_id"]: row for row in l3_attempts}.values():
+        outcome = attempt.get("outcome")
+        validity = attempt.get("axes", {}).get("evidence_validity", "valid")
         if attempt.get("new_observation") is True or attempt.get("divergent_layer_identified") is True:
             stalled, reason = 0, "l3_information_progress"
-        elif attempt["verdict"] == "inconclusive":
+        elif (outcome in incomplete_outcomes or validity != "valid"
+              or (attempt["verdict"] == "inconclusive"
+                  and outcome != "speedup_within_noise")):
+            # Only genuinely incomplete execution asks for repair. A completed
+            # below-target or within-noise run is a valid, non-attaining result.
             stalled, reason = 0, "l3_execution_incomplete"
         elif attempt["verdict"] == "supported":
             stalled, reason = 0, "l3_workflow_progressing"
         else:
-            stalled, reason = stalled + 1, attempt["failure_reason"]
+            stalled, reason = stalled + 1, attempt.get("failure_reason") or "speedup_below_target"
     if stalled >= max_stalled_attempts:
         return True, f"l3_stalled_for_{stalled}_attempts:{reason}"
     return False, f"l3_stalled_{stalled}_of_{max_stalled_attempts}:{reason}"
@@ -278,20 +287,32 @@ def plan_rsi_compile_and_timing(
 def evaluate_exploration_axes(
     *, compile_ok: bool, oracle_passed: bool, measurement_passed: bool,
     speedup_ratio: float | None, min_speedup_ratio: float = DEFAULT_MIN_SPEEDUP_RATIO,
-    ablation_retained: bool | None = None, preserve_subtarget_evidence: bool = False,
+    ablation_retained: bool | None = None, preserve_subtarget_evidence: bool = True,
     noise_margin: float = 0.01, return_tier: str = "L4",
+    goal_type: str = "speedup", goal_met: bool | None = None,
+    diagnostic_gain: bool = False,
 ) -> dict[str, Any]:
-    """Separate evidence validity, goal attainment and reuse on every outcome."""
+    """Separate evidence validity, goal attainment and reuse on every outcome.
+
+    Speedup is the default objective. Correctness, localization and non-timing
+    performance tasks declare another ``goal_type`` and pass ``goal_met`` plus
+    ``diagnostic_gain`` instead of inventing a synthetic speedup ratio.
+    """
     if return_tier not in RETURN_TIERS:
         raise ValueError("return_tier must be one of L1, L2, L3, L4")
+    if not isinstance(goal_type, str) or not goal_type.strip():
+        raise ValueError("goal_type must be nonempty text")
     if not math.isfinite(noise_margin) or noise_margin < 0:
         raise ValueError("noise_margin must be finite and non-negative")
     minimum = float(min_speedup_ratio)
     if not math.isfinite(minimum) or minimum <= 0:
         raise ValueError("min_speedup_ratio must be finite and positive")
+    normalized_goal = goal_type.strip().lower()
+    speedup_goal = normalized_goal == "speedup"
     speedup = None if speedup_ratio is None else float(speedup_ratio)
     measured = (compile_ok and oracle_passed and measurement_passed
-                and speedup is not None and math.isfinite(speedup) and speedup >= 0)
+                and (not speedup_goal or (
+                    speedup is not None and math.isfinite(speedup) and speedup >= 0)))
     if not compile_ok:
         state = ("compile_failed", "inconclusive", "compile_failed",
                  "not_applicable", "inconclusive", 1)
@@ -301,20 +322,41 @@ def evaluate_exploration_axes(
     elif not measured:
         state = ("measurement_invalid", "inconclusive", "measurement_invalid",
                  "not_applicable", "inconclusive", 2)
-    elif (preserve_subtarget_evidence and speedup < minimum
-          and speedup > 1.0 + noise_margin and ablation_retained is not False):
+    elif not speedup_goal:
+        if goal_met is True:
+            # Correctness and localization conclusions are reusable observations
+            # (contracts, branches, verification steps), not L4 mutators.
+            state = ("valid", "supported", "verified", "attained",
+                     "reusable_observation", 4)
+        elif diagnostic_gain:
+            # A distinguishing observation or first-divergence localization is
+            # reusable evidence even when the original objective is unmet.
+            state = ("valid", "subtarget_valid", "diagnostic_gain_valid_evidence",
+                     "not_attained", "reusable_observation", 4)
+        elif goal_met is False:
+            state = ("valid", "refuted", "goal_not_met", "not_attained",
+                     "reusable_negative_boundary", 4)
+        else:
+            state = ("valid", "inconclusive", "goal_unverified", "not_applicable",
+                     "inconclusive", 4)
+    elif speedup >= minimum:
+        if ablation_retained is None:
+            state = ("valid", "inconclusive", "ablation_pending", "not_applicable",
+                     "inconclusive", 3)
+        elif not ablation_retained:
+            state = ("valid", "refuted", "ablation_not_retained", "not_applicable",
+                     "reusable_negative_boundary", 3)
+        else:
+            reuse = "reusable_mutator" if return_tier == "L4" else "reusable_observation"
+            state = ("valid", "supported", "verified", "attained", reuse, 4)
+    elif (preserve_subtarget_evidence and speedup > 1.0 + noise_margin
+          and ablation_retained is not False):
         state = ("valid", "subtarget_valid", "speedup_below_target_valid_evidence",
                  "not_attained", "reusable_observation", 4)
     elif ablation_retained is None:
         state = ("valid", "inconclusive", "ablation_pending", "not_applicable",
                  "inconclusive", 3)
-    elif not ablation_retained:
-        state = ("valid", "refuted", "ablation_not_retained", "not_applicable",
-                 "reusable_negative_boundary", 3)
-    elif speedup >= minimum:
-        reuse = "reusable_mutator" if return_tier == "L4" else "reusable_observation"
-        state = ("valid", "supported", "verified", "attained", reuse, 4)
-    elif preserve_subtarget_evidence:
+    elif preserve_subtarget_evidence and 1.0 < speedup <= 1.0 + noise_margin:
         state = ("valid", "inconclusive", "speedup_within_noise",
                  "not_attained", "inconclusive", 4)
     else:
@@ -324,7 +366,7 @@ def evaluate_exploration_axes(
     axes = {"evidence_validity": evidence, "goal_attainment": goal, "reusability": reuse}
     return {
         "axes": axes, **axes, "return_tier": return_tier, "verdict": verdict,
-        "outcome": outcome, "gate_reached": gate,
+        "outcome": outcome, "gate_reached": gate, "goal_type": normalized_goal,
         "distill_ready": verdict in {"supported", "subtarget_valid"},
     }
 
@@ -334,7 +376,7 @@ def evaluate_rsi_candidate_gates(
     measurement_passed: bool, speedup_ratio: float | None,
     min_speedup_ratio: float = DEFAULT_MIN_SPEEDUP_RATIO,
     ablation_retained: bool | None = None, failure_reason: str = "",
-    preserve_subtarget_evidence: bool = False, noise_margin: float = 0.01,
+    preserve_subtarget_evidence: bool = True, noise_margin: float = 0.01,
     return_tier: str = "L4",
 ) -> dict[str, Any]:
     """Judge observed results using the executor's run ID, without synthetic proof."""

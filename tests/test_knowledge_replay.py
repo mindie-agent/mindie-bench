@@ -23,11 +23,23 @@ METRIC_KEYS = {
 }
 
 
+def _body(tokens: int) -> str:
+    """Produce an ASCII body whose production UTF-8/4 estimate is exactly tokens."""
+    pattern = "procedure detail with a measured condition. "
+    body = (pattern * ((tokens * 4) // len(pattern) + 1))[: tokens * 4 - 1]
+    return body[:-1] + "x" if body[-1].isspace() else body
+
+
+def _rewrite_body(path: Path, tokens: int) -> None:
+    frontmatter = path.read_text(encoding="utf-8").split("\n---\n", 1)[0]
+    path.write_text(frontmatter + "\n---\n" + _body(tokens), encoding="utf-8")
+
+
 def _write_corpus(root: Path) -> Path:
     rows = []
     units = [
-        ("foundation", "_common", "L1", "axiom", 400, {}, [], ["dtype"]),
-        ("measurement", "_common", "L1", "measurement", 350, {}, [], ["dtype"]),
+        ("foundation", "_common", "L1", "axiom", 400, {"dtype": "bfloat16"}, [], ["dtype"]),
+        ("measurement", "_common", "L1", "measurement", 350, {"dtype": "bfloat16"}, [], ["dtype"]),
         ("workflow", "norm/rmsnorm", "L3", "workflow", 900,
          {"dtype": "bfloat16", "soc": "Ascend910B4", "dp": ">1"}, ["foundation", "measurement"],
          ["rmsnorm", "workflow", "triage"]),
@@ -38,23 +50,29 @@ def _write_corpus(root: Path) -> Path:
     for identity, domain, tier, category, tokens, conditions, parents, keywords in units:
         path = root / domain / f"unit-{identity}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
+        strength = "hardware_spec" if tier == "L1" else (
+            "reproduced_empirical" if tier == "L4" else "single_observation")
         path.write_text(
             "---\n"
             f"schema: mindie-graded-unit/1\nid: unit-{identity}\nrevision: 2\n"
             f"tier: {tier}\ncategory: {category}\ndomain_path: {domain}\n"
+            f"evidence_strength: {strength}\n"
             f"title: '{identity} replay unit'\nconditions: {json.dumps(conditions)}\n"
             f"inherits_from: {json.dumps([f'unit-{parent}' for parent in parents])}\n"
-            f"triggers: {json.dumps({'keywords': keywords})}\n---\n"
-            + ("procedure detail with a measured condition. " * (tokens // 8)),
+            "provenance:\n  source_type: replay_fixture\n"
+            "  source_locator: tests/test_knowledge_replay.py\n"
+            "  evidence_refs:\n  - tests/test_knowledge_replay.py\n"
+            f"triggers: {json.dumps({'error_signatures': [], 'keywords': keywords})}\n---\n"
+            + _body(tokens),
             encoding="utf-8",
         )
         rows.append({
             "id": f"unit-{identity}", "revision": 2, "tier": tier, "category": category,
             "domain_path": domain, "title": f"{identity} replay unit",
-            "conditions": conditions,
+            "evidence_strength": strength, "conditions": conditions,
             "inherits_from": [f"unit-{parent}" for parent in parents],
-            "triggers": {"keywords": keywords}, "token_estimate": tokens,
-            "path": path.relative_to(root).as_posix(),
+            "triggers": {"error_signatures": [], "keywords": keywords},
+            "token_estimate": tokens, "path": path.relative_to(root).as_posix(),
         })
     manifest = root / "index" / "routing-manifest.json"
     manifest.parent.mkdir(parents=True)
@@ -139,20 +157,26 @@ def test_navigation_cards_never_inline_a_body_and_closure_deduplicates_known_par
     assert cards[0]["unit_id"] == "unit-mutator"
     assert cards[0]["ready_to_apply"] is True
 
-    full = index.explain_closure(["unit-mutator"], conditions={"dtype": "bfloat16"},
+    full = index.explain_closure(["unit-mutator"],
+                                 conditions={"dtype": "bfloat16", "soc": "Ascend910B4"},
                                  token_budget=4096)
     assert [unit["unit_id"] for unit in full["units"]] == [
         "unit-foundation", "unit-measurement", "unit-mutator"]
     assert not full["unresolved"]
     deduplicated = index.explain_closure(
         ["unit-mutator"], known_refs=["unit-foundation", "unit-measurement"],
-        conditions={"dtype": "bfloat16"}, token_budget=4096,
+        conditions={"dtype": "bfloat16", "soc": "Ascend910B4"}, token_budget=4096,
     )
     assert [unit["unit_id"] for unit in deduplicated["units"]] == ["unit-mutator"]
 
-    excluded = index.explain_closure(["unit-mutator"], token_budget=1000)
-    assert [unit["unit_id"] for unit in excluded["units"]] == ["unit-foundation", "unit-measurement"]
-    assert {"reason": "budget_excluded", "ref": "unit-mutator@2"} in excluded["unresolved"]
+    excluded = index.explain_closure(
+        ["unit-foundation", "unit-measurement", "unit-mutator"], token_budget=1200)
+    assert [unit["unit_id"] for unit in excluded["units"]] == [
+        "unit-foundation", "unit-measurement"]
+    excluded_mutator = next(
+        item for item in excluded["unresolved"] if item["reason"] == "budget_excluded")
+    assert excluded_mutator["ref"] == "unit-mutator@2"
+    assert excluded_mutator["required_tokens"] > 0
     assert excluded["usage"]["complete"] is False
 
 
@@ -337,14 +361,10 @@ def test_growth_event_aliases_infer_the_four_section_13_5_categories():
 
 def test_budget_excluded_premise_prevents_ready_to_apply(tmp_path):
     root = _write_corpus(tmp_path / "budget-corpus")
-    manifest_path = root / "index" / "routing-manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    for row in manifest["units"]:
-        if row["id"] == "unit-foundation":
-            row["token_estimate"] = 1200
-        if row["id"] == "unit-mutator":
-            row["token_estimate"] = 50
-    manifest_path.write_text(json.dumps(manifest))
+    # A premise too large for the body budget must block the whole closure, even
+    # when the requested target itself is small enough to load.
+    _rewrite_body(root / "_common" / "unit-foundation.md", 1200)
+    _rewrite_body(root / "norm" / "rmsnorm" / "unit-mutator.md", 50)
     task = {
         "task_id": "narrow-body-budget", "category": "operator_perf",
         "query": "rmsnorm mutator fusion",
