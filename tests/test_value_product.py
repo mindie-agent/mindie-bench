@@ -702,7 +702,12 @@ def test_valid_slower_flat_product_matrix_uses_separate_identities_and_budgets(t
 
 
 def test_over_budget_success_and_slowdown_survive_product_reports_and_public_rebuild(tmp_path):
-    from mindie_bench.value_product_views import homepage_markdown_product, markdown_product
+    from mindie_bench.value_product_views import (
+        component_markdown_product,
+        component_view_product,
+        homepage_markdown_product,
+        markdown_product,
+    )
 
     suite, inputs, _ = make_suite(tmp_path)
     for name in inputs["receipts"]:
@@ -735,6 +740,11 @@ def test_over_budget_success_and_slowdown_survive_product_reports_and_public_reb
     assert group["budget_overruns"][0]["declared"] == 3361.65
     assert "Successful overruns" in markdown_product(report)
     assert "超预算次数" in homepage_markdown_product(report, language="zh")
+    target = next(item for item in report["final_release"]["repositories"]
+                  if item["repository"] == "mindie-agent/mindie-bench")
+    component = component_markdown_product(component_view_product(report, target))
+    assert "Over-budget attempts (baseline/candidate)" in component
+    assert f"| 0/{budget['exceeded_attempts']} | measured |" in component
     evidence = read_json(tmp_path / "out/value-evidence.json")
     public = next(row for row in evidence["receipts"] if row["auxiliary_metrics"].get("agent_budget_exhausted"))
     assert public["terminal_status"] == "completed_pass"

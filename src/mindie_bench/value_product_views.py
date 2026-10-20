@@ -30,6 +30,14 @@ def _status(report: dict) -> str:
     return "complete" if report["release_gate"] else "incomplete"
 
 
+def _budget_overrun_counts(comparison: dict) -> str:
+    budgets = comparison.get("budget_observations", {})
+    return "/".join(
+        _number(budgets.get(side, {}).get("exceeded_attempts"), digits=0)
+        for side in ("baseline", "candidate")
+    )
+
+
 def _group_row(group: dict) -> str:
     denominator = group["denominator"]
     tokens = group["tokens_total"]
@@ -45,7 +53,8 @@ def _group_row(group: dict) -> str:
 def _comparison_row(comparison: dict) -> str:
     denominator = comparison.get("denominator", {})
     return (
-        f"| {_text(comparison['id'])} | {comparison['baseline_group']} -> "
+        f"| {_text(comparison['id'])} | {_text(comparison.get('cohort', ''))} | "
+        f"{comparison['baseline_group']} -> "
         f"{comparison['candidate_group']} | {denominator['observed']}/{denominator['planned']} | "
         f"{denominator['valid']} | {denominator['missing']} | {denominator['unsettled']} | "
         f"{_number(comparison['wall_clock_speedup_on_mutual_success'], digits=3)} | "
@@ -270,11 +279,7 @@ def homepage_markdown_product(report: dict, language: str = "zh") -> str:
     ]
     for comparison in report["comparisons"]:
         denominator = comparison.get("denominator", {})
-        budgets = comparison.get("budget_observations", {})
-        overruns = "/".join(
-            _number(budgets.get(side, {}).get("exceeded_attempts"), digits=0)
-            for side in ("baseline", "candidate")
-        )
+        overruns = _budget_overrun_counts(comparison)
         lines.append(
             f"| {_text(comparison.get('cohort', ''))} | "
             f"{comparison['baseline_group']} → {comparison['candidate_group']} | "
@@ -435,8 +440,9 @@ def component_markdown_product(view: dict) -> str:
             "",
             "## Measured comparisons",
             "",
-            "| Cohort | Comparison | Observed / planned | Mutually solved | Delivery ratio | Status |",
-            "| --- | --- | ---: | ---: | ---: | --- |",
+            "| Cohort | Comparison | Observed / planned | Mutually solved | Delivery ratio | "
+            "Over-budget attempts (baseline/candidate) | Status |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- |",
         ]
         for comparison in view["comparisons"]:
             denominator = comparison.get("denominator", {})
@@ -446,6 +452,7 @@ def component_markdown_product(view: dict) -> str:
                 f"{denominator.get('observed', 0)}/{denominator.get('planned', 0)} | "
                 f"{denominator.get('mutually_solved', 0)} | "
                 f"{_number(comparison.get('wall_clock_speedup_on_mutual_success'), digits=3)} | "
+                f"{_budget_overrun_counts(comparison)} | "
                 f"{comparison['measurement_status']} |"
             )
     lines += _component_case_lines(view["component_cases"])

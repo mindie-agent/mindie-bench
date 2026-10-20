@@ -515,6 +515,8 @@ def evaluate_product(suite: dict, evidence: dict, *, base: Path | None = None) -
             "Product arms are P0/P1/P2/P3 and are never translated into legacy G0..G3 labels.",
             "Installed product dependencies, common instrumentation, the native plugin and the common benchmark runner are separate identities.",
             "Different cohorts keep their own exact task budgets; no global budget is imposed.",
+            "Verified completions and delivery ratios retain over-budget outcomes; complete evidence "
+            "does not imply budget compliance, and zero known overruns does not imply complete metering.",
             "The P2 product release is an immutable candidate, not an already-published main release.",
             "Historical attempts keep their original identities and costs; they are not forced into current pins.",
             "Equal downstream budgets support conditional reuse only; prerequisite Seed/C6/review cost is separate.",

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from test_value_product import collect_product, collector, make_suite, write_evidence
 
+from mindie_bench.value_product_views import markdown_product
 from mindie_bench.value_publish import write_component_views
 
 
@@ -55,6 +56,16 @@ def test_component_views_keep_native_compatibility_separate_from_combination_con
     assert "cannot be attributed to this component alone" in knowledge["benchmark_scope"]
     assert dsh["comparisons"] and dsh["matrix"] is not None
     assert bench["component"] == "mindie-bench"
+    text = markdown_product(report)
+    table = text.split("## Matched comparisons", 1)[1].split("## Budget observations", 1)[0]
+    rows = [[part.strip() for part in line.strip("|").split("|")]
+            for line in table.splitlines() if line.startswith("|")]
+    for rendered, measured in zip(rows[2:], report["comparisons"], strict=True):
+        assert len(rendered) == len(rows[0])
+        assert rendered[rows[0].index("Cohort")] == measured["cohort"]
+        assert float(rendered[rows[0].index("Delivery ratio (baseline/candidate)")]) == pytest.approx(
+            measured["wall_clock_speedup_on_mutual_success"], abs=0.0005,
+        )
     for view in (codex, knowledge, dsh, bench):
         serialized = json.dumps(view)
         assert "/private/" not in serialized
