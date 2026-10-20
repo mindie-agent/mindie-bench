@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from mindie_bench.io import digest
 from mindie_bench.models import TrialReceipt
-from mindie_bench.runner.matrix import ProductGroup, pair_matched_observations
+from mindie_bench.runner.matrix import ProductGroup, observation_budget, pair_matched_observations
 from mindie_bench.runner.matrix_contracts import MatchedPair
 from mindie_bench.value_product_public import public_product_receipt
 
@@ -44,6 +44,23 @@ def _pair_summary(pairs, profiles: dict, baseline, candidate) -> dict:
         "unsettled": len(observed) - len(valid),
         "mutually_solved": len(solved),
     }
+    budgets = {}
+    for side, group in (("left", baseline), ("right", candidate)):
+        rows = [getattr(pair, side) for pair in pairs if getattr(pair, side) is not None]
+        observations = [(row, observation_budget(row, profiles[group])) for row in rows]
+        budgets["baseline" if side == "left" else "candidate"] = dict(
+            observed_attempts=len(rows),
+            fully_measured_attempts=sum(not item["unmeasured_fields"] for _, item in observations),
+            exceeded_attempts=sum(item["exceeded"] is True for _, item in observations),
+            completed_pass_over_budget=sum(
+                row.status.value == "pass" and item["exceeded"] is True for row, item in observations
+            ),
+            within_budget_attempts=sum(item["exceeded"] is False for _, item in observations),
+            observations=[
+                dict(task_id=row.task_id, repetition=row.repetition, **item)
+                for row, item in observations
+            ],
+        )
     return {
         "baseline_group": baseline.value,
         "candidate_group": candidate.value,
@@ -53,6 +70,11 @@ def _pair_summary(pairs, profiles: dict, baseline, candidate) -> dict:
         "measurement_is_delivery_including_preparation_verifier_cleanup": True,
         "baseline_budget": profiles[baseline].budget.comparison_dict(),
         "candidate_budget": profiles[candidate].budget.comparison_dict(),
+        "budget_observations": budgets,
+        "budget_scope_note": (
+            "Matched allocations do not imply actual compliance. Business results and delivery "
+            "ratios include verified over-budget completions; missing resource meters stay unmeasured."
+        ),
         "conditional_reuse_only": True,
     }
 

@@ -103,6 +103,40 @@ def test_actual_task_failure_remains_in_inventory_and_all_attempt_costs():
     assert study["groups"]["G2"]["cost_per_resolved_task"] is None
 
 
+def test_budget_diagnostic_does_not_reject_verified_results_in_public_release_roundtrip():
+    from mindie_bench.evaluation.budget import receipt_budget
+
+    suite, inputs = evidence()
+    candidate = inputs["studies"]["dp2"][1]
+    elapsed = candidate["primary_metrics"]["delivery_wall_clock_sec"]
+    candidate["auxiliary_metrics"].update(
+        agent_budget_exhausted=True,
+        lifecycle_budget=dict(
+            overrun=True, declared_total_sec=elapsed / 2,
+            measured_total_sec=elapsed, overrun_sec=elapsed / 2,
+        ),
+    )
+    candidate["errors"] = [dict(stage="budget", type="BudgetOverrun", message="private diagnostic path")]
+    raw = TrialReceipt.model_validate(candidate)
+    public = public_receipt(raw)
+    assert receipt_budget(TrialReceipt.model_validate(public)) == receipt_budget(raw)
+    assert public["errors"][0]["type"] == "BudgetOverrun"
+    assert "private diagnostic path" not in str(public)
+    inputs["studies"]["dp2"] = [public_receipt(TrialReceipt.model_validate(row))
+                               for row in inputs["studies"]["dp2"]]
+    report = evaluate(suite, inputs)
+    assert report["release_gate"], report["blocking_reasons"]
+    assert report["studies"][0]["comparisons"][0]["wall_clock_speedup_on_mutual_success"] == 0.5
+    assert report["studies"][0]["groups"]["G2"]["budget"]["completed_pass_over_delivery_budget"] == 1
+    assert "successful overruns: 1" in markdown(report)
+    raw.errors.append(dict(stage="workspace_cleanup", type="OSError", message="private artifact path"))
+    inputs["studies"]["dp2"][1] = public_receipt(raw)
+    rejected = evaluate(suite, inputs)
+    assert not rejected["release_gate"]
+    assert any("unsettled_trial:candidate" in reason for reason in rejected["blocking_reasons"])
+    assert "private artifact path" not in str(inputs)
+
+
 def test_seed_is_in_total_cost_and_missing_capture_blocks():
     suite, inputs = evidence()
     study = suite["studies"][0]

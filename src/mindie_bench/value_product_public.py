@@ -56,6 +56,7 @@ AUXILIARY_KEYS = {
     "remote_delivery_failures",
     "model_delivery_failures",
     "budget_exceeded",
+    "agent_budget_exhausted",
     "business_terminal_status",
     "business_resolved",
     "business_reward",

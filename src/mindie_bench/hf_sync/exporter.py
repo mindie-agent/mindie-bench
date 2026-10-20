@@ -10,6 +10,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from mindie_bench.evaluation.budget import receipt_budget
 from mindie_bench.hf_sync.leaderboard import render
 from mindie_bench.io import digest, write_json
 from mindie_bench.scorer.comparator import grouped_summaries, load_receipts
@@ -96,6 +97,7 @@ def public_row(receipt):
             if key in PUBLIC_FINGERPRINT
         },
         primary_metrics=receipt.primary_metrics,
+        budget=receipt_budget(receipt),
         # Raw exceptions, prompts, reasoning, command arguments, native
         # payloads, home paths, and profile configs are never exported.
         error_stages=sorted({error["stage"] for error in receipt.errors}),

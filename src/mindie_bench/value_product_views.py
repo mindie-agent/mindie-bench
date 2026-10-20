@@ -30,6 +30,14 @@ def _status(report: dict) -> str:
     return "complete" if report["release_gate"] else "incomplete"
 
 
+def _budget_overrun_counts(comparison: dict) -> str:
+    budgets = comparison.get("budget_observations", {})
+    return "/".join(
+        _number(budgets.get(side, {}).get("exceeded_attempts"), digits=0)
+        for side in ("baseline", "candidate")
+    )
+
+
 def _group_row(group: dict) -> str:
     denominator = group["denominator"]
     tokens = group["tokens_total"]
@@ -45,7 +53,8 @@ def _group_row(group: dict) -> str:
 def _comparison_row(comparison: dict) -> str:
     denominator = comparison.get("denominator", {})
     return (
-        f"| {_text(comparison['id'])} | {comparison['baseline_group']} -> "
+        f"| {_text(comparison['id'])} | {_text(comparison.get('cohort', ''))} | "
+        f"{comparison['baseline_group']} -> "
         f"{comparison['candidate_group']} | {denominator['observed']}/{denominator['planned']} | "
         f"{denominator['valid']} | {denominator['missing']} | {denominator['unsettled']} | "
         f"{_number(comparison['wall_clock_speedup_on_mutual_success'], digits=3)} | "
@@ -153,6 +162,20 @@ def markdown_product(report: dict) -> str:
         "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     lines += [_comparison_row(comparison) for comparison in report["comparisons"]]
+    lines += [
+        "", "## Budget observations", "",
+        "Verified completions and delivery ratios include over-budget results. Matched allocations "
+        "do not imply actual resource compliance; unmeasured resources cannot establish compliance.", "",
+        "| Comparison | Arm | Fully measured / observed | Over-budget attempts | Successful overruns |",
+        "| --- | --- | ---: | ---: | ---: |",
+    ]
+    for comparison in report["comparisons"]:
+        for side, budget in comparison.get("budget_observations", {}).items():
+            lines.append(
+                f"| {_text(comparison['id'])} | {comparison[f'{side}_group']} | "
+                f"{budget['fully_measured_attempts']}/{budget['observed_attempts']} | "
+                f"{budget['exceeded_attempts']} | {budget['completed_pass_over_budget']} |"
+            )
     resources = report["resources"]
     lines += [
         "",
@@ -250,17 +273,19 @@ def homepage_markdown_product(report: dict, language: str = "zh") -> str:
         + ("对照" if zh else "Comparison") + " | "
         + ("观察/计划" if zh else "Observed / planned") + " | "
         + ("双方解出" if zh else "Mutually solved") + " | "
-        + ("交付耗时比（基线/候选）" if zh else "Delivery ratio (baseline/candidate)") + " |",
-        "| --- | --- | ---: | ---: | ---: |",
+        + ("交付耗时比（基线/候选）" if zh else "Delivery ratio (baseline/candidate)") + " | "
+        + ("超预算次数（基线/候选）" if zh else "Over-budget attempts (baseline/candidate)") + " |",
+        "| --- | --- | ---: | ---: | ---: | --- |",
     ]
     for comparison in report["comparisons"]:
         denominator = comparison.get("denominator", {})
+        overruns = _budget_overrun_counts(comparison)
         lines.append(
             f"| {_text(comparison.get('cohort', ''))} | "
             f"{comparison['baseline_group']} → {comparison['candidate_group']} | "
             f"{denominator.get('observed', 0)}/{denominator.get('planned', 0)} | "
             f"{denominator.get('mutually_solved', 0)} | "
-            f"{_number(comparison.get('wall_clock_speedup_on_mutual_success'), digits=3)} |"
+            f"{_number(comparison.get('wall_clock_speedup_on_mutual_success'), digits=3)} | {overruns} |"
         )
     lines += [
         "",
@@ -275,11 +300,14 @@ def homepage_markdown_product(report: dict, language: str = "zh") -> str:
         "",
         (
             "组件与原生兼容证据不构成单组件因果收益；Codex/Claude Code/Kimi 仅为兼容性证据，"
-            "匹配的产品比较由 DSH 承载。未测得的 token 或成本为 null 且不完整，绝不记为零。"
+            "匹配的产品比较由 DSH 承载。成功和耗时比保留已验收的超预算结果；零次已知超限不代表预算计量完整。"
+            "未测得的 token 或成本为 null 且不完整，绝不记为零。"
             if zh else
             "Component and native compatibility evidence is not a causal single-component gain; "
             "Codex/Claude Code/Kimi are compatibility-only and DSH carries the matched product "
-            "comparison. Unmeasured token or cost values are null and incomplete, never zero."
+            "comparison. Success and delivery ratios retain verified over-budget results; zero known "
+            "overruns does not imply complete metering. Unmeasured token or cost values are null "
+            "and incomplete, never zero."
         ),
     ]
     if report["p3"]["status"] != "admitted" or not report["p3"]["claim_ready"]:
@@ -412,8 +440,9 @@ def component_markdown_product(view: dict) -> str:
             "",
             "## Measured comparisons",
             "",
-            "| Cohort | Comparison | Observed / planned | Mutually solved | Delivery ratio | Status |",
-            "| --- | --- | ---: | ---: | ---: | --- |",
+            "| Cohort | Comparison | Observed / planned | Mutually solved | Delivery ratio | "
+            "Over-budget attempts (baseline/candidate) | Status |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- |",
         ]
         for comparison in view["comparisons"]:
             denominator = comparison.get("denominator", {})
@@ -423,6 +452,7 @@ def component_markdown_product(view: dict) -> str:
                 f"{denominator.get('observed', 0)}/{denominator.get('planned', 0)} | "
                 f"{denominator.get('mutually_solved', 0)} | "
                 f"{_number(comparison.get('wall_clock_speedup_on_mutual_success'), digits=3)} | "
+                f"{_budget_overrun_counts(comparison)} | "
                 f"{comparison['measurement_status']} |"
             )
     lines += _component_case_lines(view["component_cases"])

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from mindie_bench.evaluation.budget import receipt_budget
 from mindie_bench.models import Group
 from mindie_bench.runner.orchestrator import run_matrix, run_trial
 from mindie_bench.scorer.comparator import freeze, load_receipts
@@ -31,13 +32,14 @@ def trial(case, **kwargs):
         ("fail", "completed_fail"),
         ("sleep", "infra_failed"),
         ("working_sleep", "completed_fail"),
+        ("repair_then_sleep", "completed_pass"),
         ("crash", "unknown"),
         ("malformed", "unknown"),
         ("replay", "completed_pass"),
     ],
 )
 def test_end_to_end_four_state_runner(case, mode, status):
-    if mode in {"sleep", "working_sleep"}:
+    if mode in {"sleep", "working_sleep", "repair_then_sleep"}:
         toml = case["task"] / "task.toml"
         toml.write_text(toml.read_text().replace("timeout_sec = 3", "timeout_sec = 1"))
     (case["task"] / "instruction.md").write_text(f"mode={mode}\n")
@@ -57,6 +59,63 @@ def test_end_to_end_four_state_runner(case, mode, status):
     if mode == "sleep":
         assert result.auxiliary_metrics["native_process"]["classification"] == "native_startup_infrastructure"
         assert not (root / "verifier_trajectory.json").exists()
+    if mode in {"working_sleep", "repair_then_sleep"}:
+        assert receipt_budget(result)["agent_budget_exhausted"] is True
+        assert result.primary_metrics["reward"] == (1 if mode == "repair_then_sleep" else 0)
+        assert (root / "verifier_trajectory.json").is_file()
+
+
+@pytest.mark.parametrize("mode,status", [
+    ("pass", "completed_pass"), ("fail", "completed_fail"), ("crash", "unknown"),
+    ("preflight", "infra_failed"),
+])
+def test_delivery_overrun_preserves_verified_outcome_and_unknown(case, monkeypatch, mode, status):
+    from types import SimpleNamespace
+
+    from mindie_bench.runner import orchestrator
+
+    (case["task"] / "instruction.md").write_text(f"mode={mode}\n")
+    clock = orchestrator.time.monotonic
+    original_cleanup = orchestrator.WorktreeSlot.cleanup
+    offset = 0
+
+    def cleanup(slot):
+        nonlocal offset
+        original_cleanup(slot)
+        offset = 100
+
+    # Advance only the runner's clock after actual verification and cleanup.
+    # Agent, gateway and subprocess deadlines retain their real clocks.
+    monkeypatch.setattr(orchestrator, "time", SimpleNamespace(monotonic=lambda: clock() + offset))
+    monkeypatch.setattr(orchestrator.WorktreeSlot, "cleanup", cleanup)
+    if mode == "preflight":
+        probe = orchestrator.probe_runtime_import
+
+        def elapsed_preflight(*args, **kwargs):
+            nonlocal offset
+            result = probe(*args, **kwargs)
+            offset = 100
+            return result
+
+        monkeypatch.setattr(orchestrator, "probe_runtime_import", elapsed_preflight)
+        case["config"].harness.expected_version = "wrong version"
+    result = trial(case, experiment_context={"max_wall_clock_sec": 50})
+    assert result.terminal_status.value == status, result.model_dump_json(indent=2)
+    assert result.primary_metrics["reward"] == (
+        None if mode in {"crash", "preflight"} else float(mode == "pass")
+    )
+    budget = receipt_budget(result)
+    assert budget["delivery_budget_exceeded"] is True
+    assert budget["measured_delivery_sec"] >= 100
+    assert budget["delivery_overrun_sec"] == budget["measured_delivery_sec"] - 50
+    if mode == "preflight":
+        assert budget["agent_budget_exhausted"] is None
+        assert "harness version mismatch" in result.failure_reason
+    assert any(error["type"] == "BudgetOverrun" for error in result.errors)
+    if mode == "pass":
+        assert result.failure_reason is None
+    else:
+        assert result.failure_reason
 
 
 def test_verifier_failure_is_infra_and_never_scored_zero(case):

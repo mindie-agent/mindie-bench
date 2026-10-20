@@ -1,4 +1,11 @@
-"""Read incomplete experiments without making them eligible frozen baselines."""
+"""Read incomplete experiments without making them eligible frozen baselines.
+
+[Role] Bind terminal, blocked and missing cells to the original experiment plan.
+[Invariants] Receipt cohorts and plan cohorts share evidence/role/task boundaries.
+Unknown or unclassified missing cells never disappear from coverage.
+[Timeouts & Locks] Local reads and pure transforms; no subprocesses or locks.
+[Side-Effect Policy] No writes, receipt rewrites or trial retries.
+"""
 
 from __future__ import annotations
 
@@ -37,7 +44,33 @@ def receipt_cell(receipt: TrialReceipt) -> dict:
         repetition=receipt.repetition,
         role=receipt.task_role,
         task_digest=receipt.task_digest,
+        evidence=receipt.evidence,
     )
+
+
+def scope_cells(cells, tier, group, role, *, evidence=None, receipts=()):
+    """Select the same population as receipts, retaining unclassified legacy cells.
+
+    Old plans lack evidence. Known task identities can be recovered from receipts;
+    a missing task with unknown evidence remains required, never silently dropped.
+    """
+    if cells is None:
+        return None
+    if any(not isinstance(cell, dict) or not {"tier", "group", "role"} <= cell.keys() for cell in cells):
+        raise ValueError("declared cells require tier, group and role")
+    known = {
+        (row.instance_id, row.tier, row.task_digest): row.evidence for row in receipts
+    }
+    return [
+        cell for cell in cells
+        if (cell["tier"], cell["group"], cell["role"]) == (tier, group, role)
+        and (
+            evidence is None
+            or cell.get("evidence", known.get((
+                cell["instance_id"], cell["tier"], cell.get("task_digest"),
+            ))) in {None, evidence}
+        )
+    ]
 
 
 def account_cells(
@@ -64,14 +97,16 @@ def account_cells(
         if by_key.keys() - expected.keys() or blocked_keys - expected.keys():
             raise ValueError("observed or blocked cell is outside the declared experiment matrix")
         for key, row in by_key.items():
-            for field, actual in (("role", row.task_role), ("task_digest", row.task_digest)):
+            for field, actual in (
+                ("role", row.task_role), ("task_digest", row.task_digest), ("evidence", row.evidence),
+            ):
                 if field in expected[key] and expected[key][field] != actual:
                     raise ValueError(f"receipt {field} differs from the declared cell")
         by_trial = {row.trial_id: row for row in receipts}
         for cell in blocked:
             key = cell_key(cell)
             original = expected[key]
-            for field in ("role", "task_digest", "cluster", "corpus_id"):
+            for field in ("role", "task_digest", "cluster", "corpus_id", "evidence"):
                 if field in cell and cell[field] != original.get(field):
                     raise ValueError("blocked identity differs from its declared cell")
             seed = by_trial.get(cell.get("prerequisite_trial_id"))

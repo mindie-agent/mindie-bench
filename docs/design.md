@@ -119,10 +119,16 @@ usefulness or hardware correctness.
 
 ## Receipts and failure semantics
 
-`completed_pass` requires a clean native completion and passing external judge.
-`completed_fail` is a completed wrong answer, or a deliberate turn/test/time cap
-with a valid external judge. A capped trial cannot earn a pass; its actual
-verifier result is preserved separately.
+`completed_pass` requires a passing external judge and settled execution effects.
+A deliberate turn/test/time cap stops further agent work; the existing artifact
+is still independently verified and can pass. `completed_fail` records an
+established business rejection, including an incorrect artifact at a budget stop.
+Agent-limit exhaustion and total delivery overruns are reported separately from
+the business verdict. Actual delivery time, cost and performance remain visible;
+an overrun does not rewrite a pass to failure or a measured slowdown to neutral.
+The `budget` summary distinguishes ordinary pass@1 from success within the
+declared delivery budget; the latter is null when valid-attempt budget evidence
+is incomplete. Reaching an agent limit alone does not establish a resource overrun.
 
 `infra_failed` covers preparation, required component initialization, verifier,
 and required postflight failures. `unknown` covers uncertain model/remote

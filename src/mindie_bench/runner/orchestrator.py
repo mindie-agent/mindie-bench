@@ -42,6 +42,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from mindie_bench import __version__
+from mindie_bench.evaluation.budget import BUDGET_STOPS, has_non_budget_errors
 from mindie_bench.evaluation.corpus_linter import CorpusLintRejected
 from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.io import digest, read_json, task_hash, tree_hash, write_json
@@ -105,17 +106,6 @@ def product_execution_window(
         "post_agent_reserve_sec": reserve,
         "total_delivery_sec": declared,
     }
-
-
-def budget_outcome(
-    status: TerminalStatus, measured_total_sec: float, declared_total_sec: float
-) -> TerminalStatus:
-    """A PASS/FAIL beyond the declared total is a failure; UNKNOWN keeps priority."""
-    if measured_total_sec <= declared_total_sec:
-        return status
-    if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
-        return TerminalStatus.FAIL
-    return status
 
 
 def failure_status(exc: BaseException, phase: str) -> TerminalStatus:
@@ -732,7 +722,8 @@ def run_trial(
             # This controller sends exactly one initial prompt and never asks
             # for corrections; interventions are known, not inferred from prose.
             trajectory.human_interventions = 0
-            budget_stop = result.stop_reason in {"timeout", "max_turns", "max_npu_runs"}
+            budget_stop = result.stop_reason in BUDGET_STOPS
+            auxiliary["agent_budget_exhausted"] = budget_stop
             if gateway.infrastructure_error and not gateway.unknown:
                 status, reason = TerminalStatus.INFRA, gateway.infrastructure_error
             elif (
@@ -807,13 +798,14 @@ def run_trial(
                     )
                 if task.inference is not None:
                     fingerprint["inference_native_stop_reason"] = result.stop_reason
-                passed = verdict.reward == 1.0 and not result.stop_reason
+                # The stopped agent's existing artifact is still independently judged.
+                # Reaching its limit is recorded separately from that business verdict.
+                passed = verdict.reward == 1.0
                 status = TerminalStatus.PASS if passed else TerminalStatus.FAIL
                 reason = (
                     None
                     if passed
                     else verdict.failure_reason
-                    or result.stop_reason
                     or "external verifier rejected final state"
                 )
                 primary.update(
@@ -1170,30 +1162,19 @@ def run_trial(
         if status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}:
             primary.update(resolved=None, reward=None)
         primary["delivery_wall_clock_sec"] = time.monotonic() - trial_started
-        if agent_phase_budget is not None and experiment_context is not None:
+        if experiment_context is not None and "max_wall_clock_sec" in experiment_context:
             declared = experiment_context["max_wall_clock_sec"]
             lifecycle = lifecycle_overrun(declared, primary["delivery_wall_clock_sec"])
-            lifecycle["execution_allowance_sec"] = agent_phase_budget["execution_allowance_sec"]
-            lifecycle["post_agent_reserve_sec"] = agent_phase_budget["post_agent_reserve_sec"]
-            lifecycle["source"] = agent_phase_budget["source"]
+            lifecycle["source"] = "experiment_context.max_wall_clock_sec"
+            if agent_phase_budget is not None:
+                lifecycle["execution_allowance_sec"] = agent_phase_budget["execution_allowance_sec"]
+                lifecycle["post_agent_reserve_sec"] = agent_phase_budget["post_agent_reserve_sec"]
             auxiliary["lifecycle_budget"] = lifecycle
             if lifecycle["overrun"]:
                 lifecycle["budget_exceeded"] = True
                 auxiliary["budget_exceeded"] = True
-                final_status = budget_outcome(status, lifecycle["measured_total_sec"], declared)
-                if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
-                    auxiliary["business_terminal_status"] = status.value
-                    auxiliary["business_resolved"] = primary.get("resolved")
-                    auxiliary["business_reward"] = primary.get("reward")
-                    auxiliary["business_failure_reason"] = reason
-                    primary.update(resolved=False, reward=0.0)
-                    reason = (
-                        "budget: measured lifecycle exceeded the declared product budget by "
-                        f"{lifecycle['overrun_sec']:.3f}s; business status was {status.value}"
-                    )
-                elif status == TerminalStatus.UNKNOWN:
+                if status == TerminalStatus.UNKNOWN:
                     lifecycle["unknown_priority"] = True
-                status = final_status
                 errors.append(
                     dict(
                         stage="budget",
@@ -1295,6 +1276,7 @@ def run_matrix(
             cluster=spec.task.cluster,
             corpus_id=spec.mindie_knowledge.corpus_id,
             inference_category=spec.inference.category if spec.inference else None,
+            evidence=spec.task.evidence,
         )
         for path, spec in specs.items()
         for group in groups
@@ -1417,7 +1399,7 @@ def run_matrix(
                 canary = execute_cell(*jobs.pop(0))
                 if (
                     canary.terminal_status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}
-                    or canary.errors
+                    or has_non_budget_errors(canary)
                 ):
                     raise RuntimeError(
                         f"canary gate failed on {canary.trial_id} "
@@ -1430,7 +1412,7 @@ def run_matrix(
                         row
                         for row in receipts
                         if row.terminal_status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}
-                        or row.errors
+                        or has_non_budget_errors(row)
                     ),
                     None,
                 )

@@ -381,8 +381,8 @@ def test_failed_lineage_does_not_cancel_independent_admitted_work(case, corpus, 
     assert ordinary["terminal_status"] == "completed_pass"
 
 
-@pytest.mark.parametrize("status", [TerminalStatus.INFRA, TerminalStatus.UNKNOWN])
-def test_canary_first_blocks_remaining_cells_when_initial_cell_fails_infra(
+@pytest.mark.parametrize("status", [TerminalStatus.INFRA, TerminalStatus.UNKNOWN, TerminalStatus.PASS])
+def test_canary_first_blocks_remaining_cells_on_unsettled_outcomes_or_execution_errors(
     case, corpus, monkeypatch, status
 ):
     first = make_task(case, "first", "eval")
@@ -391,7 +391,12 @@ def test_canary_first_blocks_remaining_cells_when_initial_cell_fails_infra(
 
     def run_trial(path, config, **arguments):
         calls.append((path, arguments["repetition"]))
-        return completed_trial(path, arguments, status=status)
+        receipt = completed_trial(path, arguments, status=status)
+        if status == TerminalStatus.PASS:
+            receipt.errors.append(dict(stage="workspace_cleanup", type="OSError", message="cleanup failed"))
+            write_json(Path(receipt.artifacts["private_trial_dir"]) / "trial_receipt.json",
+                       receipt.model_dump(mode="json"))
+        return receipt
 
     monkeypatch.setattr(orchestrator, "run_trial", run_trial)
     output = case["root"] / f"canary-failed-{status.value}"
@@ -413,14 +418,20 @@ def test_canary_first_blocks_remaining_cells_when_initial_cell_fails_infra(
     assert accounting["missing_count"] == 3
 
 
-def test_canary_first_admits_remaining_cells_after_healthy_initial_cell(case, corpus, monkeypatch):
+@pytest.mark.parametrize("budget_overrun", [False, True])
+def test_canary_first_admits_remaining_cells_after_healthy_initial_cell(case, corpus, monkeypatch, budget_overrun):
     first = make_task(case, "first", "eval")
     second = make_task(case, "second", "eval")
     calls = []
 
     def run_trial(path, config, **arguments):
         calls.append((path, arguments["repetition"]))
-        return completed_trial(path, arguments, status=TerminalStatus.FAIL)
+        receipt = completed_trial(path, arguments, status=TerminalStatus.FAIL)
+        if budget_overrun:
+            receipt.errors.append(dict(stage="budget", type="BudgetOverrun", message="delivery overrun"))
+            write_json(Path(receipt.artifacts["private_trial_dir"]) / "trial_receipt.json",
+                       receipt.model_dump(mode="json"))
+        return receipt
 
     monkeypatch.setattr(orchestrator, "run_trial", run_trial)
     output = case["root"] / "canary-healthy"

@@ -18,7 +18,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from dataclasses import replace
 from pathlib import Path
 
 from mindie_bench.io import digest, read_json, write_json
@@ -346,10 +345,7 @@ def evaluate_product(suite: dict, evidence: dict, *, base: Path | None = None) -
             or row.environment_fingerprint.get("benchmark_source_sha256") != benchmark["source_sha256"]
         ):
             raise ValueError("receipt model or common benchmark runner differs")
-        observation = replace(
-            observation_from_receipt(row, cell=cell),
-            total_wall_clock_sec=row.primary_metrics.get("delivery_wall_clock_sec"),
-        )
+        observation = observation_from_receipt(row, cell=cell)
         return cohort_id, cell.group, cell.task_id, cell.repetition, observation, row
 
     for raw in evidence.get("receipts", []):
@@ -519,6 +515,8 @@ def evaluate_product(suite: dict, evidence: dict, *, base: Path | None = None) -
             "Product arms are P0/P1/P2/P3 and are never translated into legacy G0..G3 labels.",
             "Installed product dependencies, common instrumentation, the native plugin and the common benchmark runner are separate identities.",
             "Different cohorts keep their own exact task budgets; no global budget is imposed.",
+            "Verified completions and delivery ratios retain over-budget outcomes; complete evidence "
+            "does not imply budget compliance, and zero known overruns does not imply complete metering.",
             "The P2 product release is an immutable candidate, not an already-published main release.",
             "Historical attempts keep their original identities and costs; they are not forced into current pins.",
             "Equal downstream budgets support conditional reuse only; prerequisite Seed/C6/review cost is separate.",

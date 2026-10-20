@@ -37,6 +37,15 @@ declares **cohorts**, each with its own tasks, conditions, budget and P0/P1/P2
 profiles. `build_product_plan` creates one real `ProductMatrixPlan` per cohort;
 the adapter never squeezes two scenarios into one global budget.
 
+Business completion and resource compliance are separate observations. A verified
+artifact keeps its result when the agent stops at a known limit or total delivery
+time exceeds its declaration. Reports retain measured delivery ratios, including
+slowdowns, and publish successful overruns alongside resource measurements.
+Matched allocations do not imply that actual spending complied: comparisons
+report observed model-call, NPU-run, delivery-time, intervention and declared-cost
+overruns, plus missing meters. Missing meters cannot establish compliance.
+`claim_ready` describes complete comparison evidence, not success within budget.
+
 ```json
 {
   "schema_version": "mindie-value-suite/2",

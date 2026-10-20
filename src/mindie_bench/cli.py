@@ -13,7 +13,8 @@ import json
 import sys
 from pathlib import Path
 
-from mindie_bench.io import write_json
+from mindie_bench.evaluation.budget import has_non_budget_errors
+from mindie_bench.io import read_json, write_json
 from mindie_bench.models import ExperimentConfig, Group, TaskSpec, TerminalStatus
 from mindie_bench.scorer.comparator import (
     comparison,
@@ -164,7 +165,6 @@ def main(argv=None):
 
             result = collect(suite=args.suite, manifest=args.manifest, output=args.output)
         elif args.command == "value-verify":
-            from mindie_bench.io import read_json
             from mindie_bench.value_release import (
                 evaluate,
                 verify_publication,
@@ -275,12 +275,12 @@ def main(argv=None):
                     output=args.output.resolve(),
                     canary_first=args.canary_first,
                 )
-                print(json.dumps(grouped_summaries(rows), indent=2))
+                print(json.dumps(read_json(args.output / "summary.json"), indent=2))
                 return (
                     2
                     if any(
                         row.terminal_status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}
-                        or row.errors
+                        or has_non_budget_errors(row)
                         for row in rows
                     )
                     else 0
@@ -297,10 +297,17 @@ def main(argv=None):
 
             result = score_slices(args.input, kind=args.kind, k=args.k)
         elif args.command == "compare":
+            plans = [
+                read_json(path / "eval_manifest.json").get("cells")
+                if (path / "eval_manifest.json").is_file() else None
+                for path in (args.baseline, args.candidate)
+            ]
             result = comparison(
                 load_receipts(args.baseline),
                 load_receipts(args.candidate),
                 role=args.role,
+                baseline_cells=plans[0],
+                candidate_cells=plans[1],
             )
             args.output.mkdir(parents=True, exist_ok=False)
             write_json(args.output / "comparison.json", result, exclusive=True)

@@ -701,6 +701,58 @@ def test_valid_slower_flat_product_matrix_uses_separate_identities_and_budgets(t
     assert "private-service" not in serialized
 
 
+def test_over_budget_success_and_slowdown_survive_product_reports_and_public_rebuild(tmp_path):
+    from mindie_bench.value_product_views import (
+        component_markdown_product,
+        component_view_product,
+        homepage_markdown_product,
+        markdown_product,
+    )
+
+    suite, inputs, _ = make_suite(tmp_path)
+    for name in inputs["receipts"]:
+        path = tmp_path / name
+        raw = read_json(path)
+        if raw["environment_fingerprint"]["experiment_context"]["cell"]["group"] == "P2_v003_full":
+            raw["primary_metrics"]["delivery_wall_clock_sec"] = 4000
+            raw["auxiliary_metrics"].update(
+                agent_budget_exhausted=True,
+                lifecycle_budget=dict(
+                    overrun=True, declared_total_sec=3361.65, measured_total_sec=4000,
+                    overrun_sec=638.35,
+                ),
+            )
+            write_json(path, raw)
+    suite_path, inputs_path = write_evidence(tmp_path, suite, inputs)
+    report = collect_product(
+        suite=suite_path, inputs=inputs_path, output=tmp_path / "out", collector_source=collector(),
+    )
+    assert report["release_gate"], report["blocking_reasons"]
+    comparison = next(c for c in report["comparisons"] if c["candidate_group"] == "P2_v003_full")
+    assert comparison["denominator"]["mutually_solved"] > 0
+    assert comparison["wall_clock_speedup_on_mutual_success"] == pytest.approx(110 / 4000)
+    budget = comparison["budget_observations"]["candidate"]
+    assert budget["completed_pass_over_budget"] == comparison["denominator"]["mutually_solved"]
+    assert budget["exceeded_attempts"] == budget["observed_attempts"]
+    assert budget["observations"][0]["overruns"][0]["observed"] == 4000
+    group = report["cohorts"]["fused-shared-budget"]["matrix"]["groups"]["P2_v003_full"]
+    assert group["denominator"]["pass"] > 0
+    assert group["budget_overruns"][0]["declared"] == 3361.65
+    assert "Successful overruns" in markdown_product(report)
+    assert "超预算次数" in homepage_markdown_product(report, language="zh")
+    target = next(item for item in report["final_release"]["repositories"]
+                  if item["repository"] == "mindie-agent/mindie-bench")
+    component = component_markdown_product(component_view_product(report, target))
+    assert "Over-budget attempts (baseline/candidate)" in component
+    assert f"| 0/{budget['exceeded_attempts']} | measured |" in component
+    evidence = read_json(tmp_path / "out/value-evidence.json")
+    public = next(row for row in evidence["receipts"] if row["auxiliary_metrics"].get("agent_budget_exhausted"))
+    assert public["terminal_status"] == "completed_pass"
+    assert public["auxiliary_metrics"]["lifecycle_budget"]["overrun"] is True
+    rebuilt = evaluate_product(read_json(tmp_path / "out/value-suite.json"), evidence)
+    assert rebuilt["comparisons"] == report["comparisons"]
+
+
 def test_two_scenarios_keep_their_own_3361_65_and_2401_65_budgets(tmp_path):
     specs = [
         {

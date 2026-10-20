@@ -13,6 +13,7 @@ from mindie_bench.runner.matrix import (
     ProductProfile,
     build_product_report,
     execute_product_matrix,
+    observation_budget,
     pair_matched_observations,
     plan_product_matrix,
 )
@@ -78,6 +79,25 @@ def tasks() -> list[MatrixTask]:
         MatrixTask("task-b", "family-beta", "A3"),
         MatrixTask("task-c", "family-alpha", "A3"),
     ]
+
+
+def test_resource_overrun_and_missing_meter_do_not_change_business_outcome():
+    from dataclasses import replace
+
+    selected = profile(ProductGroup.P2_V003_FULL)
+    row = ProductObservation(
+        selected.group, "task-a", 1, "pass", model_calls=100, npu_runs=4,
+        total_wall_clock_sec=3600, manual_interventions=2,
+    )
+    assert observation_budget(row, selected)["exceeded"] is False
+    missing = replace(row, npu_runs=None)
+    assert observation_budget(missing, selected)["exceeded"] is None
+    assert observation_budget(missing, selected)["unmeasured_fields"] == ["npu_runs"]
+    over = replace(missing, model_calls=101)
+    measured = observation_budget(over, selected)
+    assert measured["exceeded"] is True
+    assert measured["overruns"][0]["observed"] == 101
+    assert over.status.value == "pass"
 
 
 def test_seven_product_columns_do_not_reinterpret_legacy_component_groups():
@@ -382,6 +402,7 @@ def test_receipt_binding_requires_an_explicit_product_cell_not_legacy_group():
             "estimated_cost_usd": 0.25,
             "model_calls": 7,
             "total_wall_clock_sec": 12.5,
+            "delivery_wall_clock_sec": 3610.0,
             "npu_test_runs": 2,
             "remote_test_invocations": 3,
             "zero_human_intervention": True,
@@ -395,7 +416,10 @@ def test_receipt_binding_requires_an_explicit_product_cell_not_legacy_group():
     assert observation.status.value == "pass"
     assert observation.tokens_total == 9
     assert observation.estimated_cost_usd == 0.25
-    assert observation.total_wall_clock_sec == 12.5
+    assert observation.total_wall_clock_sec == 3610
+    budget = observation_budget(observation, plan.profiles[0])
+    assert budget["exceeded"] is True
+    assert budget["overruns"][0]["observed"] == 3610
     assert observation.npu_runs == 2
     assert observation.manual_interventions == 0
 
@@ -406,7 +430,7 @@ def test_receipt_binding_requires_an_explicit_product_cell_not_legacy_group():
                 **receipt.primary_metrics,
                 "tokens": {"input_uncached": 4, "output": 3, "complete": True},
                 "cost_complete": False,
-                "total_wall_clock_sec": None,
+                "delivery_wall_clock_sec": None,
             }
         }
     )
@@ -420,13 +444,17 @@ def test_receipt_binding_requires_an_explicit_product_cell_not_legacy_group():
             "primary_metrics": {
                 key: value
                 for key, value in receipt.primary_metrics.items()
-                if key not in {"npu_test_runs", "remote_test_invocations", "zero_human_intervention"}
+                if key not in {
+                    "npu_test_runs", "remote_test_invocations", "zero_human_intervention",
+                    "delivery_wall_clock_sec",
+                }
             }
         }
     )
     unmeasured_observation = observation_from_receipt(unmeasured, cell=cell)
     assert unmeasured_observation.npu_runs is None
     assert unmeasured_observation.manual_interventions is None
+    assert unmeasured_observation.total_wall_clock_sec is None
     # The cell, not receipt.ablation_group, selects the product column.
     g2_observation = observation_from_receipt(receipt, cell=plan.cells[1])
     assert g2_observation.group == ProductGroup.P2_V003_FULL

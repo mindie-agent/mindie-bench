@@ -107,7 +107,8 @@ that can admit an unmeasured guard or use the best guard round.
 | Correctness or measured guard failure | 0 | Neutral 1×; diagnostic ratios retained |
 | Unchanged candidate source | 0 | Neutral 1×; timing noise cannot establish improvement |
 | Established candidate measurement failure | 0 | Neutral 1× |
-| Existing performance gate or native process budget rejects candidate | 0 | Neutral 1×, even below inference threshold |
+| Existing performance gate rejects candidate | 0 | Neutral 1×, even below inference threshold |
+| Agent budget reached or total delivery budget exceeded | Independent judge outcome | Measured ratio retained; budget reported separately |
 | Other native gate rejects an otherwise accepted candidate | 0 | Neutral 1× |
 | Missing workload/round, unhealthy baseline, wrong runtime/nonce | No accepted verifier result | No score |
 | Native `infra_failed` or `unknown`, even with prior successful observations | Unchanged native status | No score |
@@ -121,18 +122,29 @@ Native `summary.json`, `score`, audit, comparison JSON and HF-compatible export
 add an `inference` section. Scoring recomputes observations from typed evidence.
 When both contracts are declared, the receipt also retains the native performance
 contract and the runner's process stop reason. Scoring revalidates the existing
-performance evidence; a failed workspace/graph/server gate or exhausted process
-budget cannot contribute a gain just because inference was below its threshold.
+performance evidence; a failed workspace/graph/server gate cannot contribute a
+gain just because inference was below its threshold. A settled budget stop does
+not invalidate the artifact: verification still determines acceptance. Agent
+limit exhaustion, delivery overruns, successful overruns and success within the
+declared delivery budget appear separately in summaries, comparisons and exports.
+Historical terminal receipts remain unchanged; a saved pre-overrun business-pass
+verdict can qualify its measured inference ratio, but absent evidence is not
+inferred to be successful.
 Cohorts preserve group, role, tier, evidence class, experiment and harness/model
 controls. Repeated attempts aggregate within each task before equal task weighting:
 arithmetic for full-support pass rates, geometric for optimization/regression.
 Different task revisions or duplicate native matrix cells are errors.
 
-`score` and `audit-report` read the original `eval_manifest.json` when present.
+`score`, `compare` and `audit-report` read the original `eval_manifest.json` when present.
+Each comparison input uses its own plan. Plans record evidence class so synthetic
+and verified cells do not count as missing in each other's cohorts. Legacy plans
+infer class only from receipts with the same task identity; unclassified absent
+cells remain required.
 Complete scores require exactly its planned valid lifecycle cells. Missing,
 blocked, unknown and extra cells withhold the score while retaining observed
 values and counts. Receipt-only/frozen inputs without that plan report observed
-values without claiming full coverage. Nothing reconstructs missing G3 seeds.
+values without claiming full coverage. `complete` describes plan/evidence coverage,
+not budget compliance. Nothing reconstructs missing G3 seeds.
 
 ## Run the executable examples
 

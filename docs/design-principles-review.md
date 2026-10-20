@@ -1,5 +1,41 @@
 # Design-principles review
 
+## Preserve verified results and budget observations (2026-10-20)
+
+- Scope: follow up native inference PR #6. Remove runner mappings that converted
+  a verified pass into failure at an agent stop or delivery overrun. Inference
+  scoring retains 0.5x slowdowns, subthreshold gains and accepted gains at these
+  limits; correctness, workspace/graph/server gates and unsettled effects remain
+  independent acceptance boundaries.
+- Error visibility: budget stops/overruns, measured cost/time and original errors
+  remain in receipts, summaries, product comparisons and public exports. Actual
+  resource overruns do not disappear behind matched declared allocations.
+  Unknown paid/model/remote effects remain unknown and are never replayed.
+  The shared product receipt adapter now uses delivery time; the generic matrix
+  path previously checked only agent time while two specialized callers repaired
+  it separately. Missing delivery time remains unmeasured.
+  Legacy release admission, CLI exit status and canary gates distinguish an
+  explicit BudgetOverrun diagnostic from execution errors. Public projection
+  retains that distinction and numeric budget evidence after redaction.
+- Coverage: explicit evidence classes scope planned cells to the same cohort as
+  receipts. Legacy unclassified missing cells remain required. CLI comparison
+  uses each original plan and `run` prints its saved complete summary;
+  receipt-only inputs remain observed-only.
+- Design review: no new process, dependency, paid inference or end-user workflow.
+  One pure budget reader serves scorer/export; product reporting reuses its
+  existing observed-resource accounting. The obsolete destructive budget mapper
+  is deleted. No historical receipt, task or measured NPU artifact is rewritten.
+- Verification: real local agent/verifier tests cover a correct artifact followed
+  by timeout and delivery overruns after success, failure, unknown or failed preflight. Pure
+  scoring tests cover negative/positive ratios, mixed evidence plans and missing
+  meters; CLI and public product round trips cover plan and budget propagation.
+  Validation counts and any environment limitations are recorded in the PR.
+- Repository audit: gateway/process limits stop future work; they do not adjudicate
+  artifacts. Required capture and remote/model settlement preserve business
+  observations while withholding full-run success when effects remain uncertain.
+  Ablation and RSI evidence retain measured values and original run statuses.
+  These boundaries are not relaxed by the budget fix.
+
 ## Native inference lifecycle refactor (2026-10-20)
 
 - Scope: internalize lifecycle contracts, counterbalanced paired workloads,

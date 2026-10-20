@@ -19,7 +19,7 @@ from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.hf_sync.exporter import public_row, public_task_row
 from mindie_bench.inference_models import InferenceContract, InferenceEvidence
 from mindie_bench.io import read_json
-from mindie_bench.models import ExperimentConfig, Group, PerformanceContract, TaskSpec, TrialReceipt
+from mindie_bench.models import ExperimentConfig, PerformanceContract, TaskSpec, TrialReceipt
 from mindie_bench.runner.verifier import parse_verifier, remote_verifier
 from mindie_bench.scorer.metrics import summarize
 
@@ -232,6 +232,7 @@ def receipt(task="task", repetition=1, *, spec=None, observed=None, status=None,
 def cell(row):
     return dict(instance_id=row.instance_id, tier=row.tier, group=row.ablation_group.value,
                 repetition=row.repetition, role=row.task_role, task_digest=row.task_digest,
+                evidence=row.evidence,
                 inference_category=row.environment_fingerprint["inference_contract"]["category"])
 
 
@@ -269,7 +270,7 @@ def test_other_native_failure_neutralizes_gain_and_public_export_keeps_contract(
 
 
 @pytest.mark.parametrize("speed", [0.5, 1.01])
-def test_native_workspace_and_budget_gates_apply_even_below_inference_threshold(speed):
+def test_native_workspace_gate_applies_below_inference_threshold_but_budget_is_separate(speed):
     from mindie_bench.evaluation.performance import measure_rotating_buffers
 
     row = receipt(observed=evidence(contract(), speed=speed))
@@ -299,10 +300,71 @@ def test_native_workspace_and_budget_gates_apply_even_below_inference_threshold(
     row.primary_metrics["performance_metrics"]["memory_workspace_delta_mb"] = 0.0
     assert track([row], [cell(row)])["score"] == pytest.approx(speed)
     row.environment_fingerprint["inference_native_stop_reason"] = "max_turns"
-    assert track([row], [cell(row)])["score"] == 1
+    assert track([row], [cell(row)])["score"] == pytest.approx(speed)
     exported = public_row(row)["environment_fingerprint"]
     assert exported["performance_contract"] == admission.model_dump()
     assert exported["inference_native_stop_reason"] == "max_turns"
+
+
+@pytest.mark.parametrize("speed", [0.5, 1.02, 2.0])
+@pytest.mark.parametrize("stop", ["timeout", "max_turns", "max_npu_runs"])
+def test_budget_stop_and_delivery_overrun_preserve_measured_speed_and_verdict(speed, stop):
+    row = receipt(observed=evidence(contract(), speed=speed))
+    row.auxiliary_metrics = dict(
+        native_process={"stop_reason": stop},
+        lifecycle_budget=dict(overrun=True, measured_total_sec=110, declared_total_sec=100, overrun_sec=10),
+    )
+    before = row.model_dump()
+    report = summarize([row], expected_cells=[cell(row)])
+    cohort = report["inference"]["cohorts"][0]
+    assert cohort["tracks"]["optimization"]["score"] == pytest.approx(speed)
+    assert cohort["tracks"]["optimization"]["complete"] is True
+    assert report["pass_at_1"] == float(speed == 2.0)
+    assert report["budget"]["agent_budget_exhausted_attempts"] == 1
+    assert report["budget"]["delivery_budget_exceeded_attempts"] == 1
+    assert report["budget"]["completed_pass_over_delivery_budget"] == int(speed == 2.0)
+    assert report["budget"]["pass_at_1_within_delivery_budget"] == 0
+    assert public_row(row)["budget"]["delivery_overrun_sec"] == 10
+    assert row.model_dump() == before
+
+
+def test_historical_overrun_uses_explicit_business_verdict_without_rewriting_receipt():
+    row = receipt(status="completed_fail")
+    row.auxiliary_metrics = dict(
+        business_terminal_status="completed_pass", business_reward=1.0,
+        lifecycle_budget=dict(overrun=True, measured_total_sec=110, declared_total_sec=100, overrun_sec=10),
+    )
+    assert track([row], [cell(row)])["score"] == 2
+    assert row.terminal_status.value == "completed_fail"
+    assert row.primary_metrics["reward"] == 0
+    del row.auxiliary_metrics["business_terminal_status"]
+    assert track([row], [cell(row)])["score"] == 1
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_evidence_cohorts_scope_the_original_plan_and_keep_unclassified_missing_cells(legacy):
+    from mindie_bench.scorer.comparator import grouped_summaries
+
+    rows = [receipt("synthetic"), receipt("verified")]
+    rows[1].evidence = "verified"
+    planned = [cell(row) for row in rows]
+    if legacy:
+        for item in planned:
+            del item["evidence"]
+    cohorts = summarize(rows, expected_cells=planned)["inference"]["cohorts"]
+    groups = grouped_summaries(rows, expected_cells=planned)
+    for cohort in cohorts:
+        assert cohort["tracks"]["optimization"]["score"] == 2
+        assert cohort["tracks"]["optimization"]["tasks"] == 1
+        assert groups[f"l2/{cohort['evidence']}/G0"]["matrix_coverage"]["complete"] is True
+    missing = cell(receipt("missing"))
+    if legacy:
+        del missing["evidence"]
+    planned.append(missing)
+    groups = grouped_summaries(rows, expected_cells=planned)
+    assert groups["l2/synthetic/G0"]["inference"]["cohorts"][0]["tracks"]["optimization"]["score"] is None
+    verified = groups["l2/verified/G0"]
+    assert verified["matrix_coverage"]["complete"] is (not legacy)
 
 
 def test_cohorts_keep_g0_g3_and_model_conditions_separate():
@@ -353,6 +415,36 @@ def test_existing_score_command_uses_the_original_native_plan(tmp_path, capsys):
     assert report["inference"]["cohorts"][0]["tracks"]["optimization"]["score"] is None
 
 
+@pytest.mark.parametrize("with_plan", [False, True])
+def test_compare_cli_uses_each_original_plan_like_score(tmp_path, capsys, with_plan):
+    from mindie_bench.cli import main
+    from mindie_bench.io import write_json
+    from mindie_bench.scorer.comparator import CONTROL_KEYS
+
+    for group in ("G0", "G1"):
+        row = receipt(group=group)
+        row.environment_fingerprint.update({key: None for key in CONTROL_KEYS})
+        row.primary_metrics["localization_penalty_turns"] = 25
+        directory = tmp_path / group
+        write_json(directory / row.trial_id / "trial_receipt.json", row.model_dump(mode="json"))
+        if with_plan:
+            write_json(directory / "eval_manifest.json", dict(
+                tasks=[{"path": "task"}], groups=[group], repetitions=1, cells=[cell(row)],
+            ))
+        assert main(["score", "--input", str(directory)]) == 0
+        scored = json.loads(capsys.readouterr().out)[f"l2/synthetic/{group}"]
+        assert scored["inference"]["cohorts"][0]["tracks"]["optimization"]["score"] == (2 if with_plan else None)
+    output = tmp_path / "comparison"
+    assert main(["compare", "--baseline", str(tmp_path / "G0"), "--candidate", str(tmp_path / "G1"),
+                 "--output", str(output)]) == 0
+    report = read_json(output / "comparison.json")
+    for side in ("baseline", "candidate"):
+        values = report[side]["inference"]["cohorts"][0]["tracks"]["optimization"]
+        assert values["score"] == (2 if with_plan else None)
+        assert values["complete"] is with_plan
+    assert report["comparison_coverage"]["complete"] == (True if with_plan else None)
+
+
 def example_module():
     path = Path(__file__).resolve().parents[1] / "tasks/inference/materialize.py"
     spec = importlib.util.spec_from_file_location("inference_example", path)
@@ -396,10 +488,10 @@ def test_real_example_judges_use_native_task_contracts_and_measured_cpu_work(exa
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="native runner requires Linux/macOS OS isolation")
-def test_native_matrix_and_soundness_use_inference_contract_end_to_end(examples):
-    from mindie_bench.runner.orchestrator import run_matrix
+def test_native_matrix_and_soundness_use_inference_contract_end_to_end(examples, capsys):
+    from mindie_bench.cli import main
     from mindie_bench.runner.soundness import check_soundness
-    from mindie_bench.scorer.comparator import grouped_summaries
+    from mindie_bench.scorer.comparator import grouped_summaries, load_receipts
 
     _, output, tasks = examples
     config = ExperimentConfig.load(output / "experiment.toml")
@@ -407,8 +499,13 @@ def test_native_matrix_and_soundness_use_inference_contract_end_to_end(examples)
     # on the support task. All three tasks still run their real measured judges.
     proof = check_soundness(tasks[0], config, tier="l2", output=output / "proof")
     assert proof["before_reward"] == 0 and proof["after_reward"] == 1
-    rows = run_matrix(tasks, config, tier="l2", groups=[Group.G0], repetitions=1,
-                      concurrency=1, output=output / "run")
+    assert main([
+        "run", "--tasks", str(output / "tasks"), "--config", str(output / "experiment.toml"),
+        "--tier", "l2", "--groups", "G0", "--repetitions", "1", "--concurrency", "1",
+        "--output", str(output / "run"),
+    ]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    rows = load_receipts(output / "run")
     assert all(row.terminal_status.value.startswith("completed") for row in rows), [row.errors for row in rows]
     plan = read_json(output / "run/eval_manifest.json")["cells"]
     result = grouped_summaries(rows, expected_cells=plan)["l2/synthetic/G0"]["inference"]
@@ -416,6 +513,7 @@ def test_native_matrix_and_soundness_use_inference_contract_end_to_end(examples)
     assert result["cohorts"][0]["tracks"]["model_support"]["score"] == 1
     saved = read_json(output / "run/summary.json")["l2/synthetic/G0"]["inference"]
     assert saved == result
+    assert printed["l2/synthetic/G0"]["inference"] == saved
 
 
 def test_remote_private_judge_forwards_contract_and_run_binding(examples, tmp_path):
