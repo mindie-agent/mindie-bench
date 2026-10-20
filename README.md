@@ -20,6 +20,9 @@ uv run mindie-bench demo --output reports/new-demo
 uv run pytest tests/test_performance_gates.py -q
 ```
 
+For a package installation, `pip install 'mindie-bench[knowledge]'` includes the
+pinned production knowledge index used by offline knowledge replay.
+
 The demo is synthetic and makes no model, SSH or NPU calls. Native runs require
 an explicitly selected endpoint, credential environment variable, component
 revisions and task configuration. Personal client logins are not copied.
