@@ -17,3 +17,28 @@ max_rank_step_ms / median_rank_step_ms` stays below the gate; (3) `comm_ratio`
 and `overlap_ratio` meet the declared targets after EPLB; (4) the uniform guard
 workload does not regress; and (5) every rank stays inside the workspace budget.
 Report the skew input, EPLB decision, per-rank timings and the guard result.
+
+## Runtime prerequisites and current status
+
+The verifier consumes `MINDIE_BENCH_WORKSPACE` and ignores any evidence JSON in
+it. It requires a real Qwen3-MoE snapshot via `MINDIE_BENCH_QWEN3_MOE_MODEL` or
+`MINDIE_BENCH_MODEL_PATH`, eight leased Dies visible in
+`ASCEND_RT_VISIBLE_DEVICES`, and importable `torch_npu`/`vllm`. The real workload
+is an expert-parallel server plus skewed and uniform prompt sets:
+
+```bash
+vllm serve "$MINDIE_BENCH_QWEN3_MOE_MODEL" --host 127.0.0.1 --port 18000 \
+  --tensor-parallel-size 2 --data-parallel-size 4 --enable-expert-parallel \
+  --trust-remote-code
+```
+
+Without the model and a bounded skew client the verifier exits nonzero with
+`unsupported:model_cache_unavailable` or
+`unsupported:task_blocked_real_workload_harness_incomplete`; no synthetic rank-skew or EPLB
+metric is produced.
+
+## Blocked / incomplete
+
+This task has no production acceptance path yet. The verifier preserves the
+missing model/serving prerequisite as an explicit report; it must not be
+promoted, described as available, or counted as a completed benchmark.

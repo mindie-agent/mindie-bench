@@ -11,10 +11,13 @@ repository = "vllm-project/vllm-ascend"
 base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
 task_type = "distributed_correctness"
 validation_scope = "S2 full A3 16-Die same-node PD disaggregation: 8-Die Prefill and 8-Die Decode instances with isolated ASCEND_RT_VISIBLE_DEVICES, Mooncake/HCCL KV handoff, TTFT and TPOT dual gates"
+runtime_requirements = "REAL model snapshot at MINDIE_BENCH_MODEL_PATH; full 16 idle A3 Dies; Mooncake transfer engine plus disjoint Prefill/Decode endpoints; MINDIE_BENCH_MOONCAKE_READY=1 only after provisioning"
+acceptance_boundary = "BLOCKED / incomplete: no production acceptance path. The verifier only reports blocked model/Mooncake/16-Die prerequisites; it must not be promoted or described as available."
+real_workload = "Prefill kv_producer and Decode kv_consumer vllm instances on disjoint visible-device halves with a real long-prompt handoff and continuous decode"
 [mindie_knowledge]
 corpus_id = "ascend"
 knowledge_gradient = "analogical"
-target_files = ["vllm_ascend/distributed/kv_transfer.py", "vllm_ascend/core/scheduler.py"]
+target_files = ["vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py", "vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_hybrid_connector.py"]
 conditions = { query = "A3 16 Die PD disaggregation Prefill Decode Mooncake KV cache handoff first token accuracy TTFT TPOT", topology_scale = "S2", placement = "disaggregated_pd_pair", die_count = 16, npu_model = "Ascend910", npu_count = 16, hosts = ["192.168.13.165"] }
 [budget]
 max_turns = 60

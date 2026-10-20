@@ -14,17 +14,21 @@ record four-gate outcomes.
   supported and sub-target-valid candidates are `distill_ready`.
 - Speedup is the default objective. Correctness, localization and diagnosis
   tasks report `goal_met`/`diagnostic_gain` instead of a synthetic ratio.
-- Compiles are CPU-only (`npu_count == 0`); NPU timing is serial, exclusive to
-  the assigned device lease, and admitted only for proved compiles.
+- CPU-only compiles (`npu_count == 0`) may overlap. Device compilation/JIT and
+  all NPU timing require a real coordinator/TaskClient lease from
+  `rsi_execution`; a plan's `state_dir` is metadata, not a lock.
 - The ledger is append-only; PROGRESS.md is deterministic and atomically replaced.
 
 [Timeouts & Locks]
 - Pure planning/evaluation helpers perform no waits and take no locks.
-- The ledger owns one short O_APPEND write and one atomic markdown replacement;
-  callers own all experiment and NPU timeouts.
+- Execution authority lives in `rsi_execution`; callers there own coordinator
+  lease and command timeouts. The ledger owns one short O_APPEND write and one
+  atomic markdown replacement.
 
 [Side-Effect Policy]
-- Only `append_ledger_and_render_progress` writes: the JSONL ledger and PROGRESS.md.
+- Pure context/planning/gate helpers have no side effects.
+- `append_ledger_and_render_progress` writes only the JSONL ledger and PROGRESS.md.
+- Execution submits are delegated to the coordinator adapter in `rsi_execution`.
 """
 
 from __future__ import annotations
@@ -33,14 +37,34 @@ import json
 import math
 import os
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+
+from mindie_bench.runner.rsi_campaign import (
+    build_isolated_jit_cache_env,
+    build_subagent_fact_pack,
+    classify_candidate_patch_shape,
+    evaluate_hidden_input_generalization,
+    evaluate_speculative_acceptance,
+    harvest_candidate_patch,
+    run_rsi_gate_campaign,
+    verify_sequential_ablation,
+)
 
 SCHEMA_VERSION = "mindie-bench-rsi/1"
 DEFAULT_MIN_SPEEDUP_RATIO = 1.05
 RETURN_TIERS = frozenset({"L1", "L2", "L3", "L4"})
 _COMPILE_PASS = frozenset({"compiled", "ok", "pass", "passed", "success", "succeeded"})
+__all__ = [
+    "append_ledger_and_render_progress", "build_debiased_rsi_context",
+    "evaluate_exploration_axes", "evaluate_hidden_input_generalization",
+    "evaluate_rsi_candidate_gates", "execute_rsi_compile_and_timing",
+    "plan_rsi_compile_and_timing", "run_rsi_gate_campaign",
+    "should_escalate_to_rsi", "verify_sequential_ablation",
+    "build_isolated_jit_cache_env", "classify_candidate_patch_shape",
+    "evaluate_speculative_acceptance", "harvest_candidate_patch",
+]
 
 
 def _seq(value: Any) -> list[Any]:
@@ -57,9 +81,13 @@ def _tier(unit: Mapping[str, Any]) -> str:
     return str(unit.get("tier", "")).strip().upper()
 
 def should_escalate_to_rsi(
-    l3_attempts: Sequence[Mapping[str, Any]], *, max_stalled_attempts: int = 2
+    l3_attempts: Sequence[Mapping[str, Any]] | None = None, *, max_stalled_attempts: int = 2,
+    consecutive_limit: int | None = None,
+    ledger_entries: Sequence[Mapping[str, Any]] | None = None,
 ) -> tuple[bool, str]:
     """Escalate on completed, non-informative experiments; repair failures first."""
+    l3_attempts = ledger_entries if ledger_entries is not None else (l3_attempts or ())
+    max_stalled_attempts = consecutive_limit if consecutive_limit is not None else max_stalled_attempts
     if type(max_stalled_attempts) is not int or max_stalled_attempts < 1:
         raise ValueError("max_stalled_attempts must be a positive integer")
     if not l3_attempts:
@@ -115,11 +143,19 @@ def _conditional_avoid(entry: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def build_debiased_rsi_context(
-    *, goal: str, retrieved_units: Sequence[Mapping[str, Any]],
-    bottleneck_summary: Mapping[str, Any], ledger_entries: Sequence[Mapping[str, Any]],
-    conditions: Mapping[str, Any], native_subcontext: bool = False,
+    units: Sequence[Mapping[str, Any]] | None = None, *, goal: str,
+    retrieved_units: Sequence[Mapping[str, Any]] | None = None,
+    bottleneck_summary: Mapping[str, Any] | None = None,
+    ledger_entries: Sequence[Mapping[str, Any]] | None = None,
+    failed_attempts: Sequence[Mapping[str, Any]] | None = None,
+    conditions: Mapping[str, Any] | None = None,
+    native_subcontext: bool = False,
 ) -> dict[str, Any]:
     """Mount L1/L2/L4 evidence while excluding routine L3 heuristic workflow bias."""
+    retrieved_units = units if units is not None else (retrieved_units or [])
+    ledger_entries = failed_attempts if failed_attempts is not None else (ledger_entries or [])
+    summary = dict(bottleneck_summary or {})
+    conditions = dict(conditions or {})
     stripped: list[str] = []
     units: dict[str, list[dict[str, Any]]] = {"L1": [], "L2": [], "L4": []}
     axioms, measurement, inherited = [], [], []
@@ -173,7 +209,6 @@ def build_debiased_rsi_context(
                 observations.extend(_rules(unit, "observations", "bottleneck_observations", "bottleneck"))
             elif tier == "L4":
                 operators.extend(_rules(unit, "mutators", "operators", "mutation_operators"))
-    summary = dict(bottleneck_summary)
     observations = _seq(summary.get("observations")) + observations
     baseline: Any = baselines[0] if len(baselines) == 1 else baselines or None
     avoid = [
@@ -186,9 +221,10 @@ def build_debiased_rsi_context(
                   "inherited_rules": inherited, "foundation_baseline": baseline}
     bottleneck = {"units": units["L2"], "summary": summary, "observations": observations}
     mutators = {"units": units["L4"], "operators": operators}
-    return {
-        "schema_version": SCHEMA_VERSION, "goal": goal, "mounted_tiers": ["L1", "L2", "L4"],
-        "stripped_tiers": ["L3"], "stripped_l3_ids": stripped, "l1_foundation": foundation,
+    context = {
+        "schema_version": SCHEMA_VERSION, "goal": goal, "conditions": conditions,
+        "mounted_tiers": ["L1", "L2", "L4"], "stripped_tiers": ["L3"],
+        "stripped_l3_ids": stripped, "l1_foundation": foundation,
         "l2_bottleneck": bottleneck, "l4_mutators": mutators, "foundation_axioms": axioms,
         "measurement_rules": measurement, "inherited_rules": inherited,
         "foundation_baseline": baseline, "bottleneck_summary": summary,
@@ -196,6 +232,12 @@ def build_debiased_rsi_context(
         "conditional_avoid": avoid,
         "isolation_mode": "native_subcontext" if native_subcontext else "in_session_strategy_shift",
     }
+    context["subagent_fact_pack"] = build_subagent_fact_pack(
+        context=context, goal=goal, retrieved_units=retrieved_units,
+        bottleneck_summary=summary, ledger_entries=ledger_entries,
+        conditions=conditions, native_subcontext=native_subcontext,
+    )
+    return context
 
 def _compile_proof(candidate: Mapping[str, Any]) -> bool | None:
     for key in ("compile_ok", "compile_passed", "compiled", "compile_success"):
@@ -212,6 +254,21 @@ def _compile_proof(candidate: Mapping[str, Any]) -> bool | None:
     if candidate.get("compile_status") is not None:
         return str(candidate["compile_status"]).lower() in _COMPILE_PASS
     return None
+
+
+def _compile_proved(candidate: Mapping[str, Any]) -> str:
+    """Classify the compile proof that admits a candidate to NPU timing."""
+    proof = _compile_proof(candidate)
+    if proof is True:
+        return "passed"
+    if proof is False:
+        return "failed"
+    return "missing"
+
+
+def _candidate_identity(candidate: Mapping[str, Any], index: int) -> str:
+    raw = candidate.get("candidate_id", candidate.get("id", candidate.get("unit_id")))
+    return str(raw) if raw not in (None, "") else f"candidate-{index}"
 
 
 def _item(candidate_id: str, phase: str, resources: dict[str, Any], **extra: Any) -> dict[str, Any]:
@@ -241,8 +298,7 @@ def plan_rsi_compile_and_timing(
         raise ValueError("max_compile_slots must be a positive integer")
     devices = _device_lease(npu_device, assigned_devices)
     primary = devices[0]
-    ids = [str(c.get("candidate_id", c.get("id", c.get("unit_id"))) or f"candidate-{i}")
-           for i, c in enumerate(candidates)]
+    ids = [_candidate_identity(c, i) for i, c in enumerate(candidates)]
     if len(set(ids)) != len(ids):
         raise ValueError("candidate IDs must be unique")
     proofs = {identity: _compile_proof(candidate) for identity, candidate in zip(ids, candidates)}
@@ -378,9 +434,18 @@ def evaluate_rsi_candidate_gates(
     min_speedup_ratio: float = DEFAULT_MIN_SPEEDUP_RATIO,
     ablation_retained: bool | None = None, failure_reason: str = "",
     preserve_subtarget_evidence: bool = True, noise_margin: float = 0.01,
-    return_tier: str = "L4",
+    return_tier: str = "L4", hidden_input_summary: Mapping[str, Any] | None = None,
+    ablation_receipt: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Judge observed results using the executor's run ID, without synthetic proof."""
+    generalization_ok = hidden_input_summary.get("generalization_ok") if isinstance(hidden_input_summary, Mapping) else None
+    if generalization_ok is False:
+        oracle_passed = False
+    if isinstance(ablation_receipt, Mapping):
+        if ablation_receipt.get("ablation_retained") is not None:
+            ablation_retained = bool(ablation_receipt["ablation_retained"])
+        elif "pruned_combination_verified" in ablation_receipt:
+            ablation_retained = not bool(ablation_receipt["pruned_combination_verified"])
     result = evaluate_exploration_axes(
         compile_ok=compile_ok, oracle_passed=oracle_passed,
         measurement_passed=measurement_passed, speedup_ratio=speedup_ratio,
@@ -418,6 +483,19 @@ def evaluate_rsi_candidate_gates(
         "distill_ready": result["distill_ready"],
         "failure_reason": failure_reason.strip() or (outcome if verdict != "supported" else ""),
     }
+    if hidden_input_summary is not None:
+        entry.update({"hidden_input_summary": dict(hidden_input_summary), "generalization_ok": generalization_ok})
+        gate = entry["gates"]["gate1_compile_oracle"]
+        if generalization_ok is False:
+            gate["passed"] = False
+            gate["reasons"].append("hidden_input_generalization_failed")
+            entry["failure_reason"] = failure_reason.strip() or "hidden_input_generalization_failed"
+    if ablation_receipt is not None:
+        entry["ablation_receipt"] = dict(ablation_receipt)
+        gate = entry["gates"]["gate3_ablation_gate"]
+        if gate["passed"] is not None and ablation_retained is False:
+            gate["passed"] = False
+            gate["reasons"].append("ablation_receipt_not_retained")
     entry["conditional_avoid"] = _conditional_avoid(entry)
     return entry
 
@@ -476,7 +554,20 @@ def _line(value: Any) -> str:
 
 
 def _render_progress(entries: Sequence[Mapping[str, Any]], *, campaign_id: str, goal: str) -> str:
-    entries = list({entry["run_id"]: entry for entry in entries}.values())
+    # Compile failures have no observed execution ID by design. Deduplicate by
+    # run ID only when it exists so separate failed candidates never collapse
+    # into one progress line.
+    unique: dict[str, Mapping[str, Any]] = {}
+    for entry in entries:
+        run_id = str(entry.get("run_id") or "")
+        if run_id:
+            # A later append for the same execution supersedes its earlier view.
+            unique[run_id] = entry
+        else:
+            identity = (f"{entry.get('candidate_id', '')}:"
+                        f"{entry.get('outcome', '')}:{entry.get('gate_reached', '')}")
+            unique.setdefault(identity, entry)
+    entries = list(unique.values())
     supported = [entry for entry in entries if str(entry.get("verdict", "")).lower() == "supported"]
     subtarget = [entry for entry in entries if entry.get("verdict") == "subtarget_valid"]
     refuted = [entry for entry in entries if str(entry.get("verdict", "")).lower() == "refuted"]
@@ -520,3 +611,46 @@ def append_ledger_and_render_progress(
     _append_json_line(ledger, entry)
     text = _render_progress(_read_ledger(ledger), campaign_id=campaign_id, goal=goal)
     _atomic_write_text(_artifact(Path(progress_path), "PROGRESS.md"), text)
+
+
+def execute_rsi_compile_and_timing(
+    candidates: Sequence[Mapping[str, Any]],
+    *,
+    compile_runner: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+    timing_runner: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+    execution_backend: Any = None,
+    lease_authority: Any = None,
+    state_dir: str | Path = "/tmp/mindie-rsi-coordinator",
+    npu_device: int = 0,
+    assigned_devices: Sequence[int] | None = None,
+    max_compile_slots: int = 4,
+    min_speedup_ratio: float = 1.05,
+    max_workspace_delta_bytes: int | None = None,
+    required_guard_workloads: Sequence[str] | None = None,
+    lease_timeout_seconds: float = 300.0,
+    compile_timeout_seconds: float = 1800.0,
+    ledger_path: str | Path | None = None,
+    progress_path: str | Path | None = None,
+    goal: str = "Optimize operator throughput",
+) -> dict[str, Any]:
+    """Execute the planner through a coordinator-backed RSI execution adapter.
+
+    The implementation lives in `rsi_execution` so the pure context/gate module
+    stays bounded. CPU-only compiles run concurrently; device compilation and
+    every timing callback require a real coordinator lease. Without one, timing
+    is reported unavailable rather than executed beside another owner.
+    ``state_dir`` is plan/ledger metadata, never a lease authority.
+    """
+    from mindie_bench.runner.rsi_execution import execute_rsi_compile_and_timing as _execute
+
+    return _execute(
+        candidates, compile_runner=compile_runner, timing_runner=timing_runner,
+        execution_backend=execution_backend, lease_authority=lease_authority,
+        state_dir=state_dir, npu_device=npu_device, assigned_devices=assigned_devices,
+        max_compile_slots=max_compile_slots, min_speedup_ratio=min_speedup_ratio,
+        max_workspace_delta_bytes=max_workspace_delta_bytes,
+        required_guard_workloads=required_guard_workloads,
+        lease_timeout_seconds=lease_timeout_seconds,
+        compile_timeout_seconds=compile_timeout_seconds,
+        ledger_path=ledger_path, progress_path=progress_path, goal=goal,
+    )

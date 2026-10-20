@@ -18,3 +18,29 @@ the invariance gate; (3) idle ranks leave `conv_state` / `ssm_state` unchanged
 while active ranks update normally; (4) warm-server TTFT and TPOT stay within
 the declared SLA; and (5) no rank exceeds the workspace or guard-workload
 budget.
+
+## Runtime prerequisites and current status
+
+The verifier consumes `MINDIE_BENCH_WORKSPACE` (the candidate `vllm-ascend`
+checkout) and never reads an evidence JSON from that workspace. It requires a
+real local Qwen3.5-GDN snapshot via `MINDIE_BENCH_QWEN35_MODEL` or
+`MINDIE_BENCH_MODEL_PATH`, four idle A3 Dies, and an importable `vllm` /
+`torch_npu`. The real arms are:
+
+```bash
+# Eager reference (same DP=2, TP=2 layout)
+vllm serve "$MINDIE_BENCH_QWEN35_MODEL" --host 127.0.0.1 --port 18000 \
+  --tensor-parallel-size 2 --data-parallel-size 2 --enforce-eager --trust-remote-code
+# ACLGraph arm: repeat without --enforce-eager
+```
+
+Until that snapshot and a bounded asymmetric-batch client are provisioned, the
+verifier exits nonzero with `unsupported:model_cache_unavailable` or
+`unsupported:task_blocked_real_workload_harness_incomplete`. That is **not** a hardware
+acceptance and must not be reported as one.
+
+## Blocked / incomplete
+
+This task has no production acceptance path yet. The verifier preserves the
+missing model/serving prerequisite as an explicit report; it must not be
+promoted, described as available, or counted as a completed benchmark.

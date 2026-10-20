@@ -11,10 +11,13 @@ repository = "vllm-project/vllm-ascend"
 base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
 task_type = "distributed_optimization"
 validation_scope = "S2 eight-Die A3 Qwen3-MoE TP=2 x EP=4 with MC2 Dispatch/Combine and EPLB under skewed expert routing; rank-skew, AlltoAll tail latency, correctness and guard-workload parity"
+runtime_requirements = "REAL Qwen3-MoE snapshot supplied as MINDIE_BENCH_QWEN3_MOE_MODEL or MINDIE_BENCH_MODEL_PATH; eight idle A3 Dies visible in ASCEND_RT_VISIBLE_DEVICES; vllm+torch_npu; skewed and uniform prompt distributions"
+acceptance_boundary = "BLOCKED / incomplete: no production acceptance path. The verifier only reports blocked model/runtime/lease prerequisites; it must not be promoted or described as available."
+real_workload = "vllm serve <snapshot> --tensor-parallel-size 2 --data-parallel-size 4 --enable-expert-parallel with skewed and uniform prompt sets"
 [mindie_knowledge]
 corpus_id = "ascend"
 knowledge_gradient = "compositional"
-target_files = ["vllm_ascend/ops/moe.py", "vllm_ascend/eplb/eplb_worker.py"]
+target_files = ["vllm_ascend/ops/fused_moe/moe_comm_method.py", "vllm_ascend/eplb/core/eplb_worker.py"]
 conditions = { query = "Qwen3 MoE TP2 EP4 MC2 Dispatch Combine EPLB expert load skew AlltoAll slow rank tail latency", topology_scale = "S2", placement = "intra_node_hccs", die_count = 8, npu_model = "Ascend910", npu_count = 8, hosts = ["192.168.13.165"] }
 [budget]
 max_turns = 50

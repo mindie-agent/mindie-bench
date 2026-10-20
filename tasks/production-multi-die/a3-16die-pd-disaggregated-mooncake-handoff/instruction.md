@@ -18,3 +18,25 @@ Decode TPOT satisfy both SLA gates; (4) communication ratio, overlap ratio and
 per-rank workspace remain inside the guard limits; and (5) both instances exit
 cleanly with no residual `/dev/shm/hccl*` or orphan worker. Report the Die split,
 handoff timing, TTFT/TPOT percentiles and guard results.
+
+## Runtime prerequisites and current status
+
+The verifier consumes `MINDIE_BENCH_WORKSPACE` and ignores any evidence JSON in
+it. A real run requires `MINDIE_BENCH_MODEL_PATH` to point at a complete local
+snapshot, all 16 Dies visible to the task, a working Mooncake transfer engine,
+and disjoint Prefill/Decode endpoints declared by an operator-provisioned
+`MINDIE_BENCH_MOONCAKE_READY=1`. The two real server arms are
+`kv_connector=MooncakeConnectorV1` with `kv_role=kv_producer` (8-Die Prefill) and
+`kv_consumer` (8-Die Decode), each restricted to its own
+`ASCEND_RT_VISIBLE_DEVICES` half.
+
+Without those prerequisites the verifier exits nonzero with
+`unsupported:model_cache_unavailable`, `unsupported:sixteen_die_lease_required`
+or `unsupported:mooncake_runtime_unavailable`; no synthetic handoff or
+first-token result is produced.
+
+## Blocked / incomplete
+
+This task has no production acceptance path yet. The verifier preserves the
+missing model/Mooncake/endpoint prerequisite as an explicit report; it must not
+be promoted, described as available, or counted as a completed benchmark.

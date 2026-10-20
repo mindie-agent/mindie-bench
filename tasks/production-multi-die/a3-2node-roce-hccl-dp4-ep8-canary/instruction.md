@@ -18,3 +18,20 @@ surviving host's peer worker is reaped and both hosts end with clean
 `/dev/shm/hccl*`; and (5) no rank exceeds the workspace or guard-workload
 budget. Record the node pair, interface binding, timeout diagnosis and cleanup
 evidence.
+
+## Runtime prerequisites and current status
+
+The standard L3 private oracle runs inside a single-host bubblewrap slot with
+`--unshare-net`, so it cannot reach the second A3 host. This task therefore
+requires an external two-host coordinator that exports
+`MINDIE_BENCH_PEER_HOST`/`MINDIE_BENCH_HCCL_PEER` and a direct multi-node lease
+(`MINDIE_BENCH_MULTINODE_DIRECT=1`). Without that coordinator the verifier exits
+nonzero with `unsupported:multi_node_network_isolated` or
+`unsupported:multi_node_coordinator_required`; a single-node sandbox is never
+reported as a two-node acceptance.
+
+## Blocked / incomplete
+
+This task has no production acceptance path yet. The verifier preserves the
+missing cross-node lease as an explicit report; it must not be promoted,
+described as available, or counted as a completed benchmark.

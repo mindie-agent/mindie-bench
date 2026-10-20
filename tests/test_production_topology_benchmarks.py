@@ -1,9 +1,16 @@
-"""Production S0-S3 topology, stress and multi-rank benchmark contracts.
+"""Production S0-S3 topology planner and evaluator contracts.
 
-Tier 0 uses captured A2/A3 `npu-smi` layouts and pure evaluation evidence.
-Tier 1 validates all five Section 5.4 task specs and binds their conditions to
-the real `GradedRepository`. Tier 2 probes the standing A2/A3 hosts without
-starting, stopping or resetting a workload.
+Tier 0 is protocol-only: it exercises the pure `production_topology` planner /
+invariance evaluator with captured tables and explicit evidence dictionaries.
+It is not a task-acceptance receipt and no row here proves a hardware run.
+
+Tier 1 validates the five task manifests and the real candidate source paths
+they name. Verifier execution and fail-closed behavior are covered separately
+in `tests/test_production_multi_die_verifiers.py`; task bundles no longer carry
+synthetic before/after success receipts.
+
+Tier 2 probes the standing A2/A3 hosts read-only without starting, stopping or
+resetting a workload.
 """
 
 from __future__ import annotations
@@ -423,7 +430,7 @@ def test_moe_skew_varlen_concurrency_and_l4_guards_reject_bad_production_runs():
 
 # ------------------------------------------------------------------- Tier 1
 EXPECTED_TASKS = {
-    "a3-dual-die-tp2-allreduce-placement": ("S1", 2, "same_npu_dual_die"),
+    "a3-dual-die-tp2-allreduce-placement": ("S1", 4, "same_npu_dual_die"),
     "qwen35-gdn-dp2-tp2-asymmetric-aclgraph": ("S1", 4, "intra_node_hccs"),
     "qwen3-moe-tp2-ep4-mc2-eplb-skew": ("S2", 8, "intra_node_hccs"),
     "a3-16die-pd-disaggregated-mooncake-handoff": ("S2", 16, "disaggregated_pd_pair"),
@@ -456,6 +463,35 @@ def test_five_production_tasks_match_section_5_4_contract():
         "192.168.13.165",
         "192.168.13.156",
     )
+
+
+@pytest.mark.tier1
+def test_production_task_target_files_are_real_candidate_paths():
+    """Every declared target exists at the pinned commit, except the guard
+    that the dual-Die gold patch must add to the candidate workspace."""
+    dual = TASKS_ROOT / "a3-dual-die-tp2-allreduce-placement"
+    source_repo = REPO_ROOT / "repositories/vllm-ascend-idle-dp"
+    if not source_repo.is_dir():
+        pytest.skip(f"real candidate repository is unavailable: {source_repo}")
+    patch = (dual / "oracle/gold_patch.diff").read_text()
+    assert "b/vllm_ascend/distributed/placement.py" in patch
+    assert "b/vllm_ascend/distributed/parallel_state.py" in patch
+    assert "_enforce_tp2_a3_placement" in patch
+    assert "environment/topology_case.py" not in patch
+
+    for path in sorted(item for item in TASKS_ROOT.iterdir() if item.is_dir()):
+        task = load_production_benchmark_task(path)
+        for relative in task.task["mindie_knowledge"]["target_files"]:
+            if path == dual and relative == "vllm_ascend/distributed/placement.py":
+                continue
+            completed = subprocess.run(
+                ["git", "-C", str(source_repo), "cat-file", "-e", f"HEAD:{relative}"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            assert completed.returncode == 0, (path.name, relative, completed.stderr)
 
 
 @pytest.mark.tier1
