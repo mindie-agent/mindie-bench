@@ -14,6 +14,12 @@ validation_scope = "S3 two-node A3 RoCE canary across .165 and .156: HCCL_IF_IP/
 runtime_requirements = "Two reachable A3 hosts with non-overlapping Dies; MINDIE_BENCH_PEER_HOST/HCCL_PEER and MINDIE_BENCH_MULTINODE_DIRECT=1 only under an external two-host coordinator; explicit HCCL_IF_IP/HCCL_SOCKET_IFNAME on both ends"
 acceptance_boundary = "BLOCKED / incomplete: no production acceptance path. The standard private oracle runs in a --unshare-net slot and only reports blocked cross-node prerequisites; it must not be promoted or described as available."
 real_workload = "torchrun --nnodes=2 --nproc_per_node=8 cross-node DP=4 x EP=8 alltoall plus paired /dev/shm cleanup and one-end failure injection"
+[task.source.topology]
+scale = "S3"
+die_count = 16
+placement = "multi_node_roce"
+hosts = ["192.168.13.165", "192.168.13.156"]
+visible_phy_ids = []
 [mindie_knowledge]
 corpus_id = "ascend"
 knowledge_gradient = "analogical"
@@ -29,8 +35,3 @@ repo_path = "../../../repositories/vllm-ascend-idle-dp"
 base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
 npu_model = "Ascend910"
 npu_count = 16
-topology_scale = "S3"
-die_count = 16
-placement = "multi_node_roce"
-hosts = ["192.168.13.165", "192.168.13.156"]
-visible_phy_ids = []

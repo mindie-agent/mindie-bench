@@ -14,9 +14,8 @@ record four-gate outcomes.
   supported and sub-target-valid candidates are `distill_ready`.
 - Speedup is the default objective. Correctness, localization and diagnosis
   tasks report `goal_met`/`diagnostic_gain` instead of a synthetic ratio.
-- CPU-only compiles (`npu_count == 0`) may overlap. Device compilation/JIT and
-  all NPU timing require a real coordinator/TaskClient lease from
-  `rsi_execution`; a plan's `state_dir` is metadata, not a lock.
+- CPU-only compiles may overlap; device compilation and timing use real
+  coordinator leases through the execution adapter.
 - The ledger is append-only; PROGRESS.md is deterministic and atomically replaced.
 
 [Timeouts & Locks]
@@ -26,9 +25,7 @@ record four-gate outcomes.
   atomic markdown replacement.
 
 [Side-Effect Policy]
-- Pure context/planning/gate helpers have no side effects.
-- `append_ledger_and_render_progress` writes only the JSONL ledger and PROGRESS.md.
-- Execution submits are delegated to the coordinator adapter in `rsi_execution`.
+- Ledger writes are local; the execution entry delegates effects to TaskClient.
 """
 
 from __future__ import annotations
@@ -628,7 +625,7 @@ def execute_rsi_compile_and_timing(
     max_workspace_delta_bytes: int | None = None,
     required_guard_workloads: Sequence[str] | None = None,
     lease_timeout_seconds: float = 300.0,
-    compile_timeout_seconds: float = 1800.0,
+    compile_timeout_seconds: float | None = None,
     ledger_path: str | Path | None = None,
     progress_path: str | Path | None = None,
     goal: str = "Optimize operator throughput",
@@ -639,6 +636,8 @@ def execute_rsi_compile_and_timing(
     stays bounded. CPU-only compiles run concurrently; device compilation and
     every timing callback require a real coordinator lease. Without one, timing
     is reported unavailable rather than executed beside another owner.
+    ``compile_timeout_seconds=None`` derives the outer compile deadline from the
+    production adapter's inner waits plus cleanup grace.
     ``state_dir`` is plan/ledger metadata, never a lease authority.
     """
     from mindie_bench.runner.rsi_execution import execute_rsi_compile_and_timing as _execute

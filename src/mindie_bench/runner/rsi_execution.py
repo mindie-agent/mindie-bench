@@ -19,12 +19,16 @@ collected, but it cannot authorize a later arbitrary callback.
   A CPU compile timeout is bounded and visible; a device-compile timeout blocks
   later timing because cleanup is unknown.
 - Candidate failures remain visible. A valid measurement is not erased merely
-  because local release failed; cleanup failure is reported separately.
+  because local release failed; cleanup failure is reported separately, blocks
+  later NPU timing, and never sets `released` without observed release evidence.
 
 [Timeouts & Locks]
 - Lease admission is bounded per call (0..600s). CPU compile concurrency is
-  bounded by `max_compile_slots` and `compile_timeout_seconds`. No local
-  lockfile or shadow scheduler exists; the coordinator owns device locks.
+  bounded by `max_compile_slots`. The default outer compile timeout is derived
+  from the production adapter's admission + command + release/verification +
+  bounded cleanup budget plus grace, and an undersized explicit outer timeout is
+  rejected. No local lockfile or shadow scheduler exists; the coordinator owns
+  device locks.
 
 [Side-Effect Policy]
 - Delegates coordinator effects to the supplied authority/adapter. Ledger and
@@ -42,7 +46,15 @@ from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Any
 
+from mindie_bench.runner.rsi_execution_lease import (
+    _acquire,
+    _authority_contract,
+    _expected_run_id,
+    _lease_state,
+    _release,
+)
 from mindie_bench.runner.rsi_explorer import (
+    _candidate_identity,
     _compile_proved,
     append_ledger_and_render_progress,
     evaluate_rsi_candidate_gates,
@@ -75,81 +87,22 @@ _TIMING_EVIDENCE_FIELDS = (
     "workspace_delta_bytes", "guard_workloads",
 )
 _COMPILE_TIMEOUT_REASON = "compile_callback_timeout"
+_DEFAULT_COMPILE_TIMEOUT_SECONDS = 1800.0
+_COMPILE_BUDGET_GRACE_SECONDS = 10.0
 
 
-def _authority_contract(authority: Any) -> dict[str, Any]:
-    """Require an independently verifiable authority, not a receipt callback."""
-    if authority is None:
-        return {}
-    validate = getattr(authority, "validate_result", None)
-    if not callable(validate):
+def _compile_timeout_floor(authority: Any, lease_timeout_seconds: float) -> float | None:
+    """Return the production inner budget plus outer cleanup grace."""
+    budget = getattr(authority, "compile_wait_budget_seconds", None)
+    if not callable(budget):
+        return None
+    value = budget(lease_timeout_seconds=lease_timeout_seconds)
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or value < 0):
         raise RSIExecutionUnavailable(
-            "execution authority has no independent validate_result contract"
+            "execution authority reported an invalid compile wait budget"
         )
-    evidence_class = getattr(authority, "evidence_class", None)
-    if not isinstance(evidence_class, str) or not evidence_class.strip():
-        raise RSIExecutionUnavailable(
-            "execution authority does not declare an evidence class"
-        )
-    if getattr(authority, "physical_acceptance", False) is True:
-        raise RSIExecutionUnavailable(
-            "an execution authority cannot declare physical acceptance; "
-            "the parent reviewer owns that determination"
-        )
-    return {
-        "mode": str(getattr(authority, "mode", evidence_class)),
-        "evidence_class": evidence_class.strip(),
-        "production_adapter": bool(getattr(authority, "production_adapter", False)),
-        "physical_acceptance": False,
-        "verification": "independent validate_result",
-    }
-
-
-def _expected_run_id(lease: Any) -> str:
-    value = getattr(lease, "execution_id", None)
-    if isinstance(value, str) and value:
-        return value
-    try:
-        receipt = _receipt(lease)
-    except RSIExecutionError:
-        return ""
-    return _receipt_execution_id(receipt)
-
-
-def _lease_state(lease: Any) -> str:
-    return str(_receipt(lease).get("state") or "").strip().lower()
-
-
-def _acquire(authority: Any, devices: Sequence[int], *, phase: str,
-             candidate: Mapping[str, Any], timeout_seconds: float) -> Any:
-    _authority_contract(authority)
-    acquire = getattr(authority, "acquire", None)
-    if not callable(acquire):
-        raise RSIExecutionUnavailable("execution authority has no acquire method")
-    lease = acquire(list(devices), phase=phase, candidate=candidate,
-                    timeout_seconds=timeout_seconds)
-    identity = _expected_run_id(lease)
-    if not identity:
-        raise RSIExecutionError("coordinator lease has no observed execution identity")
-    state = _lease_state(lease)
-    if state == "running":
-        verify = getattr(lease, "verify", None)
-        if not callable(verify):
-            raise RSIExecutionUnavailable(
-                f"coordinator lease {identity} cannot verify its active ownership"
-            )
-        if not verify():
-            raise RSIExecutionError(
-                f"coordinator lease {identity} did not verify as active",
-                execution_id=identity,
-            )
-    elif state not in _TERMINAL_EXECUTION_STATES:
-        raise RSIExecutionUnavailable(
-            f"coordinator lease {identity} is in non-active state {state!r}",
-            execution_id=identity,
-            details={"state": state},
-        )
-    return lease
+    return float(value) + _COMPILE_BUDGET_GRACE_SECONDS
 
 
 def _collect_completed(authority: Any, lease: Any, *, phase: str,
@@ -184,26 +137,6 @@ def _validate(authority: Any, lease: Any, result: Mapping[str, Any], *,
         raise RSIExecutionError(
             f"callback run_id {observed!r} differs from coordinator lease {expected!r}"
         )
-
-
-def _release(authority: Any, lease: Any) -> Mapping[str, Any]:
-    release = getattr(authority, "release", None)
-    if callable(release):
-        value = release(lease)
-    else:
-        value = lease.release()
-    if not isinstance(value, Mapping):
-        value = _receipt(lease)
-    cleanup = value.get("cleanup")
-    if isinstance(cleanup, Mapping) and any(
-        cleanup.get(key) for key in ("status_error", "stop_error", "release_error")
-    ):
-        raise RSIExecutionError(
-            "coordinator cleanup reported an error",
-            execution_id=str(value.get("execution_id") or _expected_run_id(lease)),
-            cleanup=dict(cleanup),
-        )
-    return dict(value)
 
 
 def _cleanup_detail(exc: BaseException, phase: str) -> dict[str, Any]:
@@ -273,6 +206,19 @@ def _compile_one(
         if lease is not None:
             _validate(authority, lease, result, phase="compile", devices=devices,
                       expected_run_id=compile_execution_id)
+        result_cleanup = result.get("coordinator_cleanup")
+        if isinstance(result_cleanup, Mapping) and result_cleanup:
+            candidate["attempted_cleanup"] = dict(result_cleanup)
+            if result_cleanup.get("released") is not True:
+                cleanup_ok = False
+                _record_cleanup(candidate, {
+                    "phase": "compile",
+                    "execution_id": str(
+                        result_cleanup.get("execution_id") or compile_execution_id
+                    ),
+                    "error": "coordinator_release_unconfirmed",
+                    "cleanup": dict(result_cleanup),
+                })
         _merge_result(candidate, result, _COMPILE_RESULT_FIELDS)
         if candidate.get("run_id"):
             candidate["compile_run_id"] = candidate["run_id"]
@@ -439,6 +385,12 @@ def _timing_one(
             try:
                 released = _release(authority, lease)
                 candidate["coordinator_release"] = dict(released) if released else {}
+                # Only a successful release observation refreshes the receipt;
+                # failed cleanup must keep resources_released false.
+                try:
+                    candidate["coordinator_lease_receipt"] = _receipt(lease)
+                except RSIExecutionError:
+                    pass
             except Exception as exc:
                 cleanup_ok = False
                 detail = _cleanup_detail(exc, "timing")
@@ -506,7 +458,7 @@ def execute_rsi_compile_and_timing(
     max_workspace_delta_bytes: int | None = None,
     required_guard_workloads: Sequence[str] | None = None,
     lease_timeout_seconds: float = 300.0,
-    compile_timeout_seconds: float = 1800.0,
+    compile_timeout_seconds: float | None = None,
     ledger_path: str | Path | None = None,
     progress_path: str | Path | None = None,
     goal: str = "Optimize operator throughput",
@@ -528,9 +480,6 @@ def execute_rsi_compile_and_timing(
     coordinator lock or a source of lease authority; the installed coordinator
     or an explicitly verified existing lease owns device exclusion.
     """
-    _validate_options(max_compile_slots, max_workspace_delta_bytes,
-                      lease_timeout_seconds, compile_timeout_seconds,
-                      required_guard_workloads, min_speedup_ratio)
     if execution_backend is not None:
         if compile_runner is not None or timing_runner is not None or lease_authority is not None:
             raise ValueError(
@@ -540,14 +489,34 @@ def execute_rsi_compile_and_timing(
         compile_runner = getattr(execution_backend, "compile_runner", None)
         timing_runner = getattr(execution_backend, "timing_runner", None)
         lease_authority = execution_backend
+    compile_floor = (
+        _compile_timeout_floor(lease_authority, lease_timeout_seconds)
+        if lease_authority is not None else None
+    )
+    if compile_timeout_seconds is None:
+        compile_timeout_seconds = (
+            compile_floor if compile_floor is not None
+            else _DEFAULT_COMPILE_TIMEOUT_SECONDS
+        )
+    elif (compile_floor is not None
+          and not isinstance(compile_timeout_seconds, bool)
+          and isinstance(compile_timeout_seconds, (int, float))
+          and compile_timeout_seconds < compile_floor):
+        raise ValueError(
+            f"compile_timeout_seconds {compile_timeout_seconds:g}s is below the "
+            f"production inner budget {compile_floor - _COMPILE_BUDGET_GRACE_SECONDS:g}s "
+            f"plus {_COMPILE_BUDGET_GRACE_SECONDS:g}s grace"
+        )
+    _validate_options(max_compile_slots, max_workspace_delta_bytes,
+                      lease_timeout_seconds, compile_timeout_seconds,
+                      required_guard_workloads, min_speedup_ratio)
     authority_contract = _authority_contract(lease_authority) if lease_authority else {}
     records = [dict(candidate) for candidate in candidates]
     plan = plan_rsi_compile_and_timing(
         candidates, state_dir=state_dir, npu_device=npu_device,
         max_compile_slots=max_compile_slots, assigned_devices=assigned_devices,
     )
-    by_id = {str(candidate.get("candidate_id", candidate.get("id", candidate.get("unit_id")))
-                 or f"candidate-{index}"): candidate
+    by_id = {_candidate_identity(candidate, index): candidate
              for index, candidate in enumerate(records)}
     devices = list(plan["assigned_devices"])
     compile_order: list[str] = []
@@ -600,7 +569,6 @@ def execute_rsi_compile_and_timing(
                     continue
                 try:
                     cleanup_ok = futures[candidate_id].result(timeout=max(0.0, remaining))
-                    cleanup_ok = futures[candidate_id].result(timeout=remaining)
                 except FutureTimeout:
                     events[candidate_id].set()
                     futures[candidate_id].cancel()
@@ -638,7 +606,11 @@ def execute_rsi_compile_and_timing(
             "phase": "compile",
             "reason": "device_compile_timeout_cleanup_unknown",
         })
-    timing_blocked = "device_compile_cleanup_unknown" if device_cleanup_unknown else ""
+    timing_blocked = (
+        "device_compile_cleanup_unknown" if device_cleanup_unknown
+        else "coordinator_cleanup_failed" if compile_cleanup_failures
+        else ""
+    )
     for item in final_plan["phase2_timing"]["items"]:
         candidate_id = item["candidate_id"]
         candidate = by_id[candidate_id]
@@ -659,6 +631,12 @@ def execute_rsi_compile_and_timing(
         cleanup_failures.extend(candidate.get("cleanup_failures", []))
         if not cleanup_ok:
             timing_blocked = "coordinator_cleanup_failed"
+            if not candidate.get("cleanup_failures"):
+                cleanup_failures.append({
+                    "phase": "timing",
+                    "candidate_id": candidate_id,
+                    "reason": "coordinator_cleanup_failed",
+                })
 
     evaluations: list[dict[str, Any]] = []
     for candidate_id, candidate in by_id.items():
@@ -730,6 +708,15 @@ def execute_rsi_compile_and_timing(
         "verification": authority_contract.get("verification", "none"),
         "lease_timeout_seconds": lease_timeout_seconds,
         "compile_timeout_seconds": compile_timeout_seconds,
+        "compile_timeout_budget": {
+            "inner_seconds": (
+                compile_floor - _COMPILE_BUDGET_GRACE_SECONDS
+                if compile_floor is not None else None
+            ),
+            "grace_seconds": _COMPILE_BUDGET_GRACE_SECONDS,
+            "outer_seconds": compile_timeout_seconds,
+            "source": "execution_authority" if compile_floor is not None else "default",
+        },
         "timing_attempts": timing_attempts,
         "leases_acquired": sum(1 for item in timing_attempts if item.get("acquired")),
         "leases_released": sum(1 for item in timing_attempts if item.get("released")),

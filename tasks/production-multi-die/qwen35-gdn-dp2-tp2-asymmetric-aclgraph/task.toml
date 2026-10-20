@@ -14,6 +14,12 @@ validation_scope = "S1 four-Die A3 DP=2 x TP=2 Qwen3.5 GDN hybrid model; asymmet
 runtime_requirements = "REAL Qwen3.5 GDN snapshot supplied as MINDIE_BENCH_QWEN35_MODEL or MINDIE_BENCH_MODEL_PATH; four idle A3 Dies; vllm+torch_npu; DP=2 TP=2 Eager and default ACLGraph arms"
 acceptance_boundary = "BLOCKED / incomplete: no production acceptance path. The verifier only reports blocked prerequisites (unsupported:model_cache_unavailable or unsupported:task_blocked_real_workload_harness_incomplete); it must not be promoted or described as available."
 real_workload = "vllm serve <snapshot> --tensor-parallel-size 2 --data-parallel-size 2 [--enforce-eager]; asymmetric [B,0]/[1,B] requests and repeated-state comparisons"
+[task.source.topology]
+scale = "S1"
+die_count = 4
+placement = "intra_node_hccs"
+hosts = ["192.168.13.165"]
+visible_phy_ids = []
 [mindie_knowledge]
 corpus_id = "ascend"
 knowledge_gradient = "analogical"
@@ -29,8 +35,3 @@ repo_path = "../../../repositories/vllm-ascend-idle-dp"
 base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
 npu_model = "Ascend910"
 npu_count = 4
-topology_scale = "S1"
-die_count = 4
-placement = "intra_node_hccs"
-hosts = ["192.168.13.165"]
-visible_phy_ids = []

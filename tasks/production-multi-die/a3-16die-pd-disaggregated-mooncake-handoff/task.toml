@@ -14,6 +14,12 @@ validation_scope = "S2 full A3 16-Die same-node PD disaggregation: 8-Die Prefill
 runtime_requirements = "REAL model snapshot at MINDIE_BENCH_MODEL_PATH; full 16 idle A3 Dies; Mooncake transfer engine plus disjoint Prefill/Decode endpoints; MINDIE_BENCH_MOONCAKE_READY=1 only after provisioning"
 acceptance_boundary = "BLOCKED / incomplete: no production acceptance path. The verifier only reports blocked model/Mooncake/16-Die prerequisites; it must not be promoted or described as available."
 real_workload = "Prefill kv_producer and Decode kv_consumer vllm instances on disjoint visible-device halves with a real long-prompt handoff and continuous decode"
+[task.source.topology]
+scale = "S2"
+die_count = 16
+placement = "disaggregated_pd_pair"
+hosts = ["192.168.13.165"]
+visible_phy_ids = []
 [mindie_knowledge]
 corpus_id = "ascend"
 knowledge_gradient = "analogical"
@@ -29,8 +35,3 @@ repo_path = "../../../repositories/vllm-ascend-idle-dp"
 base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
 npu_model = "Ascend910"
 npu_count = 16
-topology_scale = "S2"
-die_count = 16
-placement = "disaggregated_pd_pair"
-hosts = ["192.168.13.165"]
-visible_phy_ids = []

@@ -25,8 +25,8 @@ a candidate production path. Emit raw per-iteration samples only.
   candidate guard is unavailable; those are explicit `unsupported`/`failed`.
 
 [Timeouts & Locks]
-- One pair: `pair_timeout_sec` (90 s) enforced by the parent; HCCL group init
-  has a 60 s timeout. Children are killed on timeout. The verifier owns the
+- One pair: `pair_timeout_sec` (210 s) enforced by the parent; HCCL connection
+  gets its runtime-required 120 s, execution 60 s, plus drain grace. The verifier owns the
   outer four-Die device lease and no Python lock.
 
 [Side-Effect Policy]
@@ -205,7 +205,7 @@ def run_child(config: dict[str, Any], rank: int) -> int:
             init_method=f"tcp://127.0.0.1:{int(config['master_port'])}",
             rank=rank,
             world_size=2,
-            timeout=datetime.timedelta(seconds=60),
+            timeout=datetime.timedelta(seconds=190),
         )
         group = True
         from torch.distributed.distributed_c10d import _get_default_group
@@ -407,7 +407,7 @@ def run_pair(config: dict[str, Any], role: str) -> dict[str, Any]:
                 HCCL_SOCKET_IFNAME="lo",
                 MASTER_ADDR="127.0.0.1",
                 MASTER_PORT=str(port),
-                HCCL_CONNECT_TIMEOUT="30",
+                HCCL_CONNECT_TIMEOUT="120",
                 HCCL_EXEC_TIMEOUT="60",
             )
             children.append(
@@ -436,7 +436,7 @@ def run_pair(config: dict[str, Any], role: str) -> dict[str, Any]:
                     try:
                         process.communicate(timeout=5)
                     except subprocess.TimeoutExpired:
-                        pass
+                        process_errors.append(f"rank cleanup unconfirmed: pid={process.pid}")
                 return {
                     "status": "failed",
                     "role": role,

@@ -17,11 +17,16 @@ recompute every gate from the workload's raw per-iteration samples.
   guard executing inside each candidate rank before HCCL, zero
   `/dev/shm/hccl*` residue, and observed cleanup on every measured rank.
 - Missing NPU/runtime/topology prerequisites are reported as `unsupported:*`
-  with reward 0. A failed or partial run is never converted into a pass.
+  with reward 0. A failed or partial run is never converted into a pass. The
+  observed CANN fused-op capability error is classified as unsupported only
+  after the candidate guard accepted, cleanup was observed on both ranks, and
+  no negative-control guard accepted the cross-package pair; the raw ACLNN
+  error and full workload receipt remain visible.
 
 [Timeouts & Locks]
-- `npu-smi` probe: 15 s. Workload: 300 s outer, with a 90 s per-pair child
-  deadline and a 60 s HCCL process-group timeout. The verifier owns no NPU lock;
+- `npu-smi` probe: 15 s. Workload: 450 s outer, with a 210 s per-pair child
+  deadline, a 190 s HCCL process-group timeout, and 120 s/60 s
+  connect/execution environment timeouts. The verifier owns no NPU lock;
   the remote slot lease owns the device flock.
 
 [Side-Effect Policy]
@@ -55,7 +60,7 @@ REQUIRED_SOURCE = (
     "vllm_ascend/distributed/placement.py",
 )
 MAX_WORKLOAD_BYTES = 1024 * 1024
-WORKLOAD_TIMEOUT_SEC = 300.0
+WORKLOAD_TIMEOUT_SEC = 450.0
 MIN_SAMPLES = 8
 MAX_RELATIVE_ERROR = 2.0e-2
 MAX_CANDIDATE_TO_CONTROL_RATIO = 2.0
@@ -67,6 +72,15 @@ _CHIP_WITH_PHY = re.compile(
 _PARENT = re.compile(r"^\|\s*(\d+)\s+([A-Za-z0-9][^|]*?)\s*\|\s*([A-Za-z]+)\s*\|")
 _PROCESS = re.compile(r"^\|\s*(\d+)(?:\s+(\d+))?\s*\|\s*(\d+)\s*\|")
 _NO_PROCESS = re.compile(r"No running processes found in NPU\s+(\d+)")
+_MATMUL_ALL_REDUCE_UNSUPPORTED = re.compile(
+    r"aclnnMatmulAllReduce.*?does not support opType \[MatmulAllReduce\]",
+    re.DOTALL,
+)
+_NPU_OP_UNAVAILABLE = re.compile(
+    r"(?:no attribute ['\"]npu_mm_all_reduce_base['\"]|"
+    r"npu_mm_all_reduce_base.*?(?:not found|unavailable))",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 class WorkspaceUnavailable(RuntimeError):
@@ -79,6 +93,8 @@ class SourceMissing(RuntimeError):
 
 class Unsupported(RuntimeError):
     """A real runtime prerequisite is absent; no acceptance is possible."""
+
+    workload_receipt: dict[str, Any] | None = None
 
 
 class WorkloadFailed(RuntimeError):
@@ -348,6 +364,66 @@ def _read_last_json(stdout: str) -> dict[str, Any]:
     raise WorkloadFailed("workload produced no JSON receipt")
 
 
+def runtime_unsupported_reason(receipt: dict[str, Any]) -> str | None:
+    """Return an explicit capability reason for the observed fused-op failures.
+
+    This is deliberately narrow: the candidate guard must have been accepted and
+    its process group destroyed on both ranks, and the raw child error must name
+    the fused operator itself. A guard, HCCL, cleanup or sample failure is never
+    relabelled as an environment limitation.
+    """
+    candidate = receipt.get("measurements", {}).get("candidate")
+    if not isinstance(candidate, dict):
+        return None
+    if candidate.get("role") != "candidate" or candidate.get("production_path") is not True:
+        return None
+    if candidate.get("status") != "failed":
+        return None
+    ranks = candidate.get("rank_outputs")
+    if not isinstance(ranks, list) or len(ranks) != 2:
+        return None
+    raw_errors: list[str] = []
+    kernel_gap = True
+    for row in ranks:
+        if not isinstance(row, dict) or row.get("role") != "candidate":
+            return None
+        guard = row.get("guard")
+        if not isinstance(guard, dict) or guard.get("observed") != "accepted":
+            return None
+        cleanup = row.get("cleanup")
+        if not isinstance(cleanup, dict) or cleanup.get("status") != "ok":
+            return None
+        error = str(row.get("error") or "")
+        if _MATMUL_ALL_REDUCE_UNSUPPORTED.search(error):
+            pass
+        elif _NPU_OP_UNAVAILABLE.search(error):
+            kernel_gap = False
+        else:
+            return None
+        raw_errors.append(error.strip())
+    negative = receipt.get("measurements", {}).get("negative_control")
+    if isinstance(negative, dict):
+        negative_ranks = negative.get("rank_outputs")
+        if isinstance(negative_ranks, list):
+            for row in negative_ranks:
+                if isinstance(row, dict) and row.get("guard", {}).get("observed") != "rejected":
+                    # A negative-control guard that accepted the cross-package
+                    # placement is a candidate defect, not an environment gap.
+                    return None
+    detail = raw_errors[0]
+    if len(detail) > 1600:
+        detail = detail[:1600] + "...(truncated)"
+    reason = (
+        "matmul_all_reduce_kernel_unavailable"
+        if kernel_gap
+        else "matmul_all_reduce_operator_unavailable"
+    )
+    return (
+        reason + ": candidate guard accepted and "
+        "process groups cleaned up on both ranks; raw runtime error: " + detail
+    )
+
+
 def run_workload(
     workspace: Path,
     lease_devices: tuple[int, ...],
@@ -374,7 +450,7 @@ def run_workload(
         "n": 256,
         "warmup": 3,
         "samples": 12,
-        "pair_timeout_sec": 90,
+        "pair_timeout_sec": 210,
     }
     with tempfile.TemporaryDirectory(prefix="mindie-tp2-") as temporary:
         config_path = Path(temporary) / "workload.json"
@@ -411,7 +487,14 @@ def run_workload(
     if completed.returncode == 3 or receipt.get("status") == "unsupported":
         raise Unsupported(str(receipt.get("reason") or "unsupported:workload"))
     if completed.returncode != 0 or receipt.get("status") != "measured":
-        detail = receipt.get("error") or f"exit={completed.returncode}"
+        print(json.dumps({"failed_workload_receipt": receipt}, sort_keys=True), file=sys.stderr)
+        unsupported = runtime_unsupported_reason(receipt)
+        if unsupported is not None:
+            error = Unsupported("unsupported:" + unsupported)
+            error.workload_receipt = receipt
+            raise error
+        detail = receipt.get("error") or "; ".join(map(str, receipt.get("errors", [])))
+        detail = detail or f"exit={completed.returncode}"
         raise WorkloadFailed(f"workload_failed: {detail}")
     receipt["_stdout_sha256"] = hashlib.sha256(completed.stdout.encode()).hexdigest()
     return receipt
@@ -601,6 +684,8 @@ def main(argv: list[str] | None = None) -> int:
         code = 1
     except Unsupported as error:
         detail["error"] = {"type": type(error).__name__, "message": str(error)}
+        if error.workload_receipt is not None:
+            detail["workload"] = error.workload_receipt
         payload = _summary(0.0, str(error), warnings)
         code = 1
     except (WorkspaceUnavailable, WorkloadFailed) as error:

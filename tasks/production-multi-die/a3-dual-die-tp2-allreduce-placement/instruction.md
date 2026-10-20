@@ -74,6 +74,30 @@ There is no model-serving claim and no prefilled evidence. If `npu-smi`,
 unavailable, the verifier exits nonzero with `unsupported:...`; that is not an
 acceptance. Do not reset the server, kill peer jobs, or widen the lease.
 
+## Observed runtime limitation (managed A3 container, 2026-10-21)
+
+A real two-rank execution on the managed A3 container `mindie-qwen35hist`
+(CANN 8.5.1, `Ascend-cann-A3-ops` 8.5.1) initialized HCCL, and both candidate
+ranks accepted the guard, but the fused operator was rejected by CANN:
+
+```text
+aclnnMatmulAllReduce failed, error code is 161001
+The binary_info_config.json of socVersion [ascend910_93]
+does not support opType [MatmulAllReduce].
+```
+
+`aclnnMatmulAllReduce` is exported by the installed `libopapi.so` and its
+header is present, but the installed `ascend910_93` kernel configuration has no
+`MatmulAllReduce` entry. The active `ASCEND_CUSTOM_OPP_PATH` vendor contains no
+such operator, and a read-only 9.1.0 A3 operator tree on the same host (x86_64
+userland) also lacks it. This is a runtime capability limitation, not a missing
+environment variable or an omitted installed package.
+
+No hardware acceptance has been completed for this task. Do not report a
+measured pass, and do not replace the fused operator with a different operator
+to manufacture one. The verifier preserves the raw ACLNN error and reports this
+specific condition as `unsupported:matmul_all_reduce_kernel_unavailable`.
+
 ## Operator acceptance command (A3 host, non-destructive probe first)
 
 ```bash

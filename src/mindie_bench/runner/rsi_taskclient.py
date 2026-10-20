@@ -15,14 +15,19 @@ payloads.
 - Result validation re-queries the exact execution through TaskClient and
   compares caller-supplied measurements with the observed payload. A caller
   dictionary alone is never coordinator evidence.
+- A validated terminal result is retained even when release accounting has not
+  yet caught up. Cleanup is reported separately; `released` is only true after
+  an observed release, and later NPU timing remains blocked by the executor.
 - The adapter never retries a failed or uncertain submission; cleanup failures
   preserve the execution ID and concrete stop/release observations.
 
 [Timeouts & Locks]
 - Lease admission is bounded by `lease_wait_seconds` (0..600s); release and
-  command waits are bounded separately. Cleanup after a failed admission is
-  bounded to 30s and reports its concrete stop/release observations. The
-  coordinator owns device locks.
+  command waits are bounded separately. Cleanup after a result or failed
+  admission is bounded to 30s and reports its concrete stop/release
+  observations. `compile_wait_budget_seconds` derives the inner admission,
+  command, two release observations and cleanup sum for the outer scheduler.
+  The coordinator owns device locks.
 
 [Side-Effect Policy]
 - Submits, observes, stops and releases its own TaskClient executions.
@@ -56,10 +61,73 @@ from mindie_bench.runner.rsi_measurement import (
 )
 
 _EXECUTION_ID = re.compile(r"[0-9a-f]{64}\Z")
+_CLEANUP_LIMIT_SECONDS = 30.0
 _COMPARE_FIELDS = (
-    "oracle_passed", "measurement_passed", "speedup_ratio", "ablation_retained",
-    "workspace_delta_bytes", "guard_workloads", "failure_reason",
+    "compile_ok", "oracle_passed", "measurement_passed", "speedup_ratio",
+    "ablation_retained", "workspace_delta_bytes", "guard_workloads",
+    "failure_reason",
 )
+
+
+def _terminal_payload(reply: Mapping[str, Any], *, execution_id: str, phase: str,
+                      devices: Sequence[int]) -> dict[str, Any]:
+    """Validate one terminal service reply without treating release as the result.
+
+    Release accounting is a cleanup observation. A terminal succeeded command
+    remains a validated measurement even when the local release wait timed out;
+    callers must report cleanup separately and never synthesize ``released``.
+    """
+    if reply.get("execution_id") not in {None, execution_id}:
+        raise RSIExecutionError(
+            "coordinator release receipt belongs to another execution",
+            execution_id=execution_id,
+        )
+    state = reply.get("state")
+    if state not in _TERMINAL_EXECUTION_STATES:
+        raise RSIExecutionError(
+            f"execution {execution_id} did not reach a terminal state "
+            f"(state {state!r}, wait_timed_out={reply.get('wait_timed_out') is True})",
+            execution_id=execution_id,
+        )
+    payload = _payload(reply.get("stdout"))
+    declared = payload.get("run_id")
+    if declared not in (None, "") and str(declared) != execution_id:
+        raise RSIExecutionError(
+            f"command declared run_id {declared!r} but coordinator execution is "
+            f"{execution_id}",
+            execution_id=execution_id,
+        )
+    if phase == "compile":
+        if state != "succeeded" and payload.get("compile_ok") is not False:
+            raise RSIExecutionUnavailable(
+                "compile execution did not succeed: "
+                + (_reply_failure_reason(reply) or str(state)),
+                execution_id=execution_id,
+            )
+        if state == "succeeded" and "compile_ok" not in payload:
+            payload["compile_ok"] = True
+        if payload.get("compile_ok") is False and state != "succeeded":
+            payload["failure_reason"] = _reason(
+                payload.get("failure_reason"),
+                [_reply_failure_reason(reply) or "compile_execution_failed"],
+            )
+    elif state != "succeeded":
+        raise RSIExecutionUnavailable(
+            f"timing execution {execution_id} ended {state!r}: "
+            + (_reply_failure_reason(reply) or "no failure text"),
+            execution_id=execution_id,
+            details={"state": state},
+        )
+    elif not payload:
+        raise RSIExecutionError(
+            f"timing execution {execution_id} produced no structured result",
+            execution_id=execution_id,
+        )
+    payload["run_id"] = execution_id
+    payload["coordinator_execution"] = _execution_receipt(
+        reply, execution_id, phase, devices,
+    )
+    return payload
 
 
 def _reply_observation(reply: Any) -> dict[str, Any]:
@@ -108,6 +176,7 @@ class TaskClientLease:
         self.admitted = dict(admitted)
         self.terminal_at_acquire = terminal_at_acquire
         self.released = False
+        self.verified_active = False
         self.result: dict[str, Any] | None = None
         self.cleanup: dict[str, Any] = {}
 
@@ -126,8 +195,7 @@ class TaskClientLease:
         )
         return receipt
 
-    def verify_active(self) -> bool:
-        """A callback may run only while the exact execution is still running."""
+    def _observe_status(self) -> Mapping[str, Any]:
         status = self.client.observe(self.execution_id, action="status", refresh=False)
         if not isinstance(status, Mapping):
             raise RSIExecutionError(
@@ -139,6 +207,26 @@ class TaskClientLease:
                 "coordinator status belongs to another execution",
                 execution_id=self.execution_id,
             )
+        self.admitted = {**self.admitted, **dict(status)}
+        if status.get("resources_released") is True:
+            self.released = True
+        return status
+
+    def refresh_state(self) -> str:
+        """Observe the exact execution and report terminal completion as-is.
+
+        Unlike ``verify_active`` this is not an ownership assertion: a command
+        that completed after admission is returned as terminal so the caller can
+        collect its exact result instead of treating the lease as failed.
+        """
+        state = str(self._observe_status().get("state") or "").strip().lower()
+        if state in _TERMINAL_EXECUTION_STATES:
+            self.terminal_at_acquire = True
+        return state
+
+    def verify_active(self) -> bool:
+        """A callback may run only while the exact execution is still running."""
+        status = self._observe_status()
         state = str(status.get("state") or "")
         if state != "running":
             raise RSIExecutionUnavailable(
@@ -164,71 +252,21 @@ class TaskClientLease:
                 execution_id=self.execution_id,
                 details={"assigned_devices": assigned},
             )
-        self.admitted = {**self.admitted, **dict(status)}
+        self.verified_active = True
         return True
 
     def verify(self) -> bool:
         return self.verify_active()
 
     def _completed_result(self, reply: Mapping[str, Any]) -> dict[str, Any]:
-        if reply.get("execution_id") not in {None, self.execution_id}:
-            raise RSIExecutionError(
-                "coordinator release receipt belongs to another execution",
-                execution_id=self.execution_id,
-            )
-        if reply.get("wait_timed_out") is True or reply.get("state") == "queued":
-            raise RSIExecutionError(
-                f"execution {self.execution_id} did not reach a released terminal state",
-                execution_id=self.execution_id,
-            )
-        state = reply.get("state")
-        released = reply.get("resources_released") is True
-        payload = _payload(reply.get("stdout"))
-        declared = payload.get("run_id")
-        if declared not in (None, "") and str(declared) != self.execution_id:
-            raise RSIExecutionError(
-                f"command declared run_id {declared!r} but coordinator execution is "
-                f"{self.execution_id}",
-                execution_id=self.execution_id,
-            )
-        receipt = _execution_receipt(reply, self.execution_id, self.phase, self.devices)
-        if self.phase == "compile":
-            if state != "succeeded" and payload.get("compile_ok") is not False:
-                raise RSIExecutionUnavailable(
-                    "compile execution did not succeed: "
-                    + (_reply_failure_reason(reply) or str(state)),
-                    execution_id=self.execution_id,
-                )
-            if state == "succeeded" and "compile_ok" not in payload:
-                payload["compile_ok"] = True
-            if payload.get("compile_ok") is False and state != "succeeded":
-                payload["failure_reason"] = _reason(
-                    payload.get("failure_reason"),
-                    [_reply_failure_reason(reply) or "compile_execution_failed"],
-                )
-        elif state != "succeeded":
-            raise RSIExecutionUnavailable(
-                f"timing execution {self.execution_id} ended {state!r}: "
-                + (_reply_failure_reason(reply) or "no failure text"),
-                execution_id=self.execution_id,
-                details={"state": state},
-            )
-        elif not payload:
-            raise RSIExecutionError(
-                f"timing execution {self.execution_id} produced no structured result",
-                execution_id=self.execution_id,
-            )
-        if not released:
-            raise RSIExecutionError(
-                f"execution {self.execution_id} did not confirm resource release",
-                execution_id=self.execution_id,
-                details={"state": state},
-            )
-        payload["run_id"] = self.execution_id
-        payload["coordinator_execution"] = receipt
+        payload = _terminal_payload(
+            reply, execution_id=self.execution_id, phase=self.phase,
+            devices=self.devices,
+        )
         self.result = dict(payload)
-        self.released = True
         self.admitted = {**self.admitted, **dict(reply)}
+        if payload["coordinator_execution"].get("resources_released") is True:
+            self.released = True
         return dict(payload)
 
     def collect_result(self, *, refresh: bool = False) -> dict[str, Any]:
@@ -280,7 +318,10 @@ class TaskClientLease:
         except Exception as exc:
             cleanup["stop_error"] = _failure_reason(f"{type(exc).__name__}: {exc}")
         try:
-            reply = self.adapter.wait_released(self.execution_id)
+            reply = self.adapter.wait_released(
+                self.execution_id,
+                timeout_seconds=self.adapter.cleanup_wait_seconds(),
+            )
             cleanup["release"] = _reply_observation(reply)
             if (isinstance(reply, Mapping)
                     and reply.get("execution_id") not in {None, self.execution_id}):
@@ -342,6 +383,23 @@ class TaskClientRSIExecutor:
         self.lease_wait_seconds = float(lease_wait_seconds)
         self.release_wait_seconds = float(release_wait_seconds)
         self.release_timeout_seconds = float(release_timeout_seconds)
+
+    def cleanup_wait_seconds(self) -> float:
+        """Bound post-result stop/release accounting separately from command time."""
+        return min(self.release_timeout_seconds, _CLEANUP_LIMIT_SECONDS)
+
+    def compile_wait_budget_seconds(self, lease_timeout_seconds: float | None = None) -> float:
+        """Worst-case inner compile wait before the outer scheduler deadline.
+
+        The executor admits (``lease_timeout_seconds``), the command has its
+        business timeout, the result is collected once, validation re-queries the
+        exact execution, and release cleanup gets only its bounded budget.
+        """
+        admission = (self.lease_wait_seconds if lease_timeout_seconds is None
+                     else float(lease_timeout_seconds))
+        release = self.release_timeout_seconds
+        return (admission + float(self.command_timeout_seconds)
+                + release + release + self.cleanup_wait_seconds())
 
     @staticmethod
     def _command(candidate: Mapping[str, Any], phase: str) -> str:
@@ -442,7 +500,7 @@ class TaskClientRSIExecutor:
             cleanup["stop_error"] = _failure_reason(f"{type(exc).__name__}: {exc}")
         try:
             reply = self.wait_released(
-                execution_id, timeout_seconds=min(self.release_timeout_seconds, 30.0)
+                execution_id, timeout_seconds=self.cleanup_wait_seconds()
             )
             cleanup["release"] = _reply_observation(reply)
             if (isinstance(reply, Mapping)
@@ -608,13 +666,6 @@ class TaskClientRSIExecutor:
                 execution_id, cleanup,
             )
             raise AssertionError("unreachable")
-        if reply.get("wait_timed_out") is True:
-            cleanup = self._cleanup_execution(execution_id)
-            self._raise_after_cleanup(
-                f"CPU compile execution {execution_id} did not release in time",
-                execution_id, cleanup,
-            )
-            raise AssertionError("unreachable")
         observed_devices = _assigned_devices(reply)
         echo_devices = _assignment_devices(reply)
         if observed_devices or echo_devices:
@@ -625,36 +676,20 @@ class TaskClientRSIExecutor:
                 execution_id, cleanup,
             )
             raise AssertionError("unreachable")
-        payload = _payload(reply.get("stdout"))
-        if payload.get("run_id") not in (None, "", execution_id):
-            raise RSIExecutionError(
-                f"compile command declared run_id {payload.get('run_id')!r} but "
-                f"coordinator execution is {execution_id}",
-                execution_id=execution_id,
+        try:
+            payload = _terminal_payload(
+                reply, execution_id=execution_id, phase="compile", devices=(),
             )
-        if reply.get("resources_released") is not True:
-            raise RSIExecutionError(
-                f"compile execution {execution_id} did not confirm resource release",
-                execution_id=execution_id,
+        except Exception as exc:
+            cleanup = self._cleanup_execution(execution_id)
+            self._raise_after_cleanup(
+                f"CPU compile execution {execution_id} has no terminal result: "
+                f"{type(exc).__name__}: {exc}",
+                execution_id, cleanup, cause=exc,
             )
-        state = reply.get("state")
-        if state != "succeeded" and payload.get("compile_ok") is not False:
-            raise RSIExecutionUnavailable(
-                f"compile execution {execution_id} ended {state!r}: "
-                + (_reply_failure_reason(reply) or "no failure text"),
-                execution_id=execution_id,
-            )
-        if state == "succeeded" and "compile_ok" not in payload:
-            payload["compile_ok"] = True
-        if state != "succeeded" and payload.get("compile_ok") is False:
-            payload["failure_reason"] = _reason(
-                payload.get("failure_reason"),
-                [_reply_failure_reason(reply) or "compile_execution_failed"],
-            )
-        payload["run_id"] = execution_id
-        payload["coordinator_execution"] = _execution_receipt(
-            reply, execution_id, "compile", (),
-        )
+            raise AssertionError("unreachable")
+        if payload["coordinator_execution"].get("resources_released") is not True:
+            payload["coordinator_cleanup"] = self._cleanup_execution(execution_id)
         return dict(payload)
 
     def timing_runner(self, candidate: Mapping[str, Any]) -> dict[str, Any]:
@@ -700,11 +735,8 @@ class TaskClientRSIExecutor:
                 "compile execution failed but caller claims compile success",
                 execution_id=execution_id,
             )
-        if observed_receipt.get("resources_released") is not True:
-            raise RSIExecutionError(
-                "coordinator execution did not release resources",
-                execution_id=execution_id,
-            )
+        # Resource release is cleanup accounting, not measurement evidence. The
+        # executor records an unresolved cleanup and blocks later NPU timing.
         assigned = _devices(observed_receipt.get("granted_devices"))
         expected = set(int(item) for item in devices)
         if phase == "timing" and set(assigned) != expected:
@@ -735,7 +767,7 @@ class TaskClientRSIExecutor:
                     "caller-supplied execution receipt is not an object",
                     execution_id=execution_id,
                 )
-            for key in ("execution_id", "state", "resources_released", "granted_devices"):
+            for key in ("execution_id", "state", "granted_devices"):
                 if key in caller_receipt and not _same_value(
                     caller_receipt[key], observed_receipt.get(key)
                 ):
@@ -743,6 +775,12 @@ class TaskClientRSIExecutor:
                         f"caller-supplied receipt differs from coordinator observation for {key}",
                         execution_id=execution_id,
                     )
+            if (caller_receipt.get("resources_released") is True
+                    and observed_receipt.get("resources_released") is not True):
+                raise RSIExecutionError(
+                    "caller-supplied receipt claims release that coordinator did not observe",
+                    execution_id=execution_id,
+                )
 
     def release(self, lease: Any) -> dict[str, Any]:
         if not isinstance(lease, TaskClientLease):

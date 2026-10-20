@@ -1,15 +1,17 @@
 # Production multi-Die tasks — execution status
 
 This directory is **not** a claim that five production tasks are available.
-Only the dual-Die canary has a bounded executable verifier candidate, and it is
-still pending parent hardware execution. The four model/network tasks are
-**incomplete and blocked** on real model/network prerequisites and on an
+The dual-Die canary has a bounded executable verifier, and a real parent-owned
+A3 execution was attempted: it reached the fused runtime, but the installed
+CANN 8.5.1 A3 operator package has no `MatmulAllReduce` kernel for
+`ascend910_93`. There is no hardware acceptance. The four model/network tasks
+are **incomplete and blocked** on real model/network prerequisites and on an
 unwritten serving harness; their verifiers report explicit blocked-prerequisite
 status instead of inventing a result.
 
 | Task | Status |
 |---|---|
-| `a3-dual-die-tp2-allreduce-placement` | **Live canary candidate (not hardware-accepted).** Candidate guard runs inside real sibling HCCL ranks; a separately labelled cross-package negative control is diagnostic only. |
+| `a3-dual-die-tp2-allreduce-placement` | **RUNTIME-UNSUPPORTED / not hardware-accepted.** A real A3 execution ran the candidate guard inside both sibling HCCL ranks and observed the expected cross-package rejection; the fused `npu_mm_all_reduce_base` call was then rejected because CANN 8.5.1 `ascend910_93` has no `MatmulAllReduce` kernel entry. The cross-package control remains diagnostic only. |
 | `qwen35-gdn-dp2-tp2-asymmetric-aclgraph` | **BLOCKED / incomplete.** No real Qwen3.5 snapshot or executed DP=2/TP=2 serving harness. |
 | `qwen3-moe-tp2-ep4-mc2-eplb-skew` | **BLOCKED / incomplete.** No real Qwen3-MoE snapshot or executed EP/MC2/EPLB harness. |
 | `a3-16die-pd-disaggregated-mooncake-handoff` | **BLOCKED / incomplete.** No model, Mooncake setup, or executed PD handoff. |
@@ -30,8 +32,11 @@ guessing a production rank mapping. The verifier selects candidate sibling
 `(0,1)` and negative-control `(1,2)` from that four-Die lease.
 
 **Runtime:** `torch_npu` with `npu_mm_all_reduce_base`, HCCL, `npu-smi`, and a
-writable `/dev/shm`; no model or network download. `MINDIE_BENCH_WORKSPACE` is
-set by `runner.verifier` for local and remote verifiers.
+writable `/dev/shm`; no model or network download. The fused operator
+additionally requires a CANN A3 ops package that includes the `MatmulAllReduce`
+kernel for `ascend910_93`; the managed CANN 8.5.1 package does not.
+`MINDIE_BENCH_WORKSPACE` is set by `runner.verifier` for local and remote
+verifiers.
 
 **Candidate change:** create `vllm_ascend/distributed/placement.py` and integrate
 its narrow single-node A3 TP=2 guard into `init_ascend_model_parallel`. Each
@@ -40,6 +45,27 @@ candidate rank child imports the guard and calls
 returned actual pair must equal the requested candidate pair. The cross-package
 arm is explicitly labelled `production_path=False` and is never a candidate
 pass.
+
+**Observed blocker (2026-10-21, managed A3 `mindie-qwen35hist`):** the candidate
+guard was accepted on sibling pair `(4,5)` in both candidate ranks, the
+negative-control ranks observed the expected cross-package rejection, HCCL
+groups initialized and were destroyed, and `/dev/shm` was clean. The fused call
+then failed in CANN:
+
+```text
+aclnnMatmulAllReduce failed, error code is 161001
+The binary_info_config.json of socVersion [ascend910_93]
+does not support opType [MatmulAllReduce].
+```
+
+The installed `Ascend-cann-A3-ops 8.5.1` exports the `aclnnMatmulAllReduce`
+symbol and header but has no `MatmulAllReduce` entry in the `ascend910_93`
+kernel configuration. The active custom OPP vendor contains no such operator,
+and a read-only CANN 9.1.0 A3 tree on the same host also lacks it. This is a
+runtime capability limitation, not an environment-variable selection bug. No
+hardware acceptance is claimed, and the fused operator must not be replaced
+with a different operator. The verifier reports this condition as
+`unsupported:matmul_all_reduce_kernel_unavailable` and preserves the raw error.
 
 **Direct private-oracle canary from the candidate workspace:**
 
@@ -63,7 +89,8 @@ not need an `environment/` directory. With no real NPU, the same command returns
   --task tasks/production-multi-die/a3-dual-die-tp2-allreduce-placement \
   --config "$L3_CONFIG" --tier l3 --output /tmp/mindie-dual-soundness
 
-# Only after the parent observes a real before=0 / after=1 proof:
+# Only after the fused kernel is available and the parent observes a real
+# before=0 / after=1 proof:
 .venv/bin/python -m mindie_bench.cli run \
   --tasks tasks/production-multi-die/a3-dual-die-tp2-allreduce-placement \
   --config "$L3_CONFIG" --tier l3 --groups G0 --repetitions 1 \
@@ -74,7 +101,9 @@ not need an `environment/` directory. With no real NPU, the same command returns
 `repo_path` of `vllm-ascend-idle-dp`, and `devices = [0,1,2,3]` (or the
 equivalent four idle Dies). The task declares `npu_count = 4`. A real soundness
 run may update the task's evidence only in the parent's checkout; this worker
-does not create that receipt.
+does not create that receipt. While the fused kernel is absent, the soundness
+and run paths cannot produce a hardware pass; they must report the explicit
+unsupported condition rather than a synthetic pass.
 
 ## Blocked prerequisites for the four incomplete tasks
 
@@ -96,3 +125,6 @@ The four blocked tasks require, respectively:
 
 These are blocked prerequisites, not evidence that the corresponding hardware
 run happened. The current verifiers preserve the report and award no reward.
+The dual-Die task is also not a completed hardware acceptance: its fused
+runtime is unsupported by the installed A3 CANN 8.5.1 operator package. None
+of the five tasks should be described as hardware-accepted.

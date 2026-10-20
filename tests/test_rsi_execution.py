@@ -427,7 +427,8 @@ class _FakeTaskClient:
     def __init__(self, *, stdout, state="succeeded", released=True, devices=(0,),
                  terminal_on_running=False, running_state="running",
                  observe_terminal_on_running=False,
-                 stop_error=False, release_wait_timeout=False):
+                 stop_error=False, release_wait_timeout=False,
+                 terminal_status_at=None, foreign_status_at=None):
         self.execution_id = uuid.uuid4().hex + uuid.uuid4().hex
         self.stdout = stdout
         self.state = state
@@ -438,6 +439,9 @@ class _FakeTaskClient:
         self.observe_terminal_on_running = observe_terminal_on_running
         self.stop_error = stop_error
         self.release_wait_timeout = release_wait_timeout
+        self.terminal_status_at = terminal_status_at
+        self.foreign_status_at = foreign_status_at
+        self.status_observations = 0
         self.runs: list[dict] = []
         self.stopped = False
         self.finished = False
@@ -497,10 +501,9 @@ class _FakeTaskClient:
             return self._reply(self.running_state, released=False)
         self.finished = True
         if self.release_wait_timeout:
-            return {
-                "execution_id": self.execution_id, "state": "running",
-                "resources_released": False, "wait_timed_out": True,
-            }
+            reply = self._reply(self.state, released=self.released)
+            reply["wait_timed_out"] = True
+            return reply
         return self._reply(self.state, released=self.released)
 
     def observe(self, execution_id, action="status", refresh=True):
@@ -512,6 +515,14 @@ class _FakeTaskClient:
             self.finished = True
             self.released = True
             return self._reply("cancelled", released=True)
+        self.status_observations += 1
+        if self.terminal_status_at == self.status_observations:
+            self.finished = True
+            return self._reply(self.state, released=self.released)
+        if self.foreign_status_at == self.status_observations:
+            reply = self._reply("running", released=False)
+            reply["execution_id"] = "f" * 64
+            return reply
         if self.finished and self.released:
             return self._reply(self.state, released=True)
         if self.observe_terminal_on_running:
@@ -549,7 +560,7 @@ def test_task_client_adapter_keeps_the_real_execution_id_and_npu_resources(tmp_p
     assert entry["execution_evidence"]["physical_acceptance"] is False
 
 
-def test_task_client_adapter_rejects_fabricated_ids_and_unreleased_runs(tmp_path):
+def test_task_client_adapter_rejects_fabricated_ids_and_preserves_measured_payload(tmp_path):
     fabricated = _FakeTaskClient(stdout=json.dumps({
         "run_id": "invented-candidate-timing", "oracle_passed": True,
         "measurement_passed": True, "speedup_ratio": 1.3,
@@ -578,8 +589,14 @@ def test_task_client_adapter_rejects_fabricated_ids_and_unreleased_runs(tmp_path
         state_dir=tmp_path / "unreleased",
     )
     entry = result["evaluations"][0]
-    assert entry["verdict"] == "inconclusive"
-    assert "release" in entry["failure_reason"]
+    # The terminal payload was validated before release accounting. Stop then
+    # confirmed release, so the result survives with clean cleanup evidence.
+    assert entry["verdict"] == "supported"
+    assert entry["run_id"] == unreleased.execution_id
+    assert result["execution_authority"]["cleanup_ok"] is True
+    assert result["candidates"][0]["coordinator_lease_receipt"][
+        "resources_released"
+    ] is True
 
 
 def test_task_client_cpu_compile_uses_zero_npu_resources(tmp_path):
@@ -817,6 +834,53 @@ def test_cpu_compile_timeout_is_bounded_and_visible(tmp_path):
 
 
 
+def test_default_compile_timeout_covers_production_adapter_waits(tmp_path):
+    client = _FakeTaskClient(
+        stdout=json.dumps({"compile_ok": True}), devices=(),
+    )
+    adapter = TaskClientRSIExecutor(
+        client, command_timeout_seconds=12, lease_wait_seconds=3,
+        release_wait_seconds=4, release_timeout_seconds=7,
+    )
+    inner = adapter.compile_wait_budget_seconds(lease_timeout_seconds=3)
+    assert inner == 3 + 12 + 2 * 7 + adapter.cleanup_wait_seconds()
+    result = execute_rsi_compile_and_timing(
+        [{"candidate_id": "cpu", "compile_command": "make -j4",
+          "oracle_passed": True}],
+        execution_backend=adapter, state_dir=tmp_path / "budget",
+        lease_timeout_seconds=3,
+    )
+    budget = result["execution_authority"]["compile_timeout_budget"]
+    assert budget["source"] == "execution_authority"
+    assert budget["inner_seconds"] == inner
+    assert budget["grace_seconds"] == 10.0
+    assert budget["outer_seconds"] == inner + 10.0
+    assert result["execution_authority"]["compile_timeout_seconds"] == inner + 10.0
+    assert result["compile_order"] == ["cpu"]
+
+    with pytest.raises(ValueError, match="below the production inner budget"):
+        execute_rsi_compile_and_timing(
+            [{"candidate_id": "cpu", "compile_command": "make -j4",
+              "oracle_passed": True}],
+            execution_backend=adapter, state_dir=tmp_path / "too-small",
+            lease_timeout_seconds=3, compile_timeout_seconds=inner,
+        )
+
+
+def test_candidate_without_declared_id_uses_the_planner_identity(tmp_path):
+    def compile_runner(candidate):
+        return {"compile_ok": True, "run_id": "cpu-compile-1"}
+
+    result = execute_rsi_compile_and_timing(
+        [{"candidate_id": None, "oracle_passed": True}],
+        compile_runner=compile_runner, state_dir=tmp_path / "identity",
+    )
+    assert result["compile_order"] == ["candidate-0"]
+    assert result["candidates"][0]["candidate_id"] is None
+    assert result["evaluations"][0]["candidate_id"] == "candidate-0"
+    assert result["candidates"][0]["compile_ok"] is True
+
+
 def test_waiting_execution_does_not_authorize_callback_and_preserves_identity(tmp_path):
     client = _FakeTaskClient(
         stdout=json.dumps({"oracle_passed": True, "measurement_passed": True,
@@ -849,6 +913,7 @@ def test_acquire_cleanup_failure_is_propagated_and_visible(tmp_path):
         stdout=json.dumps({"oracle_passed": True, "measurement_passed": True,
                            "speedup_ratio": 1.3, "ablation_retained": True}),
         running_state="waiting_for_runtime",
+        released=False,
         stop_error=True,
         release_wait_timeout=True,
     )
@@ -969,3 +1034,139 @@ def test_fast_completion_between_running_wait_and_verification_is_collected_not_
     assert called == []
     assert result["evaluations"][0]["verdict"] == "supported"
     assert result["candidates"][0]["measurement_collection"] == "completed_execution"
+
+
+def test_terminal_transition_after_adapter_verification_is_collected_exactly(tmp_path):
+    client = _FakeTaskClient(
+        stdout=json.dumps({
+            "oracle_passed": True, "measurement_passed": True,
+            "speedup_ratio": 1.3, "ablation_retained": True,
+        }),
+        terminal_status_at=2,
+    )
+    called = []
+
+    def timing_runner(candidate):
+        called.append(candidate["candidate_id"])
+        raise AssertionError("a terminal execution must not authorize a callback")
+
+    result = execute_rsi_compile_and_timing(
+        [{"candidate_id": "race", "compile_ok": True, "oracle_passed": True,
+          "timing_command": "real measurement"}],
+        timing_runner=timing_runner,
+        lease_authority=TaskClientRSIExecutor(client),
+        state_dir=tmp_path / "terminal-race",
+    )
+    assert called == []
+    entry = result["evaluations"][0]
+    assert entry["verdict"] == "supported"
+    assert entry["run_id"] == client.execution_id
+    assert result["candidates"][0]["measurement_collection"] == "completed_execution"
+    assert result["timing_attempts"][0]["execution_id"] == client.execution_id
+    assert result["timing_attempts"][0]["released"] is True
+
+
+def test_verification_failure_after_acquire_cleans_the_submitted_execution(tmp_path):
+    client = _FakeTaskClient(
+        stdout=json.dumps({
+            "oracle_passed": True, "measurement_passed": True,
+            "speedup_ratio": 1.3, "ablation_retained": True,
+        }),
+        foreign_status_at=2, stop_error=True, release_wait_timeout=True,
+        released=False,
+    )
+    adapter = TaskClientRSIExecutor(
+        client, release_wait_seconds=0.1, release_timeout_seconds=0.2,
+    )
+    called = []
+
+    def timing_runner(candidate):
+        called.append(candidate["candidate_id"])
+        raise AssertionError("an unverifiable lease must not authorize a callback")
+
+    result = execute_rsi_compile_and_timing(
+        [{"candidate_id": "unverified", "compile_ok": True, "oracle_passed": True,
+          "timing_command": "real measurement"}],
+        timing_runner=timing_runner, lease_authority=adapter,
+        state_dir=tmp_path / "verification-cleanup",
+    )
+    assert called == []
+    candidate = result["candidates"][0]
+    assert candidate["attempted_execution_id"] == client.execution_id
+    cleanup = candidate["attempted_cleanup"]
+    assert cleanup["execution_id"] == client.execution_id
+    assert cleanup["released"] is False
+    assert "stop transport failed" in cleanup["stop_error"]
+    assert result["execution_authority"]["cleanup_ok"] is False
+    assert result["timing_attempts"][0]["acquired"] is False
+
+
+def test_release_accounting_timeout_preserves_timing_schema_and_blocks_later_npu(tmp_path):
+    client = _FakeTaskClient(
+        stdout=json.dumps({
+            "oracle_passed": True, "measurement_passed": True,
+            "speedup_ratio": 1.3, "ablation_retained": True,
+        }),
+        released=False, stop_error=True, release_wait_timeout=True,
+    )
+    adapter = TaskClientRSIExecutor(
+        client, release_wait_seconds=0.1, release_timeout_seconds=0.2,
+    )
+    result = execute_rsi_compile_and_timing(
+        [
+            {"candidate_id": "measured", "compile_ok": True, "oracle_passed": True,
+             "timing_command": "real measurement"},
+            {"candidate_id": "later", "compile_ok": True, "oracle_passed": True,
+             "timing_command": "must not run"},
+        ],
+        execution_backend=adapter, state_dir=tmp_path / "release-timeout",
+    )
+    entry = result["evaluations"][0]
+    assert entry["verdict"] == "supported"
+    assert entry["run_id"] == client.execution_id
+    assert entry["cleanup_ok"] is False
+    receipt = result["candidates"][0]["coordinator_lease_receipt"]
+    assert receipt["schema_version"] == "mindie-bench-rsi-execution/1"
+    assert receipt["authority"] == "mindie_coordinator.task_client"
+    assert receipt["execution_id"] == client.execution_id
+    assert receipt["phase"] == "timing"
+    assert receipt["resources_released"] is False
+    assert result["candidates"][0]["cleanup_failures"][0]["execution_id"] == client.execution_id
+    assert result["timing_attempts"][0]["cleanup_ok"] is False
+    assert result["timing_attempts"][1]["candidate_id"] == "later"
+    assert result["timing_attempts"][1]["acquired"] is False
+    assert result["timing_attempts"][1]["failure_reason"] == "coordinator_cleanup_failed"
+    assert len(client.runs) == 1
+
+
+def test_cpu_compile_release_timeout_preserves_compile_and_blocks_timing(tmp_path):
+    client = _FakeTaskClient(
+        stdout=json.dumps({"compile_ok": True}), devices=(),
+        released=False, stop_error=True, release_wait_timeout=True,
+    )
+    adapter = TaskClientRSIExecutor(
+        client, release_wait_seconds=0.1, release_timeout_seconds=0.2,
+    )
+    result = execute_rsi_compile_and_timing(
+        [
+            {"candidate_id": "cpu", "compile_command": "make -j4",
+             "oracle_passed": True},
+            {"candidate_id": "later", "compile_ok": True, "oracle_passed": True,
+             "timing_command": "must not run"},
+        ],
+        execution_backend=adapter, state_dir=tmp_path / "compile-release-timeout",
+    )
+    candidate = result["candidates"][0]
+    assert candidate["compile_ok"] is True
+    assert candidate["compile_run_id"] == client.execution_id
+    assert candidate["attempted_cleanup"]["released"] is False
+    assert candidate["cleanup_failures"][0]["execution_id"] == client.execution_id
+    assert result["execution_authority"]["cleanup_ok"] is False
+    assert [item["candidate_id"] for item in result["timing_attempts"]] == ["cpu", "later"]
+    assert all(item["acquired"] is False for item in result["timing_attempts"])
+    assert all(
+        item["failure_reason"] == "coordinator_cleanup_failed"
+        for item in result["timing_attempts"]
+    )
+    assert len(client.runs) == 1
+    assert client.runs[0]["resources"] == {"npu_count": 0}
