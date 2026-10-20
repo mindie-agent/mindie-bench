@@ -58,37 +58,25 @@
         "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
         "native_product": {
           "contribution_enabled": false,
-          "host_entry_sha256": "3150fcfb8e0968a83e58886c45b48f3d261267b207a92d5cea71bbe498036a7a",
-          "package_sha256": "5b4f08e9585da4f997f51995187c94e3654bdf427653d1763830737fa2dd0cf8",
           "runtime_identity": {
             "components": {
               "coordinator": {
-                "module_source_file_count": 21,
-                "module_sources_sha256": "ac4f6675789d6340ee1afc0812de5e93998239a0d76e32e76a9b9cf1cc4231d7",
                 "revision": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
                 "version": "0.5.3"
               },
               "diagnostics": {
-                "module_source_file_count": 21,
-                "module_sources_sha256": "d7516417f7ff656945938ebd093b95af7c625b6718bf4b1950462b73e2319969",
                 "revision": "e581f83d0c752738600cf67202a72fb409cabea2",
                 "version": "0.0.3"
               },
               "knowledge": {
-                "module_source_file_count": 19,
-                "module_sources_sha256": "884c96c6d8801428bee7a2553c5fd47ecf55ba895ffedbbc6fb91400623e6145",
                 "revision": "3abdebac568714e29536991415c12059cc308357",
                 "version": "0.0.3"
               },
               "npu-top": {
-                "module_source_file_count": 17,
-                "module_sources_sha256": "a2f147eaeb94e614d349b6cabf878fca21aa0c0a566c7c948a773240fe5c6041",
                 "revision": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
                 "version": "0.1.9"
               },
               "remote-dev": {
-                "module_source_file_count": 20,
-                "module_sources_sha256": "e582d479b3027ea4bd7c86bd3c4f3264cb9bcd540ff2d4f01160bdf95cf7fd9e",
                 "revision": "4bde385536a4a7e2a06fb5ff63a332aa3a490807",
                 "version": "0.0.3"
               }
@@ -108,11 +96,9 @@
         "task_id": "fused-rmsnorm-gate-dispatch-performance"
       },
       "cohort": "fused-shared-budget",
-      "derived_inputs_sha256": "c739b2bff1fed912df281971c98605584c00c0735dd639abe572b38d789b68b9",
       "execution_tier": "l3",
       "internal_capability_mode": "G2",
       "max_wall_clock_sec": 3361.65,
-      "native_config_sha256": "8b7ab41adcc42839ff5572d05678e76a1bd956c39d25a5198cb621de71e2e27b",
       "profile": {
         "budget": {
           "capture_cost_usd": 0.0,
@@ -163,10 +149,8 @@
       },
       "profile_group": "P2_v003_full",
       "profile_id": "fused-shared-budget-P2_v003_full",
-      "profile_sha256": "b66b3a4a6fa857671689bc7656f38119ea60b83c5d691ee16e064192431a5056",
       "protocol": "matched-product/1",
       "runtime_manifest": "/private/runtime.json",
-      "runtime_manifest_sha256": "6e35440d1b349e9b95a8d2439cb427c66af56d98bf3fb6eda3117d9c0500aee8",
       "schema": "mindie-bench-product-execution/1",
       "task_sha256": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff"
     },

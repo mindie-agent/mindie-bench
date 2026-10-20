@@ -34,9 +34,7 @@
   },
   "native_plugin": {
     "contribution_enabled": false,
-    "host_entry_sha256": "3150fcfb8e0968a83e58886c45b48f3d261267b207a92d5cea71bbe498036a7a",
     "name": "dsh",
-    "package_sha256": "5b4f08e9585da4f997f51995187c94e3654bdf427653d1763830737fa2dd0cf8",
     "revision": "e6f034b82c4afc541f6ec8785e034b5a438d7ee4",
     "version": "0.0.3"
   },
@@ -46,37 +44,25 @@
     "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "native_product": {
       "contribution_enabled": false,
-      "host_entry_sha256": "3150fcfb8e0968a83e58886c45b48f3d261267b207a92d5cea71bbe498036a7a",
-      "package_sha256": "5b4f08e9585da4f997f51995187c94e3654bdf427653d1763830737fa2dd0cf8",
       "runtime_identity": {
         "components": {
           "coordinator": {
-            "module_source_file_count": 21,
-            "module_sources_sha256": "ac4f6675789d6340ee1afc0812de5e93998239a0d76e32e76a9b9cf1cc4231d7",
             "revision": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
             "version": "0.5.3"
           },
           "diagnostics": {
-            "module_source_file_count": 21,
-            "module_sources_sha256": "d7516417f7ff656945938ebd093b95af7c625b6718bf4b1950462b73e2319969",
             "revision": "e581f83d0c752738600cf67202a72fb409cabea2",
             "version": "0.0.3"
           },
           "knowledge": {
-            "module_source_file_count": 19,
-            "module_sources_sha256": "884c96c6d8801428bee7a2553c5fd47ecf55ba895ffedbbc6fb91400623e6145",
             "revision": "3abdebac568714e29536991415c12059cc308357",
             "version": "0.0.3"
           },
           "npu-top": {
-            "module_source_file_count": 17,
-            "module_sources_sha256": "a2f147eaeb94e614d349b6cabf878fca21aa0c0a566c7c948a773240fe5c6041",
             "revision": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
             "version": "0.1.9"
           },
           "remote-dev": {
-            "module_source_file_count": 20,
-            "module_sources_sha256": "e582d479b3027ea4bd7c86bd3c4f3264cb9bcd540ff2d4f01160bdf95cf7fd9e",
             "revision": "4bde385536a4a7e2a06fb5ff63a332aa3a490807",
             "version": "0.0.3"
           }

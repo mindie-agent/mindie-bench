@@ -29,7 +29,6 @@ from mindie_bench.value_product_public import (
     canonical_benchmark,
     canonical_native_plugin,
     canonical_runtime_modules,
-    loaded_identity_sha256,
     public_catalog,
 )
 
@@ -274,8 +273,6 @@ def _source_identity(
         )
         if dependencies != expected_dependencies or instrumentation != expected_instrumentation:
             raise ValueError(f"{group.value} source roles differ from its release identity")
-    if not _hex(source.get("loaded_identity_sha256"), 64):
-        raise ValueError(f"profile source needs a loaded identity hash: {group.value}")
     catalog = source.get("catalog") or {}
     if not _hex(source.get("catalog_sha256"), 64):
         raise ValueError(f"profile source needs a catalog hash: {group.value}")
@@ -287,19 +284,12 @@ def _source_identity(
     for name, module in raw_modules.items():
         if name not in RUNTIME_MODULE_SET:
             raise ValueError(f"profile source declares an unknown runtime module: {name}")
-        if (
-            not module.get("version")
-            or not _hex(module.get("revision"), 40)
-            or not _hex(module.get("module_sources_sha256"), 64)
-            or type(module.get("module_source_file_count")) is not int
-        ):
+        if not module.get("version") or not _hex(module.get("revision"), 40):
             raise ValueError(f"profile runtime module identity is incomplete: {name}")
     modules = canonical_runtime_modules(raw_modules)
     source["runtime_modules"] = modules
     plugin = source.get("native_plugin")
     plugin_public = canonical_native_plugin(plugin)
-    if loaded_identity_sha256(modules, plugin_public, source["benchmark"]) != source["loaded_identity_sha256"]:
-        raise ValueError(f"profile source loaded identity hash is not derived from its identity: {group.value}")
     preparation_id = source.get("preparation_id")
     if group in {ProductGroup.P1_V002_BASELINE, ProductGroup.P2_V003_FULL} and not preparation_id:
         raise ValueError(f"profile {group.value} requires current usable preparation evidence")
@@ -334,8 +324,6 @@ def _source_identity(
         plugin.get("name")
         and plugin.get("version")
         and _hex(plugin.get("revision"), 40)
-        and _hex(plugin.get("package_sha256"), 64)
-        and _hex(plugin.get("host_entry_sha256"), 64)
         and plugin.get("contribution_enabled") is False
     ):
         raise ValueError(f"{group.value} native plugin identity is incomplete")
@@ -426,9 +414,6 @@ def _build_profile(
         budget=BudgetEnvelope(**raw["budget"]),
         preserved_capabilities=tuple(raw.get("preserved_capabilities", ())),
         notes=raw.get("notes", ""),
-    )
-    source["public_profile_sha256"] = digest(
-        {key: value for key, value in profile.to_dict().items() if key != "experiment_profile"}
     )
     return profile, source
 

@@ -56,11 +56,9 @@
         "task_id": "fused-rmsnorm-gate-dispatch-performance"
       },
       "cohort": "fused-shared-budget",
-      "derived_inputs_sha256": "c739b2bff1fed912df281971c98605584c00c0735dd639abe572b38d789b68b9",
       "execution_tier": "l3",
       "internal_capability_mode": "G0",
       "max_wall_clock_sec": 3361.65,
-      "native_config_sha256": "46e636fa5bc945923062675aba4b2c4dc49d50fd1928d2a7032e8c05b96827a8",
       "profile": {
         "budget": {
           "capture_cost_usd": 0.0,
@@ -111,10 +109,8 @@
       },
       "profile_group": "P0_bare_host",
       "profile_id": "fused-shared-budget-P0_bare_host",
-      "profile_sha256": "0aa39d83eb9114aa33e42ad1378bd4b0d06341f829ddca0eaf99b7e455e78a77",
       "protocol": "matched-product/1",
       "runtime_manifest": "/private/runtime.json",
-      "runtime_manifest_sha256": "d8594fd7c2e6fe7adb8ee924dce5f8fa262a87db32dc64130012475923f4589f",
       "schema": "mindie-bench-product-execution/1",
       "task_sha256": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff"
     },

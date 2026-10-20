@@ -1,4 +1,3 @@
-import hashlib
 import json
 import platform
 import shutil
@@ -6,7 +5,8 @@ import shutil
 import pytest
 
 from mindie_bench.io import digest, write_json
-from mindie_bench.models import Group, TaskSpec
+from mindie_bench.models import CorpusConfig, Group, TaskSpec
+from mindie_bench.runner import product_executor as product_executor_module
 from mindie_bench.runner.matrix import (
     BudgetEnvelope,
     MatchingConditions,
@@ -29,7 +29,9 @@ def setup_product(case, tmp_path):
         task_file.read_text().replace("\ntimeout_sec = 3\n", "\ntimeout_sec = 30\n")
     )
     task = TaskSpec.load(case["task"])
-    derived = derive_inputs({task.task.instance_id: case["task"]}, case["config"], "l2")
+    derived = derive_inputs(
+        {task.task.instance_id: case["task"]}, case["config"], "l2", knowledge_cutoff="2026-10-01"
+    )
     manifest = tmp_path / "product-runtime.json"
     write_json(
         manifest,
@@ -57,7 +59,6 @@ def setup_product(case, tmp_path):
         case["config"],
         Group.G0,
         manifest,
-        hashlib.sha256(manifest.read_bytes()).hexdigest(),
         "l2",
     )
     plan = plan_product_matrix([MatrixTask(task.task.instance_id, "fixture", "cpu")], [profile])
@@ -84,7 +85,6 @@ def test_product_identity_is_bound_before_real_process_and_survives_receipt(case
     observed = json.loads((trial_dir / "product_observation.json").read_text())
     context = started["experiment_context"]
     assert context["cell"]["group"] == "P0_bare_host"
-    assert context["runtime_manifest_sha256"] == binding.runtime_manifest_sha256
     assert receipt["environment_fingerprint"]["experiment_context"] == context
     assert observed["experiment_context"] == context
     assert observed["observation"]["receipt_id"] == receipt["trial_id"]
@@ -98,16 +98,16 @@ def test_product_identity_is_bound_before_real_process_and_survives_receipt(case
 def test_changed_runtime_configuration_is_rejected_before_starting_an_attempt(case, tmp_path):
     executor, plan, _ = setup_product(case, tmp_path)
     case["config"].harness.model = "different-model"
-    with pytest.raises(ValueError, match="configuration differs"):
+    with pytest.raises(ValueError, match="model differs"):
         executor(plan.cells[0])
     assert list(executor.run_root.iterdir()) == []
 
 
-def test_changed_oracle_is_rejected_before_starting_a_product_attempt(case, tmp_path):
+def test_changed_selected_task_is_rejected_before_starting_a_product_attempt(case, tmp_path):
     executor, plan, _ = setup_product(case, tmp_path)
     with (case["task"] / "verifier/test.sh").open("a") as output:
         output.write("\nexit 0\n")
-    with pytest.raises(ValueError, match="actual task inputs"):
+    with pytest.raises(ValueError, match="selected task changed"):
         executor(plan.cells[0])
     assert list(executor.run_root.iterdir()) == []
 
@@ -200,3 +200,78 @@ def test_preparation_deadline_failure_is_infra_not_agent_unknown():
     assert failure_status(ProductDeadlineExhausted("deadline"), "preparation") is TerminalStatus.INFRA
     assert failure_status(RuntimeError("profile"), "preparation") is TerminalStatus.INFRA
     assert failure_status(RuntimeError("native"), "agent") is TerminalStatus.UNKNOWN
+
+
+def test_binding_prepares_static_runtime_once_and_two_cells_reuse_it(
+    case, tmp_path, monkeypatch
+):
+    calls = []
+    real_runtime = product_executor_module.runtime_snapshot
+
+    def runtime(*args, **kwargs):
+        calls.append(1)
+        return real_runtime(*args, **kwargs)
+
+    monkeypatch.setattr(product_executor_module, "runtime_snapshot", runtime)
+    executor, plan, binding = setup_product(case, tmp_path)
+    assert len(calls) == 1
+    task_id = plan.cells[0].task_id
+    two_cells = plan_product_matrix(
+        [MatrixTask(task_id, "fixture", "cpu")], [binding.profile], repetitions=2
+    ).cells
+    for cell in two_cells:
+        binding.context(cell, case["task"])
+    assert len(calls) == 1
+
+
+def test_p1_p2_different_corpora_same_common_cutoff_form_matched_cells(case):
+    p1_config = case["config"].model_copy(deep=True)
+    p2_config = case["config"].model_copy(deep=True)
+    p1_config.corpora = {"p1-old": CorpusConfig(path="/corpus/p1", commit="a" * 40)}
+    p2_config.corpora = {"p2-new": CorpusConfig(path="/corpus/p2", commit="b" * 40)}
+    task_id = TaskSpec.load(case["task"]).task.instance_id
+    p1 = derive_inputs(
+        {task_id: case["task"]}, p1_config, "l2", knowledge_cutoff="2026-10-01"
+    )
+    p2 = derive_inputs(
+        {task_id: case["task"]}, p2_config, "l2", knowledge_cutoff="2026-10-01"
+    )
+    assert p1["corpora"] != p2["corpora"]
+    assert p1["conditions"] == p2["conditions"]
+    assert p1["conditions"]["knowledge_cutoff"] == "2026-10-01"
+    profiles = [
+        ProductProfile(
+            profile_id=f"corpus-{group.value}",
+            group=group,
+            experiment_profile=f"profiles/{group.value}.json",
+            protocol="matched-product/1",
+            fidelity="matched",
+            cohort="corpus-revisions",
+            conditions=MatchingConditions(**derived["conditions"]),
+            budget=BudgetEnvelope(**derived["budget"]),
+        )
+        for group, derived in ((ProductGroup.P1_V002_BASELINE, p1), (ProductGroup.P2_V003_FULL, p2))
+    ]
+    plan = plan_product_matrix([MatrixTask(task_id, "fixture", "cpu")], profiles)
+    assert {cell.group for cell in plan.cells} == {
+        ProductGroup.P1_V002_BASELINE,
+        ProductGroup.P2_V003_FULL,
+    }
+    changed_budget = p2["budget"] | {"total_model_calls": p2["budget"]["total_model_calls"] + 1}
+    with pytest.raises(ValueError, match="budget"):
+        plan_product_matrix(
+            [MatrixTask(task_id, "fixture", "cpu")],
+            [
+                profiles[0],
+                ProductProfile(
+                    profile_id="corpus-P2_v003_full",
+                    group=ProductGroup.P2_V003_FULL,
+                    experiment_profile="profiles/P2_v003_full.json",
+                    protocol="matched-product/1",
+                    fidelity="matched",
+                    cohort="corpus-revisions",
+                    conditions=MatchingConditions(**p1["conditions"]),
+                    budget=BudgetEnvelope(**changed_budget),
+                ),
+            ],
+        )

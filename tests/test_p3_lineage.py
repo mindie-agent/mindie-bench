@@ -614,7 +614,9 @@ def test_real_legacy_capture_receipts_report_missing_timestamps_and_deny_p3():
 
 def _executor_case(case, tmp_path: Path):
     task_id = case["spec"].task.instance_id
-    derived = derive_inputs({task_id: case["task"]}, case["config"], "l2")
+    derived = derive_inputs(
+        {task_id: case["task"]}, case["config"], "l2", knowledge_cutoff="2026-10-01"
+    )
     instruction_sha = sha_bytes((case["task"] / "instruction.md").read_bytes())
     _, manifest = build_lineage(
         tmp_path / "lineage",
@@ -635,7 +637,7 @@ def _executor_case(case, tmp_path: Path):
     budget_values = dict(derived["budget"])
     budget_values.update(foreground_model_calls=24, organizer_model_calls=0, review_model_calls=0, seed_model_calls=10, capture_model_calls=0, capture_organizer_model_calls=1, independent_review_model_calls=0, seed_npu_runs=2, seed_cost_usd=1.0, capture_cost_usd=0.0, capture_organizer_cost_usd=0.0, independent_review_cost_usd=0.0, max_cost_usd=2.0, lifecycle_model_calls=derived["budget"]["total_model_calls"] + 11, lifecycle_cost_usd=3.0)
     profile = ProductProfile(profile_id="p3-native-entrance", group=ProductGroup.P3_V003_FLYWHEEL, experiment_profile=str(runtime_manifest), protocol="native-product-contract-test/1", fidelity="matched", cohort="synthetic", conditions=MatchingConditions(**derived["conditions"]), budget=BudgetEnvelope(**budget_values), p3_lineage=binding)
-    execution_binding = ProductExecutionBinding(profile, case["config"], Group.G3, runtime_manifest, hashlib.sha256(runtime_manifest.read_bytes()).hexdigest(), "l2")
+    execution_binding = ProductExecutionBinding(profile, case["config"], Group.G3, runtime_manifest, "l2")
     plan = plan_product_matrix([MatrixTask(task_id, "heldout-family", "cpu")], [profile])
     run_root = tmp_path / "runs"
     run_root.mkdir()
@@ -648,7 +650,7 @@ def _fake_trial(tmp_path: Path, task_id: str, calls: list[dict]):
         calls.append(context)
         trial_dir = tmp_path / "zero-model-trial"
         trial_dir.mkdir(exist_ok=True)
-        return TrialReceipt(trial_id="trial-p3-zero-model", instance_id=task_id, repetition=kwargs["repetition"], tier=kwargs["tier"], ablation_group=kwargs["group"], knowledge_gradient="no_hit", task_digest=context["task_sha256"], experiment_digest=context["native_config_sha256"], environment_fingerprint={"experiment_context": json.loads(json.dumps(context))}, terminal_status=TerminalStatus.PASS, primary_metrics={"reward": 1.0, "resolved": True, "delivery_wall_clock_sec": 1.0}, evidence="synthetic", artifacts={"private_trial_dir": str(trial_dir)})
+        return TrialReceipt(trial_id="trial-p3-zero-model", instance_id=task_id, repetition=kwargs["repetition"], tier=kwargs["tier"], ablation_group=kwargs["group"], knowledge_gradient="no_hit", task_digest=context["task_sha256"], experiment_digest=digest(config.model_dump(mode="json")), environment_fingerprint={"experiment_context": json.loads(json.dumps(context))}, terminal_status=TerminalStatus.PASS, primary_metrics={"reward": 1.0, "resolved": True, "delivery_wall_clock_sec": 1.0}, evidence="synthetic", artifacts={"private_trial_dir": str(trial_dir)})
     return execute
 
 

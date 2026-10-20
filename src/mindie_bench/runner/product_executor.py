@@ -9,14 +9,13 @@ observation beside the original trial receipt. No automatic retries.
 
 from __future__ import annotations
 
-import hashlib
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
-from mindie_bench.io import digest, task_hash, write_json
-from mindie_bench.models import ExperimentConfig, Group, TaskSpec, TrialReceipt
+from mindie_bench.io import write_json
+from mindie_bench.models import ExperimentConfig, Group, TrialReceipt
 from mindie_bench.runner.matrix import observation_from_receipt
 from mindie_bench.runner.matrix_contracts import (
     ProductCell,
@@ -26,7 +25,7 @@ from mindie_bench.runner.matrix_contracts import (
 )
 from mindie_bench.runner.orchestrator import run_trial
 from mindie_bench.runner.p3_lineage import P3LineageRejected, budget_ledger_mismatches
-from mindie_bench.runner.product_inputs import derive_inputs, runtime_snapshot
+from mindie_bench.runner.product_inputs import runtime_snapshot
 
 
 @dataclass(frozen=True)
@@ -37,8 +36,17 @@ class ProductExecutionBinding:
     config: ExperimentConfig
     capability_mode: Group
     runtime_manifest: Path
-    runtime_manifest_sha256: str
     execution_tier: str
+    manifest: dict = field(init=False, repr=False)
+    runtime: dict = field(init=False, repr=False)
+
+    def __post_init__(self):
+        manifest = json.loads(self.runtime_manifest.read_text())
+        runtime = runtime_snapshot(self.config, self.capability_mode)
+        if runtime != manifest["runtime_snapshot"]:
+            raise ValueError("installed product runtime differs from its prepared source identity")
+        object.__setattr__(self, "manifest", manifest)
+        object.__setattr__(self, "runtime", runtime)
 
     def context(self, cell: ProductCell, task_root: Path) -> dict:
         profile = self.profile
@@ -49,26 +57,17 @@ class ProductExecutionBinding:
             profile.protocol,
         ):
             raise ValueError("product cell differs from its independently bound profile")
-        raw = self.runtime_manifest.read_bytes()
-        if hashlib.sha256(raw).hexdigest() != self.runtime_manifest_sha256:
-            raise ValueError("product runtime manifest changed before execution")
-        manifest = json.loads(raw)
-        config_sha = digest(self.config.model_dump(mode="json"))
-        if manifest["config_sha256"] != config_sha:
-            raise ValueError("product native configuration differs from its runtime manifest")
+        manifest = self.manifest
+        if self.config.harness.model != profile.conditions.model_id:
+            raise ValueError("product configuration model differs from the bound profile")
         if manifest["profile_id"] != profile.profile_id or manifest["product_group"] != profile.group:
             raise ValueError("runtime manifest belongs to another product profile")
         if profile.experiment_profile != str(self.runtime_manifest):
             raise ValueError("product profile does not reference this runtime manifest")
-        task = TaskSpec.load(task_root)
-        if task.task.instance_id != cell.task_id:
+        derived = manifest["derived_inputs"]
+        derived_task = derived["tasks"].get(cell.task_id)
+        if derived_task is None:
             raise ValueError("product cell and task identity differ")
-        tasks = {
-            key: Path(value["task_root"]) for key, value in manifest["derived_inputs"]["tasks"].items()
-        }
-        derived = derive_inputs(tasks, self.config, self.execution_tier)
-        if derived != manifest["derived_inputs"]:
-            raise ValueError("actual task inputs or execution budgets changed before the product trial")
         derived_budget = derived["budget"]
         if profile.conditions.to_dict() != derived["conditions"] or any(
             derived_budget.get(name) != value
@@ -107,7 +106,6 @@ class ProductExecutionBinding:
                     "P3 declared prerequisite budget differs from the cost ledger: "
                     + "; ".join(mismatches)
                 )
-            derived_task = derived["tasks"][cell.task_id]
             if (
                 p3["heldout"]["task_sha256"] != derived_task["task_sha256"]
                 or p3["heldout"]["oracle_sha256"] != derived_task["oracle_sha256"]
@@ -115,22 +113,17 @@ class ProductExecutionBinding:
                 raise ValueError("P3 Heldout task or oracle differs from the actual native inputs")
         elif profile.p3_lineage is not None:
             raise ValueError("only the P3 product group may carry a P3 lineage admission")
-        runtime = runtime_snapshot(self.config, self.capability_mode)
-        if runtime != manifest["runtime_snapshot"]:
-            raise ValueError("installed product runtime differs from its prepared source identity")
+        runtime = self.runtime
         return {
             "schema": "mindie-bench-product-execution/1",
             "cell": cell.to_dict(),
             "profile": profile.to_dict(),
-            "profile_sha256": digest(profile.to_dict()),
             "runtime_manifest": str(self.runtime_manifest),
-            "runtime_manifest_sha256": self.runtime_manifest_sha256,
-            "native_config_sha256": config_sha,
             "internal_capability_mode": self.capability_mode.value,
-            "task_sha256": task_hash(task_root),
+            "task_sha256": derived_task["task_sha256"],
+            "oracle_sha256": derived_task["oracle_sha256"],
             "execution_tier": self.execution_tier,
             "actual_runtime": runtime,
-            "derived_inputs_sha256": digest(derived),
             "max_wall_clock_sec": profile.budget.max_wall_clock_sec,
             **({"p3_admission": p3} if p3 is not None else {}),
         }
@@ -171,14 +164,13 @@ class ProductExecutor:
             run_root=self.run_root,
             devices=self.devices,
             experiment_context=context,
+            expected_task_digest=context["task_sha256"],
+            expected_oracle_sha256=context["oracle_sha256"],
         )
         if receipt.environment_fingerprint.get("experiment_context") != context:
             raise ValueError("trial did not retain its pre-execution product binding")
-        if (
-            receipt.task_digest != context["task_sha256"]
-            or receipt.experiment_digest != context["native_config_sha256"]
-        ):
-            raise ValueError("trial used a different task or native configuration")
+        if receipt.task_digest != context["task_sha256"]:
+            raise ValueError("trial used a different task")
         observation = replace(
             observation_from_receipt(receipt, cell=cell),
             total_wall_clock_sec=receipt.primary_metrics.get("delivery_wall_clock_sec"),

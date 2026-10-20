@@ -35,14 +35,18 @@ def runtime_snapshot(config: ExperimentConfig, mode: Group) -> dict:
                 raise ValueError(f"actual installed {name} commit differs from the product pin")
         result["native_product"] = {
             "runtime_identity": observed,
-            "package_sha256": tree_hash(Path(native.package_path)),
-            "host_entry_sha256": sha(Path(native.package_path) / "host.mjs"),
             "contribution_enabled": native.contribution_enabled,
         }
     return result
 
 
-def derive_inputs(tasks: dict[str, Path], config: ExperimentConfig, tier: str) -> dict:
+def derive_inputs(
+    tasks: dict[str, Path],
+    config: ExperimentConfig,
+    tier: str,
+    *,
+    knowledge_cutoff: str,
+) -> dict:
     starts, inputs, oracles, task_rows, budgets, permissions = {}, {}, {}, {}, [], {}
     phase_budgets = []
     selected_groups = [group for group in config.groups.values() if group]
@@ -123,7 +127,7 @@ def derive_inputs(tasks: dict[str, Path], config: ExperimentConfig, tier: str) -
         }
     }
     corpus = {
-        key: {"commit": item.commit, "sha256": tree_hash(Path(item.path))}
+        key: {"commit": item.commit, "source": str(item.path)}
         for key, item in sorted(config.corpora.items())
     }
     conditions = MatchingConditions(
@@ -132,7 +136,7 @@ def derive_inputs(tasks: dict[str, Path], config: ExperimentConfig, tier: str) -
         task_start_digest=digest(starts),
         oracle_digest=digest(oracles),
         input_digest=digest(inputs),
-        knowledge_cutoff=digest(corpus),
+        knowledge_cutoff=knowledge_cutoff,
         tool_permission_digest=digest(
             {
                 "tier": tier,

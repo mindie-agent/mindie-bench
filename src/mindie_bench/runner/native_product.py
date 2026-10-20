@@ -8,7 +8,6 @@ explicitly disabled through its native authority. Model traffic uses Gateway.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import signal
@@ -119,18 +118,13 @@ def prepare(root, env, selected, corpus):
     write_json(native / "initialization.json", initialized)
     return {
         "package_path": str(package),
-        "package_sha256": tree_hash(package),
         "package_version": json.loads((package / "package.json").read_text())["version"],
-        "host_entry_sha256": hashlib.sha256((package / "host.mjs").read_bytes()).hexdigest(),
         "runtime_python": python,
         "engine_config": str(engine_path),
         "domain": selected.domain,
         "connection_path": str(data_home / selected.domain / "connection.json"),
         "contribution_enabled": False,
         "contribution_default_source": str(package / "scripts" / "mindie_sidecar.py"),
-        "contribution_default_source_sha256": hashlib.sha256(
-            (package / "scripts" / "mindie_sidecar.py").read_bytes()
-        ).hexdigest(),
         "initialization": initialized,
     }
 
@@ -186,7 +180,6 @@ class NativeProductService:
                     self.info["service"] = {
                         "pid": self.process.pid,
                         "port": self.port,
-                        "connection_sha256": hashlib.sha256(connection.read_bytes()).hexdigest(),
                         "status": "ready",
                     }
                     return self
