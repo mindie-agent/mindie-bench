@@ -53,6 +53,9 @@ SSH_OPTIONS = (
     "-o", "BatchMode=yes",
     "-o", "StrictHostKeyChecking=yes",
     "-o", "ConnectTimeout=8",
+    "-o", "ControlMaster=auto",
+    "-o", "ControlPersist=30",
+    "-o", "ControlPath=/tmp/mindie-bench-ssh-%C",
 )
 
 
@@ -113,8 +116,8 @@ def live_targets():
 @pytest.fixture
 def sandbox(live_targets):
     target = live_targets["A2"]
-    root = f"/tmp/mindie-npu-test-{uuid.uuid4().hex}"
-    assert root.startswith("/tmp/mindie-npu-test-")
+    root = f"/tmp/mindie-npu-test-bench-{uuid.uuid4().hex}"
+    assert root.startswith("/tmp/mindie-npu-test-bench-")
     created = _remote_sh(target, f"mkdir -p {shlex.quote(root)}/build {shlex.quote(root)}/config")
     if created.returncode != 0:
         pytest.skip(f"could not create isolated sandbox on {target.host}: {created.stderr[-300:]}")
@@ -212,7 +215,7 @@ int exported(int x) {{ return flashmla_kernel(x); }}
 EOF
 cc -shared -fPIC -o libkernel.so build/flashmla.o libkernel.c
 printf 'pid=99999999 pgid=99999999\\n' > stale.lock
-nohup sleep 60 >/dev/null 2>&1 &
+nohup sleep 60 </dev/null >/dev/null 2>&1 &
 echo $! > live.lock
 cat > Makefile <<'EOF'
 native-gate-opp:
@@ -338,8 +341,8 @@ def test_live_a3_dual_die_preflight_and_g0_artifacts(live_targets):
     chips = [int(value) for value in re.findall(r"Chip Count\s*:\s*(\d+)", preflight.stdout)]
     assert total == 8 and len(chips) == 8 and sum(chips) == 16
     assert "Ascend910" in preflight.stdout
-    root = f"/tmp/mindie-npu-test-{uuid.uuid4().hex}"
-    assert root.startswith("/tmp/mindie-npu-test-")
+    root = f"/tmp/mindie-npu-test-bench-{uuid.uuid4().hex}"
+    assert root.startswith("/tmp/mindie-npu-test-bench-")
     try:
         created = _remote_sh(target, f"mkdir -p {shlex.quote(root)}/build {shlex.quote(root)}/config")
         assert created.returncode == 0, created.stderr

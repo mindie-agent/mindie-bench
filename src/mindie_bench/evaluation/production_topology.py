@@ -490,7 +490,7 @@ def plan_topology_gang_lease(
             warnings=tuple(warnings),
             cross_package_degradation=degradation[0],
             lease_id=f"gang-{uuid.uuid4().hex[:16]}",
-            sandbox_root=sandbox_root or f"/tmp/mindie-npu-test-{uuid.uuid4().hex[:12]}",
+            sandbox_root=sandbox_root or f"/tmp/mindie-npu-test-bench-{uuid.uuid4().hex[:12]}",
             hccl_interfaces=hccl_interfaces,
         )
     if spec.placement == "same_npu_dual_die":
@@ -561,7 +561,7 @@ def plan_topology_gang_lease(
         warnings=tuple(warnings),
         cross_package_degradation=degradation[0],
         lease_id=f"gang-{uuid.uuid4().hex[:16]}",
-        sandbox_root=sandbox_root or f"/tmp/mindie-npu-test-{uuid.uuid4().hex[:12]}",
+        sandbox_root=sandbox_root or f"/tmp/mindie-npu-test-bench-{uuid.uuid4().hex[:12]}",
         hccl_interfaces=hccl_interfaces,
     )
 

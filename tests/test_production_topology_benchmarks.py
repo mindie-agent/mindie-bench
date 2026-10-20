@@ -573,7 +573,7 @@ def _ssh(host: str, script: str, *, timeout: float = 10.0) -> subprocess.Complet
 
 
 def _exercise_sandbox(host: str, plans: tuple[GangLeasePlan, ...]) -> str:
-    sandbox = f"/tmp/mindie-npu-test-{uuid.uuid4().hex[:12]}"
+    sandbox = f"/tmp/mindie-npu-test-bench-{uuid.uuid4().hex[:12]}"
     quoted = shlex.quote(sandbox)
     payload = json.dumps([plan.to_dict() for plan in plans], sort_keys=True)
     script = (

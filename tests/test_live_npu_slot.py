@@ -35,6 +35,12 @@ def _container_exec(command: str, *, timeout: float = 20.0) -> subprocess.Comple
             "StrictHostKeyChecking=yes",
             "-o",
             "ConnectTimeout=10",
+            "-o",
+            "ControlMaster=auto",
+            "-o",
+            "ControlPersist=30",
+            "-o",
+            "ControlPath=/tmp/mindie-bench-ssh-%C",
             LIVE_HOST,
             shlex.join(["docker", "exec", "-i", LIVE_CONTAINER, "/bin/bash", "-lc", command]),
         ],
@@ -53,7 +59,7 @@ def _select_idle_a2_device() -> int:
                 "-I",
                 "/bench/ascend_probe.py",
                 "--devices",
-                "0,1,2,3,4,5,6,7",
+                "0,1,2,3",
                 "--image-digest",
                 LIVE_IMAGE_DIGEST,
             ]
@@ -62,7 +68,7 @@ def _select_idle_a2_device() -> int:
     if probe.returncode != 0:
         pytest.skip(f"live A2 container {LIVE_CONTAINER} on {LIVE_HOST} unavailable: {probe.stderr.strip()}")
     payload = json.loads(probe.stdout)
-    for device in range(7, -1, -1):
+    for device in range(4):
         row = payload.get(str(device), {})
         if not row.get("pids") and row.get("used_mb", 999999) < 4000 and row.get("model") == "910B4":
             return device
@@ -74,7 +80,7 @@ def test_live_a2_remote_slot_workspace_projection_verifier_inventory_and_timeout
     tmp_path: Path,
 ) -> None:
     device = _select_idle_a2_device()
-    sandbox_root = f"/tmp/mindie-bench-live-test-{uuid.uuid4().hex[:12]}"
+    sandbox_root = f"/tmp/mindie-npu-test-bench-{uuid.uuid4().hex[:12]}"
     repo_path = f"{sandbox_root}/repo"
     slots_root = f"{sandbox_root}/slots"
 
