@@ -63,8 +63,11 @@ def derive_inputs(
         if task.task.instance_id != task_id:
             raise ValueError("product task map differs from the actual task identity")
         environment = task.environment[tier]
+        repo_path = Path(environment.repo_path)
+        if not repo_path.is_absolute() and (root / repo_path).exists():
+            repo_path = (root / repo_path).resolve(strict=True)
         git = subprocess.run(
-            ["git", "-C", environment.repo_path, "rev-parse", environment.base_commit + "^{tree}"],
+            ["git", "-C", str(repo_path), "rev-parse", environment.base_commit + "^{tree}"],
             check=True,
             capture_output=True,
             text=True,

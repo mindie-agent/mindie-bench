@@ -40,21 +40,21 @@ verifier_timeout_sec = 600.0
 max_output_bytes = 33554432
 
 [environment.l1]
-repo_path = "environment"
+repo_path = "/Users/maoxx241/code/vllm-ascend"
 base_commit = "a78a00e0b1b618f26a3bfce2519055b40cf4bf1e"
 npu_model = "Ascend910"
 npu_count = 1
 replay_commands = ["prepare", "source0", "after"]
 
 [environment.l2]
-repo_path = "environment"
+repo_path = "/Users/maoxx241/code/vllm-ascend"
 base_commit = "a78a00e0b1b618f26a3bfce2519055b40cf4bf1e"
 npu_model = "Ascend910"
 npu_count = 1
 replay_commands = ["prepare", "source0", "after"]
 
 [environment.l3]
-repo_path = "environment"
+repo_path = "/Users/maoxx241/code/vllm-ascend"
 base_commit = "a78a00e0b1b618f26a3bfce2519055b40cf4bf1e"
 npu_model = "Ascend910"
 npu_count = 1

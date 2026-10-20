@@ -480,9 +480,12 @@ def run_trial(
         )
         fingerprint.update(profile.fingerprint)
         paths = runtime_paths(config, profile)
+        repo_path = Path(environment.repo_path)
+        if not repo_path.is_absolute() and (task_root / repo_path).exists():
+            repo_path = (task_root / repo_path).resolve(strict=True)
         protected = [
             *(task_root / relative for relative in oracle_manifest.protected_paths),
-            Path(environment.repo_path),
+            repo_path,
             Path.home() / ".codex",
             Path.home() / ".claude",
             Path.home() / ".kimi-code",
