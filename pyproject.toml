@@ -25,6 +25,8 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra"
 markers = [
+    "tier0: pure in-memory core logic under 5s",
+    "tier1: local component or process contract under 15s",
     "live_npu: non-destructive live Ascend NPU remote slot verification",
 ]
 

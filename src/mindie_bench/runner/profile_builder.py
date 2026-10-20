@@ -39,6 +39,17 @@ from mindie_bench.corpus import read_package
 from mindie_bench.io import tree_hash, write_json
 from mindie_bench.models import ExperimentConfig, Group, TaskSpec
 
+# The pi-ai provider rejects a custom route model that does not advertise the
+# requested effort. Declare the complete supported ladder, including `off`.
+DSH_REASONING_EFFORTS = {
+    "off": None,
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "xhigh",
+    "max": "max",
+}
+
 
 @dataclass
 class Profile:
@@ -450,6 +461,10 @@ def build_dsh_profile(
         raise ValueError("DSH profile initialization failed: " + (completed.stderr or "")[-2000:])
     if not (profile_dir / "package.json").is_file():
         raise ValueError("DSH profile initialization did not create package.json")
+    # Every benchmark arm uses the standard native-tools host and the maximum
+    # default thinking effort; content, retrieval and ablation groups differ,
+    # not the execution mode.
+    effort = config.harness.reasoning_effort or "max"
     lines = [
         "- id: llm-pi-ai",
         "  name: '@deepseek-ai/dsh-llm-pi-ai'",
@@ -461,15 +476,17 @@ def build_dsh_profile(
         "        apiKeyEnv: MINDIE_BENCH_DUMMY_KEY",
         "        models:",
         f"          - id: {json.dumps(config.harness.model)}",
-    ]
-    if config.harness.reasoning_effort:
-        lines.append(f"        reasoning: {json.dumps(config.harness.reasoning_effort)}")
-    lines += [
+        "            reasoningEfforts: " + json.dumps(DSH_REASONING_EFFORTS),
         "- id: agent-default-model",
         "  name: '@deepseek-ai/dsh-agent-default-model'",
         "  config:",
         "    provider: bench",
         f"    model: {json.dumps(config.harness.model)}",
+        f"    reasoningEffort: {json.dumps(effort)}",
+        "- id: tools",
+        "  name: '@deepseek-ai/dsh-tools'",
+        "  config:",
+        "    mode: native",
     ]
     insert_rows = []
     if native_product:

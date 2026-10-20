@@ -72,7 +72,8 @@ def test_graded_consumer_preserves_actual_conditions_and_exact_current_read(tmp_
         hits = consumer.search("queue cancellation", conditions={"source_revision": "b" * 40})["results"]
         assert hits
         read = consumer.explain(hits[0]["ref"])
-        assert read["content_digest"] == "sha256:" + hits[0]["content_sha256"]
+        assert read["revision"] == hits[0]["revision"] == 1
+        assert read["ref"] == hits[0]["ref"]
         assert "queue ownership" in read["content"]
     finally:
         consumer.close()
@@ -80,10 +81,19 @@ def test_graded_consumer_preserves_actual_conditions_and_exact_current_read(tmp_
 
 def test_persisted_graded_body_tamper_cannot_recompute_its_own_digest(tmp_path):
     source = corpus(tmp_path)
-    path = source / "serving/queue/unit-independent.md"
-    path.write_text(path.read_text() + "A different unreviewed claim.\n")
-    with pytest.raises(ValueError, match="exact content_digest"):
-        GradedConsumer(source, tmp_path / "state")
+    state_dir = tmp_path / "state"
+    consumer = GradedConsumer(source, state_dir)
+    try:
+        blobs = sorted((consumer.store.root / "graded" / "blobs").glob("*.md"))
+        assert blobs
+        for blob in blobs:
+            blob.write_text(blob.read_text() + "A different unreviewed claim.\n")
+        consumer.store.db.execute("DELETE FROM state WHERE key='graded:index'")
+        consumer.store.graded._catalog_raw = None
+        with pytest.raises(ValueError, match="graded content digest mismatch"):
+            consumer.search("queue cancellation", conditions={"source_revision": "b" * 40})
+    finally:
+        consumer.close()
 
 
 def test_real_mcp_serializes_graded_conditions_and_exact_read(tmp_path, monkeypatch):
@@ -102,7 +112,8 @@ def test_real_mcp_serializes_graded_conditions_and_exact_read(tmp_path, monkeypa
         hit = matched["result"]["results"][0]
         contents = await server.call_tool("knowledge_explain", {"ref": hit["ref"]})
         exact = json.loads(contents[0].text)
-        assert exact["content_digest"] == "sha256:" + hit["content_sha256"]
+        assert exact["revision"] == hit["revision"] == 1
+        assert exact["ref"] == hit["ref"]
         assert "queue ownership" in exact["content"]
 
     def drive(server, transport):

@@ -78,7 +78,9 @@ def should_escalate_to_rsi(
             # Only genuinely incomplete execution asks for repair. A completed
             # below-target or within-noise run is a valid, non-attaining result.
             stalled, reason = 0, "l3_execution_incomplete"
-        elif attempt["verdict"] == "supported":
+        elif (attempt["verdict"] in {"supported", "attained", "subtarget_valid"}
+              or attempt.get("axes", {}).get("goal_attainment") == "attained"
+              or attempt.get("goal_attainment") == "attained"):
             stalled, reason = 0, "l3_workflow_progressing"
         else:
             stalled, reason = stalled + 1, attempt.get("failure_reason") or "speedup_below_target"
@@ -349,14 +351,13 @@ def evaluate_exploration_axes(
         else:
             reuse = "reusable_mutator" if return_tier == "L4" else "reusable_observation"
             state = ("valid", "supported", "verified", "attained", reuse, 4)
-    elif (preserve_subtarget_evidence and speedup > 1.0 + noise_margin
-          and ablation_retained is not False):
+    elif preserve_subtarget_evidence and speedup > 1.0 + noise_margin:
         state = ("valid", "subtarget_valid", "speedup_below_target_valid_evidence",
                  "not_attained", "reusable_observation", 4)
     elif ablation_retained is None:
         state = ("valid", "inconclusive", "ablation_pending", "not_applicable",
                  "inconclusive", 3)
-    elif preserve_subtarget_evidence and 1.0 < speedup <= 1.0 + noise_margin:
+    elif preserve_subtarget_evidence and 1.0 - noise_margin <= speedup <= 1.0 + noise_margin:
         state = ("valid", "inconclusive", "speedup_within_noise",
                  "not_attained", "inconclusive", 4)
     else:
