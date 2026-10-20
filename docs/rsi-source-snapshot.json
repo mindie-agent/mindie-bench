@@ -1,5 +1,6 @@
 {
   "analysis_date": "2026-10-20",
+  "native_integration_base": {"repository": "mindie-agent/mindie-bench", "commit": "3bf7fa6", "package_version": "0.4.0", "note": "Original research snapshots below are retained; PR #7 was merged before native integration validation."},
   "repositories": [
     {
       "repository": "mindie-agent/awesome-mindie-skills",

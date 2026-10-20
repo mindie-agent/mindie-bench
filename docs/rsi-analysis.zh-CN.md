@@ -3,6 +3,8 @@
 分析日期：2026-10-20。本文分析已克隆的真实源码，而不是仅复述项目介绍。
 RSI 基线为 `a6b10af282014412b4eae14f3105d68555889821`，MindIE-Bench
 改动前基线为 `b7301839602ad3791af17f21f5aa47d773b5af2a`。
+原生重构随后合入最新主线 `3bf7fa6`（PR #7，MindIE-Bench 0.4.0）；
+下文原始能力对比保留初始源码快照，新增主线能力见 §4.5。
 所有生态仓库的精确版本及完整 37 任务清单见 [源码快照](rsi-source-snapshot.json)。
 
 用户提供的[微信公众号文章](https://mp.weixin.qq.com/s/6yPyBDCfbCqdxP68TU37Tg)
@@ -322,6 +324,16 @@ uv run mindie-bench compare --baseline reports/base --candidate reports/new --ou
 `demo` 是无模型/无硬件的合成演示，但原生隔离仍依赖支持的平台；
 不能因为描述为 synthetic 就认为所有 Windows 环境都能跑整个 runner。
 L3 还须准备真实 SSH/容器/NPU、配套组件、租约与独立路径。
+
+### 4.5 重构期间合入的 0.4.0 主线
+
+PR #7 增加了产品矩阵执行（`runner/matrix.py`、`product_executor.py`）、候选门禁与
+split manifest（`evaluation/gates.py`、`split_manifest.py`）、机制消融、graded
+capture/consumer、经验谱系审计以及公开发行证据协议。这些模块没有被 RSI 方案替换。
+`runner/phase_budget.py` 把准备、执行、结算、裁判、清理计入同一个预声明预算；
+新测量器继续在既有 verifier 阶段内执行，不重新计算或延长产品实验预算。
+重叠的 `models.py`、`cli.py`、`orchestrator.py` 已按最新主线合并，并增加相关
+门禁、split 与 ablation 回归测试，完整结果由最终 CI 验证。
 
 ## 5. 两个 Bench 的共同点和差异
 
