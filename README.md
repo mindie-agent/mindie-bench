@@ -34,6 +34,12 @@ is currently Codex/Claude-only. See [usage and contracts](docs/usage.md#dsh-head
 
 ## Datasets
 
+[Native inference lifecycle evaluation](docs/rsi-inference.md) brings RSI-inspired
+support/optimization/regression contracts, counterbalanced workload measurements,
+regression guards and task-balanced scores into the existing MindIE runner.
+It uses native tasks, receipts and G0–G3 groups, without an Apple checkout or Pier.
+[Executable CPU examples](tasks/inference/README.md) exercise all three categories.
+
 | Dataset | Execution and scope |
 | --- | --- |
 | [Corpus-first L2 recipes](tasks/corpus-first-l2/README.md) | Four real CPU repair contracts and two distinct seed triggers, with complete historical modules, separate public reproduction and hidden judges. |

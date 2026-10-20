@@ -1,0 +1,898 @@
+{
+  "analysis_date": "2026-10-20",
+  "native_integration_base": {"repository": "mindie-agent/mindie-bench", "commit": "3bf7fa6", "package_version": "0.4.0", "note": "Original research snapshots below are retained; PR #7 was merged before native integration validation."},
+  "repositories": [
+    {
+      "repository": "mindie-agent/awesome-mindie-skills",
+      "commit": "64c2457d0b05e89c0a0808896a3e10960f536c53",
+      "package_version": null
+    },
+    {
+      "repository": "mindie-agent/coordinator",
+      "commit": "c77144a95dd6af37e978ffc2d8495158b237090d",
+      "package_version": "0.6.0"
+    },
+    {
+      "repository": "mindie-agent/diagnostics",
+      "commit": "6460cde3a50a7f91c9ded38557a7f921654f0c6a",
+      "package_version": "0.5.0"
+    },
+    {
+      "repository": "mindie-agent/knowledge",
+      "commit": "021ba95e701d4f8c8d924e2dcc8f120a4939da23",
+      "package_version": "0.12.2"
+    },
+    {
+      "repository": "mindie-agent/knowledge-vllm-ascend",
+      "commit": "85ab134f333b06ac3873df6affbf3bf6ec71978c",
+      "package_version": null
+    },
+    {
+      "repository": "mindie-agent/mindie-agent",
+      "commit": "bc17f3095cdf3cc16bfb1e803a839fd4ad71686b",
+      "package_version": null
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-cc",
+      "commit": "78f34dd9b09e877298225fa243ea4c28978c9dd6",
+      "package_version": "0.0.2"
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-codex",
+      "commit": "f1acb69ba336f75ae2d909443ca118835b038b9c",
+      "package_version": null
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-dsh",
+      "commit": "d3a1e1282356b65b51fba49072c1842918746f8f",
+      "package_version": "0.0.2"
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-kimi",
+      "commit": "0e78f0422162a61e8c56850e049f9e5fc4d290b5",
+      "package_version": null
+    },
+    {
+      "repository": "mindie-agent/mindie-bench",
+      "commit": "b7301839602ad3791af17f21f5aa47d773b5af2a",
+      "package_version": "0.3.0"
+    },
+    {
+      "repository": "apple-aiml-research/ml-rsi-inference-bench",
+      "commit": "a6b10af282014412b4eae14f3105d68555889821",
+      "package_version": "0.1.0"
+    },
+    {
+      "repository": "mindie-agent/npu-top",
+      "commit": "8f992bf033af57979d6bebf67189a89bb2034d7e",
+      "package_version": "0.2.0"
+    },
+    {
+      "repository": "mindie-agent/remote-dev",
+      "commit": "f441d52f8dcb227ad31adeeeb1d66da4a28915bb",
+      "package_version": "0.10.3"
+    }
+  ],
+  "rsi_categories": {
+    "model_support": 10,
+    "regression": 7,
+    "throughput_optimization": 20
+  },
+  "rsi_tasks": [
+    {
+      "id": "optimize_dsv4_flash_4xh100_dspark_sglang_open",
+      "name": "inference-bench/optimize_dsv4_flash_4xh100_dspark_sglang_open",
+      "category": "throughput_optimization",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.18",
+      "model": "deepseek-ai/DeepSeek-V4-Flash-DSpark",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 4,
+        "memory_mb": 393216,
+        "shm_size_mb": 16384,
+        "storage_mb": 245760
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 21600,
+      "task_toml_sha256": "1ace4a227818be878aec74efc64df2fc64ff7377e822f87b093f59b94fee9d63"
+    },
+    {
+      "id": "optimize_dsv4_flash_4xh100_sglang_open",
+      "name": "inference-bench/optimize_dsv4_flash_4xh100_sglang_open",
+      "category": "throughput_optimization",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.12.post1",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 4,
+        "memory_mb": 393216,
+        "shm_size_mb": 16384,
+        "storage_mb": 245760
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 21600,
+      "task_toml_sha256": "2bf2182f295aada610d082d9d7ca931f8798585eccde4ec6b1421a69d43492a9"
+    },
+    {
+      "id": "optimize_dsv4_flash_pd_8xb200_sglang_open",
+      "name": "inference-bench/optimize_dsv4_flash_pd_8xb200_sglang_open",
+      "category": "throughput_optimization",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.12.post1",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 21600,
+      "task_toml_sha256": "6d3fd0ba6fada44af6745692bb887c9106508cbea4d1837fc8c25a04cef34da6"
+    },
+    {
+      "id": "optimize_dsv4_pro_8xb200_open",
+      "name": "inference-bench/optimize_dsv4_pro_8xb200_open",
+      "category": "throughput_optimization",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.20.1",
+      "model": "deepseek-ai/DeepSeek-V4-Pro",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 786432,
+        "shm_size_mb": 16384,
+        "storage_mb": 1310720
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 28800,
+      "task_toml_sha256": "a1a8cb23811d2624eb07dd55327f993b78911fd47bacce240ae864fb62a59dfd"
+    },
+    {
+      "id": "optimize_glm_5_2_8xb200_mtp_open",
+      "name": "inference-bench/optimize_glm_5_2_8xb200_mtp_open",
+      "category": "throughput_optimization",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.24.0",
+      "model": "zai-org/GLM-5.2-FP8",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 786432
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 18000,
+      "task_toml_sha256": "ac2668bf15ad3fc131a654d0e7ff54ba251e47fb19e1dbfefb95768f62029b3f"
+    },
+    {
+      "id": "optimize_glm_5_2_8xb200_open",
+      "name": "inference-bench/optimize_glm_5_2_8xb200_open",
+      "category": "throughput_optimization",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.24.0",
+      "model": "zai-org/GLM-5.2-FP8",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 786432
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 18000,
+      "task_toml_sha256": "9ed6eb08bee09f43d7b371af66b44e849cc03c0b2b1c656e0fecd441d7e5c8f6"
+    },
+    {
+      "id": "optimize_gpt_oss_120b_2xh100_open",
+      "name": "inference-bench/optimize_gpt_oss_120b_2xh100_open",
+      "category": "throughput_optimization",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.19.1",
+      "model": "openai/gpt-oss-120b",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 2,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 163840
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 18000,
+      "task_toml_sha256": "978f03fb7ceef1e3c604595d8026cb9f83c5c42e73492ac9fcbcb8dec5a5d37e"
+    },
+    {
+      "id": "optimize_kimi_k2_6_8xb200_open",
+      "name": "inference-bench/optimize_kimi_k2_6_8xb200_open",
+      "category": "throughput_optimization",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.20.1",
+      "model": "moonshotai/Kimi-K2.6",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 1048576
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 18000,
+      "task_toml_sha256": "97b6aa0f9248b2f175dc0d42f82ffc002b56d9a142c8829879700eaccbd174e0"
+    },
+    {
+      "id": "optimize_kimi_linear_48b_2xb200_sglang_open",
+      "name": "inference-bench/optimize_kimi_linear_48b_2xb200_sglang_open",
+      "category": "throughput_optimization",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.10",
+      "model": "moonshotai/Kimi-Linear-48B-A3B-Instruct",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 2,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 21600,
+      "task_toml_sha256": "851257c04209a5585c09d53e567975fcb68cc8a0057a602d50e975bafc8de5df"
+    },
+    {
+      "id": "optimize_llada2_mini_1xh100_sglang_open",
+      "name": "inference-bench/optimize_llada2_mini_1xh100_sglang_open",
+      "category": "throughput_optimization",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.18",
+      "model": "inclusionAI/LLaDA2.0-mini-preview",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 1,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 21600,
+      "task_toml_sha256": "37ddfe9515ae9c160c09c998d84523e841344c2db33a776b9f74c8b871f28946"
+    },
+    {
+      "id": "optimize_minimax_m2_7_4xh100_sglang_open",
+      "name": "inference-bench/optimize_minimax_m2_7_4xh100_sglang_open",
+      "category": "throughput_optimization",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.10",
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 4,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 327680
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 21600,
+      "task_toml_sha256": "f80a352098ad7f4424f9b64e96d5533199b88c391723fa02b1e1e7b2a7dc0f76"
+    },
+    {
+      "id": "optimize_minimax_m3_4xb200_mtp_open",
+      "name": "inference-bench/optimize_minimax_m3_4xb200_mtp_open",
+      "category": "throughput_optimization",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.24.0",
+      "model": "MiniMaxAI/MiniMax-M3-MXFP8",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 786432
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 18000,
+      "task_toml_sha256": "4297d5b23507c7795caebd4775fbe1f2087c9871ecabdd6ddbad43d36bfe48b7"
+    },
+    {
+      "id": "optimize_minimax_m3_4xb200_open",
+      "name": "inference-bench/optimize_minimax_m3_4xb200_open",
+      "category": "throughput_optimization",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.24.0",
+      "model": "MiniMaxAI/MiniMax-M3-MXFP8",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 786432
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 21600,
+      "task_toml_sha256": "cd95e1d7fd07ab75d0652e1a2b3492a21ba2b7b7fa5bd3482f3ac396c873c8df"
+    },
+    {
+      "id": "optimize_minimax_m3_pd_8xb200_sglang_open",
+      "name": "inference-bench/optimize_minimax_m3_pd_8xb200_sglang_open",
+      "category": "throughput_optimization",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.18",
+      "model": "MiniMaxAI/MiniMax-M3-MXFP8",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 21600,
+      "task_toml_sha256": "34a121d04395f934cbae5254abdb068c459ccf98a496561ff12988e0fb5b9e86"
+    },
+    {
+      "id": "optimize_qwen3_5_397b_a17b_fp8_8xh100_mtp_sglang_open",
+      "name": "inference-bench/optimize_qwen3_5_397b_a17b_fp8_8xh100_mtp_sglang_open",
+      "category": "throughput_optimization",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.10",
+      "model": "Qwen/Qwen3.5-397B-A17B-FP8",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 8,
+        "memory_mb": 524288,
+        "shm_size_mb": 16384,
+        "storage_mb": 524288
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 21600,
+      "task_toml_sha256": "4bf6f33c6b517742ad72a27be84a2c77603a190a18c59c95a45ca52ba23c6450"
+    },
+    {
+      "id": "optimize_qwen3_5_397b_a17b_fp8_8xh100_open",
+      "name": "inference-bench/optimize_qwen3_5_397b_a17b_fp8_8xh100_open",
+      "category": "throughput_optimization",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.19.1",
+      "model": "Qwen/Qwen3.5-397B-A17B-FP8",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 8,
+        "memory_mb": 524288,
+        "shm_size_mb": 16384,
+        "storage_mb": 524288
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 18000,
+      "task_toml_sha256": "fa9ab203704998918272d655fad2ce404bd326403b0349e4b310ec9fcd3b0c9c"
+    },
+    {
+      "id": "optimize_qwen3_6_27b_1xh100_open",
+      "name": "inference-bench/optimize_qwen3_6_27b_1xh100_open",
+      "category": "throughput_optimization",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.20.1",
+      "model": "Qwen/Qwen3.6-27B",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 1,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 163840
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 18000,
+      "task_toml_sha256": "f36d9f20dd9a9bfcfa2260f9aeb9ed42015797d1f308482149f87e37b9b7a0bc"
+    },
+    {
+      "id": "optimize_qwen3_6_27b_pd_2xh100_open",
+      "name": "inference-bench/optimize_qwen3_6_27b_pd_2xh100_open",
+      "category": "throughput_optimization",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.24.0",
+      "model": "Qwen/Qwen3.6-27B",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 2,
+        "memory_mb": 524288,
+        "shm_size_mb": 16384,
+        "storage_mb": 327680
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 18000,
+      "task_toml_sha256": "d78ca3e3ef2129accf826b943b9db0757f7604f69d11cc6f349bbb71088bfcb1"
+    },
+    {
+      "id": "optimize_qwen3_6_27b_pd_bulk_2xb200_sglang_open",
+      "name": "inference-bench/optimize_qwen3_6_27b_pd_bulk_2xb200_sglang_open",
+      "category": "throughput_optimization",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.12.post1",
+      "model": "Qwen/Qwen3.6-27B",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 2,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 21600,
+      "task_toml_sha256": "ea0d32530615d7557ad7e64d75bd152b6b844e6b062d5c2eaa3941107faf92f8"
+    },
+    {
+      "id": "optimize_qwen3_8_27b_1xb200_dflash2_open",
+      "name": "inference-bench/optimize_qwen3_8_27b_1xb200_dflash2_open",
+      "category": "throughput_optimization",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.28.0",
+      "model": "Qwen/Qwen3.8-27B",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 1,
+        "memory_mb": 524288,
+        "shm_size_mb": 16384,
+        "storage_mb": 327680
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 18000,
+      "task_toml_sha256": "d0a451a6aa06c735451efada70b692dce21bd1ef0876fdf5eb21fddf78dde4e1"
+    },
+    {
+      "id": "regression_async_spec_decode_throughput",
+      "name": "inference-bench/regression_async_spec_decode_throughput",
+      "category": "regression",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "342c4f147266e7d01a8a6a64754df7e0f7f8991a",
+      "model": "openai/gpt-oss-120b",
+      "hardware": {
+        "cpus": 8,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 1,
+        "memory_mb": 32768,
+        "shm_size_mb": null,
+        "storage_mb": 65536
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 14400,
+      "task_toml_sha256": "daa99398922badec635e9afe4753bcc14d0a7cc82eafeca3dccaf3f9f0a2f92f"
+    },
+    {
+      "id": "regression_fp8_decode_throughput",
+      "name": "inference-bench/regression_fp8_decode_throughput",
+      "category": "regression",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "a4047d4ea993fd52038433d87c16e603bee4f214",
+      "model": "nvidia/DeepSeek-R1-0528-NVFP4",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 2097152
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 14400,
+      "task_toml_sha256": "17feaa0698ee2ad8bc9d3125c8b64fb1db9c1db76137b532d9a936692b46e383"
+    },
+    {
+      "id": "regression_mtp_decode_throughput",
+      "name": "inference-bench/regression_mtp_decode_throughput",
+      "category": "regression",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "c30b405b8f022d41f57042cad7032256d4831355",
+      "model": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 4,
+        "memory_mb": 393216,
+        "shm_size_mb": null,
+        "storage_mb": 307200
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 18000,
+      "task_toml_sha256": "1aa5d01b913260e0d9e2690ad6213960ea470f194c9dc1760b19e934a7818827"
+    },
+    {
+      "id": "regression_multimodal_prefill_ttft",
+      "name": "inference-bench/regression_multimodal_prefill_ttft",
+      "category": "regression",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "01a96720c6f690ac00adeed94b762b193d8472cd",
+      "model": "Qwen/Qwen3.5-4B",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 1,
+        "memory_mb": 131072,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 9000,
+      "task_toml_sha256": "4818e93f8b490f5bb92bce914c5c394339cc2ae51491fb5a36fad280202237b3"
+    },
+    {
+      "id": "regression_mxfp4_moe_decode_throughput",
+      "name": "inference-bench/regression_mxfp4_moe_decode_throughput",
+      "category": "regression",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": null,
+      "model": "openai/gpt-oss-20b",
+      "hardware": {
+        "cpus": 8,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 1,
+        "memory_mb": 65536,
+        "shm_size_mb": null,
+        "storage_mb": 98304
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 10800,
+      "task_toml_sha256": "3d65dc6c12594794acd15aa7cbab9f45e9addf5d3e525f8f55aa91fd0e7fd7af"
+    },
+    {
+      "id": "regression_sglang_stream_decode_tps_c1",
+      "name": "inference-bench/regression_sglang_stream_decode_tps_c1",
+      "category": "regression",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": null,
+      "model": "openai/gpt-oss-120b",
+      "hardware": {
+        "cpus": 96,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 786432,
+        "shm_size_mb": 32768,
+        "storage_mb": 409600
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 10800,
+      "task_toml_sha256": "18e19b77535721d76acc490044e380830fc85d79a70ee5c59038703b7166f8f5"
+    },
+    {
+      "id": "regression_spec_decode_acceptance_drop",
+      "name": "inference-bench/regression_spec_decode_acceptance_drop",
+      "category": "regression",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "95863540538804a48e31ca5806cefbac9d4c5326",
+      "model": "meta-llama/Llama-3.1-8B-Instruct",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 1,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 10800,
+      "task_toml_sha256": "cc85790d46d7a87b20eebea8f1b81132a31a138f1a9a743cdf91abbc3daffc5a"
+    },
+    {
+      "id": "support_deepseek_v41_flash_4xb200_vllm",
+      "name": "inference-bench/support_deepseek_v41_flash_4xb200_vllm",
+      "category": "model_support",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm",
+      "target_revision": "6ead86daeaed3fb406414cc61db23cb214bd7668",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 4194304
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 141963,
+      "task_toml_sha256": "88fdca05ffdc02af9c15586b59a48c939cc8f4a287a944a936c0e57f8058f0ef"
+    },
+    {
+      "id": "support_deepseek_v4_flash_4xb200_sglang",
+      "name": "inference-bench/support_deepseek_v4_flash_4xb200_sglang",
+      "category": "model_support",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang",
+      "target_revision": "eac98398e7adc70dd10d8db3ff77226b026000ce",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 3145728
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 61360,
+      "task_toml_sha256": "e9006dd8956b2b156c5001d182619c690f647f5ef17e55cfa1556213536c8d96"
+    },
+    {
+      "id": "support_diffusiongemma_26b_a4b_2xh100_vllm",
+      "name": "inference-bench/support_diffusiongemma_26b_a4b_2xh100_vllm",
+      "category": "model_support",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm",
+      "target_revision": "928e87391806edec70f4d81a0fadab20593dce48",
+      "model": "google/diffusiongemma-26B-A4B-it",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 2,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 117185,
+      "task_toml_sha256": "451b058f575fba3d0f55e51704ea186ad1466cb843200e374580cf34acf7f407"
+    },
+    {
+      "id": "support_glm53_flash_4xb200_sglang",
+      "name": "inference-bench/support_glm53_flash_4xb200_sglang",
+      "category": "model_support",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang",
+      "target_revision": "9f6b624b4b4460f4b62aed3297cd2574dbf02b92",
+      "model": "zai-org/GLM-5.3-Flash",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 3145728
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 54300,
+      "task_toml_sha256": "7b2ac69edd8622c2044697b6f45e73f7835e946ecc726ddaa47cb6a139a8af4d"
+    },
+    {
+      "id": "support_gpt_oss_120b_4xh100_sglang",
+      "name": "inference-bench/support_gpt_oss_120b_4xh100_sglang",
+      "category": "model_support",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang",
+      "target_revision": "b525f9e2acb1af15ecf986c0f7539fcbf229c0e9",
+      "model": "openai/gpt-oss-120b",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 2097152
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 55252,
+      "task_toml_sha256": "0bea18fdcc1a710904d61eae35428eccc930a7e0dcdb3dcf9ad18d2367c8aeaa"
+    },
+    {
+      "id": "support_inkling_small_4xb200_sglang",
+      "name": "inference-bench/support_inkling_small_4xb200_sglang",
+      "category": "model_support",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang",
+      "target_revision": "1183049084a198c8d133edcb843a4e55076ed1ab",
+      "model": "thinkingmachines/Inkling-Small-NVFP4",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 3145728
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 65640,
+      "task_toml_sha256": "64c6905bd7551355d15c9ae03cf056569941d5fe3c8751e8808e33a30992955d"
+    },
+    {
+      "id": "support_kimi_linear_48b_4xh100_vllm",
+      "name": "inference-bench/support_kimi_linear_48b_4xh100_vllm",
+      "category": "model_support",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm",
+      "target_revision": "acb5b28091e784d9f6f0a0d61338aa31b5f4b86f",
+      "model": "moonshotai/Kimi-Linear-48B-A3B-Instruct",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 8,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 105370,
+      "task_toml_sha256": "3748eccfebd97f819fc50101f8ad40fbfc6f875948226a4e4936ac33646aaa36"
+    },
+    {
+      "id": "support_minimax_m3_4xb200_vllm",
+      "name": "inference-bench/support_minimax_m3_4xb200_vllm",
+      "category": "model_support",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm",
+      "target_revision": "138747893727914cd4f499376e82c3b4bf5f0bba",
+      "model": "MiniMaxAI/MiniMax-M3-MXFP8",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 1048576,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 158330,
+      "task_toml_sha256": "07bc47dbc2ad4c1bc84343f90890cb967587c75e279871102ccd3ecfaf0b7d56"
+    },
+    {
+      "id": "support_qwen38_flash_next_4xb200_vllm",
+      "name": "inference-bench/support_qwen38_flash_next_4xb200_vllm",
+      "category": "model_support",
+      "engine": "vllm",
+      "target_repository": "https://github.com/vllm-project/vllm",
+      "target_revision": "a5e63c9ee859ceb2f299ff55f063c7c32f94f08b",
+      "model": "Qwen/Qwen3.8-Flash-Next-FP8",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 48900,
+      "task_toml_sha256": "f07f1633cc19465785295d232ae7fe198cfd72e53630f777ed2c91a7271899b7"
+    },
+    {
+      "id": "support_sd3_2xh100_sglang",
+      "name": "inference-bench/support_sd3_2xh100_sglang",
+      "category": "model_support",
+      "engine": "sglang",
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "9e6d1c066ec3445b534eef6ccdcd752f1bddae1f",
+      "model": "stabilityai/stable-diffusion-3-medium-diffusers",
+      "hardware": {
+        "cpus": 8,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 2,
+        "memory_mb": 65536,
+        "shm_size_mb": 8192,
+        "storage_mb": 262144
+      },
+      "agent_timeout_sec": 30000,
+      "verifier_timeout_sec": 3600,
+      "task_toml_sha256": "682da84eecae0c176027f1bc58a7858e4e49cd7f2ac5170b952549f4300c7488"
+    }
+  ],
+  "purpose": "Research provenance only; no runtime task registry or external execution dependency."
+}

@@ -286,7 +286,12 @@ def main(argv=None):
                     else 0
                 )
         elif args.command == "score":
-            result = grouped_summaries(load_receipts(args.input))
+            if (args.input / "eval_manifest.json").is_file():
+                from mindie_bench.evaluation.accounting import audit_report
+
+                result = audit_report(args.input)["summaries"]
+            else:
+                result = grouped_summaries(load_receipts(args.input))
         elif args.command == "score-slices":
             from mindie_bench.scorer.slices import score_slices
 

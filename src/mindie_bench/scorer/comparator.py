@@ -562,6 +562,19 @@ def markdown(result: dict) -> str:
         rows.append(
             f"| {field} | {fmt(result['baseline'][field])} | {fmt(result['candidate'][field])} |"
         )
+    if any(result[side].get("inference") for side in ("baseline", "candidate")):
+        rows += ["", "## Native inference lifecycle", "",
+                 "Track scores require complete declared cells. Observed scores retain partial coverage.",
+                 "", "| Side / group | Track | Score | Observed | Tasks with evidence / planned |",
+                 "| --- | --- | ---: | ---: | ---: |"]
+        for side in ("baseline", "candidate"):
+            for cohort in (result[side].get("inference") or {}).get("cohorts", []):
+                for track, values in cohort["tracks"].items():
+                    rows.append(
+                        f"| {side} / {cohort['group']} | {track} | {fmt(values['score'])} | "
+                        f"{fmt(values['observed_score'])} | {values['tasks_with_valid_evidence']} / "
+                        f"{values['tasks']} |"
+                    )
     rows += [
         "",
         "Timing means above use valid completed-pass/completed-fail attempts with recorded times; "

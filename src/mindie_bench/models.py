@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from mindie_bench.inference_models import InferenceContract, InferenceEvidence
 from mindie_bench.io import read_json, safe_relative, task_hash
 
 
@@ -157,12 +158,18 @@ class TaskSpec(StrictModel):
     environment: dict[Literal["l1", "l2", "l3"], SourceEnvironment]
     oracle: OracleContract = Field(default_factory=OracleContract)
     performance: PerformanceContract | None = None
+    inference: InferenceContract | None = None
 
     @model_validator(mode="after")
     def performance_admission(self):
         labels = [self.task.domain_category, str(self.task.source.get("task_type", ""))]
         if any("performance" in label.casefold() for label in labels) and self.performance is None:
             raise ValueError("performance task requires an explicit performance contract")
+        if self.inference is not None and any(
+            environment.base_commit != self.inference.baseline_commit
+            for environment in self.environment.values()
+        ):
+            raise ValueError("inference baseline must match the task's pinned source environment")
         return self
 
     @classmethod
@@ -323,6 +330,7 @@ class VerifierResult(StrictModel):
     )
     e2e_warm_server_speedup: float | None = Field(default=None, ge=0)
     performance_evidence: dict[str, Any] | None = None
+    inference_evidence: InferenceEvidence | None = None
     oracle_status: Literal["intact", "oracle_tampered"] | None = None
     timed_out: bool = False
     failure_reason: str | None = None

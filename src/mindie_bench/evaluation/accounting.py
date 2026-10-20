@@ -183,7 +183,7 @@ def audit_report(root: Path) -> dict:
         receipt_sha256=receipt_hashes,
         accounting=accounting,
         interrupted_attempts=interrupted,
-        summaries=grouped_summaries(receipts),
+        summaries=grouped_summaries(receipts, expected_cells=manifest.get("cells"), blocked_cells=blocked),
         warnings=[
             "Legacy manifests without explicit cells cannot identify why absent cells did not run.",
             "Raw receipt classifications are preserved; external adjudications remain separate.",

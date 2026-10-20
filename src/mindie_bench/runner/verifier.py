@@ -36,6 +36,7 @@ import time
 import tomllib
 from pathlib import Path
 
+from mindie_bench.evaluation.inference import validate_inference
 from mindie_bench.evaluation.oracle_freezer import (
     FrozenOracle,
     OracleTampered,
@@ -45,6 +46,7 @@ from mindie_bench.evaluation.oracle_freezer import (
     tampered_verdict,
 )
 from mindie_bench.evaluation.performance import validate_performance
+from mindie_bench.inference_models import InferenceContract
 from mindie_bench.io import write_json
 from mindie_bench.models import (
     OracleContract,
@@ -61,6 +63,7 @@ def parse_verifier(
     stdout: str,
     *,
     performance_contract: PerformanceContract | None = None,
+    inference_contract: InferenceContract | None = None,
     performance_nonce: str | None = None,
     oracle_manifest_sha256: str | None = None,
 ) -> VerifierResult:
@@ -76,6 +79,17 @@ def parse_verifier(
                 raise ValueError("verifier reward contradicts exit status")
             if value.oracle_status == "oracle_tampered":
                 return value
+            if inference_contract is not None:
+                inferred = validate_inference(
+                    inference_contract, value.inference_evidence,
+                    run_nonce=performance_nonce, oracle_manifest_sha256=oracle_manifest_sha256,
+                )
+                # Existing task gates may reject a valid inference outcome, but
+                # an inference gate failure can never be promoted to a pass.
+                if value.reward == 1.0 and not inferred["accepted"]:
+                    raise ValueError("verifier reward contradicts inference lifecycle gates")
+            elif value.inference_evidence is not None:
+                raise ValueError("inference evidence requires a declared inference contract")
             performance_claim = any(
                 item is not None
                 for item in [
@@ -101,8 +115,8 @@ def parse_verifier(
                     "Legacy speedup_ratio is unvalidated; it does not establish performance acceptance."
                 )
             return value
-    if performance_contract is not None:
-        raise ValueError("performance verifier requires structured measured evidence")
+    if performance_contract is not None or inference_contract is not None:
+        raise ValueError("performance/inference verifier requires structured measured evidence")
     if returncode == 0:
         return VerifierResult(reward=1.0)
     raise ValueError("nonzero verifier without structured reward is infrastructure failure")
@@ -119,6 +133,7 @@ def local_verifier(
     oracle_manifest: FrozenOracle | None = None,
     oracle_contract: OracleContract | None = None,
     performance_contract: PerformanceContract | None = None,
+    inference_contract: InferenceContract | None = None,
 ) -> tuple[VerifierResult, dict]:
     if (task_root / "task.toml").is_file():
         task = TaskSpec.model_validate(tomllib.loads((task_root / "task.toml").read_text()))
@@ -126,6 +141,7 @@ def local_verifier(
         performance_contract = (
             performance_contract if performance_contract is not None else task.performance
         )
+        inference_contract = inference_contract if inference_contract is not None else task.inference
     oracle_contract = oracle_contract or OracleContract()
     manifest = oracle_manifest or freeze_oracle(task_root, oracle_contract)
     if manifest.root != task_root.resolve():
@@ -195,6 +211,7 @@ def local_verifier(
             result.returncode,
             result.stdout.decode("utf-8"),
             performance_contract=performance_contract,
+            inference_contract=inference_contract,
             performance_nonce=nonce,
             oracle_manifest_sha256=manifest.sha256,
         )
@@ -340,6 +357,7 @@ def remote_verifier(
     oracle_manifest: FrozenOracle,
     oracle_contract: OracleContract,
     performance_contract: PerformanceContract | None,
+    inference_contract: InferenceContract | None = None,
 ) -> tuple[VerifierResult, dict]:
     validate_remote_oracle_contract(oracle_contract)
     if oracle_manifest.root != task_root.resolve():
@@ -428,6 +446,7 @@ def remote_verifier(
                 judge["returncode"],
                 stdout.decode("utf-8"),
                 performance_contract=performance_contract,
+                inference_contract=inference_contract,
                 performance_nonce=nonce,
                 oracle_manifest_sha256=oracle_manifest.sha256,
             )

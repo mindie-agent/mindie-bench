@@ -407,6 +407,10 @@ def run_trial(
         evidence=task.task.evidence,
         source_projection=list(HARNESS_CONFIG_PATHS),
     )
+    if task.inference is not None:
+        fingerprint["inference_contract"] = task.inference.model_dump(mode="json")
+        if task.performance is not None:
+            fingerprint["performance_contract"] = task.performance.model_dump(mode="json")
     environment = task.environment.get(tier)
     fingerprint.update(
         base_commit=environment.base_commit if environment else None,
@@ -786,6 +790,7 @@ def run_trial(
                         oracle_manifest=oracle_manifest,
                         oracle_contract=task.oracle,
                         performance_contract=task.performance,
+                        inference_contract=task.inference,
                     )
                 else:
                     verdict, verifier_record = local_verifier(
@@ -798,7 +803,10 @@ def run_trial(
                         oracle_manifest=oracle_manifest,
                         oracle_contract=task.oracle,
                         performance_contract=task.performance,
+                        inference_contract=task.inference,
                     )
+                if task.inference is not None:
+                    fingerprint["inference_native_stop_reason"] = result.stop_reason
                 passed = verdict.reward == 1.0 and not result.stop_reason
                 status = TerminalStatus.PASS if passed else TerminalStatus.FAIL
                 reason = (
@@ -1286,6 +1294,7 @@ def run_matrix(
             task_digest=task_digests[path],
             cluster=spec.task.cluster,
             corpus_id=spec.mindie_knowledge.corpus_id,
+            inference_category=spec.inference.category if spec.inference else None,
         )
         for path, spec in specs.items()
         for group in groups
@@ -1462,7 +1471,9 @@ def run_matrix(
     except BaseException as error:
         matrix_error = error
     try:
-        write_json(output / "summary.json", grouped_summaries(receipts), exclusive=True)
+        write_json(output / "summary.json", grouped_summaries(
+            receipts, expected_cells=cells, blocked_cells=blocked_cells,
+        ), exclusive=True)
         from mindie_bench.evaluation.accounting import account_cells
 
         manifest_path = output / "eval_manifest.json"

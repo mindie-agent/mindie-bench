@@ -1,5 +1,38 @@
 # Design-principles review
 
+## Native inference lifecycle refactor (2026-10-20)
+
+- Scope: internalize lifecycle contracts, counterbalanced paired workloads,
+  required regression guards and task-balanced aggregation in the native harness.
+  The external RSI/Pier launcher and importer are removed. No new runtime
+  dependency, background process or paid model call is introduced.
+- Compatibility: optional task/verifier fields preserve existing schema 1.0
+  tasks and receipts. Existing binary rewards, four terminal states, source/gold
+  soundness, ACLGraph/workspace/warm-server gates and G0-G3 accounting remain.
+- Responsibility: data contracts, judge measurement and receipt aggregation are
+  separate small modules with invariant headers. Local and remote judges share
+  validation; soundness passes the same contract. The existing runner owns all
+  timeouts, isolation, cleanup and no-retry policy.
+- Evidence: baseline source/runtime/workload identities, run nonce and frozen
+  oracle bind measurements. Correctness and guard failures are not missing data.
+  Slowdowns remain below 1; unchanged source cannot gain from timing noise.
+  Complete scores require the original plan, not the surviving receipt subset.
+- Deliberate differences: every declared guard is required, evaluated with the
+  paired median. Task acceptance stays binary; measured gain stays separate.
+  Group, role, tier, evidence and model/config cohorts remain distinct.
+- Review corrections: route original matrix cells into run/score/audit/export
+  summaries; preserve postflight invalid outcomes and additional native gates;
+  revalidate existing performance evidence even for subthreshold inference gains;
+  retain native budget stops; use a high-resolution monotonic counter for short
+  host measurements. The matrix integration test supplies explicit concurrency.
+- Validation: native contract/scoring/accounting tests, actual CPU subprocess
+  judges, old scorer regression tests, Ruff and packaging are checked. A native
+  source/gold plus three-task matrix test runs on Linux/macOS CI; Windows does
+  not bypass the existing OS sandbox. The PR validation record identifies the
+  exact passing checks and remaining platform/hardware limits.
+- No claim of production GPU/NPU task acceptance is made by synthetic examples.
+  No frozen historical NPU task or its soundness receipt is rewritten.
+
 ## Current benchmark improvements
 
 Reviewed final implementation commit: `52466b4`; its 51-file runtime digest is
