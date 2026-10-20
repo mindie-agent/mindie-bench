@@ -60,6 +60,11 @@ class LocalTlsEndpoint:
         self._proxy_listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._proxy_listener.bind(("127.0.0.1", 0))
         self._proxy_listener.listen(1)
+        # A closed listener does not reliably wake accept() on another thread on
+        # Linux. Keep both accepts on a short bounded timeout and stop them with
+        # the event instead of relying on cross-thread close().
+        self._listener.settimeout(0.2)
+        self._proxy_listener.settimeout(0.2)
         self.tls_port = self._listener.getsockname()[1]
         self.proxy_port = self._proxy_listener.getsockname()[1]
         self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -77,9 +82,20 @@ class LocalTlsEndpoint:
     def proxy_url(self):
         return f"https://127.0.0.1:{self.proxy_port}/v1"
 
+    def _accept_until_stopped(self, listener):
+        while not self._stop.is_set():
+            try:
+                return listener.accept()
+            except socket.timeout:
+                continue
+        return None
+
     def _serve_tls(self):
         try:
-            accepted, _ = self._listener.accept()
+            connection = self._accept_until_stopped(self._listener)
+            if connection is None:
+                return
+            accepted, _ = connection
             self._server_conn = accepted
             with self._context.wrap_socket(accepted, server_side=True) as tls:
                 self.tls_version = tls.version()
@@ -98,7 +114,10 @@ class LocalTlsEndpoint:
 
     def _proxy_once(self):
         try:
-            client, _ = self._proxy_listener.accept()
+            connection = self._accept_until_stopped(self._proxy_listener)
+            if connection is None:
+                return
+            client, _ = connection
             self._client = client
             upstream = socket.create_connection(self._listener.getsockname(), timeout=5)
             self._upstream = upstream
@@ -125,6 +144,17 @@ class LocalTlsEndpoint:
 
     def close(self):
         self._stop.set()
+        # Wake active recv/select loops, then let the bounded accept loops observe
+        # _stop. Closing a listening socket from this thread is not a portable
+        # way to interrupt another thread's blocking accept().
+        for sock in (self._server_conn, self._client, self._upstream):
+            if sock is not None:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+        for thread in (self._server_thread, self._proxy_thread):
+            thread.join(timeout=5)
         for sock in (
             self._server_conn,
             self._client,
@@ -137,8 +167,6 @@ class LocalTlsEndpoint:
                     sock.close()
                 except OSError:
                     pass
-        for thread in (self._server_thread, self._proxy_thread):
-            thread.join(timeout=5)
         assert not self._server_thread.is_alive() and not self._proxy_thread.is_alive()
 
 

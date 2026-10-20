@@ -87,11 +87,10 @@ def test_persisted_graded_body_tamper_cannot_recompute_its_own_digest(tmp_path):
 
 
 def test_real_mcp_serializes_graded_conditions_and_exact_read(tmp_path, monkeypatch):
-    from mcp.server.fastmcp import FastMCP
+    source = corpus(tmp_path)
+    FastMCP = pytest.importorskip("mcp.server.fastmcp").FastMCP
 
     from mindie_bench.integrations import first_party
-
-    source = corpus(tmp_path)
 
     async def scenario(server):
         _, unknown = await server.call_tool("knowledge_query", {"query": "queue cancellation"})
