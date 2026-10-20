@@ -80,5 +80,3 @@ def public_receipt(row: TrialReceipt) -> dict:
             "artifacts": {},
         }
     ).model_dump(mode="json")
-
-
