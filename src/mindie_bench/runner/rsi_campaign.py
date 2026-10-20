@@ -394,6 +394,10 @@ def run_rsi_gate_campaign(
         speedup_ratio=speedup, min_speedup_ratio=min_speedup_ratio,
         ablation_retained=ablation_retained, failure_reason=failure_reason,
         hidden_input_summary=hidden_summary, ablation_receipt=ablation_receipt,
+        t_cand_us=_number(source.get("t_cand_us", source.get("cand_latency_us", source.get("latency_us")))),
+        t_baseline_us=_number(source.get("t_baseline_us", source.get("baseline_perf_us", source.get("baseline_latency_us")))),
+        t_hw_us=_number(source.get("t_hw_us")),
+        roofline_floor_us=_number(source.get("roofline_floor_us")),
     )
     incumbent = max(1.0, float(_number(incumbent_speedup) or 1.0))
     delta = max(0.0, float(_number(min_improve_delta) or 0.0))
