@@ -405,6 +405,8 @@ def run_trial(
     )
     if task.inference is not None:
         fingerprint["inference_contract"] = task.inference.model_dump(mode="json")
+        if task.performance is not None:
+            fingerprint["performance_contract"] = task.performance.model_dump(mode="json")
     environment = task.environment.get(tier)
     fingerprint.update(
         base_commit=environment.base_commit if environment else None,
@@ -794,6 +796,8 @@ def run_trial(
                         performance_contract=task.performance,
                         inference_contract=task.inference,
                     )
+                if task.inference is not None:
+                    fingerprint["inference_native_stop_reason"] = result.stop_reason
                 passed = verdict.reward == 1.0 and not result.stop_reason
                 status = TerminalStatus.PASS if passed else TerminalStatus.FAIL
                 reason = (

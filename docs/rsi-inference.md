@@ -107,6 +107,7 @@ that can admit an unmeasured guard or use the best guard round.
 | Correctness or measured guard failure | 0 | Neutral 1×; diagnostic ratios retained |
 | Unchanged candidate source | 0 | Neutral 1×; timing noise cannot establish improvement |
 | Established candidate measurement failure | 0 | Neutral 1× |
+| Existing performance gate or native process budget rejects candidate | 0 | Neutral 1×, even below inference threshold |
 | Other native gate rejects an otherwise accepted candidate | 0 | Neutral 1× |
 | Missing workload/round, unhealthy baseline, wrong runtime/nonce | No accepted verifier result | No score |
 | Native `infra_failed` or `unknown`, even with prior successful observations | Unchanged native status | No score |
@@ -118,6 +119,10 @@ retain their meaning.
 
 Native `summary.json`, `score`, audit, comparison JSON and HF-compatible export
 add an `inference` section. Scoring recomputes observations from typed evidence.
+When both contracts are declared, the receipt also retains the native performance
+contract and the runner's process stop reason. Scoring revalidates the existing
+performance evidence; a failed workspace/graph/server gate or exhausted process
+budget cannot contribute a gain just because inference was below its threshold.
 Cohorts preserve group, role, tier, evidence class, experiment and harness/model
 controls. Repeated attempts aggregate within each task before equal task weighting:
 arithmetic for full-support pass rates, geometric for optimization/regression.

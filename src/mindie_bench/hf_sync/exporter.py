@@ -29,6 +29,8 @@ print(json.dumps({"clean":clean,"rules":rules}))
 
 PUBLIC_FINGERPRINT = {
     "inference_contract",
+    "performance_contract",
+    "inference_native_stop_reason",
     "host_os",
     "host_arch",
     "harness_name",

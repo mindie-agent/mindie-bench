@@ -268,6 +268,43 @@ def test_other_native_failure_neutralizes_gain_and_public_export_keeps_contract(
     assert public_row(row)["environment_fingerprint"]["inference_contract"] == contract().model_dump()
 
 
+@pytest.mark.parametrize("speed", [0.5, 1.01])
+def test_native_workspace_and_budget_gates_apply_even_below_inference_threshold(speed):
+    from mindie_bench.evaluation.performance import measure_rotating_buffers
+
+    row = receipt(observed=evidence(contract(), speed=speed))
+    shapes = {"a" * 64: [1, 2], "b" * 64: [3, 4]}
+    clock = iter(range(0, 10000, 10))
+    measured = measure_rotating_buffers(
+        shapes, lambda shape, buffer: None, lambda: None, buffer_identity=str,
+        samples_per_shape=2, clock_ns=lambda: next(clock),
+    ).model_dump()
+    admission = PerformanceContract(
+        private_shape_sha256=list(shapes), require_aclgraph_capture=False,
+        require_e2e_warm_server=False, max_workspace_delta_bytes=0,
+    )
+    row.environment_fingerprint["performance_contract"] = admission.model_dump()
+    row.primary_metrics["performance_metrics"].update(
+        speedup_ratio=1.0, memory_workspace_delta_mb=0.000001,
+        performance_evidence=dict(
+            run_nonce=NONCE, oracle_manifest_sha256=ORACLE, device_identity="synthetic-contract-only",
+            baseline=measured, candidate=measured,
+            workspace=dict(method="synchronized_allocator_peak", baseline_bytes=10, candidate_bytes=11,
+                           synchronized_before=True, synchronized_after=True),
+        ),
+    )
+    assert track([row], [cell(row)])["score"] == 1
+    # Recompute the existing gate, not a copied pass/fail label in the receipt.
+    row.primary_metrics["performance_metrics"]["performance_evidence"]["workspace"]["candidate_bytes"] = 10
+    row.primary_metrics["performance_metrics"]["memory_workspace_delta_mb"] = 0.0
+    assert track([row], [cell(row)])["score"] == pytest.approx(speed)
+    row.environment_fingerprint["inference_native_stop_reason"] = "max_turns"
+    assert track([row], [cell(row)])["score"] == 1
+    exported = public_row(row)["environment_fingerprint"]
+    assert exported["performance_contract"] == admission.model_dump()
+    assert exported["inference_native_stop_reason"] == "max_turns"
+
+
 def test_cohorts_keep_g0_g3_and_model_conditions_separate():
     rows = [receipt(group="G0"), receipt(group="G3")]
     rows[1].environment_fingerprint["base_model"] = "other-model"
@@ -370,7 +407,8 @@ def test_native_matrix_and_soundness_use_inference_contract_end_to_end(examples)
     # on the support task. All three tasks still run their real measured judges.
     proof = check_soundness(tasks[0], config, tier="l2", output=output / "proof")
     assert proof["before_reward"] == 0 and proof["after_reward"] == 1
-    rows = run_matrix(tasks, config, tier="l2", groups=[Group.G0], repetitions=1, output=output / "run")
+    rows = run_matrix(tasks, config, tier="l2", groups=[Group.G0], repetitions=1,
+                      concurrency=1, output=output / "run")
     assert all(row.terminal_status.value.startswith("completed") for row in rows), [row.errors for row in rows]
     plan = read_json(output / "run/eval_manifest.json")["cells"]
     result = grouped_summaries(rows, expected_cells=plan)["l2/synthetic/G0"]["inference"]

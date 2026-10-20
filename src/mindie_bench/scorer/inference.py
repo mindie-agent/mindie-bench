@@ -11,9 +11,10 @@ from statistics import geometric_mean, mean
 
 from mindie_bench.evaluation.accounting import cell_key, receipt_cell
 from mindie_bench.evaluation.inference import evaluate_inference
+from mindie_bench.evaluation.performance import validate_performance
 from mindie_bench.inference_models import InferenceContract, InferenceEvidence
 from mindie_bench.io import digest
-from mindie_bench.models import TerminalStatus
+from mindie_bench.models import PerformanceContract, TerminalStatus, VerifierResult
 
 VALID = {TerminalStatus.PASS, TerminalStatus.FAIL}
 
@@ -26,14 +27,25 @@ def _observation(receipt, contract):
         if receipt.terminal_status == TerminalStatus.PASS:
             raise ValueError("successful inference receipt has no judge evidence")
         return None
-    result = evaluate_inference(contract, InferenceEvidence.model_validate(raw))
-    if receipt.terminal_status == TerminalStatus.PASS and not result["accepted"]:
+    evidence = InferenceEvidence.model_validate(raw)
+    result = evaluate_inference(contract, evidence)
+    fingerprint = receipt.environment_fingerprint
+    native_failed = bool(fingerprint.get("inference_native_stop_reason"))
+    if fingerprint.get("performance_contract"):
+        gates = validate_performance(
+            VerifierResult(reward=receipt.primary_metrics["reward"],
+                           **receipt.primary_metrics["performance_metrics"]),
+            PerformanceContract.model_validate(fingerprint["performance_contract"]),
+            run_nonce=evidence.run_nonce, oracle_manifest_sha256=evidence.oracle_manifest_sha256,
+        )
+        native_failed = native_failed or gates["status"] == "failed"
+    if receipt.terminal_status == TerminalStatus.PASS and (not result["accepted"] or native_failed):
         raise ValueError("successful native receipt contradicts inference gates")
-    if receipt.terminal_status == TerminalStatus.FAIL and result["accepted"]:
+    if receipt.terminal_status == TerminalStatus.FAIL and (result["accepted"] or native_failed):
         # Other native gates (ACLGraph, workspace, final process state) still
         # reject the candidate. A fast but rejected patch is never a scored gain.
         result = dict(result, score=0.0 if contract.category == "model_support" else 1.0,
-                      accepted=False, failed_gates=["native_acceptance_failed"])
+                      accepted=False, failed_gates=[*result["failed_gates"], "native_acceptance_failed"])
     return result
 
 

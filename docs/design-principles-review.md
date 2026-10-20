@@ -22,7 +22,9 @@
   Group, role, tier, evidence and model/config cohorts remain distinct.
 - Review corrections: route original matrix cells into run/score/audit/export
   summaries; preserve postflight invalid outcomes and additional native gates;
-  use a high-resolution monotonic counter for short host measurements.
+  revalidate existing performance evidence even for subthreshold inference gains;
+  retain native budget stops; use a high-resolution monotonic counter for short
+  host measurements. The matrix integration test supplies explicit concurrency.
 - Validation: native contract/scoring/accounting tests, actual CPU subprocess
   judges, old scorer regression tests, Ruff and packaging are checked. A native
   source/gold plus three-task matrix test runs on Linux/macOS CI; Windows does
