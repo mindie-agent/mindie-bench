@@ -28,6 +28,7 @@ print(json.dumps({"clean":clean,"rules":rules}))
 """
 
 PUBLIC_FINGERPRINT = {
+    "inference_contract",
     "host_os",
     "host_arch",
     "harness_name",
@@ -129,6 +130,7 @@ def public_task_row(task_root: Path) -> dict:
         instruction=(task_root / "instruction.md").read_text(),
         public_environment_files=public_env_files,
         target_files_count=len(spec.mindie_knowledge.target_files),
+        inference=spec.inference.model_dump(mode="json") if spec.inference else None,
     )
 
 
@@ -221,9 +223,15 @@ def export_hf(
     except ImportError as exc:
         raise RuntimeError("Parquet export requires uv sync --extra export") from exc
     receipts = load_receipts(source)
+    if (source / "eval_manifest.json").is_file():
+        from mindie_bench.evaluation.accounting import audit_report
+
+        summaries = audit_report(source)["summaries"]
+    else:
+        summaries = grouped_summaries(receipts)
     payload = {
         "receipts": [public_row(r) for r in receipts],
-        "leaderboard": grouped_summaries(receipts),
+        "leaderboard": summaries,
     }
     private_paths = [str(Path.home()), str(source.resolve())]
     if tasks_root is not None:

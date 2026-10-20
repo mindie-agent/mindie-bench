@@ -71,6 +71,7 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
                         oracle_manifest=oracle_manifest,
                         oracle_contract=task.oracle,
                         performance_contract=task.performance,
+                        inference_contract=task.inference,
                     )
                 else:
                     value, record = local_verifier(
@@ -83,6 +84,7 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
                         oracle_manifest=oracle_manifest,
                         oracle_contract=task.oracle,
                         performance_contract=task.performance,
+                        inference_contract=task.inference,
                     )
                 write_json(output / f"verifier_{stage}.verdict.json", record)
                 return value

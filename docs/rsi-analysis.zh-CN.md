@@ -22,10 +22,11 @@ RSI 的 self-improving 主要指 Agent 修改推理系统代码，不能直接�
 无限递归自进化，或已经证明跨任务经验增长。MindIE 的 G3 才专门把 seed、采集、发布、
 独立 consumer/eval 接起来，检验跨任务经验复用。
 
-本次采用独立适配器复用 RSI 的任务和 Pier，而不是复制它的编排器。新增
-`rsi-catalog`、`rsi-run`、`rsi-score`，把原始 GPU 任务纳入 MindIE-Bench 操作入口，
-提供可追踪的分类、执行规划、结果导入和评分。**这不等于 37 个任务已迁移到 Ascend，
-也不等于已经在 NPU 或 GPU 上完成本轮验收。**
+本次将 RSI 的方法重构为 MindIE 原生能力：可选的生命周期任务契约、配对多负载测量、
+回归保护项、原生裁判证据校验，以及按任务等权的汇总。它们直接接入既有
+`TaskSpec → run/soundness → private verifier → TrialReceipt → score/compare/export`。
+无需 Apple checkout、Pier 或外部回执格式。PR #6 初版的 `rsi-*` 适配入口已移除。
+**本次内化的是通用评测机制；未宣称原始 37 题已经移植到 Ascend 或完成真实硬件验收。**
 
 ## 2. Apple RSI-Inference Bench
 
@@ -297,7 +298,7 @@ MCP 必须实际握手成功，不能用仅仅存在配置文件替代服务可�
 隐藏 shape、ACLGraph capture/replay、workspace 和 warm server 测量。
 验证器将结果绑定本次 nonce 与 Oracle manifest；只有 kernel 加速不能自动通过。
 因此“MindIE-Bench 没有性能验证/几何平均/正确性门禁”的结论不成立。
-它缺的是 RSI 整体生命周期赛道与原始任务接入，而不是所有测量原语。
+它缺的是原生生命周期契约、多负载配对实验与任务均衡赛道汇总，而不是所有测量原语。
 
 ### 4.4 数据集与日常使用
 
@@ -329,42 +330,88 @@ L3 还须准备真实 SSH/容器/NPU、配套组件、租约与独立路径。
 | 核心问题 | Agent 改善推理引擎的能力 | 工具、知识、经验的完成率与成本贡献 | 可互补，不能以相同分数解释 |
 | 任务对象 | vLLM/SGLang 的完整引擎工程 | Ascend 工程、组件、CPU/replay/NPU 多层任务 | RSI 的引擎生命周期覆盖更集中 |
 | 硬件 | 1–8 H100/B200 | CPU、Ascend A2/A3 等真实远端环境 | 后端不可直接互换 |
-| 数据格式 | Harbor/Pier 1.2 | MindIE 自有 1.0 | 需明确适配，不能复制 TOML 即用 |
-| 调度 | Pier Job/Trial，Docker/Modal | 本地原生 profile + 远端 slot + G 矩阵 | 复用各自职责 |
+| 数据格式 | Harbor/Pier 1.2 | MindIE 自有 1.0 | 在原生 1.0 中增加可选契约；不导入外部格式 |
+| 调度 | Pier Job/Trial，Docker/Modal | 本地原生 profile + 远端 slot + G 矩阵 | 复用 MindIE 调度，避免引入第二套状态机 |
 | 隔离 | 容器、网络 allowlist、部分独立 verifier | OS 沙箱、保护源码、封存 Oracle、独立知识 broker | 两者已有实现，强度依实际任务与部署 |
-| 计分 | 完整支持 pass@1、测得速度比 | 完成率、可靠性、完整成本、知识/工具指标及性能门禁 | 增加 RSI 独立赛道，不改旧语义 |
+| 计分 | 完整支持 pass@1、测得速度比 | 完成率、可靠性、完整成本、知识/工具指标及性能门禁 | 原报告新增生命周期汇总，旧指标计算保留 |
 | 性能实验 | 多负载配对基线、吞吐/TTFT/guard | 同步时钟、buffer/shape、ACLGraph/内存/服务 | 可共享方法，具体探针需适配硬件 |
 | 长任务 | 所有题 30,000 秒，重构建与重裁判 | 可配预算、远端受管长任务 | 差异是已交付任务/后端，不是单一超时常量 |
 | 经验闭环 | 不提供 MindIE 的 G3 因果实验 | seed/capture/consumer 与同源/时间 holdout | RSI 不能替换已有 G3 |
-| 轨迹/看板 | ATIF 1.7 扩展、viewer、critique、榜单 | 原生事件与细粒度计量、比较、HF 导出 | 可复用上游查看器；无需再造 UI |
+| 轨迹/看板 | ATIF 1.7 扩展、viewer、critique、榜单 | 原生事件与细粒度计量、比较、HF 导出 | 结果继续走 MindIE 报告与导出，不新增上游依赖 |
 | 无效运行 | sentinel/infra_void/异常等任务契约 | 四终态与显式 coverage | 接口需保留，不可统统填 0 或 1× |
 | 发行评估 | 主要是 Agent/模型榜单 | 多组件锁定版本、release/value gate | MindIE 独有的交付范围继续保留 |
 
 ## 6. 缺口、吸收方法与本次实现
 
-| RSI 已实现而原 MindIE 未直接提供的能力 | 可否吸收 | 本次处置 |
+| RSI 已实现而原 MindIE 未直接提供的能力 | 可否吸收 | 原生落点 |
 | --- | --- | --- |
-| 37 个真实 vLLM/SGLang GPU 任务及三类生命周期 | 可以整体复用 | `rsi-catalog` 动态读取，保留全部原始资产在上游仓 |
-| Harbor/Pier 任务执行 | 可以 | `rsi-run` 交给已锁定 bundled Pier；不另起调度状态机 |
-| 模型支持与优化两个独立赛道 | 可以 | `rsi-score` 按任务等权、分 Agent/version/model/执行配置指纹汇总 |
-| 原始 reward / speedup / void 的不同语义 | 必须吸收 | 专用解析、保留失败/无效/未知与证据哈希 |
-| 资源要求、独立裁判、长预算的任务可见性 | 可以 | catalog 和 run-plan 展示，执行时保留原配置 |
-| GPU paired workload / TTFT / regression guard | 可以复用原实现 | 外部执行直接使用其裁判；未宣称已有 NPU 对等实验 |
-| ATIF viewer / critique / 更多 Agent 适配器 | 可按需复用 | 上游 Pier 保留；MindIE CLI 未复制整个管理 UI |
-| Bradley–Terry 联合 rating | 可以另行设计 | 本次未实现；两个业务赛道先保持可解释性 |
-| 新模型引擎支持题的 NPU 版本 | 可以但需重新构造证据 | 给出下述迁移规范；不能拿 CUDA 分数冒充 |
+| 模型支持、优化、回归三类生命周期 | 可以 | `inference_models.py` 定义契约，`TaskSpec.inference` 可选启用 |
+| 多工作负载基线/候选配对、预热和交替顺序 | 可以 | `evaluation/inference.py::measure_workloads`，由既有私有裁判调用 |
+| 吞吐与 TTFT 等不同优化方向 | 可以 | workload 的 `metric/direction`，统一换算“越大越好”的比例 |
+| scored 与 guard 分离 | 可以 | guard 必测且不进入正向收益，失败会否决候选收益 |
+| 全量支持与连续加速两个赛道 | 可以 | `scorer/inference.py`，直接读取原生 TrialReceipt |
+| 部分通过、无效运行与有效慢化分离 | 必须 | 支持项全过才成功；错误候选为 1×；有效慢化保留 <1；infra/unknown 不计分 |
+| 原始 GPU 题、Docker/Modal、Pier Agent 管理 | 不直接搬入 | 与 Ascend 后端、既有调度重复，且会引入额外依赖与不实硬件结论 |
+| ATIF viewer、critique、Bradley–Terry 排名 | 暂不吸收 | 不解决当前测量缺口；继续使用原生轨迹、比较、成本与导出体系 |
 
-代码分为 `integrations/rsi.py` 的发现/规划/执行交接，以及 `scorer/rsi.py` 的结果导入/汇总。
-CLI 延迟加载模块；未新增运行时依赖，未修改原生 TaskSpec、L3 或 G0–G3 状态语义。
-运行规划不启动付费调用；实际执行保留 run-plan 后交给 Pier，关闭自动重试、单任务串行
-attempt，避免默认并发占满相同 GPU。详细命令见 [集成使用说明](rsi-inference.md)。
+### 6.1 从源码到原生机制的推导
 
-评分要求明确声明预期任务与重复数。只有所有声明单元都恰好有有效终态时才给完整
-`score`，否则只给带 coverage 的 `observed_score`。这是 MindIE 的保守完整性要求，
-不是声称逐字重现上游榜单的所有重复采样与 ranking 选择。
-外部结果明确 `ablation_group=null`，不会凭空成为 G0 或 G3 实验。
+RSI 的 throughput `tests/_verifier_lib/scoring.py` 同时保留原始速度比与
+`max(0, ratio-1)` reward。MindIE 的 `VerifierResult.reward` 和四终态要求二值一致，
+因此不能把这个连续 reward 填入旧字段。新实现保留二值“是否通过验收”，另从证据重算
+连续比例；正确性通过但慢化的候选仍然失败，其速度比不会被裁剪成 1。
 
-### 6.1 Ascend 原生迁移应如何做
+RSI regression 的 `paired_ratio_median`、`resolve_matrix_ratio` 表明：应先按轮次配对，
+再取每个负载的中位比例，最后对 scored 负载做几何平均。不能先分别平均所有基线和
+候选样本再相除。例如两轮比值为 2 与 0.5 时，中位值是 1.25；两侧样本量级差异会使
+“均值之比”得到完全不同的答案。新测量器明确记录 AB/BA 顺序与完整轮次，且把预热排除。
+
+原 RSI guard 实现使用 best paired round，并允许未测 guard 不直接变成失败；
+本次没有照搬这一宽松策略。MindIE 的保护项必须完整测量，并要求配对中位比达到阈值。
+缺测是证据不足，已测回退是业务失败，两者不互相替换。
+
+RSI 不可改 pristine baseline 和外部 verifier 的工程实践，与 MindIE 已有
+`oracle_freezer`、`local_verifier/remote_verifier` 高度相通。新证据沿用原生 nonce 与
+Oracle manifest，同时绑定源码基线、运行时、设备类型、负载哈希和候选源码哈希。
+原生 parser 会重新计算门禁，不能仅信任裁判输出的 scalar reward；测量过程仍必须由
+可信、受隔离的裁判控制，哈希字段本身不构成硬件或执行真实性证明。
+
+### 6.2 具体重构链路与兼容性
+
+```mermaid
+flowchart LR
+  T[原生 task.toml + 可选 inference] --> R[既有 run / soundness]
+  R --> J[既有本地或远端私有裁判]
+  J --> M[多负载预热 + AB/BA 配对测量]
+  M --> V[parse_verifier 重算门禁与身份校验]
+  V --> C[原生四态 TrialReceipt + G0-G3]
+  C --> S[既有 score / compare / audit / export]
+  P[eval_manifest 原始计划] --> S
+  S --> I[新增 inference 汇总与覆盖率]
+```
+
+- `models.py` 的新字段均可选，旧任务与旧回执继续加载；没有重写原生调度器。
+- `runner/verifier.py` 的本地与远端路径共用证据校验；`soundness.py` 也传递相同契约，
+  避免只在模型运行时启用门禁、在 source/gold 验证时漏掉门禁。
+- `runner/orchestrator.py` 在任务开始时记录契约，因此启动失败的任务也能进入赛道覆盖统计。
+  原有终态、G3 capture、资源计量、原生预算和清理逻辑不被替换。
+- `scorer/metrics.py` 原有完成率、可靠性、成本等计算保留；额外增加 `inference`。
+  新汇总按 group/tier/evidence/seed-eval/experiment/harness-model 条件分群。
+- 先在任务内部汇总重复实验，再按任务等权；支持率用算术平均，加速比用几何平均。
+  旧全局 pass@1 仍可与新增 task-balanced pass@1 并存，两个问题不混为一个指标。
+- `score`、audit 与导出在存在原始 manifest 时使用它判断覆盖；缺任务、缺轮次、
+  blocked、infra、unknown 或额外单元都会阻止相应赛道输出完整分数。
+  无计划的历史回执只提供 observed 分数，不反推“计划全完成”。
+- 原有 `PerformanceContract` 的 ACLGraph、内存、warm-server 门禁继续生效，
+  新的通用吞吐/时延契约不能绕开这些设备侧要求。
+
+代码不依赖外部 RSI 仓，也不新增 Python 运行时依赖。
+`tasks/inference` 提供三类原生 CPU 示例：新请求模式支持、共享前缀计算优化、
+重复前缀计算回归修复。示例真的执行子进程并计时，所有数据标为 synthetic；
+不是预设加速数值，也不把示例成功解释成生产推理引擎或 NPU 成功。
+具体接口、原生命令、边界见[使用说明](rsi-inference.md)。
+
+### 6.3 Ascend 真实任务迁移应如何做
 
 1. 选取可在现有 NPU 环境复现的引擎缺陷或优化点，建立新的 task ID；保留 RSI 来源，
    固定 vLLM/vLLM-Ascend、CANN、torch-npu、模型 revision 和容器 digest。
@@ -379,18 +426,19 @@ attempt，避免默认并发占满相同 GPU。详细命令见 [集成使用说�
 6. 单独公布原生 NPU 分数，不与原始 RSI GPU 数字合并。经验改善、引擎加速和 GPU/NPU
    性能差异属于不同问题，应分别报告。
 
-### 6.2 许可证与依赖边界
+### 6.4 许可证与依赖边界
 
 Apple 顶层使用 Apple Sample Code License，bundled Pier/Harbor 为 Apache-2.0，
 模型、数据和参考补丁另有其来源与条款。MindIE 的 MIT 声明不能覆盖这些内容。
-本次仅编写接口和评分代码，不复制 Apple 实现、测试或模型资源；继续使用上游 checkout
-保存它自己的 LICENSE、NOTICE、ACKNOWLEDGEMENTS。此说明是源码分发边界记录。
+本次独立实现原生契约、测量和评分方法，不复制 Apple 实现、测试或模型资源，
+不在运行时读取上游 checkout。上游许可证属于研究来源本身，此说明记录分发边界。
 
 ## 7. 验证与未验证边界
 
-本次已验证真实 37 任务目录解析、真实 bundled Pier CLI 参数、合成 Pier 回执的
-导入/异常/评分契约，以及 MindIE 相关 scorer 回归。测试合成观测不代表任何模型成绩。
-未启动 37 个任务的长时间 GPU 实验，未运行本次 Ascend 原生任务迁移验收。
+本次验证围绕原生链路：三种任务契约、真实 CPU 子进程测量、配对估计与方向转换、
+guard 与正确性失败、未知/缺测/混合版本、原生评分与公开导出，以及本地/远端裁判绑定。
+Linux/macOS 端到端测试运行原生 soundness 和三任务矩阵；Windows 不绕过 OS 沙箱。
+测试合成观测不代表任何模型成绩，也未运行真实 Ascend/GPU 推理任务验收。
 完整测试结果、打包结果和 Linux/macOS CI 状态以 PR 中最终验证记录为准。
 
 Windows 上原有全量原生 runner 测试不能直接作为绿色交付证据：仓库 CI 指定的是
@@ -398,6 +446,6 @@ Ubuntu/macOS；本机发现 POSIX 沙箱、`/usr/bin/true`、路径与短时间�
 这些限制保持可见，不通过跳过保护机制伪造通过，也不在 RSI PR 中扩展无关 Windows
 原生 runner 改造。
 
-对后续验收，优先使用低卡数回归任务做真实 GPU canary，保留完整基线/候选与无效运行；
-再选一个已有 Ascend 参考实现的 task 做独立 NPU 迁移。这样可以分别验证接口连通、
-真实引擎结果和知识增益，避免一次性把三个结论混为“已吸收且有效”。
+后续真实硬件验收应选择已有 Ascend 参考实现的原生任务，接入新契约并保存
+固定基线、私有 workload、实际硬件及 source/gold 证据，再开展 G0–G3。
+通用机制内化、某一引擎任务通过和知识增益是三个需要分别举证的结论。

@@ -1,34 +1,35 @@
 # Design-principles review
 
-## RSI-Inference adapter (2026-10-20)
+## Native inference lifecycle refactor (2026-10-20)
 
-- Scope/cost: reuse the source-pinned upstream Pier runtime and all 37 task
-  assets through three explicit CLI operations. No daemon, copied verifier,
-  new runtime dependency, production plugin change or automatic model call.
-- Boundaries: discovery/handoff and receipt scoring are separate modules with
-  invariant headers. GPU evidence retains an external-backend identity and
-  never impersonates a native Ascend or G0–G3 receipt. Source/guide analysis and
-  the catalog snapshot distinguish implementation from future NPU migration.
-- Error visibility: duplicate/conflicting trials and mixed task revisions fail
-  explicitly. Unknown/infra outcomes retain denominators. Missing cells withhold
-  complete track scores. Execution-config fingerprints separate recorded model
-  settings and budgets; credential contents are not exported.
-- Mechanism/timeout reuse: Git reads have a 10-second deadline; execution
-  replaces the CLI process with Pier, retaining its original build, agent,
-  verifier and cleanup budgets. There is no nested timeout or automatic retry.
-- Review corrections: preserve actual ratios below 1 instead of reconstructing
-  them from clipped rewards; give the upstream text void sentinel precedence;
-  do not score partial metrics; set UTF-8 when handing off to upstream Python
-  on Windows; refuse reuse of prior output directories.
-- Verification: 18 new RSI contract tests plus 36 existing scorer/coverage
-  tests pass locally (54 total); whole-repository Ruff passes. Both the adapter
-  and upstream Task loader parse all 37 real tasks. The real Pier CLI parses
-  the generated argv, and four cases use the actual upstream reward functions.
-  Wheel/sdist packaging is checked. The original Windows full-suite attempt
-  stops at five pre-existing native-platform failures (30 pass, one skip);
-  wider performance/contracts checks expose POSIX paths and host clock
-  assumptions. Linux/macOS CI and physical GPU/NPU acceptance are separate
-  evidence, not inferred from these CPU checks.
+- Scope: internalize lifecycle contracts, counterbalanced paired workloads,
+  required regression guards and task-balanced aggregation in the native harness.
+  The external RSI/Pier launcher and importer are removed. No new runtime
+  dependency, background process or paid model call is introduced.
+- Compatibility: optional task/verifier fields preserve existing schema 1.0
+  tasks and receipts. Existing binary rewards, four terminal states, source/gold
+  soundness, ACLGraph/workspace/warm-server gates and G0-G3 accounting remain.
+- Responsibility: data contracts, judge measurement and receipt aggregation are
+  separate small modules with invariant headers. Local and remote judges share
+  validation; soundness passes the same contract. The existing runner owns all
+  timeouts, isolation, cleanup and no-retry policy.
+- Evidence: baseline source/runtime/workload identities, run nonce and frozen
+  oracle bind measurements. Correctness and guard failures are not missing data.
+  Slowdowns remain below 1; unchanged source cannot gain from timing noise.
+  Complete scores require the original plan, not the surviving receipt subset.
+- Deliberate differences: every declared guard is required, evaluated with the
+  paired median. Task acceptance stays binary; measured gain stays separate.
+  Group, role, tier, evidence and model/config cohorts remain distinct.
+- Review corrections: route original matrix cells into run/score/audit/export
+  summaries; preserve postflight invalid outcomes and additional native gates;
+  use a high-resolution monotonic counter for short host measurements.
+- Validation: native contract/scoring/accounting tests, actual CPU subprocess
+  judges, old scorer regression tests, Ruff and packaging are checked. A native
+  source/gold plus three-task matrix test runs on Linux/macOS CI; Windows does
+  not bypass the existing OS sandbox. The PR validation record identifies the
+  exact passing checks and remaining platform/hardware limits.
+- No claim of production GPU/NPU task acceptance is made by synthetic examples.
+  No frozen historical NPU task or its soundness receipt is rewritten.
 
 ## Current benchmark improvements
 

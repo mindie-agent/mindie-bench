@@ -54,9 +54,9 @@ usefulness or hardware correctness.
 4. Harbor's current native layout uses `solution/solve.sh` and `tests/test.sh`.
    This implementation deliberately uses `oracle/` and `verifier/` with MindIE's
    own versioned schema. A similar directory layout is not seamless Harbor
-   compatibility. The [RSI adapter](rsi-inference.md) now delegates original
-   Harbor-format RSI tasks to their bundled Pier runtime and imports their
-   receipts separately; native MindIE tasks still use their own schema.
+   compatibility. Native inference lifecycle contracts borrow RSI's measurement
+   and scoring methods without a Harbor/Pier runtime integration; see
+   [the implementation and usage](rsi-inference.md).
 5. The real public knowledge feed uses `index.md` / `blocks/*.md`, whereas the
    proposal describes local `PACKAGE.md` / `materials/*.md`. Both explicit
    formats are recognized. Published block inventories, IDs, and SHA-256 values

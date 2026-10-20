@@ -1,143 +1,173 @@
-# RSI-Inference integration
+# Native inference lifecycle evaluation
 
-MindIE Bench can discover and launch Apple's original RSI tasks through their
-bundled Pier runtime, then import the original verifier receipts into a separate
-task-balanced report. The original CUDA tasks remain GPU tasks. This backend
-does not claim Ascend acceptance or G0–G3 knowledge/remote-tool ablation.
+MindIE Bench incorporates ideas from RSI-Inference into its own task, judge,
+receipt and scoring pipeline. It needs no Apple checkout, Pier installation,
+Harbor receipt import or additional runtime dependency. Use the existing
+`validate`, `soundness`, `run`, `score`, `audit-report`, `compare` and `export-hf`
+commands. The previously proposed external `rsi-*` adapter is removed from PR #6.
 
-The reference source is
-[`apple-aiml-research/ml-rsi-inference-bench@a6b10af`](https://github.com/apple-aiml-research/ml-rsi-inference-bench/tree/a6b10af282014412b4eae14f3105d68555889821).
-See [the architecture, comparison and migration analysis (中文)](rsi-analysis.zh-CN.md).
+The [Chinese source analysis](rsi-analysis.zh-CN.md) explains the original systems,
+the gaps, the native implementation and the deliberate differences from RSI.
 
-## Install and inspect
+## A backwards-compatible task contract
 
-Clone the source once alongside MindIE Bench. Do not copy its tests into the
-agent's native MindIE workspace or knowledge corpus.
+Existing schema 1.0 tasks remain valid without changes. New tasks opt in with
+`[inference]`. Existing `PerformanceContract` requirements are still enforced;
+an inference contract cannot bypass ACLGraph, workspace or warm-server gates.
+
+```toml
+[inference]
+category = "regression" # model_support | optimization | regression
+engine = "vllm-ascend"
+model = "YOUR_PINNED_MODEL"
+baseline_commit = "0123456789abcdef0123456789abcdef01234567"
+baseline_source_sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+runtime_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+device_class = "Ascend-910B"
+required_checks = ["numerics", "serving"]
+warmup_rounds = 1
+measurement_rounds = 4
+min_speedup_ratio = 1.03
+
+[[inference.workloads]]
+name = "decode"
+metric = "tokens_per_sec"
+direction = "higher"
+role = "scored"
+workload_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+[[inference.workloads]]
+name = "prefill_guard"
+metric = "ttft_ms"
+direction = "lower"
+role = "guard"
+min_ratio = 0.95
+workload_sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+```
+
+The hashes above are **placeholders**, not verified runtime identities. The
+baseline commit must equal the existing `environment.<tier>.base_commit`.
+The judge must derive and check runtime, model/configuration and workload hashes
+from its actual frozen inputs. Hashing a manifest is not evidence that a running
+engine uses those settings. The existing task fingerprint binds source, budget,
+harness, model, device/remote context and the entire inference contract.
+
+`model_support` declares required checks and no performance workloads. Full
+support requires every check; a partial fraction is diagnostic only. Optimization
+and regression require at least one scored workload. Guards require an explicit
+minimum ratio and never contribute positively to the headline geometric mean.
+
+## Implement a trusted judge
+
+The existing `verifier/test.sh` runs in the local or remote private judge. It emits
+the existing binary `reward` plus `inference_evidence`. That evidence contains:
+
+- The runner-provided `MINDIE_BENCH_PERFORMANCE_NONCE` and
+  `MINDIE_BENCH_ORACLE_SHA256`, binding observations to this run and frozen oracle.
+- Baseline commit/source hash, runtime hash, actual device class, candidate source hash and
+  an explicit baseline health outcome.
+- An actual boolean outcome for **every** required correctness check.
+- For each workload: its input hash, warmup count and all paired measurement
+  rounds, including order, baseline/candidate values and explicit candidate errors.
+
+Use `evaluation.inference.measure_workloads(contract, measure)` inside that judge.
+The callback receives an arm (`baseline` or `candidate`) and a declared workload.
+It must perform the actual measurement, including server readiness and device
+synchronization. Both arms use identical requests/settings. The helper warms
+both arms, then alternates AB/BA over an even number of rounds. Warmup results are
+excluded. `measure_latency_ms` measures completed operations with a monotonic,
+high-resolution host counter and caller-supplied synchronization.
+
+A callback may raise `CandidateMeasurementFailure` only for an established
+candidate business failure. Baseline failures and unexpected exceptions propagate
+to native infrastructure handling. The helper does not retry trials or create a
+second scheduler. The existing verifier timeout encloses all work and cleanup.
+
+Call `evaluate_inference(contract, evidence)` to derive acceptance and diagnostics.
+The runner independently repeats that evaluation in `parse_verifier`, checks the
+run/oracle identity and rejects successful rewards that contradict the gates.
+Arbitrary JSON from agent code is not trusted measurement: the judge and frozen
+baseline must remain outside candidate write/import authority, as for existing
+MindIE performance probes. The CPU example is a synthetic protocol example, not
+an adversarial isolation proof for a production engine.
+
+## Scoring inside native receipts
+
+For each paired round, the ratio is candidate/baseline for a higher-is-better
+metric and baseline/candidate for a lower-is-better metric. Use the **median of
+paired ratios** per workload, then the geometric mean across scored workloads.
+Every guard must be measured; a guard passes when its paired median reaches its
+declared floor. This is deliberately stricter than RSI's regression implementation
+that can admit an unmeasured guard or use the best guard round.
+
+| Observation | Binary acceptance | Optimization track value |
+| --- | --- | --- |
+| Correct, guards pass, gain reaches threshold | 1 | Measured ratio |
+| Correct slowdown or gain below threshold | 0 | Measured ratio, including below 1 |
+| Correctness or measured guard failure | 0 | Neutral 1×; diagnostic ratios retained |
+| Unchanged candidate source | 0 | Neutral 1×; timing noise cannot establish improvement |
+| Established candidate measurement failure | 0 | Neutral 1× |
+| Other native gate rejects an otherwise accepted candidate | 0 | Neutral 1× |
+| Missing workload/round, unhealthy baseline, wrong runtime/nonce | No accepted verifier result | No score |
+| Native `infra_failed` or `unknown`, even with prior successful observations | Unchanged native status | No score |
+
+There is no clipped continuous `reward` to invert. The native binary outcome and
+continuous measured ratio remain separate. Source-fail/gold-pass soundness,
+G0–G3 isolation/capture, cleanup, cost accounting and existing completion metrics
+retain their meaning.
+
+Native `summary.json`, `score`, audit, comparison JSON and HF-compatible export
+add an `inference` section. Scoring recomputes observations from typed evidence.
+Cohorts preserve group, role, tier, evidence class, experiment and harness/model
+controls. Repeated attempts aggregate within each task before equal task weighting:
+arithmetic for full-support pass rates, geometric for optimization/regression.
+Different task revisions or duplicate native matrix cells are errors.
+
+`score` and `audit-report` read the original `eval_manifest.json` when present.
+Complete scores require exactly its planned valid lifecycle cells. Missing,
+blocked, unknown and extra cells withhold the score while retaining observed
+values and counts. Receipt-only/frozen inputs without that plan report observed
+values without claiming full coverage. Nothing reconstructs missing G3 seeds.
+
+## Run the executable examples
+
+The repository includes three synthetic CPU tasks: support a new request mode,
+optimize shared-prefix computation, and repair repeated-prefix work. They execute
+real subprocesses and measure actual CPU elapsed time, with throughput, latency
+and a small-request guard. They do not claim vLLM/SGLang or NPU benchmark results.
 
 ```sh
-git clone https://github.com/apple-aiml-research/ml-rsi-inference-bench.git ../ml-rsi-inference-bench
-git -C ../ml-rsi-inference-bench checkout a6b10af282014412b4eae14f3105d68555889821
-uv run mindie-bench rsi-catalog --source ../ml-rsi-inference-bench \
-  --output reports/rsi-catalog.json
+uv sync --locked --all-extras
+uv run python tasks/inference/materialize.py --output /absolute/path/inference-example
+uv run mindie-bench validate --tasks /absolute/path/inference-example/tasks
+uv run mindie-bench soundness --task /absolute/path/inference-example/tasks/model_support \
+  --config /absolute/path/inference-example/experiment.toml --tier l2 \
+  --output /absolute/path/inference-example/proof
+uv run mindie-bench run --tasks /absolute/path/inference-example/tasks \
+  --config /absolute/path/inference-example/experiment.toml --tier l2 --groups G0 \
+  --repetitions 1 --output /absolute/path/inference-example/run
+uv run mindie-bench score --input /absolute/path/inference-example/run
 ```
 
-The catalog records the source commit and dirty state, task TOML hashes, target
-engine revision, model, GPU count/type, memory/storage/shared-memory requests,
-offline setting, original budgets, verifier environment mode, workload and
-scoring metadata. It supports both metadata layouts used by the 37 released
-tasks. The task metadata's target revision can be a tag; it is not falsely
-presented as a resolved commit SHA. The checkout commit binds the full upstream
-tree; the catalog hash covers the extracted metadata, not every source byte.
+Full native execution requires the existing Linux/macOS sandbox. Materialization,
+pure scoring and direct synthetic judge contract checks also work on Windows.
+The example runtime is pinned to the materializing Python version. Re-materialize
+after changing interpreters. Its fixture agent performs a known synthetic edit;
+it is not a paid-model evaluation. Baseline-versus-itself timing may fluctuate,
+so the deterministic soundness example uses the model-support task.
 
-Discovery/scoring require Python 3.11+ and Git, and work without GPU libraries.
-Execution uses upstream Python 3.12+, `uv`, Docker with NVIDIA GPU support or a
-configured Modal environment, the task's H100/B200 resources, model weights and
-agent credentials. Builds can consume hundreds of GB or several TB; the catalog
-reports the task's actual requirements. Installation/network access during image
-preparation is separate from the task's offline agent phase.
+For real Ascend tasks, supply new native task IDs, actual model/engine/runtime
+identities, private numerical and workload probes, and source-fail/gold-pass
+evidence. Combine the lifecycle contract with existing device performance gates
+where needed. No original Apple GPU task has been relabelled as NPU acceptance.
 
-## Plan and run
+## Source attribution
 
-```sh
-uv run mindie-bench rsi-run --source ../ml-rsi-inference-bench \
-  --task optimize_qwen3_6_27b_1xh100_open \
-  --agent codex --model PROVIDER/PINNED_MODEL \
-  --attempts 1 --backend docker --output reports/rsi-qwen --dry-run
-```
-
-Remove `--dry-run` to execute. An optional `--env-file /absolute/path/to/.env`
-is passed to Pier; its contents are never copied into the plan. `--uv` selects
-the executable when it is not on PATH. Use a fresh output path for each job.
-Dry-run prints JSON without creating a run directory or making model calls.
-
-Execution saves `run-plan.json`, then replaces the launcher process with:
-
-```text
-uv run --locked --directory <source> pier run --path <source>/tasks/<task>
-  --env docker --agent <agent> --model <model>
-  --jobs-dir <output>/jobs --job-name rsi
-  --n-attempts <attempts> --n-concurrent 1 --max-retries 0
-```
-
-Pier owns image construction, agent installation, network allowlists, timeouts,
-candidate capture, separate-verifier environments where declared, and cleanup.
-There is no second scheduler or enclosing timeout that cuts off its verifier.
-The adapter requires a clean checkout and refuses existing output directories.
-It does not automatically retry interrupted jobs. If launch fails, the saved
-plan remains evidence; use a new output path after correcting the cause.
-
-One task runs per invocation and attempts run serially. Allocate GPU resources
-externally before launching several jobs. To configure custom providers,
-reasoning or advanced agent kwargs beyond the exposed options, use the upstream
-Pier job configuration interface and import the resulting jobs with `rsi-score`.
-Native MindIE profile isolation, credential brokering and G3 capture are not
-implicitly applied to this external backend.
-
-## Import and score
-
-```sh
-uv run mindie-bench rsi-score --source ../ml-rsi-inference-bench \
-  --input reports/rsi-qwen/jobs --task optimize_qwen3_6_27b_1xh100_open \
-  --expected-attempts 1 --output reports/rsi-qwen-score.json
-```
-
-Omit `--task` when scoring the entire catalog. Repeat it to declare a subset.
-Input containing other tasks is rejected instead of silently filtered. A subset
-is labelled `selected_tasks`; it is never presented as a full benchmark result.
-The input is a job tree or one trial's **`result.json`** (singular), with its
-original adjacent `verifier/` files. Job-level result objects are not trials.
-
-The report separates agent/version/model/execution-config cohorts, retains each original task
-checksum, hashes the imported result/reward/metrics files, and records the
-current catalog revision. This is local provenance, not a cryptographic
-attestation of historical execution. Agent, environment, verifier and timeout
-configuration fields are hashed into the cohort identity without copying their
-contents or credentials into reports. This separates different recorded budgets,
-reasoning settings and environment overrides. It cannot detect unrecorded mutable
-deployments or hardware drift; retain those conditions in separate input trees.
-
-| Evidence | Treatment |
-| --- | --- |
-| Support reward exactly 1 | A full pass |
-| Support reward in [0, 1) | A failure; partial test fraction retained |
-| Correct optimization with `speedup_geomean` | Use the measured ratio, including values below 1 |
-| Failed correctness / acceptance with a zero reward and no scored ratio | Neutral 1×; record a completed failure |
-| `infra_void` or upstream `reward=-1` | `infra_failed`, no score |
-| Pier exception, missing finish/reward, nonstandard GPU flag | `unknown`, no score |
-| Partial diagnostic ratio only in `metrics.json` | Never substitute it for the scored ratio |
-| Duplicate trial ID, conflicting reward copies, mixed task checksums | Explicit error |
-
-Pier gives `reward.txt` precedence over `reward.json`; this matters when the text
-file carries a void sentinel. Optimization `reward=max(0, speedup-1)` loses
-information, so it is **never** inverted to obtain a measured ratio.
-
-For support, compute the fraction of full passes within each task, then the
-arithmetic mean across tasks. For optimization, compute a geometric mean within
-each task and across tasks. The repeated-attempt aggregation is explicitly
-defined here; the published HTML exposes preaggregated results and is not an
-executable specification of every upstream aggregation choice. No BT/Elo rating
-or leaderboard rank is inferred from imported trial receipts.
-
-Every task retains attempted, valid and expected counts plus all four terminal
-statuses. Track `score` is withheld unless every selected task has exactly the
-declared number of valid attempts, with no extra or invalid attempts. Partial
-`observed_score` remains available with coverage. This conservative publication
-gate preserves MindIE's missing-evidence semantics; it is stricter than merely
-averaging the surviving results. Different per-task repetition plans currently
-need separate scoring selections. Original failures and uncertainty are never
-deleted to make the coverage complete.
-
-## Boundary and attribution
-
-This is an independently written adapter. No Apple task, model weight, reference
-patch, verifier implementation or Pier source is copied into MindIE Bench.
-Upstream remains under its own [LICENSE](https://github.com/apple-aiml-research/ml-rsi-inference-bench/blob/a6b10af282014412b4eae14f3105d68555889821/LICENSE)
-and [ACKNOWLEDGEMENTS](https://github.com/apple-aiml-research/ml-rsi-inference-bench/blob/a6b10af282014412b4eae14f3105d68555889821/ACKNOWLEDGEMENTS);
-the bundled Pier/Harbor notices and model/dataset terms remain in that checkout.
-Integration does not imply Apple endorsement.
-
-Ascend migration requires new task identities, pinned vLLM-Ascend/CANN/container
-versions, NPU-native reference measurements, numerical/graph/memory/service
-verification and source-fail/gold-pass evidence. Replacing `gpu_types` with
-`npu_model`, or importing RSI scores as native MindIE receipts, cannot establish
-any of those properties.
+Design reference:
+[`apple-aiml-research/ml-rsi-inference-bench@a6b10af`](https://github.com/apple-aiml-research/ml-rsi-inference-bench/tree/a6b10af282014412b4eae14f3105d68555889821),
+especially its throughput `scoring.py`, regression `regression_scoring.py`,
+multi-workload task manifests and frozen-baseline/verifier structure.
+This implementation independently expresses those methods in MindIE's native
+contracts. No Apple task, verifier, Pier source, model weights or datasets are
+copied or required at runtime. Their original licenses remain applicable to
+their own repositories; this work does not imply Apple endorsement.

@@ -49,6 +49,7 @@ from mindie_bench.scorer.command_observations import (
     is_recognized_npu_command,
     observe_npu_command,
 )
+from mindie_bench.scorer.inference import summarize_inference
 from mindie_bench.scorer.tool_observations import summarize_tool_observations
 
 REMOTE = {"remote_bash", "remote_job_start", "remote_exec", "remote_command"}
@@ -1533,6 +1534,7 @@ def summarize(
     )
     matrix = _matrix_coverage(receipts, expected_cells, blocked_cells)
     return dict(
+        inference=summarize_inference(receipts, expected_cells=expected_cells),
         attempts=len(receipts),
         statuses={s.value: statuses[s.value] for s in TerminalStatus},
         valid_attempts=len(valid),
