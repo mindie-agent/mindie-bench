@@ -348,7 +348,31 @@ def build_profile(
         if native_plugin:
             from mindie_bench.runner.native_product import prepare
 
-            native_product = prepare(root, env, native_plugin, corpus)
+            domain_corpora_paths = {}
+            for dom_name, dom_cid in sorted((native_plugin.domain_corpora or {}).items()):
+                if dom_cid not in config.corpora:
+                    raise ValueError(f"missing explicitly selected domain corpus: {dom_cid}")
+                dom_decl = config.corpora[dom_cid]
+                dom_src = Path(dom_decl.path).resolve()
+                dom_head = subprocess.run(
+                    ["git", "-C", str(dom_src), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+                ).stdout.strip()
+                dom_dirty = subprocess.run(
+                    ["git", "-C", str(dom_src), "status", "--porcelain"], check=True, capture_output=True, text=True
+                ).stdout
+                if dom_head != dom_decl.commit or dom_dirty:
+                    raise ValueError("domain corpus must be clean at its exact declared commit")
+                dom_dest = private_root / f"corpus-{dom_name}"
+                filtered_corpus(dom_src, dom_dest, excluded if dom_cid == task.mindie_knowledge.corpus_id else set())
+                domain_corpora_paths[dom_name] = dom_dest
+            active_domain = (
+                "operators"
+                if task.task.domain_category == "native_operator_performance" and "operators" in domain_corpora_paths
+                else native_plugin.domain
+            )
+            native_product = prepare(
+                root, env, native_plugin, corpus, domain_corpora=domain_corpora_paths or None, active_domain=active_domain
+            )
             runtime_paths.extend(
                 [
                     Path(native_plugin.package_path),
@@ -598,9 +622,10 @@ def knowledge_prompt(profile: Profile) -> str:
     if native := profile.fingerprint.get("native_product"):
         graded_hint = (
             " When querying graded knowledge before all unit condition keys are known, pass "
-            "include_unknown=true (and navigation_only=true to inspect bounded cards and "
-            "missing_conditions first), then use knowledge_explain with the returned ref or "
-            "refs=[...] to load the selected unit bodies and their L1 prerequisites."
+            "include_unknown=true, navigation_only=true, and token_budget=3000 to inspect all "
+            "bounded cards first, then call knowledge_explain with the returned ref or "
+            "refs=[...] (omitting conditions unless all missing_conditions keys are supplied, "
+            "and setting token_budget=12000) to load the selected unit bodies and their L1 prerequisites."
             if (native.get("initialization") or {}).get("corpus_format") == "graded"
             else ""
         )

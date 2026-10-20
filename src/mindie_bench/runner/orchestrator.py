@@ -622,7 +622,11 @@ def run_trial(
                 gateway_port=gateway.port,
                 gateway_socket=gateway.unix_socket,
                 directory_watchers=config.harness.name == "kimi",
-                loopback_client_ports=(native_service_instance.port,) if native_service_instance else (),
+                loopback_client_ports=(
+                    getattr(native_service_instance, "ports", None) or (native_service_instance.port,)
+                    if native_service_instance
+                    else ()
+                ),
                 ephemeral_loopback_listener=native_service_instance is not None,
             )
 

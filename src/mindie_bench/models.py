@@ -264,6 +264,7 @@ class NativeDSHPlugin(StrictModel):
     runtime_python: str
     redactor_executable: str
     domain: str = "vllm-ascend"
+    domain_corpora: dict[str, str] = Field(default_factory=dict)
     contribution_enabled: Literal[False] = False
 
 
