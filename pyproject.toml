@@ -13,6 +13,7 @@ dependencies = ["pydantic>=2.10,<3", "PyYAML>=6,<7"]
 
 [project.optional-dependencies]
 export = ["pyarrow>=19,<24"]
+knowledge = ["mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@532c4367be7c72c493c4d04e86e53ee5a2d1ee5f"]
 
 [project.scripts]
 mindie-bench = "mindie_bench.cli:main"
@@ -38,3 +39,6 @@ select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mindie_bench"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
