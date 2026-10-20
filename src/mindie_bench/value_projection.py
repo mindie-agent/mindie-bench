@@ -10,6 +10,7 @@ artifacts, error messages and provider endpoints do not.
 
 from __future__ import annotations
 
+from mindie_bench.evaluation.budget import has_non_budget_errors, is_budget_overrun, receipt_budget
 from mindie_bench.io import digest
 from mindie_bench.models import TrialReceipt
 from mindie_bench.scorer.comparator import CONTROL_KEYS
@@ -51,7 +52,15 @@ def public_receipt(row: TrialReceipt) -> dict:
         if key in source:
             fingerprint[key] = source[key]
     capture = row.auxiliary_metrics.get("capture") or {}
+    budget = receipt_budget(row)
     auxiliary = {
+        "agent_budget_exhausted": budget["agent_budget_exhausted"],
+        "lifecycle_budget": {
+            "overrun": budget["delivery_budget_exceeded"],
+            "declared_total_sec": budget["declared_delivery_sec"],
+            "measured_total_sec": budget["measured_delivery_sec"],
+            "overrun_sec": budget["delivery_overrun_sec"],
+        },
         "capture_wall_clock_sec": row.auxiliary_metrics.get("capture_wall_clock_sec"),
         "captured_corpus_sha256": row.auxiliary_metrics.get("captured_corpus_sha256"),
         "capture": {
@@ -66,6 +75,11 @@ def public_receipt(row: TrialReceipt) -> dict:
                        "timing_complete", "basis"}
         },
     }
+    errors = []
+    if any(is_budget_overrun(error) for error in row.errors):
+        errors.append(dict(stage="budget", type="BudgetOverrun", message="declared delivery budget exceeded"))
+    if has_non_budget_errors(row):
+        errors.append(dict(stage="trial", message="details retained in private evidence"))
     return row.model_copy(
         update={
             "environment_fingerprint": fingerprint,
@@ -74,9 +88,7 @@ def public_receipt(row: TrialReceipt) -> dict:
             },
             "auxiliary_metrics": auxiliary,
             "failure_reason": "details_retained_in_private_evidence" if row.failure_reason else None,
-            "errors": [{"stage": "trial", "message": "details retained in private evidence"}]
-            if row.errors
-            else [],
+            "errors": errors,
             "artifacts": {},
         }
     ).model_dump(mode="json")

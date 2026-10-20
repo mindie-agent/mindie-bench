@@ -13,6 +13,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from mindie_bench.evaluation.budget import has_non_budget_errors
 from mindie_bench.io import digest, read_json, write_json
 from mindie_bench.models import TerminalStatus, TrialReceipt
 from mindie_bench.scorer.comparator import comparison
@@ -141,7 +142,7 @@ def _study(study, rows, sources, runner_patches, source_patches, excluded, infra
             or row.task_digest != study["task_digests"].get(row.instance_id)
         ):
             problems.append(f"identity_mismatch:{row.trial_id}")
-        if row.terminal_status not in VALID or row.errors:
+        if row.terminal_status not in VALID or has_non_budget_errors(row):
             problems.append(f"unsettled_trial:{row.trial_id}")
         if "budget" in study and env.get("budget") != study["budget"]:
             problems.append(f"suite_budget_mismatch:{row.trial_id}")
@@ -646,6 +647,15 @@ def markdown(report: dict) -> str:
                 "  Paired evaluation delivery-time baseline/candidate ratio: "
                 + (f"{ratio:.3f}x." if ratio is not None else "unmeasured.")
             )
+            for side in ("baseline", "candidate"):
+                budget = pair[side]["budget"]
+                lines.append(
+                    f"  {side.title()} selected delivery-budget overruns: "
+                    f"{budget['delivery_budget_exceeded_attempts']}/"
+                    f"{budget['delivery_budget_observed_attempts']} observed; "
+                    f"successful overruns: {budget['completed_pass_over_delivery_budget']}. "
+                    "Business results are retained; missing meters do not establish compliance."
+                )
         lines += [
             "",
             "| Condition | Selected + historical attempts | Selected solved | Total delivery seconds | "

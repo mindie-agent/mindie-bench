@@ -224,9 +224,12 @@ def homepage_markdown(report: dict, language: str = "zh") -> str:
         (
             "注：通过/尝试统计选定的正式实验轮次（失败计入分母）。耗时比仅统计同一轮双方均通过的配对，"
             "`> 1.0x` 表示启用后更快，`< 1.0x` 表示因增加检索或工具交互而更慢。"
+            "通过结果和耗时比保留已验收的超预算完成；完整报告单列预算观察，未计量不视为合规。"
             if zh else
             "Note: Solved/attempts counts the selected settled runs (with failures in the denominator). "
-            "Timing ratios use only pairs solved by both sides: `> 1.0x` means the candidate was faster; `< 1.0x` means slower."
+            "Timing ratios use only pairs solved by both sides: `> 1.0x` means the candidate was faster; "
+            "`< 1.0x` means slower. Verified over-budget completions remain included; the full report "
+            "shows budget observations separately, and missing meters do not establish compliance."
         ),
     ]
     for study in report["studies"]:

@@ -12,6 +12,15 @@ from mindie_bench.models import TerminalStatus
 BUDGET_STOPS = {"timeout", "max_turns", "max_npu_runs"}
 
 
+def is_budget_overrun(error: dict) -> bool:
+    return (error.get("stage"), error.get("type")) == ("budget", "BudgetOverrun")
+
+
+def has_non_budget_errors(receipt) -> bool:
+    """Budget observations are not incomplete execution; all other errors remain."""
+    return any(not is_budget_overrun(error) for error in receipt.errors)
+
+
 def receipt_budget(receipt) -> dict:
     auxiliary = receipt.auxiliary_metrics
     process = auxiliary.get("native_process", {})

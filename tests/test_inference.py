@@ -19,7 +19,7 @@ from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.hf_sync.exporter import public_row, public_task_row
 from mindie_bench.inference_models import InferenceContract, InferenceEvidence
 from mindie_bench.io import read_json
-from mindie_bench.models import ExperimentConfig, Group, PerformanceContract, TaskSpec, TrialReceipt
+from mindie_bench.models import ExperimentConfig, PerformanceContract, TaskSpec, TrialReceipt
 from mindie_bench.runner.verifier import parse_verifier, remote_verifier
 from mindie_bench.scorer.metrics import summarize
 
@@ -488,10 +488,10 @@ def test_real_example_judges_use_native_task_contracts_and_measured_cpu_work(exa
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="native runner requires Linux/macOS OS isolation")
-def test_native_matrix_and_soundness_use_inference_contract_end_to_end(examples):
-    from mindie_bench.runner.orchestrator import run_matrix
+def test_native_matrix_and_soundness_use_inference_contract_end_to_end(examples, capsys):
+    from mindie_bench.cli import main
     from mindie_bench.runner.soundness import check_soundness
-    from mindie_bench.scorer.comparator import grouped_summaries
+    from mindie_bench.scorer.comparator import grouped_summaries, load_receipts
 
     _, output, tasks = examples
     config = ExperimentConfig.load(output / "experiment.toml")
@@ -499,8 +499,13 @@ def test_native_matrix_and_soundness_use_inference_contract_end_to_end(examples)
     # on the support task. All three tasks still run their real measured judges.
     proof = check_soundness(tasks[0], config, tier="l2", output=output / "proof")
     assert proof["before_reward"] == 0 and proof["after_reward"] == 1
-    rows = run_matrix(tasks, config, tier="l2", groups=[Group.G0], repetitions=1,
-                      concurrency=1, output=output / "run")
+    assert main([
+        "run", "--tasks", str(output / "tasks"), "--config", str(output / "experiment.toml"),
+        "--tier", "l2", "--groups", "G0", "--repetitions", "1", "--concurrency", "1",
+        "--output", str(output / "run"),
+    ]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    rows = load_receipts(output / "run")
     assert all(row.terminal_status.value.startswith("completed") for row in rows), [row.errors for row in rows]
     plan = read_json(output / "run/eval_manifest.json")["cells"]
     result = grouped_summaries(rows, expected_cells=plan)["l2/synthetic/G0"]["inference"]
@@ -508,6 +513,7 @@ def test_native_matrix_and_soundness_use_inference_contract_end_to_end(examples)
     assert result["cohorts"][0]["tracks"]["model_support"]["score"] == 1
     saved = read_json(output / "run/summary.json")["l2/synthetic/G0"]["inference"]
     assert saved == result
+    assert printed["l2/synthetic/G0"]["inference"] == saved
 
 
 def test_remote_private_judge_forwards_contract_and_run_binding(examples, tmp_path):

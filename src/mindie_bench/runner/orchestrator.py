@@ -42,7 +42,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from mindie_bench import __version__
-from mindie_bench.evaluation.budget import BUDGET_STOPS
+from mindie_bench.evaluation.budget import BUDGET_STOPS, has_non_budget_errors
 from mindie_bench.evaluation.corpus_linter import CorpusLintRejected
 from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.io import digest, read_json, task_hash, tree_hash, write_json
@@ -1399,7 +1399,7 @@ def run_matrix(
                 canary = execute_cell(*jobs.pop(0))
                 if (
                     canary.terminal_status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}
-                    or canary.errors
+                    or has_non_budget_errors(canary)
                 ):
                     raise RuntimeError(
                         f"canary gate failed on {canary.trial_id} "
@@ -1412,7 +1412,7 @@ def run_matrix(
                         row
                         for row in receipts
                         if row.terminal_status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}
-                        or row.errors
+                        or has_non_budget_errors(row)
                     ),
                     None,
                 )

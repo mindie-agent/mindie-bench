@@ -14,9 +14,13 @@
   The shared product receipt adapter now uses delivery time; the generic matrix
   path previously checked only agent time while two specialized callers repaired
   it separately. Missing delivery time remains unmeasured.
+  Legacy release admission, CLI exit status and canary gates distinguish an
+  explicit BudgetOverrun diagnostic from execution errors. Public projection
+  retains that distinction and numeric budget evidence after redaction.
 - Coverage: explicit evidence classes scope planned cells to the same cohort as
   receipts. Legacy unclassified missing cells remain required. CLI comparison
-  uses each original plan; receipt-only inputs remain observed-only.
+  uses each original plan and `run` prints its saved complete summary;
+  receipt-only inputs remain observed-only.
 - Design review: no new process, dependency, paid inference or end-user workflow.
   One pure budget reader serves scorer/export; product reporting reuses its
   existing observed-resource accounting. The obsolete destructive budget mapper

@@ -13,6 +13,7 @@ import json
 import sys
 from pathlib import Path
 
+from mindie_bench.evaluation.budget import has_non_budget_errors
 from mindie_bench.io import read_json, write_json
 from mindie_bench.models import ExperimentConfig, Group, TaskSpec, TerminalStatus
 from mindie_bench.scorer.comparator import (
@@ -274,12 +275,12 @@ def main(argv=None):
                     output=args.output.resolve(),
                     canary_first=args.canary_first,
                 )
-                print(json.dumps(grouped_summaries(rows), indent=2))
+                print(json.dumps(read_json(args.output / "summary.json"), indent=2))
                 return (
                     2
                     if any(
                         row.terminal_status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}
-                        or row.errors
+                        or has_non_budget_errors(row)
                         for row in rows
                     )
                     else 0
