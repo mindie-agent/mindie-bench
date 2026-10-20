@@ -1969,7 +1969,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mindie-knowledge", marker = "extra == 'knowledge'", git = "https://github.com/mindie-agent/knowledge?rev=8e4377bacdb0d5ff529217c5963a68f989e0fe5d" },
+    { name = "mindie-knowledge", marker = "extra == 'knowledge'", git = "https://github.com/mindie-agent/knowledge?rev=1d78f1dbadeb770f7489d5a9378cfbfd4ca26c6a" },
     { name = "pyarrow", marker = "extra == 'export'", specifier = ">=19,<24" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pyyaml", specifier = ">=6,<7" },
@@ -1990,7 +1990,7 @@ source = { git = "https://github.com/mindie-agent/diagnostics?rev=57ae6487391ffc
 [[package]]
 name = "mindie-knowledge"
 version = "0.13.0"
-source = { git = "https://github.com/mindie-agent/knowledge?rev=8e4377bacdb0d5ff529217c5963a68f989e0fe5d#8e4377bacdb0d5ff529217c5963a68f989e0fe5d" }
+source = { git = "https://github.com/mindie-agent/knowledge?rev=1d78f1dbadeb770f7489d5a9378cfbfd4ca26c6a#1d78f1dbadeb770f7489d5a9378cfbfd4ca26c6a" }
 dependencies = [
     { name = "langmem" },
     { name = "mindie-diagnostics" },
