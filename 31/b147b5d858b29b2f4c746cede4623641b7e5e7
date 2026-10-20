@@ -1,0 +1,19 @@
+tests/test_knowledge_broker.py
+  s_d737ad21458d6c::t_003e23a60a7700 3,183-188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "31b147b5d858b29b2f4c746cede4623641b7e5e7",
+  "prompts": {},
+  "sessions": {
+    "s_d737ad21458d6c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15708-c6bc-7b41-a0c4-4c573d98441e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "fan2956 <zhoufan53@huawei.com>"
+    }
+  }
+}
