@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,7 @@ from mindie_bench.runner.knowledge_replay import (
     run_growth_replay,
 )
 
-OPERATORS = Path("/Volumes/data/code/knowledge-operators")
+OPERATORS = Path(os.environ.get("MINDIE_BENCH_OPERATORS_CORPUS", "/Volumes/data/code/knowledge-operators"))
 TRANSCRIPT = Path("/Users/maoxx241/code/mindie-transcript-20261004/content")
 METRIC_KEYS = {
     "total_loaded_tokens",

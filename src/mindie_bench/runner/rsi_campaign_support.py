@@ -64,17 +64,6 @@ def _flag(value: Any, *, default: bool = False) -> bool:
     return value.strip().lower() in _PASS_WORDS if isinstance(value, str) else bool(value)
 
 
-def _knowledge_subagent_pack(**kwargs: Any) -> dict[str, Any] | None:
-    """Use a production fact pack when the installed knowledge build exposes one."""
-    try:
-        from mindie_knowledge.graded.explore import build_exploration_context
-        built = build_exploration_context(**kwargs)
-    except Exception:
-        return None
-    pack = built.get("subagent_fact_pack") if isinstance(built, Mapping) else None
-    return dict(pack) if isinstance(pack, Mapping) else None
-
-
 def build_subagent_fact_pack(
     *,
     context: Mapping[str, Any],
@@ -86,19 +75,8 @@ def build_subagent_fact_pack(
     native_subcontext: bool = False,
 ) -> dict[str, Any]:
     """Return the stable `mindie-rsi-subagent-pack/1` fact pack for either host."""
+    _ = (retrieved_units, bottleneck_summary)
     shared = dict(conditions or {})
-    delegated = _knowledge_subagent_pack(
-        goal=goal or "(not recorded)",
-        retrieved_units=list(retrieved_units or ()),
-        bottleneck_summary=dict(bottleneck_summary or {}),
-        ledger_entries=list(ledger_entries or ()),
-        conditions=shared,
-        native_subcontext=native_subcontext,
-    )
-    if delegated is not None:
-        delegated.setdefault("schema_version", SCHEMA_SUBAGENT_PACK)
-        delegated.setdefault("schema", SCHEMA_SUBAGENT_PACK)
-        return delegated
     foundation = _mapping(context.get("l1_foundation"))
     bottleneck = _mapping(context.get("l2_bottleneck"))
     mutators = _mapping(context.get("l4_mutators"))

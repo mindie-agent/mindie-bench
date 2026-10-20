@@ -19,14 +19,10 @@ import hashlib
 import importlib.util
 import json
 import shutil
-import sys
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
-
-_KNOWLEDGE_ROOT = Path("/Users/maoxx241/code/mindie-release-20261014/knowledge")
-_KNOWLEDGE_SRC = _KNOWLEDGE_ROOT / "src"  # historical src-layout fallback
 
 
 def _load_graded():
@@ -52,15 +48,15 @@ def _load_graded():
 
 try:
     _graded = _load_graded()
-except ImportError:
+except ImportError as exc:
     # A present-but-broken installation is an error, not a silent shadowing.
     if importlib.util.find_spec("mindie_knowledge") is not None:
         raise
-    # Lightweight import fallback only; never duplicate graded logic.
-    for _candidate in (_KNOWLEDGE_SRC, _KNOWLEDGE_ROOT):
-        if _candidate.is_dir() and str(_candidate) not in sys.path:
-            sys.path.insert(0, str(_candidate))
-    _graded = _load_graded()
+    raise ImportError(
+        "mindie-bench knowledge evaluation requires the pinned `mindie_knowledge` "
+        "distribution; install the `knowledge` extra instead of shadowing it from "
+        "an unmanaged source checkout"
+    ) from exc
 
 GradedRepository = _graded["GradedRepository"]
 RoutingIndex = _graded["RoutingIndex"]

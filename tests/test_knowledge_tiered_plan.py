@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import stat
 from pathlib import Path
 
@@ -32,7 +33,7 @@ from mindie_bench.evaluation.knowledge_tiered_support import (
 from mindie_bench.models import ExperimentConfig, HarnessConfig
 from mindie_bench.runner.profile_builder import DSH_REASONING_EFFORTS, build_dsh_profile
 
-OPERATORS = Path("/Volumes/data/code/knowledge-operators")
+OPERATORS = Path(os.environ.get("MINDIE_BENCH_OPERATORS_CORPUS", "/Volumes/data/code/knowledge-operators"))
 TRANSCRIPT = Path("/Users/maoxx241/code/mindie-transcript-20261004/content")
 ALIGNMENT = "unit-ascend-910b-a3-memory-alignment-and-tiling-axioms"
 ROOFLINE = "unit-ascend-operator-roofline-and-four-view-measurement"
@@ -931,6 +932,7 @@ def test_x04_to_x06_sequential_a_to_e_learning_growth_rare_recall_and_idempotenc
             ],
         },
     ]
+    initial_units = len(operator_store.graded._load().units)
     result = run_sequential_learning_episodes(
         episodes,
         store=operator_store,
@@ -953,8 +955,8 @@ def test_x04_to_x06_sequential_a_to_e_learning_growth_rare_recall_and_idempotenc
         row["revision"] for row in result["version_chain"] if row["unit_id"] == identity
     ]
     assert revisions == [1, 2]
-    assert result["growth"]["initial_units"] == 11
-    assert result["growth"]["final_units"] == 12
+    assert result["growth"]["initial_units"] == initial_units
+    assert result["growth"]["final_units"] == initial_units + 1
     assert result["growth"]["delta_active_units"] == 1
     assert result["growth"]["g_units"] == 0.5
     assert result["growth"]["g_body"] > 0
@@ -975,6 +977,7 @@ def test_x04_to_x06_sequential_a_to_e_learning_growth_rare_recall_and_idempotenc
 
 @pytest.mark.tier1
 def test_sequential_distillation_timeout_preserves_verified_primary(operator_store):
+    initial_units = len(operator_store.graded._load().units)
     digest, evidence, decision = _material(
         "timeout", "Use the verified tiered sequence SOP with a 32-byte aligned tail.\n"
     )
@@ -1004,7 +1007,7 @@ def test_sequential_distillation_timeout_preserves_verified_primary(operator_sto
     assert episode["diagnostics"]
     assert result["accounting_errors"][0]["stage"] == "distillation"
     assert result["gate"]["primary_preserved_on_accounting_error"] is True
-    assert result["growth"]["final_units"] == 11
+    assert result["growth"]["final_units"] == initial_units
 
 
 # --------------------------------------------------------------- DSH host

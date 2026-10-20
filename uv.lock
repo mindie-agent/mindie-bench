@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -1266,7 +1266,7 @@ name = "importlib-metadata"
 version = "9.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zipp" },
+    { name = "zipp", marker = "python_full_version < '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6f/7e/1e7e8dc30634b93ebb3d58a3dea569ad146e656218d3960ab04f62047b29/importlib_metadata-9.0.1.tar.gz", hash = "sha256:ab830580bc0ef3db61ce8fae716389e5462b67e033018bab6d8f80ef17172f99", size = 59124, upload-time = "2026-08-28T15:30:34.646Z" }
 wheels = [
@@ -1969,7 +1969,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mindie-knowledge", marker = "extra == 'knowledge'", git = "https://github.com/mindie-agent/knowledge?rev=532c4367be7c72c493c4d04e86e53ee5a2d1ee5f" },
+    { name = "mindie-knowledge", marker = "extra == 'knowledge'", git = "https://github.com/mindie-agent/knowledge?rev=8e4377bacdb0d5ff529217c5963a68f989e0fe5d" },
     { name = "pyarrow", marker = "extra == 'export'", specifier = ">=19,<24" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pyyaml", specifier = ">=6,<7" },
@@ -1985,12 +1985,12 @@ dev = [
 [[package]]
 name = "mindie-diagnostics"
 version = "0.5.0"
-source = { git = "https://github.com/mindie-agent/diagnostics?rev=c32a2a0d5b3a593cb2e68fc40b37fe3c8ca02be6#c32a2a0d5b3a593cb2e68fc40b37fe3c8ca02be6" }
+source = { git = "https://github.com/mindie-agent/diagnostics?rev=57ae6487391ffcd0e5342345dbeb7fd859c4f7d5#57ae6487391ffcd0e5342345dbeb7fd859c4f7d5" }
 
 [[package]]
 name = "mindie-knowledge"
 version = "0.13.0"
-source = { git = "https://github.com/mindie-agent/knowledge?rev=532c4367be7c72c493c4d04e86e53ee5a2d1ee5f#532c4367be7c72c493c4d04e86e53ee5a2d1ee5f" }
+source = { git = "https://github.com/mindie-agent/knowledge?rev=8e4377bacdb0d5ff529217c5963a68f989e0fe5d#8e4377bacdb0d5ff529217c5963a68f989e0fe5d" }
 dependencies = [
     { name = "langmem" },
     { name = "mindie-diagnostics" },
@@ -3705,8 +3705,8 @@ name = "secretstorage"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography" },
-    { name = "jeepney" },
+    { name = "cryptography", marker = "python_full_version < '3.12' or python_full_version >= '3.15' or sys_platform != 'win32'" },
+    { name = "jeepney", marker = "python_full_version < '3.12' or python_full_version >= '3.15' or sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [

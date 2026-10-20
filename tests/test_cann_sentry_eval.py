@@ -21,6 +21,7 @@ RSI gate integration (`evaluate_rsi_candidate_gates`, `RSICandidateResult`).
 from __future__ import annotations
 
 import math
+
 import pytest
 
 from mindie_bench.runner import (

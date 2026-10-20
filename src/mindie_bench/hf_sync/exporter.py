@@ -1,4 +1,23 @@
-"""No network upload; atomic HF-compatible artifacts after two fail-closed gates."""
+"""No network upload; atomic HF-compatible artifacts after two fail-closed gates.
+
+[Role]
+Builds public Hugging Face dataset artifacts (`trials.parquet`, `tasks.parquet`,
+`receipts.json`, `leaderboard.json`, `README.md`) from verified trial receipts
+after passing first-party `mindie_knowledge` redaction and identity validation.
+
+[Invariants]
+- Raw exceptions, prompts, reasoning, command arguments, and private home paths
+  are never exported; any unresolved sensitive finding or receipt-identity change
+  aborts publication before the staging directory is promoted.
+
+[Timeouts & Locks]
+- Subprocess redaction via `redact_worker.py` is bounded by `timeout=120`s;
+  staging writes use an isolated `TemporaryDirectory` and atomic `replace`.
+
+[Side-Effect Policy]
+- Writes only under the target `output` directory (and uploads to Hugging Face
+  Hub only when `upload_repo` is explicitly requested).
+"""
 
 from __future__ import annotations
 
@@ -15,18 +34,8 @@ from mindie_bench.hf_sync.leaderboard import render
 from mindie_bench.io import digest, write_json
 from mindie_bench.scorer.comparator import grouped_summaries, load_receipts
 
-REDACT = """
-import json, sys
-from mindie_knowledge.loop.transcript_redaction import redact
-from mindie_knowledge.redact import scan_text
-request=json.load(sys.stdin)
-clean,rules=redact(request["text"], executable=request["gitleaks"],
-    key=bytes.fromhex(request["key"]), private_paths=request["private_paths"])
-remaining=scan_text(clean)
-if remaining:
-    raise RuntimeError("redaction left unresolved sensitive findings")
-print(json.dumps({"clean":clean,"rules":rules}))
-"""
+_REDACT_WORKER = Path(__file__).with_name("redact_worker.py")
+REDACT = _REDACT_WORKER.read_text(encoding="utf-8")
 
 PUBLIC_FINGERPRINT = {
     "inference_contract",
@@ -255,7 +264,7 @@ def export_hf(
         # Use the installed first-party deterministic redactor, not a new,
         # weaker regex implementation or a summarizing model.
         result = subprocess.run(
-            [str(knowledge_python), "-I", "-c", REDACT],
+            [str(knowledge_python), "-I", str(_REDACT_WORKER)],
             input=json.dumps(request),
             capture_output=True,
             text=True,

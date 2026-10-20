@@ -130,7 +130,7 @@ def public_export_input(tmp_path):
 
 def mock_redaction(monkeypatch, mutate):
     def run(command, **kwargs):
-        if command[1:3] == ["-I", "-c"]:
+        if len(command) >= 3 and command[1] == "-I":
             data = json.loads(json.loads(kwargs["input"])["text"])
             mutate(data["receipts"])
             return SimpleNamespace(

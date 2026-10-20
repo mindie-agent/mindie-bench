@@ -16,6 +16,46 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _configure_default_test_env() -> None:
+    for proxy_key in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+    ):
+        os.environ.pop(proxy_key, None)
+    operators_repo = Path("/Volumes/data/code/knowledge-operators")
+    if not os.environ.get("MINDIE_BENCH_OPERATORS_CORPUS") and (operators_repo / ".git").exists():
+        head_proc = subprocess.run(
+            ["git", "-C", str(operators_repo), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        files_proc = subprocess.run(
+            ["git", "-C", str(operators_repo), "ls-tree", "-r", "--name-only", "-z", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if head_proc.returncode == 0 and files_proc.returncode == 0:
+            head = head_proc.stdout.strip()[:12]
+            snapshot = Path(f"/tmp/mindie-bench-operators-clean-{head}")
+            if not (snapshot / "index" / "routing-manifest.json").is_file():
+                shutil.rmtree(snapshot, ignore_errors=True)
+                snapshot.mkdir(parents=True, exist_ok=True)
+                for rel in files_proc.stdout.split("\0"):
+                    if not rel:
+                        continue
+                    src = operators_repo / rel
+                    if src.is_file():
+                        dst = snapshot / rel
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dst)
+            os.environ["MINDIE_BENCH_OPERATORS_CORPUS"] = str(snapshot)
     # Native capture must use this test environment's components, not a
     # historical release interpreter paired with today's adapter scripts.
     if all(

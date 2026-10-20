@@ -1,4 +1,25 @@
-"""Parent-owned real MCP stdio processes, outside the foreground file grants."""
+"""Parent-owned real MCP stdio processes, outside the foreground file grants.
+
+[Role]
+Owns one `knowledge` MCP stdio child per profile (`KnowledgeSession`) and the
+parent-side broker (`KnowledgeBroker`) that routes JSON-RPC frames and records
+call intervals for scoring.
+
+[Invariants]
+- Each request id is answered exactly once; frames are capped at `MAX_FRAME`.
+  A child that exits or breaks framing is reported as failed, never as an empty
+  successful result, and a failed call is never retried automatically.
+- A shutdown error stays attached to the primary error instead of replacing it.
+
+[Timeouts & Locks]
+- `self.lock` (`RLock`) guards only the pending-request map and buffers.
+  `exchange()` waits for one complete frame; `close()` drains with bounded
+  waits before killing the owned process.
+
+[Side-Effect Policy]
+- Spawns a private stdio-only child under the profile's private root and writes
+  `protocol.jsonl`/`stderr` there. No network access and no workspace mutation.
+"""
 
 from __future__ import annotations
 

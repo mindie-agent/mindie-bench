@@ -32,10 +32,10 @@ result consistency, and 6-lane engineering swimlane attribution) into `mindie-be
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
 import math
 import re
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 SCHEMA_CANN_SENTRY = "mindie-bench-cann-sentry/1"

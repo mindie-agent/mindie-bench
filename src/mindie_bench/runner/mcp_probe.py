@@ -30,6 +30,7 @@ import subprocess
 import sys
 import time
 
+from mindie_bench import __version__
 from mindie_bench.io import digest
 from mindie_bench.runner import graded_view
 from mindie_bench.runner.sandbox import native_command
@@ -149,7 +150,7 @@ def probe_servers(profile, group_config, read_paths, trial_dir, gateway):
                         params=dict(
                             protocolVersion="2024-11-05",
                             capabilities={},
-                            clientInfo=dict(name="mindie-bench-preflight", version="0.1.0"),
+                            clientInfo=dict(name="mindie-bench-preflight", version=__version__),
                         ),
                     )
                 )

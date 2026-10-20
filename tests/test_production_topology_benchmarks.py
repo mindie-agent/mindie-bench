@@ -41,7 +41,7 @@ from mindie_bench.evaluation.production_topology import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TASKS_ROOT = REPO_ROOT / "tasks/production-multi-die"
-OPERATORS = Path("/Volumes/data/code/knowledge-operators")
+OPERATORS = Path(os.environ.get("MINDIE_BENCH_OPERATORS_CORPUS", "/Volumes/data/code/knowledge-operators"))
 A2_HOST = os.environ.get("MINDIE_BENCH_LIVE_A2_HOST", "root@173.125.1.2")
 A3_HOSTS = tuple(
     os.environ.get(

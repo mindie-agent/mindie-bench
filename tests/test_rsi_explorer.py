@@ -579,13 +579,15 @@ class _ContractLease:
     def __init__(self, execution_id, devices):
         self.execution_id = execution_id
         self.devices = list(devices)
+        self.released = False
 
     def receipt(self):
         return {
             "execution_id": self.execution_id,
             "devices": list(self.devices),
-            "state": "running",
+            "state": "released" if self.released else "running",
             "authority": "test-contract-authority",
+            "released": self.released,
         }
 
     def verify(self):
@@ -609,6 +611,7 @@ class _ContractAuthority:
             raise ValueError("result does not preserve the admitted execution ID")
 
     def release(self, lease):
+        lease.released = True
         return lease.receipt()
 
 

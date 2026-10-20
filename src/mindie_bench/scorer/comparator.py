@@ -1,4 +1,26 @@
-"""Compare matched trials only; incompatible frozen baselines are rejected."""
+"""Compare matched trials only; incompatible frozen baselines are rejected.
+
+[Role]
+Loads and integrity-checks `trial_receipt.json` sets (`load_receipts`), builds
+paired baseline/candidate comparisons over the same matrix cells (`comparison`),
+renders the markdown report (`markdown`), freezes verified baselines (`freeze`),
+and groups receipt summaries for the HF exporter (`grouped_summaries`).
+
+[Invariants]
+- A receipt set is compared only when trial IDs and (instance, tier, group,
+  repetition) cells are unique; frozen baselines must match their SHA-256
+  manifest or the comparison fails visibly.
+- An interrupted attempt without a terminal receipt stays UNKNOWN and is never
+  replayed; missing cells are reported, never filled with zero.
+
+[Timeouts & Locks]
+- Pure in-memory/file work; this module owns no subprocess, network call, lock
+  or wall-clock deadline. Callers bound the surrounding capture/verification.
+
+[Side-Effect Policy]
+- Reads receipts; `freeze` creates a new baseline directory and refuses to
+  overwrite it. This module never executes a benchmark or publishes evidence.
+"""
 
 from __future__ import annotations
 

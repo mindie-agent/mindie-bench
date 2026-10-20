@@ -595,7 +595,7 @@ def load_production_benchmark_task(root: str | Path) -> ProductionBenchmarkTask:
     path = Path(root)
     raw = tomllib.loads((path / "task.toml").read_text())
     task = TaskSpec.model_validate(raw)
-    environment = next(iter(task.environment.values()))
+    environment = task.environment.get("l3") or next(iter(task.environment.values()))
     if environment.topology_scale is None or environment.placement is None:
         raise ValueError(f"{path} is missing topology_scale/placement")
     topology = TopologySpec(

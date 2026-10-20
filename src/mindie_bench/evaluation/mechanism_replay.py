@@ -35,8 +35,6 @@ import re
 import time
 from typing import Any, Callable, Mapping, Sequence
 
-from mindie_knowledge.materials.references import ReadReferenceError
-
 from mindie_bench.evaluation.mechanism_replay_cases import (
     CASES,
     Hypothesis,
@@ -636,6 +634,8 @@ def collect_m6_repository_evidence(
     before_active_units: int | None = None,
 ) -> dict[str, Any]:
     """Read a real GradedRepository after U@1 -> U@2; never mutate it."""
+    from mindie_knowledge.materials.references import ReadReferenceError
+
     current_ref = repository.ref(unit_id)
     view = repository.explain(current_ref)
     previous_ref = repository.ref(unit_id, previous_revision)

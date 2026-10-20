@@ -1,4 +1,27 @@
-"""Bounded foreground ownership, streaming journals, and explicit cleanup errors."""
+"""Bounded foreground ownership, streaming journals, and explicit cleanup errors.
+
+[Role]
+Runs one native agent/capture command under the `owner.py` lifetime guard
+(`stream_process`), forwards the prompt over a non-blocking pipe, streams
+stdout/stderr into the trial journal, and reports an explicit stop reason.
+
+[Invariants]
+- `timeout`, cancellation, `gateway.unknown`, and infrastructure errors are the
+  only stop reasons; a completed business result is never overwritten by later
+  cleanup or receipt trouble.
+- Reader/JSONL failures land in `ProcessResult.errors`; a truncated prompt is a
+  `BrokenPipeError`, never a silently successful turn.
+
+[Timeouts & Locks]
+- The `timeout` loop is the outer budget; teardown closes the owner pipe,
+  `SIGKILL`s the owned process group, waits 5s, and joins readers 1s each.
+  The event queue is bounded (`maxsize=32`) so a stalled consumer cannot grow
+  memory without bound.
+
+[Side-Effect Policy]
+- Creates `output`/`stderr` journals exclusively (`open("x")`) and owns the
+  child process group; it never mutates the workspace or remote state.
+"""
 
 from __future__ import annotations
 
