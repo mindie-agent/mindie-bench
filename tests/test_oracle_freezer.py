@@ -4,9 +4,9 @@ import hashlib
 import json
 import os
 import shlex
-import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -171,6 +171,16 @@ def test_local_timeout_stops_owned_descendant_and_keeps_partial_output(
     (root / "verifier/test.sh").write_text(
         f"{shlex.quote(sys.executable)} -I -c {shlex.quote(child)} &\nwait\n"
     )
+    actual_popen = subprocess.Popen
+    owners = []
+
+    def observe_owner(command, *args, **kwargs):
+        process = actual_popen(command, *args, **kwargs)
+        if str(root / "verifier/test.sh") in command:
+            owners.append(process)
+        return process
+
+    monkeypatch.setattr(verifier.subprocess, "Popen", observe_owner)
     if inventory_failure:
         actual_run = subprocess.run
 
@@ -180,34 +190,45 @@ def test_local_timeout_stops_owned_descendant_and_keeps_partial_output(
             return actual_run(command, **kwargs)
 
         monkeypatch.setattr(verifier.subprocess, "run", fail_inventory)
-    child_pid = None
+    late_write = False
     try:
         with pytest.raises((subprocess.TimeoutExpired, UnknownExternalEffects)) as raised:
             local_verifier(
                 *judge, timeout=1, read_paths=[Path(sys.base_prefix), Path(sys.prefix)]
             )
         timeout = raised.value.__cause__ if inventory_failure else raised.value
-        # Parse the original timeout first so even the red phase cleans up its child.
         if timeout is None:
             timeout = raised.value
-        child_pid = int(timeout.stdout.decode().split("child=")[1].splitlines()[0])
         expected = UnknownExternalEffects if inventory_failure else subprocess.TimeoutExpired
         assert isinstance(raised.value, expected)
-        state = subprocess.run(
-            ["ps", "-p", str(child_pid), "-o", "stat="], capture_output=True, text=True
-        ).stdout.strip()
-        assert not state or state.startswith("Z"), "timed-out judge child can still mutate state"
-        assert not sentinel.exists()
+        assert len(owners) == 1 and owners[0].poll() is not None
+        assert b"child=" in timeout.stdout
         assert (trial / "verifier.stdout").read_bytes() == timeout.stdout
         assert (trial / "verifier.stderr").read_bytes() == timeout.stderr
         assert b"judge-started" in timeout.stderr
     finally:
-        # The red phase must not leave the deliberately faulty old implementation running.
-        if child_pid is not None:
-            try:
-                os.kill(child_pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+        # A bubblewrap child's printed PID belongs to its PID namespace.
+        # Only the observed host Popen is a valid signal target for this test.
+        try:
+            for process in owners:
+                if process.poll() is not None:
+                    continue
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=5)
+        finally:
+            # Observe beyond the child's whole sleep even if an earlier assertion
+            # fails. An old implementation's surviving child then writes and exits;
+            # cleanup never guesses a host PID from namespace-local output.
+            if owners:
+                deadline = time.monotonic() + 8.5
+                while time.monotonic() < deadline:
+                    late_write = late_write or sentinel.exists()
+                    time.sleep(0.05)
+                late_write = late_write or sentinel.exists()
+    assert not late_write, "timed-out judge child can still mutate state"
 
 
 def test_probe_hash_uses_actual_bytes_without_newline_normalization(judge):
