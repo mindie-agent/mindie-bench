@@ -41,13 +41,14 @@ from mindie_bench.models import ExperimentConfig, Group, TaskSpec
 
 # The pi-ai provider rejects a custom route model that does not advertise the
 # requested effort. Declare the complete supported ladder, including `off`.
-DSH_REASONING_EFFORTS = {
-    "off": None,
-    "low": "low",
-    "medium": "medium",
-    "high": "high",
-    "xhigh": "xhigh",
-    "max": "max",
+DSH_REASONING_EFFORTS = {"off": None, "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}
+DSH_DEEPSEEK_COMPAT = {
+    "supportsStore": False,
+    "supportsDeveloperRole": False,
+    "maxTokensField": "max_tokens",
+    "requiresReasoningContentOnAssistantMessages": True,
+    "thinkingFormat": "deepseek",
+    "supportsStrictMode": True,
 }
 
 
@@ -497,6 +498,9 @@ def build_dsh_profile(
     # default thinking effort; content, retrieval and ablation groups differ,
     # not the execution mode.
     effort = config.harness.reasoning_effort or "max"
+    is_deepseek = config.harness.api_protocol == "openai-completions" and (
+        "deepseek.com" in (config.harness.provider_url or "").lower() or config.harness.model.startswith("deepseek-")
+    )
     lines = [
         "- id: llm-pi-ai",
         "  name: '@deepseek-ai/dsh-llm-pi-ai'",
@@ -509,6 +513,7 @@ def build_dsh_profile(
         "        models:",
         f"          - id: {json.dumps(config.harness.model)}",
         "            reasoningEfforts: " + json.dumps(DSH_REASONING_EFFORTS),
+        *(["            compat: " + json.dumps(DSH_DEEPSEEK_COMPAT)] if is_deepseek else []),
         "- id: agent-default-model",
         "  name: '@deepseek-ai/dsh-agent-default-model'",
         "  config:",
@@ -745,24 +750,12 @@ def probe_dsh_catalog(
     output = Path(profile.root) / "catalog-checkpoint.probe.json"
     if output.exists():
         output.unlink()
-    env = dict(
-        profile.env,
-        MINDIE_BENCH_CATALOG_CHECKPOINT_OUT=str(output),
-        MINDIE_BENCH_CATALOG_CHECKPOINT_EXIT="1",
-    )
-    stdout_path = trial_dir / "preflight-catalog.stdout"
-    stderr_path = trial_dir / "preflight-catalog.stderr"
+    env = dict(profile.env, MINDIE_BENCH_CATALOG_CHECKPOINT_OUT=str(output), MINDIE_BENCH_CATALOG_CHECKPOINT_EXIT="1")
+    stdout_path, stderr_path = trial_dir / "preflight-catalog.stdout", trial_dir / "preflight-catalog.stderr"
     started = time.monotonic()
     with stdout_path.open("w") as stdout, stderr_path.open("w") as stderr:
         process = subprocess.Popen(
-            command,
-            cwd=workspace,
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=stdout,
-            stderr=stderr,
-            start_new_session=True,
-            text=True,
+            command, cwd=workspace, env=env, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr, start_new_session=True, text=True
         )
         try:
             if process.stdin:
