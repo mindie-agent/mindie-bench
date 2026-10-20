@@ -377,15 +377,19 @@ def run_trial(
     corpus_override: Path | None = None,
     cancelled=None,
     experiment_context: dict | None = None,
+    expected_task_digest: str | None = None,
+    expected_oracle_sha256: str | None = None,
 ) -> TrialReceipt:
     task_root = task_root.resolve(strict=True)
     run_root = run_root.resolve(strict=True)
     trial_started = time.monotonic()
     task = TaskSpec.load(task_root)
+    task_digest = task_hash(task_root)
+    if expected_task_digest is not None and task_digest != expected_task_digest:
+        raise ValueError("selected task changed after product preparation")
     trial_id = f"{task.task.instance_id}_{group.value}_{repetition}_{uuid.uuid4().hex[:12]}"
     trial_dir = run_root / trial_id
     trial_dir.mkdir(mode=0o700)
-    task_digest = task_hash(task_root)
     fingerprint = dict(
         host_os=platform.platform(),
         host_arch=platform.machine(),
@@ -441,6 +445,11 @@ def run_trial(
     capture_started = None
     try:
         oracle_manifest = freeze_oracle(task_root, task.oracle)
+        if (
+            expected_oracle_sha256 is not None
+            and oracle_manifest.sha256 != expected_oracle_sha256
+        ):
+            raise ValueError("selected oracle changed after product preparation")
         auxiliary["oracle_manifest"] = oracle_manifest.to_dict()
         if environment is None:
             raise ValueError(f"task has no {tier} environment")

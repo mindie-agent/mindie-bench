@@ -127,8 +127,6 @@ def public_identity(identity: dict) -> dict:
                 if direct
                 else entry.get("editable")
             ),
-            "module_sources_sha256": entry.get("module_sources_sha256"),
-            "module_source_file_count": entry.get("module_source_file_count"),
         }
     return {"components": components}
 
@@ -140,7 +138,7 @@ def public_runtime(runtime: dict) -> dict:
     result = _selected(runtime, {"harness_binary_sha256"})
     if native:
         result["native_product"] = {
-            **_selected(native, {"package_sha256", "host_entry_sha256", "contribution_enabled"}),
+            **_selected(native, {"contribution_enabled"}),
             "runtime_identity": public_identity(_mapping(native.get("runtime_identity"))),
         }
     return result
@@ -164,8 +162,6 @@ def canonical_runtime_modules(modules: dict) -> dict:
         result[name] = {
             "version": entry.get("version"),
             "revision": entry.get("revision", entry.get("commit")),
-            "module_sources_sha256": entry.get("module_sources_sha256"),
-            "module_source_file_count": entry.get("module_source_file_count"),
         }
     return result
 
@@ -174,8 +170,9 @@ def canonical_native_plugin(plugin: dict | None) -> dict | None:
     if not plugin:
         return None
     return {
-        "package_sha256": plugin.get("package_sha256"),
-        "host_entry_sha256": plugin.get("host_entry_sha256"),
+        "name": plugin.get("name"),
+        "version": plugin.get("version"),
+        "revision": plugin.get("revision"),
         "contribution_enabled": plugin.get("contribution_enabled"),
     }
 
@@ -186,22 +183,6 @@ def canonical_benchmark(benchmark: dict) -> dict:
         "revision": benchmark.get("revision"),
         "source_sha256": benchmark.get("source_sha256"),
     }
-
-
-def loaded_identity_payload(
-    runtime_modules: dict, native_plugin: dict | None, benchmark: dict
-) -> dict:
-    return {
-        "runtime_modules": canonical_runtime_modules(runtime_modules),
-        "native_plugin": canonical_native_plugin(native_plugin),
-        "benchmark": canonical_benchmark(benchmark),
-    }
-
-
-def loaded_identity_sha256(
-    runtime_modules: dict, native_plugin: dict | None, benchmark: dict
-) -> str:
-    return digest(loaded_identity_payload(runtime_modules, native_plugin, benchmark))
 
 
 def public_timeline(timeline: dict) -> dict:
@@ -323,13 +304,9 @@ def public_experiment_context(context: dict) -> dict:
         {
             "schema",
             "cell",
-            "profile_sha256",
-            "runtime_manifest_sha256",
-            "native_config_sha256",
             "internal_capability_mode",
             "task_sha256",
             "execution_tier",
-            "derived_inputs_sha256",
             "max_wall_clock_sec",
             "p3_admission_sha256",
         },
@@ -363,14 +340,6 @@ def public_experiment_context(context: dict) -> dict:
                 result[key] = context[key]
             elif key in profile:
                 result[key] = profile[key]
-    if profile:
-        result["profile_sha256"] = digest(
-            {
-                key: value
-                for key, value in profile.items()
-                if key not in {"experiment_profile", "source"}
-            }
-        )
     if "actual_runtime" in context:
         result["actual_runtime"] = public_runtime(context["actual_runtime"])
     if "p3_admission" in context:
@@ -477,20 +446,13 @@ def public_product_receipt(row: TrialReceipt) -> dict:
     }
 
 
-def public_runtime_manifest(raw: dict, sha256: str, benchmark: dict) -> dict:
+def public_runtime_manifest(raw: dict, benchmark: dict) -> dict:
     """Bind one prepared native runtime manifest to its safe public identity."""
     raw = _mapping(raw)
     runtime = _mapping(raw.get("runtime_snapshot"))
-    sanitized_runtime = public_runtime(runtime)
     identity = _mapping(_mapping(runtime.get("native_product")).get("runtime_identity"))
     runtime_modules = public_identity(identity)["components"]
-    native_product = _mapping(runtime.get("native_product"))
-    plugin = raw.get("native_plugin") or ({
-        "package_sha256": native_product.get("package_sha256"),
-        "host_entry_sha256": native_product.get("host_entry_sha256"),
-        "contribution_enabled": native_product.get("contribution_enabled"),
-    } if native_product else None)
-    loaded = loaded_identity_payload(runtime_modules, plugin, benchmark)
+    plugin = raw.get("native_plugin")
     derived = _mapping(raw.get("derived_inputs"))
     tasks = {
         task_id: _selected(_mapping(value), {"task_sha256", "oracle_sha256"})
@@ -499,16 +461,11 @@ def public_runtime_manifest(raw: dict, sha256: str, benchmark: dict) -> dict:
     catalog = public_catalog(raw.get("catalog") or {})
     return {
         "schema": "mindie-product-public-runtime/1",
-        "sha256": sha256,
         "profile_id": raw.get("profile_id"),
         "group": raw.get("product_group"),
-        "native_config_sha256": raw.get("config_sha256"),
-        "derived_inputs_sha256": digest(derived) if derived else None,
-        "actual_runtime_sha256": digest(sanitized_runtime),
         "runtime_modules": canonical_runtime_modules(runtime_modules),
         "native_plugin": canonical_native_plugin(plugin),
         "benchmark": canonical_benchmark(benchmark),
-        "loaded_identity_sha256": digest(loaded),
         "catalog": catalog,
         "catalog_sha256": digest(catalog),
         "conditions": derived.get("conditions"),

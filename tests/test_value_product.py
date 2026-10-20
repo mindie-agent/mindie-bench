@@ -20,7 +20,6 @@ from mindie_bench.value_product import (
     verify_publication_product,
 )
 from mindie_bench.value_product_public import (
-    loaded_identity_sha256,
     public_admission,
     public_catalog,
 )
@@ -167,12 +166,7 @@ def release_identities() -> dict:
 
 
 def module_identity(name: str, version: str, revision: str) -> dict:
-    return {
-        "version": version,
-        "revision": revision,
-        "module_sources_sha256": _sha("sources:" + name + ":" + revision),
-        "module_source_file_count": 10 + len(name),
-    }
+    return {"version": version, "revision": revision}
 
 
 def runtime_modules(components: dict[str, tuple[str, str]]) -> dict:
@@ -187,8 +181,6 @@ def plugin_identity(version: str, revision: str, seed: str) -> dict:
         "name": "dsh",
         "version": version,
         "revision": revision,
-        "package_sha256": _sha("package:" + seed),
-        "host_entry_sha256": _sha("host:" + seed),
         "contribution_enabled": False,
     }
 
@@ -230,7 +222,6 @@ def source(
         "benchmark": copy.deepcopy(BENCHMARK),
         "catalog": catalog,
         "catalog_sha256": digest(public_catalog(catalog)),
-        "loaded_identity_sha256": loaded_identity_sha256(modules, plugin, BENCHMARK),
     }
     if preparation_id:
         result["preparation_id"] = preparation_id
@@ -336,14 +327,12 @@ def cohort_budget(task_row: dict) -> dict:
     }
 
 
-def runtime_manifest(profile: dict, source_identity: dict, task_rows: list[dict], root: Path) -> tuple[dict, str]:
+def runtime_manifest(profile: dict, source_identity: dict, task_rows: list[dict], root: Path) -> dict:
     modules = source_identity["runtime_modules"]
     plugin = source_identity["native_plugin"]
     runtime = {"harness_binary_sha256": "0" * 64}
     if plugin:
         runtime["native_product"] = {
-            "package_sha256": plugin["package_sha256"],
-            "host_entry_sha256": plugin["host_entry_sha256"],
             "contribution_enabled": False,
             "runtime_identity": {"components": modules},
         }
@@ -376,7 +365,7 @@ def runtime_manifest(profile: dict, source_identity: dict, task_rows: list[dict]
     }
     path = root / f"runtime-{profile['profile_id']}.json"
     write_json(path, raw)
-    return raw, hashlib.sha256(path.read_bytes()).hexdigest()
+    return raw
 
 
 def receipt(
@@ -386,8 +375,6 @@ def receipt(
     cell,
     task_row: dict,
     manifest: dict,
-    manifest_sha: str,
-    profile_sha256: str,
     delivery: float,
     status: str = "completed_pass",
     profile_document: dict | None = None,
@@ -458,15 +445,11 @@ def receipt(
                 "profile_group": profile["group"],
                 "cohort": profile["cohort"],
                 "protocol": profile["protocol"],
-                "profile_sha256": profile_sha256,
                 "runtime_manifest": "/private/runtime.json",
-                "runtime_manifest_sha256": manifest_sha,
-                "native_config_sha256": manifest["config_sha256"],
                 "internal_capability_mode": {"P0_bare_host": "G0", "P1_v002_baseline": "G1", "P2_v003_full": "G2", "P3_v003_flywheel": "G3"}[profile["group"]],
                 "task_sha256": task_row["task_digest"],
                 "execution_tier": task_row["execution_tier"],
                 "actual_runtime": manifest["runtime_snapshot"],
-                "derived_inputs_sha256": digest(manifest["derived_inputs"]),
                 "max_wall_clock_sec": profile["budget"]["max_wall_clock_sec"],
                 "profile": profile_document or profile,
             },
@@ -563,7 +546,7 @@ def make_suite(
             catalog_units=3, preparation_id="current-p2", releases=releases,
         ),
     }
-    manifests, manifest_shas, rows = {}, {}, []
+    manifests, rows = {}, []
     for spec in specs:
         cohort_id = spec["id"]
         cohort_tasks = [spec["task"], *spec.get("extra_tasks", [])]
@@ -610,7 +593,7 @@ def make_suite(
         cohort = bundle["cohorts"][cohort_id]
         for profile in cohort["profiles"].values():
             source_identity = cohort["sources"][profile.group]
-            raw_manifest, manifest_sha = runtime_manifest(
+            raw_manifest = runtime_manifest(
                 {
                     **profile.__dict__,
                     "conditions": profile.conditions.to_dict(),
@@ -621,7 +604,6 @@ def make_suite(
                 tmp_path,
             )
             manifests[profile.profile_id] = raw_manifest
-            manifest_shas[profile.profile_id] = manifest_sha
         for cell in cohort["plan"].cells:
             profile = cohort["profiles"][cell.group]
             source_identity = cohort["sources"][cell.group]
@@ -635,8 +617,6 @@ def make_suite(
                 cell=cell,
                 task_row=next(row for row in tasks if row["task_id"] == cell.task_id),
                 manifest=manifests[profile.profile_id],
-                manifest_sha=manifest_shas[profile.profile_id],
-                profile_sha256=digest(profile.to_dict()),
                 profile_document=profile.to_dict(),
                 delivery={"P0_bare_host": 100.0, "P1_v002_baseline": 110.0, "P2_v003_full": 120.0}[profile.group.value],
             )
@@ -1124,7 +1104,7 @@ def test_required_p3_missing_blocks_and_real_public_collect_verify(tmp_path):
         p3_profile.protocol, p3_task["task_id"], p3_task["task_family"],
         p3_task["hardware_tier"], 1, 0,
     )
-    p3_manifest, p3_manifest_sha = runtime_manifest(
+    p3_manifest = runtime_manifest(
         {
             "profile_id": p3_profile.profile_id,
             "group": p3_profile.group.value,
@@ -1141,8 +1121,8 @@ def test_required_p3_missing_blocks_and_real_public_collect_verify(tmp_path):
             "budget": p3_profile.budget.to_dict(),
         },
         source_identity=p3_source, cell=cell, task_row=p3_task,
-        manifest=p3_manifest, manifest_sha=p3_manifest_sha,
-        profile_sha256=digest(p3_profile.to_dict()), profile_document=p3_profile.to_dict(),
+        manifest=p3_manifest,
+        profile_document=p3_profile.to_dict(),
         delivery=130.0,
     )
     p3_row["environment_fingerprint"]["experiment_context"]["p3_admission"] = binding.admission

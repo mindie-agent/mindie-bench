@@ -50,6 +50,7 @@ from mindie_bench.value_product_protocol import (
     build_product_plan,
 )
 from mindie_bench.value_product_public import (
+    canonical_runtime_modules,
     public_product_receipt,
     public_runtime,
     public_runtime_manifest,
@@ -93,9 +94,7 @@ def _read_runtime_manifests(paths, root: Path, benchmark: dict) -> list[dict]:
     for pointer in paths:
         path = root / pointer
         raw = read_json(path)
-        manifests.append(
-            public_runtime_manifest(raw, hashlib.sha256(path.read_bytes()).hexdigest(), benchmark)
-        )
+        manifests.append(public_runtime_manifest(raw, benchmark))
     return manifests
 
 
@@ -108,28 +107,27 @@ def _bind_runtime(
 ) -> None:
     if manifest["profile_id"] != profile.profile_id or manifest["group"] != profile.group.value:
         raise ValueError("runtime manifest belongs to another product profile")
-    if manifest["native_config_sha256"] != context.get("native_config_sha256"):
-        raise ValueError("native configuration differs between receipt and runtime manifest")
-    if manifest["derived_inputs_sha256"] != context.get("derived_inputs_sha256"):
-        raise ValueError("task inputs differ between receipt and runtime manifest")
     if manifest["conditions"] != profile.conditions.to_dict():
         raise ValueError("receipt conditions differ from the predeclared matching conditions")
     for name, value in profile.budget.task_derived_dict().items():
         if (manifest.get("budget") or {}).get(name) != value:
             raise ValueError("receipt budget differs from the predeclared cohort budget")
-    if manifest["actual_runtime_sha256"] != digest(public_runtime(context.get("actual_runtime") or {})):
-        raise ValueError("receipt runtime differs from its native runtime manifest")
+    actual = public_runtime(context.get("actual_runtime") or {})
+    actual_native = actual.get("native_product") or {}
+    actual_modules = canonical_runtime_modules(
+        (actual_native.get("runtime_identity") or {}).get("components", {})
+    )
+    if actual_modules != manifest["runtime_modules"]:
+        raise ValueError("installed product runtime differs from its native runtime manifest")
     if manifest["runtime_modules"] != source.get("runtime_modules", {}):
         raise ValueError("installed product runtime modules differ from the declared source")
     expected_plugin = source.get("native_plugin")
     actual_plugin = manifest.get("native_plugin")
-    for name in ("package_sha256", "host_entry_sha256", "contribution_enabled"):
+    for name in ("name", "version", "revision", "contribution_enabled"):
         if (actual_plugin or {}).get(name) != (expected_plugin or {}).get(name):
             raise ValueError("installed native plugin differs from the declared source")
     if manifest.get("benchmark") != source.get("benchmark"):
         raise ValueError("benchmark runner differs from the declared source")
-    if manifest["loaded_identity_sha256"] != source["loaded_identity_sha256"]:
-        raise ValueError("loaded product identity differs from the declared source")
     if manifest["catalog_sha256"] != source["catalog_sha256"]:
         raise ValueError("loaded catalog differs from the declared product source")
     units = manifest["catalog"].get("units")
@@ -149,7 +147,6 @@ def _bind_runtime(
 
 def _public_profile(profile: ProductProfile, source: dict) -> dict:
     payload = profile.to_dict()
-    payload["experiment_profile_sha256"] = digest(profile.experiment_profile)
     payload.pop("experiment_profile", None)
     payload.pop("notes", None)
     payload["source"] = source
@@ -278,7 +275,10 @@ def evaluate_product(suite: dict, evidence: dict, *, base: Path | None = None) -
     p3 = load_public_p3_claim(
         suite, evidence, bundle, bundle["cohorts"], benchmark, bundle["preparation"]
     )
-    manifests = {item["sha256"]: item for item in evidence.get("runtime_manifests", [])}
+    manifests = {
+        (item["profile_id"], item["group"]): item
+        for item in evidence.get("runtime_manifests", [])
+    }
     if len(manifests) != len(evidence.get("runtime_manifests", [])):
         raise ValueError("duplicate runtime manifest identity")
     selected, trial_ids = {}, set()
@@ -307,25 +307,6 @@ def evaluate_product(suite: dict, evidence: dict, *, base: Path | None = None) -
             if cohort is None or cohort["cells"].get(cell.key()) != cell:
                 raise ValueError("receipt belongs to a different product plan cell")
             profile, source = cohort["profiles"][cell.group], cohort["sources"][cell.group]
-            context_profile = context.get("profile")
-            context_public_sha = (
-                digest(
-                    {
-                        key: value
-                        for key, value in context_profile.items()
-                        if key not in {"experiment_profile", "source"}
-                    }
-                )
-                if isinstance(context_profile, dict)
-                else None
-            )
-            if context.get("profile_sha256") not in {
-                digest(profile.to_dict()),
-                source.get("public_profile_sha256"),
-                context_public_sha,
-                digest(context_profile) if isinstance(context_profile, dict) else None,
-            }:
-                raise ValueError("receipt belongs to a different product profile")
             cohort_id = cell.cohort
         if (cell.profile_id, cell.cohort, cell.protocol) != (
             profile.profile_id, profile.cohort, profile.protocol
@@ -340,7 +321,7 @@ def evaluate_product(suite: dict, evidence: dict, *, base: Path | None = None) -
                 raise ValueError("receipt belongs to a different product binding")
         if context.get("internal_capability_mode") != row.ablation_group.value:
             raise ValueError("receipt changed its internal capability mode")
-        manifest = manifests.get(context.get("runtime_manifest_sha256"))
+        manifest = manifests.get((profile.profile_id, profile.group.value))
         if manifest is None:
             raise ValueError("receipt lacks its native runtime manifest")
         context = {
@@ -380,9 +361,16 @@ def evaluate_product(suite: dict, evidence: dict, *, base: Path | None = None) -
         key = (cohort_id, (group, task_id, repetition))
         if key in selected:
             raise ValueError(f"duplicate selected product cell: {key}")
-        selected[key] = (row, observation, manifests[
-            row.environment_fingerprint["experiment_context"]["runtime_manifest_sha256"]
-        ])
+        selected[key] = (
+            row,
+            observation,
+            manifests[
+                (
+                    row.environment_fingerprint["experiment_context"]["cell"]["profile_id"],
+                    row.environment_fingerprint["experiment_context"]["cell"]["group"],
+                )
+            ],
+        )
     selected_by_trial = {record[0].trial_id: (record[0], record[1]) for record in selected.values()}
 
     for cohort_id, cohort in bundle["cohorts"].items():

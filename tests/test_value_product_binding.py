@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-
 from test_value_product import (
     BENCHMARK,
     plugin_identity,
@@ -19,7 +17,6 @@ from mindie_bench.runner.product_executor import ProductExecutionBinding
 from mindie_bench.runner.product_inputs import derive_inputs, runtime_snapshot
 from mindie_bench.value_product import evaluate_product, public_suite
 from mindie_bench.value_product_public import (
-    loaded_identity_sha256,
     public_catalog,
     public_experiment_context,
     public_runtime_manifest,
@@ -32,7 +29,9 @@ def test_real_product_execution_binding_context_projects_and_binds(tmp_path, cas
     task_file.write_text(task_file.read_text().replace("\ntimeout_sec = 3\n", "\ntimeout_sec = 30\n"))
     task = TaskSpec.load(case["task"])
     task_id = task.task.instance_id
-    derived = derive_inputs({task_id: case["task"]}, case["config"], "l2")
+    derived = derive_inputs(
+        {task_id: case["task"]}, case["config"], "l2", knowledge_cutoff="2026-10-01"
+    )
     manifest_path = tmp_path / "product-runtime.json"
     benchmark = dict(BENCHMARK)
     profile = ProductProfile(
@@ -56,9 +55,8 @@ def test_real_product_execution_binding_context_projects_and_binds(tmp_path, cas
         "catalog": {"schema": "mindie-catalog/1", "units": 0, "sha256": "0" * 64},
     }
     write_json(manifest_path, raw_manifest)
-    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     binding = ProductExecutionBinding(
-        profile, case["config"], Group.G0, manifest_path, manifest_sha, "l2"
+        profile, case["config"], Group.G0, manifest_path, "l2"
     )
     from mindie_bench.runner.matrix import MatrixTask, plan_product_matrix
 
@@ -73,7 +71,7 @@ def test_real_product_execution_binding_context_projects_and_binds(tmp_path, cas
     assert public_context["protocol"] == profile.protocol
     assert "runtime_manifest" not in public_context
     assert "profile" not in public_context
-    projected_manifest = public_runtime_manifest(raw_manifest, manifest_sha, benchmark)
+    projected_manifest = public_runtime_manifest(raw_manifest, benchmark)
     assert projected_manifest["runtime_modules"] == {}
     assert projected_manifest["native_plugin"] is None
 
@@ -85,7 +83,6 @@ def test_real_product_execution_binding_context_projects_and_binds(tmp_path, cas
     )
     p0_source["catalog"] = raw_manifest["catalog"]
     p0_source["catalog_sha256"] = digest(public_catalog(p0_source["catalog"]))
-    p0_source["loaded_identity_sha256"] = loaded_identity_sha256({}, None, benchmark)
     p1_source = source(
         group="P1_v002_baseline", modules=runtime_modules(releases["formal"]),
         plugin=plugin_identity("0.0.2", releases["formal"]["dsh"][1], "p1"),

@@ -106,21 +106,15 @@ For P1/P2, `product_revision` and `product_artifact_sha256` are the runnable
 DSH native-plugin revision and artifact, not this documentation repository's
 commit or an archive containing value evidence. Each profile source separates:
 
-- `runtime_modules`: the five actual installed module versions/commits and
-  module-source hashes;
+- `runtime_modules`: the five actual installed distribution versions and
+  direct-url Git commits;
 - `product_dependencies`: the formal/final product subset (for 0.0.2 this is
   `knowledge`, `remote-dev`, `diagnostics`);
 - `instrumentation`: the common subset (`coordinator`, `npu-top`), required to
   match across P1/P2 in a cohort;
-- `native_plugin`: the actual DSH package/host hashes plus its declared version
-  and revision;
+- `native_plugin`: the actual DSH name, version and revision;
 - `benchmark`: the common benchmark runner version/revision/source hash;
 - `catalog`: the loaded catalog units and hash (P0 must be zero);
-- `loaded_identity_sha256`: the digest of exactly the runtime modules, native
-  plugin package and benchmark runner above;
-- `public_profile_sha256`: the path-free profile identity (profile fields except
-  `experiment_profile`), used by CI when the public suite has an abstracted
-  profile reference.
 
 ```json
 {
@@ -129,19 +123,18 @@ commit or an archive containing value evidence. Each profile source separates:
     "product_revision": "<40-hex>",
     "product_artifact_sha256": "<64-hex>",
     "runtime_modules": {
-      "knowledge": {"version": "0.12.2", "revision": "<40-hex>", "module_sources_sha256": "<64-hex>", "module_source_file_count": 73},
-      "remote-dev": {"version": "0.10.1", "revision": "<40-hex>", "module_sources_sha256": "<64-hex>", "module_source_file_count": 73},
-      "diagnostics": {"version": "0.4.3", "revision": "<40-hex>", "module_sources_sha256": "<64-hex>", "module_source_file_count": 23},
-      "coordinator": {"version": "0.5.3", "revision": "<40-hex>", "module_sources_sha256": "<64-hex>", "module_source_file_count": 54},
-      "npu-top": {"version": "0.1.9", "revision": "<40-hex>", "module_sources_sha256": "<64-hex>", "module_source_file_count": 19}
+      "knowledge": {"version": "0.12.2", "revision": "<40-hex>"},
+      "remote-dev": {"version": "0.10.1", "revision": "<40-hex>"},
+      "diagnostics": {"version": "0.4.3", "revision": "<40-hex>"},
+      "coordinator": {"version": "0.5.3", "revision": "<40-hex>"},
+      "npu-top": {"version": "0.1.9", "revision": "<40-hex>"}
     },
     "product_dependencies": ["knowledge", "remote-dev", "diagnostics"],
     "instrumentation": ["coordinator", "npu-top"],
-    "native_plugin": {"name": "dsh", "version": "0.0.2", "revision": "d3a1e1282356b65b51fba49072c1842918746f8f", "package_sha256": "<64-hex>", "host_entry_sha256": "<64-hex>", "contribution_enabled": false},
+    "native_plugin": {"name": "dsh", "version": "0.0.2", "revision": "d3a1e1282356b65b51fba49072c1842918746f8f", "contribution_enabled": false},
     "benchmark": {"version": "0.4.0", "revision": "<40-hex common commit>", "source_sha256": "<64-hex>"},
     "catalog": {"schema": "mindie-catalog/1", "units": 3, "sha256": "<64-hex>"},
     "catalog_sha256": "<64-hex>",
-    "loaded_identity_sha256": "<64-hex>",
     "preparation_id": "current-p1"
   }
 }
@@ -314,11 +307,11 @@ consumer raw receipt SHA fields without reading private originals.
 
 Each runtime manifest carries `profile_id`, `product_group`,
 `config_sha256`, `derived_inputs` conditions/budget/task hashes,
-`runtime_snapshot` with actual loaded module identities, `native_plugin`
-package/host hashes, and `catalog`. Each receipt carries the standard
+`runtime_snapshot` with actual loaded module versions/commits, `native_plugin`
+name/version/revision, and `catalog`. Each receipt carries the standard
 `mindie-bench-receipt/1.0` fields plus
-`environment_fingerprint.experiment_context.cell` and its runtime/config/input
-hashes. P3 adds `experiment_context.p3_admission` on the P3 trial receipt.
+`environment_fingerprint.experiment_context.cell` and its actual runtime
+identity. P3 adds `experiment_context.p3_admission` on the P3 trial receipt.
 
 The public report recomputes from these projections: delivery time including
 preparation/verifier/cleanup, model calls, token completeness, NPU runs,

@@ -155,7 +155,6 @@ def _historical_record(item: dict, selected_by_trial: dict, problems: list) -> d
         "replacement_trial_id": item.get("replacement_trial_id"),
         "source_receipt_sha256": item.get("source_receipt_sha256") or digest(item["receipt"]),
         "canonical_receipt_sha256": item.get("canonical_receipt_sha256") or digest(item["receipt"]),
-        "runtime_manifest_sha256": context.get("runtime_manifest_sha256"),
         "benchmark_runner": {
             "version": row.environment_fingerprint.get("benchmark_version"),
             "source_sha256": row.environment_fingerprint.get("benchmark_source_sha256"),

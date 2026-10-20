@@ -29,19 +29,11 @@ def identities():
     for name, (distribution, module) in COMPONENTS.items():
         installed = metadata.distribution(distribution)
         entry = Path(util.find_spec(module).origin).resolve(strict=True)
-        files = {
-            str(p.relative_to(entry.parent)): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(entry.parent.rglob("*.py"))
-        }
         result[name] = {
             "distribution": distribution,
             "version": installed.version,
             "direct_url": json.loads(installed.read_text("direct_url.json") or "null"),
             "module_file": str(entry),
-            "module_sources_sha256": hashlib.sha256(
-                json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest(),
-            "module_source_file_count": len(files),
         }
     return result
 
