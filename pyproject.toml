@@ -26,6 +26,8 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra"
 markers = [
+    "tier0: pure parser and state-contract tests",
+    "tier1: local process and component-contract tests",
     "live_npu: non-destructive live Ascend NPU remote slot verification",
 ]
 

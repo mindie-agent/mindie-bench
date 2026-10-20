@@ -1,0 +1,49 @@
+schema_version = "1.0"
+[task]
+instance_id = "a3-dual-die-tp2-allreduce-placement"
+domain_category = "distributed_topology_correctness"
+difficulty = "hard"
+evidence = "candidate"
+cluster = "a3-same-package-dual-die"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
+task_type = "distributed_correctness"
+validation_scope = "S1 A3 four leased Dies: one candidate sibling-Die TP=2 MatmulAllReduce run whose rank children execute the candidate guard before HCCL, plus a separately labelled cross-package negative-control arm"
+candidate_deliverable = "vllm_ascend/distributed/placement.py with validate_tp_placement, validate_rank_tp2_placement, enforce_visible_tp_placement, integrated into init_ascend_model_parallel for single-node A3 TP=2"
+real_workload = "candidate rank children import the guard before torch/HCCL, then run torch_npu.npu_mm_all_reduce_base on the sibling pair; the cross-package negative control is diagnostic-only under the same four-Die lease"
+runtime_requirements = "A3 16-Die server; four idle Dies visible as /dev/davinciN; ASCEND_RT_VISIBLE_DEVICES set by the remote slot; torch_npu with npu_mm_all_reduce_base; /dev/shm mounted; no model and no network required. The fused operator additionally requires a CANN A3 ops package that includes the MatmulAllReduce kernel for ascend910_93; the managed CANN 8.5.1 package does not."
+acceptance_boundary = "Bounded operator/workload correctness and placement measurement only. It does not establish model-serving throughput, and a negative-control result can never be promoted to a candidate pass. The managed A3 CANN 8.5.1 environment reports `does not support opType [MatmulAllReduce]`; no completed hardware acceptance exists for this task."
+[task.source.topology]
+scale = "S1"
+die_count = 4
+placement = "same_npu_dual_die"
+hosts = ["192.168.13.165"]
+visible_phy_ids = []
+require_clean_shm = true
+[task.source.runtime_limitation]
+status = "not_hardware_accepted"
+hardware_accepted = false
+scope = "managed A3 container mindie-qwen35hist (CANN 8.5.1, Ascend-cann-A3-ops 8.5.1)"
+reason = "matmul_all_reduce_kernel_unavailable"
+soc_version = "ascend910_93"
+cann_version = "8.5.1"
+cann_ops_package = "Ascend-cann-A3-ops 8.5.1"
+observed_error = "aclnnMatmulAllReduce failed with error code 161001: The binary_info_config.json of socVersion [ascend910_93] does not support opType [MatmulAllReduce]."
+evidence = "private-verifier-attempt4 patched execution 93ec7011895397ee0668effe3202cd3c7264e294bd759588aca5603104bf5651: both candidate ranks accepted the guard and destroyed their process groups, the negative-control ranks observed the expected cross-package rejection, and the fused operator failed in CANN."
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "analogical"
+target_files = ["vllm_ascend/distributed/placement.py", "vllm_ascend/distributed/parallel_state.py"]
+conditions = { query = "A3 same NPU package sibling Die Phy-ID 0 1 TP2 MatmulAllReduce HCCL allreduce placement guard cross-package control", topology_scale = "S1", placement = "same_npu_dual_die", die_count = 4, npu_model = "Ascend910", npu_count = 4, hosts = ["192.168.13.165"] }
+[budget]
+max_turns = 40
+max_npu_runs = 8
+timeout_sec = 1200
+verifier_timeout_sec = 600
+[environment.l3]
+repo_path = "../../../repositories/vllm-ascend-idle-dp"
+base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
+npu_model = "Ascend910"
+npu_count = 4

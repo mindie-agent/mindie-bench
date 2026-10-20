@@ -370,13 +370,20 @@ def remote_verifier(
         record["oracle"].update(status="oracle_tampered", error=str(error))
         return value, dict(record, result=value.model_dump())
     nonce = secrets.token_hex(32)
+    verifier_env = {
+        "MINDIE_BENCH_PERFORMANCE_NONCE": nonce,
+        "MINDIE_BENCH_ORACLE_SHA256": oracle_manifest.sha256,
+    }
+    # Remote verifiers must receive the candidate checkout through the same
+    # documented contract as local verifiers. cwd is also the workspace, but an
+    # explicit variable prevents a judge from falling back to the oracle tree.
+    workspace = getattr(remote, "path", None)
+    if workspace:
+        verifier_env["MINDIE_BENCH_WORKSPACE"] = str(workspace)
     try:
         result = remote.verify(
             _private_remote_script(oracle_manifest, oracle_contract, timeout),
-            env={
-                "MINDIE_BENCH_PERFORMANCE_NONCE": nonce,
-                "MINDIE_BENCH_ORACLE_SHA256": oracle_manifest.sha256,
-            },
+            env=verifier_env,
             timeout=timeout,
         )
         write_json(trial_dir / "verifier.remote.json", result)
