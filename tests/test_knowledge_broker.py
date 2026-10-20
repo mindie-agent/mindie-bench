@@ -72,6 +72,7 @@ def start_front(profile, paths, trial, gateway, code=None, args=()):
         cwd=profile.root,
         policy_path=trial / ("client.sb" if not code else "direct-read.sb"),
         gateway_port=gateway.port,
+        gateway_socket=gateway.unix_socket,
     )
     return subprocess.Popen(
         command,
