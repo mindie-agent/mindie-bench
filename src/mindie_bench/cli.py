@@ -133,13 +133,56 @@ def parser():
     verify_value.add_argument("--evidence", type=Path, required=True)
     verify_value.add_argument("--release-manifest", type=Path)
     verify_value.add_argument("--output", type=Path)
+    rsi_catalog = commands.add_parser("rsi-catalog", help="inspect an upstream RSI GPU task checkout")
+    rsi_catalog.add_argument("--source", type=Path, required=True)
+    rsi_catalog.add_argument("--output", type=Path)
+    rsi_run = commands.add_parser("rsi-run", help="hand an RSI task to its bundled Pier runtime")
+    rsi_run.add_argument("--source", type=Path, required=True)
+    rsi_run.add_argument("--task", required=True)
+    rsi_run.add_argument("--agent", required=True)
+    rsi_run.add_argument("--model", required=True)
+    rsi_run.add_argument("--output", type=Path, required=True)
+    rsi_run.add_argument("--backend", choices=["docker", "modal"], default="docker")
+    rsi_run.add_argument("--attempts", type=int, default=1)
+    rsi_run.add_argument("--env-file", type=Path)
+    rsi_run.add_argument("--uv", default="uv")
+    rsi_run.add_argument("--dry-run", action="store_true", help="print the plan without execution")
+    rsi_score = commands.add_parser("rsi-score", help="score original RSI/Pier results by lifecycle track")
+    rsi_score.add_argument("--source", type=Path, required=True)
+    rsi_score.add_argument("--input", type=Path, required=True)
+    rsi_score.add_argument("--output", type=Path, required=True)
+    rsi_score.add_argument("--task", action="append", dest="task_ids")
+    rsi_score.add_argument("--expected-attempts", type=int, default=1)
     return root
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        if args.command == "value-collect":
+        if args.command.startswith("rsi-"):
+            from mindie_bench.integrations.rsi import catalog, execute_plan, plan_run
+
+            if args.command == "rsi-run":
+                result = plan_run(
+                    args.source, task_id=args.task, agent=args.agent, model=args.model,
+                    output=args.output, backend=args.backend, attempts=args.attempts,
+                    env_file=args.env_file, uv=args.uv,
+                )
+                if not args.dry_run:
+                    execute_plan(result)
+            elif args.command == "rsi-catalog":
+                result = catalog(args.source)
+                if args.output:
+                    write_json(args.output, result, exclusive=True)
+            else:
+                from mindie_bench.scorer.rsi import score_results
+
+                result = score_results(
+                    args.input, catalog(args.source), task_ids=args.task_ids,
+                    expected_attempts=args.expected_attempts,
+                )
+                write_json(args.output, result, exclusive=True)
+        elif args.command == "value-collect":
             from mindie_bench.value_release import collect
 
             result = collect(suite=args.suite, manifest=args.manifest, output=args.output)

@@ -1,0 +1,2221 @@
+{
+  "analysis_date": "2026-10-20",
+  "repositories": [
+    {
+      "repository": "mindie-agent/awesome-mindie-skills",
+      "commit": "64c2457d0b05e89c0a0808896a3e10960f536c53",
+      "package_version": null
+    },
+    {
+      "repository": "mindie-agent/coordinator",
+      "commit": "c77144a95dd6af37e978ffc2d8495158b237090d",
+      "package_version": "0.6.0"
+    },
+    {
+      "repository": "mindie-agent/diagnostics",
+      "commit": "6460cde3a50a7f91c9ded38557a7f921654f0c6a",
+      "package_version": "0.5.0"
+    },
+    {
+      "repository": "mindie-agent/knowledge",
+      "commit": "021ba95e701d4f8c8d924e2dcc8f120a4939da23",
+      "package_version": "0.12.2"
+    },
+    {
+      "repository": "mindie-agent/knowledge-vllm-ascend",
+      "commit": "85ab134f333b06ac3873df6affbf3bf6ec71978c",
+      "package_version": null
+    },
+    {
+      "repository": "mindie-agent/mindie-agent",
+      "commit": "bc17f3095cdf3cc16bfb1e803a839fd4ad71686b",
+      "package_version": null
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-cc",
+      "commit": "78f34dd9b09e877298225fa243ea4c28978c9dd6",
+      "package_version": "0.0.2"
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-codex",
+      "commit": "f1acb69ba336f75ae2d909443ca118835b038b9c",
+      "package_version": null
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-dsh",
+      "commit": "d3a1e1282356b65b51fba49072c1842918746f8f",
+      "package_version": "0.0.2"
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-kimi",
+      "commit": "0e78f0422162a61e8c56850e049f9e5fc4d290b5",
+      "package_version": null
+    },
+    {
+      "repository": "mindie-agent/mindie-bench",
+      "commit": "b7301839602ad3791af17f21f5aa47d773b5af2a",
+      "package_version": "0.3.0"
+    },
+    {
+      "repository": "apple-aiml-research/ml-rsi-inference-bench",
+      "commit": "a6b10af282014412b4eae14f3105d68555889821",
+      "package_version": "0.1.0"
+    },
+    {
+      "repository": "mindie-agent/npu-top",
+      "commit": "8f992bf033af57979d6bebf67189a89bb2034d7e",
+      "package_version": "0.2.0"
+    },
+    {
+      "repository": "mindie-agent/remote-dev",
+      "commit": "f441d52f8dcb227ad31adeeeb1d66da4a28915bb",
+      "package_version": "0.10.3"
+    }
+  ],
+  "rsi_categories": {
+    "model_support": 10,
+    "regression": 7,
+    "throughput_optimization": 20
+  },
+  "rsi_tasks": [
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.4,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.85,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.15
+      },
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 4,
+        "memory_mb": 393216,
+        "shm_size_mb": 16384,
+        "storage_mb": 245760
+      },
+      "id": "optimize_dsv4_flash_4xh100_dspark_sglang_open",
+      "model": "deepseek-ai/DeepSeek-V4-Flash-DSpark",
+      "name": "inference-bench/optimize_dsv4_flash_4xh100_dspark_sglang_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 2
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.18",
+      "task_toml_sha256": "1ace4a227818be878aec74efc64df2fc64ff7377e822f87b093f59b94fee9d63",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 21600,
+      "workloads": [
+        {
+          "input_len": 8192,
+          "name": "mtp_longctx_8k",
+          "num_prompts": 64,
+          "output_len": 4096
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.4,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.85,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.15
+      },
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 4,
+        "memory_mb": 393216,
+        "shm_size_mb": 16384,
+        "storage_mb": 245760
+      },
+      "id": "optimize_dsv4_flash_4xh100_sglang_open",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "name": "inference-bench/optimize_dsv4_flash_4xh100_sglang_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 2
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.12.post1",
+      "task_toml_sha256": "2bf2182f295aada610d082d9d7ca931f8798585eccde4ec6b1421a69d43492a9",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 21600,
+      "workloads": [
+        {
+          "input_len": 1024,
+          "max_concurrency": 1,
+          "name": "decode_heavy",
+          "num_prompts": 4,
+          "output_len": 8192
+        },
+        {
+          "input_len": 8192,
+          "max_concurrency": 1,
+          "name": "prefill_heavy",
+          "num_prompts": 256,
+          "output_len": 1
+        },
+        {
+          "input_len": 1024,
+          "name": "high_load",
+          "num_prompts": 256,
+          "output_len": 1024
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.4,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.85,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.15
+      },
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "id": "optimize_dsv4_flash_pd_8xb200_sglang_open",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "name": "inference-bench/optimize_dsv4_flash_pd_8xb200_sglang_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "num_runs_per_workload": {
+          "pd_multiturn": 3
+        },
+        "primary_metric": "pd_latency_itl_geomean_ms",
+        "warmup_runs": 2
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.12.post1",
+      "task_toml_sha256": "6d3fd0ba6fada44af6745692bb887c9106508cbea4d1837fc8c25a04cef34da6",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 21600,
+      "workloads": [
+        {
+          "input_len": 12000,
+          "max_concurrency": 16,
+          "name": "pd_multiturn",
+          "num_prompts": 64,
+          "output_len": 512
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.4,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.85,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.15
+      },
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 786432,
+        "shm_size_mb": 16384,
+        "storage_mb": 1310720
+      },
+      "id": "optimize_dsv4_pro_8xb200_open",
+      "model": "deepseek-ai/DeepSeek-V4-Pro",
+      "name": "inference-bench/optimize_dsv4_pro_8xb200_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 1
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.20.1",
+      "task_toml_sha256": "a1a8cb23811d2624eb07dd55327f993b78911fd47bacce240ae864fb62a59dfd",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 28800,
+      "workloads": [
+        {
+          "input_len": 1024,
+          "max_concurrency": 1,
+          "name": "decode_heavy",
+          "num_prompts": 4,
+          "output_len": 8192
+        },
+        {
+          "input_len": 8192,
+          "max_concurrency": 1,
+          "name": "prefill_heavy",
+          "num_prompts": 256,
+          "output_len": 1
+        },
+        {
+          "input_len": 1024,
+          "name": "high_load",
+          "num_prompts": 256,
+          "output_len": 1024
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.4,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.85,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.15
+      },
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 786432
+      },
+      "id": "optimize_glm_5_2_8xb200_mtp_open",
+      "model": "zai-org/GLM-5.2-FP8",
+      "name": "inference-bench/optimize_glm_5_2_8xb200_mtp_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 1
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.24.0",
+      "task_toml_sha256": "ac2668bf15ad3fc131a654d0e7ff54ba251e47fb19e1dbfefb95768f62029b3f",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 18000,
+      "workloads": [
+        {
+          "input_len": 8192,
+          "name": "mtp_longctx_8k",
+          "num_prompts": 64,
+          "output_len": 4096
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.4,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.85,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.15
+      },
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 786432
+      },
+      "id": "optimize_glm_5_2_8xb200_open",
+      "model": "zai-org/GLM-5.2-FP8",
+      "name": "inference-bench/optimize_glm_5_2_8xb200_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 1
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.24.0",
+      "task_toml_sha256": "9ed6eb08bee09f43d7b371af66b44e849cc03c0b2b1c656e0fecd441d7e5c8f6",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 18000,
+      "workloads": [
+        {
+          "input_len": 1024,
+          "max_concurrency": 1,
+          "name": "decode_heavy",
+          "num_prompts": 4,
+          "output_len": 8192
+        },
+        {
+          "input_len": 8192,
+          "max_concurrency": 1,
+          "name": "prefill_heavy",
+          "num_prompts": 256,
+          "output_len": 1
+        },
+        {
+          "input_len": 1024,
+          "name": "high_load",
+          "num_prompts": 256,
+          "output_len": 1024
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.05,
+        "comparison": "tokens",
+        "max_tokens": 100,
+        "min_pass_rate": 0.95,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.05
+      },
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 2,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 163840
+      },
+      "id": "optimize_gpt_oss_120b_2xh100_open",
+      "model": "openai/gpt-oss-120b",
+      "name": "inference-bench/optimize_gpt_oss_120b_2xh100_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 1
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.19.1",
+      "task_toml_sha256": "978f03fb7ceef1e3c604595d8026cb9f83c5c42e73492ac9fcbcb8dec5a5d37e",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 18000,
+      "workloads": [
+        {
+          "input_len": 1024,
+          "max_concurrency": 1,
+          "name": "decode_heavy",
+          "num_prompts": 4,
+          "output_len": 8192
+        },
+        {
+          "input_len": 8192,
+          "max_concurrency": 1,
+          "name": "prefill_heavy",
+          "num_prompts": 256,
+          "output_len": 1
+        },
+        {
+          "input_len": 1024,
+          "name": "high_load",
+          "num_prompts": 256,
+          "output_len": 1024
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.2,
+        "comparison": "logits",
+        "live_correctness_supported": true,
+        "max_tokens": 100,
+        "min_pass_rate": 0.95,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.1
+      },
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 1048576
+      },
+      "id": "optimize_kimi_k2_6_8xb200_open",
+      "model": "moonshotai/Kimi-K2.6",
+      "name": "inference-bench/optimize_kimi_k2_6_8xb200_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 1
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.20.1",
+      "task_toml_sha256": "97b6aa0f9248b2f175dc0d42f82ffc002b56d9a142c8829879700eaccbd174e0",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 18000,
+      "workloads": [
+        {
+          "input_len": 1024,
+          "max_concurrency": 1,
+          "name": "decode_heavy",
+          "num_prompts": 4,
+          "output_len": 8192
+        },
+        {
+          "input_len": 8192,
+          "max_concurrency": 1,
+          "name": "prefill_heavy",
+          "num_prompts": 256,
+          "output_len": 1
+        },
+        {
+          "input_len": 1024,
+          "name": "high_load",
+          "num_prompts": 256,
+          "output_len": 1024
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 2.5,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.85,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.15
+      },
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 2,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "id": "optimize_kimi_linear_48b_2xb200_sglang_open",
+      "model": "moonshotai/Kimi-Linear-48B-A3B-Instruct",
+      "name": "inference-bench/optimize_kimi_linear_48b_2xb200_sglang_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 2
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.10",
+      "task_toml_sha256": "851257c04209a5585c09d53e567975fcb68cc8a0057a602d50e975bafc8de5df",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 21600,
+      "workloads": [
+        {
+          "input_len": 1024,
+          "max_concurrency": 1,
+          "name": "decode_heavy",
+          "num_prompts": 4,
+          "output_len": 8192
+        },
+        {
+          "input_len": 8192,
+          "max_concurrency": 1,
+          "name": "prefill_heavy",
+          "num_prompts": 256,
+          "output_len": 1
+        },
+        {
+          "input_len": 1024,
+          "name": "high_load",
+          "num_prompts": 256,
+          "output_len": 1024
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.05,
+        "comparison": "logits",
+        "concurrency_floor_c1": 1.0,
+        "concurrency_floor_multi": 0.75,
+        "max_tokens": 100,
+        "min_pass_rate": 0.95,
+        "mode": "loose",
+        "num_prompts": 0,
+        "prompt_exact_floor": 0.95,
+        "rtol": 0.05
+      },
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 1,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "id": "optimize_llada2_mini_1xh100_sglang_open",
+      "model": "inclusionAI/LLaDA2.0-mini-preview",
+      "name": "inference-bench/optimize_llada2_mini_1xh100_sglang_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "num_runs_per_workload": {
+          "dllm_concurrency_sweep": 5
+        },
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 2
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.18",
+      "task_toml_sha256": "37ddfe9515ae9c160c09c998d84523e841344c2db33a776b9f74c8b871f28946",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 21600,
+      "workloads": [
+        {
+          "input_len": 866,
+          "max_concurrency": 64,
+          "name": "dllm_concurrency_sweep",
+          "num_prompts": 192,
+          "output_len": 448
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.52,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.95,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.1
+      },
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 4,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 327680
+      },
+      "id": "optimize_minimax_m2_7_4xh100_sglang_open",
+      "model": "MiniMaxAI/MiniMax-M2.7",
+      "name": "inference-bench/optimize_minimax_m2_7_4xh100_sglang_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 2
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.10",
+      "task_toml_sha256": "f80a352098ad7f4424f9b64e96d5533199b88c391723fa02b1e1e7b2a7dc0f76",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 21600,
+      "workloads": [
+        {
+          "input_len": 1024,
+          "max_concurrency": 1,
+          "name": "decode_heavy",
+          "num_prompts": 4,
+          "output_len": 8192
+        },
+        {
+          "input_len": 8192,
+          "max_concurrency": 1,
+          "name": "prefill_heavy",
+          "num_prompts": 256,
+          "output_len": 1
+        },
+        {
+          "input_len": 1024,
+          "name": "high_load",
+          "num_prompts": 256,
+          "output_len": 1024
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 1.0,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.95,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.1
+      },
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 786432
+      },
+      "id": "optimize_minimax_m3_4xb200_mtp_open",
+      "model": "MiniMaxAI/MiniMax-M3-MXFP8",
+      "name": "inference-bench/optimize_minimax_m3_4xb200_mtp_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 1
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.24.0",
+      "task_toml_sha256": "4297d5b23507c7795caebd4775fbe1f2087c9871ecabdd6ddbad43d36bfe48b7",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 18000,
+      "workloads": [
+        {
+          "input_len": 8192,
+          "name": "mtp_longctx_8k",
+          "num_prompts": 64,
+          "output_len": 4096
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 1.0,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.95,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.1
+      },
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 786432
+      },
+      "id": "optimize_minimax_m3_4xb200_open",
+      "model": "MiniMaxAI/MiniMax-M3-MXFP8",
+      "name": "inference-bench/optimize_minimax_m3_4xb200_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 1
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.24.0",
+      "task_toml_sha256": "cd95e1d7fd07ab75d0652e1a2b3492a21ba2b7b7fa5bd3482f3ac396c873c8df",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 21600,
+      "workloads": [
+        {
+          "input_len": 1024,
+          "max_concurrency": 1,
+          "name": "decode_heavy",
+          "num_prompts": 4,
+          "output_len": 8192
+        },
+        {
+          "input_len": 8192,
+          "max_concurrency": 1,
+          "name": "prefill_heavy",
+          "num_prompts": 256,
+          "output_len": 1
+        },
+        {
+          "input_len": 1024,
+          "name": "high_load",
+          "num_prompts": 256,
+          "output_len": 1024
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 1.0,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.95,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.1
+      },
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "id": "optimize_minimax_m3_pd_8xb200_sglang_open",
+      "model": "MiniMaxAI/MiniMax-M3-MXFP8",
+      "name": "inference-bench/optimize_minimax_m3_pd_8xb200_sglang_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "num_runs_per_workload": {
+          "pd_multiturn": 3
+        },
+        "primary_metric": "pd_latency_itl_geomean_ms",
+        "warmup_runs": 2
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.18",
+      "task_toml_sha256": "34a121d04395f934cbae5254abdb068c459ccf98a496561ff12988e0fb5b9e86",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 21600,
+      "workloads": [
+        {
+          "input_len": 12000,
+          "max_concurrency": 16,
+          "name": "pd_multiturn",
+          "num_prompts": 64,
+          "output_len": 1024
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.36,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.85,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.1
+      },
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 8,
+        "memory_mb": 524288,
+        "shm_size_mb": 16384,
+        "storage_mb": 524288
+      },
+      "id": "optimize_qwen3_5_397b_a17b_fp8_8xh100_mtp_sglang_open",
+      "model": "Qwen/Qwen3.5-397B-A17B-FP8",
+      "name": "inference-bench/optimize_qwen3_5_397b_a17b_fp8_8xh100_mtp_sglang_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 2
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.10",
+      "task_toml_sha256": "4bf6f33c6b517742ad72a27be84a2c77603a190a18c59c95a45ca52ba23c6450",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 21600,
+      "workloads": [
+        {
+          "input_len": 8192,
+          "name": "mtp_longctx_8k",
+          "num_prompts": 64,
+          "output_len": 4096
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.36,
+        "comparison": "tokens",
+        "max_tokens": 100,
+        "min_pass_rate": 0.85,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.1
+      },
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 8,
+        "memory_mb": 524288,
+        "shm_size_mb": 16384,
+        "storage_mb": 524288
+      },
+      "id": "optimize_qwen3_5_397b_a17b_fp8_8xh100_open",
+      "model": "Qwen/Qwen3.5-397B-A17B-FP8",
+      "name": "inference-bench/optimize_qwen3_5_397b_a17b_fp8_8xh100_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 1
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.19.1",
+      "task_toml_sha256": "fa9ab203704998918272d655fad2ce404bd326403b0349e4b310ec9fcd3b0c9c",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 18000,
+      "workloads": [
+        {
+          "input_len": 1024,
+          "max_concurrency": 1,
+          "name": "decode_heavy",
+          "num_prompts": 4,
+          "output_len": 8192
+        },
+        {
+          "input_len": 8192,
+          "max_concurrency": 1,
+          "name": "prefill_heavy",
+          "num_prompts": 256,
+          "output_len": 1
+        },
+        {
+          "input_len": 1024,
+          "name": "high_load",
+          "num_prompts": 256,
+          "output_len": 1024
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.05,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.95,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.05
+      },
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 1,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 163840
+      },
+      "id": "optimize_qwen3_6_27b_1xh100_open",
+      "model": "Qwen/Qwen3.6-27B",
+      "name": "inference-bench/optimize_qwen3_6_27b_1xh100_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 2
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.20.1",
+      "task_toml_sha256": "f36d9f20dd9a9bfcfa2260f9aeb9ed42015797d1f308482149f87e37b9b7a0bc",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 18000,
+      "workloads": [
+        {
+          "input_len": 1024,
+          "max_concurrency": 1,
+          "name": "decode_heavy",
+          "num_prompts": 4,
+          "output_len": 8192
+        },
+        {
+          "input_len": 8192,
+          "max_concurrency": 1,
+          "name": "prefill_heavy",
+          "num_prompts": 256,
+          "output_len": 1
+        },
+        {
+          "input_len": 1024,
+          "name": "high_load",
+          "num_prompts": 256,
+          "output_len": 1024
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.05,
+        "comparison": "tokens",
+        "max_tokens": 100,
+        "min_pass_rate": 0.95,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.05
+      },
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 2,
+        "memory_mb": 524288,
+        "shm_size_mb": 16384,
+        "storage_mb": 327680
+      },
+      "id": "optimize_qwen3_6_27b_pd_2xh100_open",
+      "model": "Qwen/Qwen3.6-27B",
+      "name": "inference-bench/optimize_qwen3_6_27b_pd_2xh100_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "num_runs_per_workload": {
+          "pd_multiturn": 3
+        },
+        "primary_metric": "pd_latency_itl_geomean_ms",
+        "warmup_runs": 1
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.24.0",
+      "task_toml_sha256": "d78ca3e3ef2129accf826b943b9db0757f7604f69d11cc6f349bbb71088bfcb1",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 18000,
+      "workloads": [
+        {
+          "input_len": 12000,
+          "max_concurrency": 16,
+          "name": "pd_multiturn",
+          "num_prompts": 64,
+          "output_len": 512
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.05,
+        "comparison": "logits",
+        "max_tokens": 100,
+        "min_pass_rate": 0.95,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.05
+      },
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 2,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "id": "optimize_qwen3_6_27b_pd_bulk_2xb200_sglang_open",
+      "model": "Qwen/Qwen3.6-27B",
+      "name": "inference-bench/optimize_qwen3_6_27b_pd_bulk_2xb200_sglang_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "num_runs_per_workload": {
+          "pd_multiturn": 3
+        },
+        "primary_metric": "pd_latency_itl_geomean_ms",
+        "warmup_runs": 2
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "v0.5.12.post1",
+      "task_toml_sha256": "ea0d32530615d7557ad7e64d75bd152b6b844e6b062d5c2eaa3941107faf92f8",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 21600,
+      "workloads": [
+        {
+          "input_len": 12000,
+          "max_concurrency": 16,
+          "name": "pd_multiturn",
+          "num_prompts": 64,
+          "output_len": 512
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "throughput_optimization",
+      "correctness": {
+        "atol": 0.05,
+        "comparison": "tokens",
+        "max_tokens": 100,
+        "min_pass_rate": 0.95,
+        "mode": "loose",
+        "num_prompts": 20,
+        "rtol": 0.05
+      },
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 1,
+        "memory_mb": 524288,
+        "shm_size_mb": 16384,
+        "storage_mb": 327680
+      },
+      "id": "optimize_qwen3_8_27b_1xb200_dflash2_open",
+      "model": "Qwen/Qwen3.8-27B",
+      "name": "inference-bench/optimize_qwen3_8_27b_1xb200_dflash2_open",
+      "score_profile": "throughput_optimization_v1",
+      "scoring": {
+        "num_runs": 5,
+        "num_runs_per_workload": {
+          "mtp_longctx_8k": 3
+        },
+        "primary_metric": "tokens_per_second",
+        "warmup_runs": 2
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "v0.28.0",
+      "task_toml_sha256": "d0a451a6aa06c735451efada70b692dce21bd1ef0876fdf5eb21fddf78dde4e1",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 18000,
+      "workloads": [
+        {
+          "input_len": 8192,
+          "name": "mtp_longctx_8k",
+          "num_prompts": 64,
+          "output_len": 4096
+        }
+      ]
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "regression",
+      "correctness": null,
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 8,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 1,
+        "memory_mb": 32768,
+        "shm_size_mb": null,
+        "storage_mb": 65536
+      },
+      "id": "regression_async_spec_decode_throughput",
+      "model": "openai/gpt-oss-120b",
+      "name": "inference-bench/regression_async_spec_decode_throughput",
+      "score_profile": "regression_recovery_v2",
+      "scoring": {
+        "higher_is_better": true,
+        "kind": "regression_recovery",
+        "measured_key": "throughput.total_tokens_per_sec",
+        "metric": "throughput",
+        "noise_floor": 1.03,
+        "oracle_measured_on": "1xB200, the workload matrix: geometric mean of the three scored points, warmed rotated rounds, one engine boot per point. The declared oracle_speedup is that geomean; oracle_speedup_per_workload carries the per-shape values.",
+        "oracle_speedup": 1.17,
+        "oracle_speedup_per_workload": {
+          "in1024_out1024_c256": 1.11,
+          "in1024_out1024_c384": 1.178,
+          "in1024_out1024_c512": 1.226
+        }
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "342c4f147266e7d01a8a6a64754df7e0f7f8991a",
+      "task_toml_sha256": "daa99398922badec635e9afe4753bcc14d0a7cc82eafeca3dccaf3f9f0a2f92f",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 14400,
+      "workloads": {
+        "in1024_out1024_c128": {
+          "input_len": 1024,
+          "max_concurrency": 128,
+          "min_ratio": 0.95,
+          "num_prompts": 256,
+          "output_len": 1024,
+          "role": "guard"
+        },
+        "in1024_out1024_c256": {
+          "input_len": 1024,
+          "max_concurrency": 256,
+          "num_prompts": 512,
+          "output_len": 1024
+        },
+        "in1024_out1024_c384": {
+          "input_len": 1024,
+          "max_concurrency": 384,
+          "num_prompts": 768,
+          "output_len": 1024
+        },
+        "in1024_out1024_c512": {
+          "input_len": 1024,
+          "max_concurrency": 512,
+          "num_prompts": 1024,
+          "output_len": 1024
+        }
+      }
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "regression",
+      "correctness": null,
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 8,
+        "memory_mb": 1048576,
+        "shm_size_mb": 16384,
+        "storage_mb": 2097152
+      },
+      "id": "regression_fp8_decode_throughput",
+      "model": "nvidia/DeepSeek-R1-0528-NVFP4",
+      "name": "inference-bench/regression_fp8_decode_throughput",
+      "score_profile": "regression_recovery_v2",
+      "scoring": {
+        "higher_is_better": false,
+        "kind": "regression_recovery",
+        "measured_key": "latency_ms.tpot.mean",
+        "metric": "tpot",
+        "noise_floor": 1.03,
+        "oracle_measured_on": "8xB200, the workload matrix: geometric mean over three scored points of pristine/candidate mean TPOT, warmed rotated rounds. The declared oracle_speedup is that geomean; oracle_speedup_per_workload carries the per-shape values.",
+        "oracle_speedup": 1.206,
+        "oracle_speedup_per_workload": {
+          "in2_out1000_c2048": 1.168,
+          "in2_out1000_c4096": 1.239,
+          "in2_out1000_c8196": 1.213
+        }
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "a4047d4ea993fd52038433d87c16e603bee4f214",
+      "task_toml_sha256": "17feaa0698ee2ad8bc9d3125c8b64fb1db9c1db76137b532d9a936692b46e383",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 14400,
+      "workloads": {
+        "in2_out1000_c2048": {
+          "input_len": 2,
+          "max_concurrency": 2048,
+          "num_prompts": 2048,
+          "output_len": 1000
+        },
+        "in2_out1000_c4096": {
+          "input_len": 2,
+          "max_concurrency": 4096,
+          "num_prompts": 4096,
+          "output_len": 1000
+        },
+        "in2_out1000_c64": {
+          "input_len": 2,
+          "max_concurrency": 64,
+          "min_ratio": 0.95,
+          "num_prompts": 64,
+          "output_len": 1000,
+          "role": "guard"
+        },
+        "in2_out1000_c8196": {
+          "input_len": 2,
+          "max_concurrency": 8196,
+          "num_prompts": 8196,
+          "output_len": 1000
+        }
+      }
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "regression",
+      "correctness": null,
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 4,
+        "memory_mb": 393216,
+        "shm_size_mb": null,
+        "storage_mb": 307200
+      },
+      "id": "regression_mtp_decode_throughput",
+      "model": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+      "name": "inference-bench/regression_mtp_decode_throughput",
+      "score_profile": "regression_recovery_v2",
+      "scoring": {
+        "higher_is_better": true,
+        "kind": "regression_recovery",
+        "measured_key": "throughput.total_tokens_per_sec",
+        "metric": "throughput",
+        "noise_floor": 1.03,
+        "oracle_measured_on": "4xH100 (geomean of three scored points, each on its own `vllm serve` with a cold compile cache; warmed rotated rounds)",
+        "oracle_speedup": 1.216,
+        "oracle_speedup_per_workload": {
+          "in2048_out1024_c128_n500": 1.173,
+          "in2048_out1024_c192_n750": 1.23,
+          "in2048_out1024_s256": 1.248
+        }
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "c30b405b8f022d41f57042cad7032256d4831355",
+      "task_toml_sha256": "1aa5d01b913260e0d9e2690ad6213960ea470f194c9dc1760b19e934a7818827",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 18000,
+      "workloads": {
+        "in2048_out1024_c128_n500": {
+          "input_len": 2048,
+          "max_concurrency": 128,
+          "num_prompts": 500,
+          "output_len": 1024
+        },
+        "in2048_out1024_c192_n750": {
+          "input_len": 2048,
+          "max_concurrency": 192,
+          "num_prompts": 750,
+          "output_len": 1024
+        },
+        "in2048_out1024_c64_n250": {
+          "input_len": 2048,
+          "max_concurrency": 64,
+          "min_ratio": 0.95,
+          "num_prompts": 250,
+          "output_len": 1024,
+          "role": "guard"
+        },
+        "in2048_out1024_c8_n64": {
+          "input_len": 2048,
+          "max_concurrency": 8,
+          "min_ratio": 0.9,
+          "num_prompts": 64,
+          "output_len": 1024,
+          "role": "guard"
+        },
+        "in2048_out1024_s256": {
+          "input_len": 2048,
+          "max_concurrency": 256,
+          "num_prompts": 1000,
+          "output_len": 1024
+        }
+      }
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "regression",
+      "correctness": {
+        "atol": 0.05,
+        "comparison": "teacher_forced_logprobs",
+        "max_tokens": 8,
+        "min_pass_rate": 0.95,
+        "mode": "enforced",
+        "num_prompts": 16,
+        "rtol": 0.05
+      },
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 1,
+        "memory_mb": 131072,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "id": "regression_multimodal_prefill_ttft",
+      "model": "Qwen/Qwen3.5-4B",
+      "name": "inference-bench/regression_multimodal_prefill_ttft",
+      "score_profile": "regression_recovery_v2",
+      "scoring": {
+        "higher_is_better": false,
+        "kind": "regression_recovery",
+        "measured_key": "latency_ms.ttft.mean",
+        "metric": "ttft",
+        "noise_floor": 1.03,
+        "oracle_measured_on": "1xH100, the served TTFT matrix: geometric mean of the three scored points, warmed rotated rounds. The declared oracle_speedup is that geomean; oracle_speedup_per_workload carries the per-shape values.",
+        "oracle_speedup": 1.62,
+        "oracle_speedup_per_workload": {
+          "img1_randres_n120": 1.919,
+          "img2_randres_n120": 1.701,
+          "img4_randres_n80": 1.301
+        }
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "01a96720c6f690ac00adeed94b762b193d8472cd",
+      "task_toml_sha256": "4818e93f8b490f5bb92bce914c5c394339cc2ae51491fb5a36fad280202237b3",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 9000,
+      "workloads": {
+        "img1_randres_n120": {
+          "concurrency": 1,
+          "image_count": 1,
+          "input_len": 96,
+          "num_prompts": 120,
+          "output_len": 1
+        },
+        "img2_randres_n120": {
+          "concurrency": 1,
+          "image_count": 2,
+          "input_len": 96,
+          "num_prompts": 120,
+          "output_len": 1
+        },
+        "img4_randres_n80": {
+          "concurrency": 1,
+          "image_count": 4,
+          "input_len": 96,
+          "num_prompts": 80,
+          "output_len": 1
+        },
+        "repeat_img2_n120": {
+          "concurrency": 1,
+          "image_count": 2,
+          "input_len": 96,
+          "min_ratio": 0.93,
+          "num_prompts": 120,
+          "output_len": 1,
+          "role": "guard"
+        },
+        "text_fixedlen_n64": {
+          "concurrency": 1,
+          "image_count": 0,
+          "input_len": 2048,
+          "min_ratio": 0.95,
+          "num_prompts": 64,
+          "output_len": 1,
+          "role": "guard"
+        }
+      }
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "regression",
+      "correctness": null,
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 8,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 1,
+        "memory_mb": 65536,
+        "shm_size_mb": null,
+        "storage_mb": 98304
+      },
+      "id": "regression_mxfp4_moe_decode_throughput",
+      "model": "openai/gpt-oss-20b",
+      "name": "inference-bench/regression_mxfp4_moe_decode_throughput",
+      "score_profile": "regression_recovery_v2",
+      "scoring": {
+        "higher_is_better": true,
+        "kind": "regression_recovery",
+        "measured_key": "throughput.output_tokens_per_sec",
+        "metric": "throughput",
+        "noise_floor": 1.03,
+        "oracle_measured_on": "1xH100, the workload matrix: geometric mean of the three scored points, warmed rotated rounds. The declared oracle_speedup is that geomean; oracle_speedup_per_workload carries the per-shape values.",
+        "oracle_speedup": 1.426,
+        "oracle_speedup_per_workload": {
+          "random_in1024_out512_c1": 1.375,
+          "random_in1024_out512_c4": 1.462,
+          "random_in1024_out512_c8": 1.444
+        }
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": null,
+      "task_toml_sha256": "3d65dc6c12594794acd15aa7cbab9f45e9addf5d3e525f8f55aa91fd0e7fd7af",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 10800,
+      "workloads": {
+        "prefill_in4096_out1_c1_ttft": {
+          "input_len": 4096,
+          "lower_is_better": true,
+          "max_concurrency": 1,
+          "metric_key": "latency_ms.ttft.mean",
+          "min_ratio": 0.9,
+          "num_prompts": 32,
+          "output_len": 1,
+          "range_ratio": 1.0,
+          "role": "guard"
+        },
+        "random_in1024_out512_c1": {
+          "input_len": 1024,
+          "max_concurrency": 1,
+          "num_prompts": 16,
+          "output_len": 512,
+          "range_ratio": 1.0
+        },
+        "random_in1024_out512_c32": {
+          "input_len": 1024,
+          "max_concurrency": 32,
+          "min_ratio": 0.95,
+          "num_prompts": 256,
+          "output_len": 512,
+          "range_ratio": 1.0,
+          "role": "guard"
+        },
+        "random_in1024_out512_c4": {
+          "input_len": 1024,
+          "max_concurrency": 4,
+          "num_prompts": 64,
+          "output_len": 512,
+          "range_ratio": 1.0
+        },
+        "random_in1024_out512_c8": {
+          "input_len": 1024,
+          "max_concurrency": 8,
+          "num_prompts": 128,
+          "output_len": 512,
+          "range_ratio": 1.0
+        }
+      }
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "regression",
+      "correctness": null,
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 96,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 786432,
+        "shm_size_mb": 32768,
+        "storage_mb": 409600
+      },
+      "id": "regression_sglang_stream_decode_tps_c1",
+      "model": "openai/gpt-oss-120b",
+      "name": "inference-bench/regression_sglang_stream_decode_tps_c1",
+      "score_profile": "regression_recovery_v2",
+      "scoring": {
+        "higher_is_better": true,
+        "kind": "regression_recovery",
+        "measured_key": "throughput.output_tokens_per_sec",
+        "metric": "throughput",
+        "noise_floor": 1.03,
+        "oracle_measured_on": "4xB200, the workload matrix: geometric mean over the three scored points of streamed output tokens/s, warmed rotated rounds, against the unmodified pristine tree benched in the same run. The declared oracle_speedup is that geomean and oracle_speedup_per_workload carries the per-shape values.",
+        "oracle_speedup": 1.398,
+        "oracle_speedup_per_workload": {
+          "in1000_out1000_n5_c1_stream": 1.428,
+          "in1000_out1000_n8_c4_stream": 1.389,
+          "in1000_out2000_n3_c1_stream": 1.379
+        }
+      },
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": null,
+      "task_toml_sha256": "18e19b77535721d76acc490044e380830fc85d79a70ee5c59038703b7166f8f5",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 10800,
+      "workloads": {
+        "in1000_out1000_n32_c16_stream": {
+          "concurrency": 16,
+          "input_len": 1000,
+          "min_ratio": 0.95,
+          "num_prompts": 32,
+          "output_len": 1000,
+          "role": "guard",
+          "streaming": true
+        },
+        "in1000_out1000_n5_c1_stream": {
+          "concurrency": 1,
+          "input_len": 1000,
+          "num_prompts": 5,
+          "output_len": 1000,
+          "streaming": true
+        },
+        "in1000_out1000_n8_c4_stream": {
+          "concurrency": 4,
+          "input_len": 1000,
+          "num_prompts": 8,
+          "output_len": 1000,
+          "streaming": true
+        },
+        "in1000_out2000_n3_c1_stream": {
+          "concurrency": 1,
+          "input_len": 1000,
+          "num_prompts": 3,
+          "output_len": 2000,
+          "streaming": true
+        },
+        "ttft_c1": {
+          "concurrency": 1,
+          "from": "in1000_out1000_n5_c1_stream",
+          "input_len": 1000,
+          "lower_is_better": true,
+          "metric_key": "latency_ms.ttft.mean",
+          "min_ratio": 0.9,
+          "num_prompts": 5,
+          "output_len": 1000,
+          "role": "guard"
+        }
+      }
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "regression",
+      "correctness": null,
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 16,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 1,
+        "memory_mb": 262144,
+        "shm_size_mb": 16384,
+        "storage_mb": 81920
+      },
+      "id": "regression_spec_decode_acceptance_drop",
+      "model": "meta-llama/Llama-3.1-8B-Instruct",
+      "name": "inference-bench/regression_spec_decode_acceptance_drop",
+      "score_profile": "regression_recovery_v2",
+      "scoring": {
+        "higher_is_better": true,
+        "kind": "regression_recovery",
+        "measured_key": "throughput.total_tokens_per_sec",
+        "metric": "throughput",
+        "noise_floor": 1.03,
+        "oracle_measured_on": "1xH100, the workload matrix: geometric mean of the three scored points, warmed rotated rounds. The declared oracle_speedup is that geomean; oracle_speedup_per_workload carries the per-shape values.",
+        "oracle_speedup": 1.156,
+        "oracle_speedup_per_workload": {
+          "natural_c1_out512": 1.165,
+          "natural_c32_out512": 1.128,
+          "natural_c8_out512": 1.175
+        }
+      },
+      "target_repository": "https://github.com/vllm-project/vllm.git",
+      "target_revision": "95863540538804a48e31ca5806cefbac9d4c5326",
+      "task_toml_sha256": "cc85790d46d7a87b20eebea8f1b81132a31a138f1a9a743cdf91abbc3daffc5a",
+      "track": "optimization",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 10800,
+      "workloads": {
+        "natural_c1_out512": {
+          "input_len": 0,
+          "max_concurrency": 1,
+          "max_model_len": 2048,
+          "num_prompts": 16,
+          "output_len": 512
+        },
+        "natural_c32_out512": {
+          "input_len": 0,
+          "max_concurrency": 32,
+          "max_model_len": 2048,
+          "num_prompts": 128,
+          "output_len": 512
+        },
+        "natural_c8_out512": {
+          "input_len": 0,
+          "max_concurrency": 8,
+          "max_model_len": 2048,
+          "num_prompts": 64,
+          "output_len": 512
+        },
+        "ttft_c8": {
+          "from": "natural_c8_out512",
+          "input_len": 0,
+          "lower_is_better": true,
+          "max_concurrency": 8,
+          "max_model_len": 2048,
+          "metric_key": "latency_ms.ttft.mean",
+          "min_ratio": 0.95,
+          "num_prompts": 64,
+          "output_len": 512,
+          "role": "guard"
+        }
+      }
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 12000,
+      "category": "model_support",
+      "correctness": null,
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 4194304
+      },
+      "id": "support_deepseek_v41_flash_4xb200_vllm",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "name": "inference-bench/support_deepseek_v41_flash_4xb200_vllm",
+      "score_profile": "model_support_upstream_acceptance_v59",
+      "scoring": null,
+      "target_repository": "https://github.com/vllm-project/vllm",
+      "target_revision": "6ead86daeaed3fb406414cc61db23cb214bd7668",
+      "task_toml_sha256": "88fdca05ffdc02af9c15586b59a48c939cc8f4a287a944a936c0e57f8058f0ef",
+      "track": "model_support",
+      "verifier_environment": {
+        "allow_internet": false,
+        "build_timeout_sec": 3600,
+        "cpus": 64,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 4194304
+      },
+      "verifier_environment_mode": "separate",
+      "verifier_timeout_sec": 141963,
+      "workloads": null
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 18000,
+      "category": "model_support",
+      "correctness": null,
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 3145728
+      },
+      "id": "support_deepseek_v4_flash_4xb200_sglang",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "name": "inference-bench/support_deepseek_v4_flash_4xb200_sglang",
+      "score_profile": "model_support_upstream_acceptance_v54",
+      "scoring": null,
+      "target_repository": "https://github.com/sgl-project/sglang",
+      "target_revision": "eac98398e7adc70dd10d8db3ff77226b026000ce",
+      "task_toml_sha256": "e9006dd8956b2b156c5001d182619c690f647f5ef17e55cfa1556213536c8d96",
+      "track": "model_support",
+      "verifier_environment": {
+        "allow_internet": false,
+        "build_timeout_sec": 3600,
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 3145728
+      },
+      "verifier_environment_mode": "separate",
+      "verifier_timeout_sec": 61360,
+      "workloads": null
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 12000,
+      "category": "model_support",
+      "correctness": null,
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 2,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "id": "support_diffusiongemma_26b_a4b_2xh100_vllm",
+      "model": "google/diffusiongemma-26B-A4B-it",
+      "name": "inference-bench/support_diffusiongemma_26b_a4b_2xh100_vllm",
+      "score_profile": "model_support_diffusiongemma_v5",
+      "scoring": null,
+      "target_repository": "https://github.com/vllm-project/vllm",
+      "target_revision": "928e87391806edec70f4d81a0fadab20593dce48",
+      "task_toml_sha256": "451b058f575fba3d0f55e51704ea186ad1466cb843200e374580cf34acf7f407",
+      "track": "model_support",
+      "verifier_environment": {
+        "allow_internet": false,
+        "build_timeout_sec": 3900,
+        "cpus": 64,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 2,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "verifier_environment_mode": "separate",
+      "verifier_timeout_sec": 117185,
+      "workloads": null
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 14400,
+      "category": "model_support",
+      "correctness": null,
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 3145728
+      },
+      "id": "support_glm53_flash_4xb200_sglang",
+      "model": "zai-org/GLM-5.3-Flash",
+      "name": "inference-bench/support_glm53_flash_4xb200_sglang",
+      "score_profile": "model_support_upstream_acceptance_v62",
+      "scoring": null,
+      "target_repository": "https://github.com/sgl-project/sglang",
+      "target_revision": "9f6b624b4b4460f4b62aed3297cd2574dbf02b92",
+      "task_toml_sha256": "7b2ac69edd8622c2044697b6f45e73f7835e946ecc726ddaa47cb6a139a8af4d",
+      "track": "model_support",
+      "verifier_environment": {
+        "allow_internet": false,
+        "build_timeout_sec": 3600,
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 3145728
+      },
+      "verifier_environment_mode": "separate",
+      "verifier_timeout_sec": 54300,
+      "workloads": null
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 21600,
+      "category": "model_support",
+      "correctness": null,
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 2097152
+      },
+      "id": "support_gpt_oss_120b_4xh100_sglang",
+      "model": "openai/gpt-oss-120b",
+      "name": "inference-bench/support_gpt_oss_120b_4xh100_sglang",
+      "score_profile": "model_support_upstream_acceptance_v60",
+      "scoring": null,
+      "target_repository": "https://github.com/sgl-project/sglang",
+      "target_revision": "b525f9e2acb1af15ecf986c0f7539fcbf229c0e9",
+      "task_toml_sha256": "0bea18fdcc1a710904d61eae35428eccc930a7e0dcdb3dcf9ad18d2367c8aeaa",
+      "track": "model_support",
+      "verifier_environment": {
+        "allow_internet": false,
+        "build_timeout_sec": 2700,
+        "cpus": 32,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 2097152
+      },
+      "verifier_environment_mode": "separate",
+      "verifier_timeout_sec": 55252,
+      "workloads": null
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 10800,
+      "category": "model_support",
+      "correctness": null,
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 3145728
+      },
+      "id": "support_inkling_small_4xb200_sglang",
+      "model": "thinkingmachines/Inkling-Small-NVFP4",
+      "name": "inference-bench/support_inkling_small_4xb200_sglang",
+      "score_profile": "model_support_inkling_small_v5",
+      "scoring": null,
+      "target_repository": "https://github.com/sgl-project/sglang",
+      "target_revision": "1183049084a198c8d133edcb843a4e55076ed1ab",
+      "task_toml_sha256": "64c6905bd7551355d15c9ae03cf056569941d5fe3c8751e8808e33a30992955d",
+      "track": "model_support",
+      "verifier_environment": {
+        "allow_internet": false,
+        "build_timeout_sec": 3600,
+        "cpus": 32,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 3145728
+      },
+      "verifier_environment_mode": "separate",
+      "verifier_timeout_sec": 65640,
+      "workloads": null
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 16000,
+      "category": "model_support",
+      "correctness": null,
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 8,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "id": "support_kimi_linear_48b_4xh100_vllm",
+      "model": "moonshotai/Kimi-Linear-48B-A3B-Instruct",
+      "name": "inference-bench/support_kimi_linear_48b_4xh100_vllm",
+      "score_profile": "model_support_upstream_acceptance_v61",
+      "scoring": null,
+      "target_repository": "https://github.com/vllm-project/vllm",
+      "target_revision": "acb5b28091e784d9f6f0a0d61338aa31b5f4b86f",
+      "task_toml_sha256": "3748eccfebd97f819fc50101f8ad40fbfc6f875948226a4e4936ac33646aaa36",
+      "track": "model_support",
+      "verifier_environment": {
+        "allow_internet": false,
+        "build_timeout_sec": 1800,
+        "cpus": 64,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 8,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "verifier_environment_mode": "separate",
+      "verifier_timeout_sec": 105370,
+      "workloads": null
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 12400,
+      "category": "model_support",
+      "correctness": null,
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 1048576,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "id": "support_minimax_m3_4xb200_vllm",
+      "model": "MiniMaxAI/MiniMax-M3-MXFP8",
+      "name": "inference-bench/support_minimax_m3_4xb200_vllm",
+      "score_profile": "model_support_minimax_m3_v4",
+      "scoring": null,
+      "target_repository": "https://github.com/vllm-project/vllm",
+      "target_revision": "138747893727914cd4f499376e82c3b4bf5f0bba",
+      "task_toml_sha256": "07bc47dbc2ad4c1bc84343f90890cb967587c75e279871102ccd3ecfaf0b7d56",
+      "track": "model_support",
+      "verifier_environment": {
+        "allow_internet": false,
+        "build_timeout_sec": 4098,
+        "cpus": 64,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 1048576,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "verifier_environment_mode": "separate",
+      "verifier_timeout_sec": 158330,
+      "workloads": null
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 12400,
+      "category": "model_support",
+      "correctness": null,
+      "engine": "vllm",
+      "hardware": {
+        "cpus": 64,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "id": "support_qwen38_flash_next_4xb200_vllm",
+      "model": "Qwen/Qwen3.8-Flash-Next-FP8",
+      "name": "inference-bench/support_qwen38_flash_next_4xb200_vllm",
+      "score_profile": "model_support_qwen38_expanded_v7",
+      "scoring": null,
+      "target_repository": "https://github.com/vllm-project/vllm",
+      "target_revision": "a5e63c9ee859ceb2f299ff55f063c7c32f94f08b",
+      "task_toml_sha256": "f07f1633cc19465785295d232ae7fe198cfd72e53630f777ed2c91a7271899b7",
+      "track": "model_support",
+      "verifier_environment": {
+        "allow_internet": false,
+        "build_timeout_sec": 3600,
+        "cpus": 64,
+        "gpu_types": [
+          "B200"
+        ],
+        "gpus": 4,
+        "memory_mb": 524288,
+        "shm_size_mb": 65536,
+        "storage_mb": 1048576
+      },
+      "verifier_environment_mode": "separate",
+      "verifier_timeout_sec": 48900,
+      "workloads": null
+    },
+    {
+      "agent_timeout_sec": 30000,
+      "allow_internet": false,
+      "build_timeout_sec": 7200,
+      "category": "model_support",
+      "correctness": null,
+      "engine": "sglang",
+      "hardware": {
+        "cpus": 8,
+        "gpu_types": [
+          "H100"
+        ],
+        "gpus": 2,
+        "memory_mb": 65536,
+        "shm_size_mb": 8192,
+        "storage_mb": 262144
+      },
+      "id": "support_sd3_2xh100_sglang",
+      "model": "stabilityai/stable-diffusion-3-medium-diffusers",
+      "name": "inference-bench/support_sd3_2xh100_sglang",
+      "score_profile": "t_sd3_diffusion_core49_precision_bars_20261008",
+      "scoring": null,
+      "target_repository": "https://github.com/sgl-project/sglang.git",
+      "target_revision": "9e6d1c066ec3445b534eef6ccdcd752f1bddae1f",
+      "task_toml_sha256": "682da84eecae0c176027f1bc58a7858e4e49cd7f2ac5170b952549f4300c7488",
+      "track": "model_support",
+      "verifier_environment": null,
+      "verifier_environment_mode": "shared",
+      "verifier_timeout_sec": 3600,
+      "workloads": null
+    }
+  ]
+}

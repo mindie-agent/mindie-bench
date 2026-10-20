@@ -34,6 +34,12 @@ is currently Codex/Claude-only. See [usage and contracts](docs/usage.md#dsh-head
 
 ## Datasets
 
+[RSI-Inference integration](docs/rsi-inference.md) adds `rsi-catalog`, `rsi-run`
+and `rsi-score` for Apple's 37 original GPU inference-engineering tasks. It
+reuses the upstream Pier runtime and verifier contracts, preserves task-balanced
+support/speedup scores and invalid-run coverage, and keeps external GPU evidence
+separate from native Ascend G0–G3 experiments.
+
 | Dataset | Execution and scope |
 | --- | --- |
 | [Corpus-first L2 recipes](tasks/corpus-first-l2/README.md) | Four real CPU repair contracts and two distinct seed triggers, with complete historical modules, separate public reproduction and hidden judges. |

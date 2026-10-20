@@ -1,5 +1,35 @@
 # Design-principles review
 
+## RSI-Inference adapter (2026-10-20)
+
+- Scope/cost: reuse the source-pinned upstream Pier runtime and all 37 task
+  assets through three explicit CLI operations. No daemon, copied verifier,
+  new runtime dependency, production plugin change or automatic model call.
+- Boundaries: discovery/handoff and receipt scoring are separate modules with
+  invariant headers. GPU evidence retains an external-backend identity and
+  never impersonates a native Ascend or G0–G3 receipt. Source/guide analysis and
+  the catalog snapshot distinguish implementation from future NPU migration.
+- Error visibility: duplicate/conflicting trials and mixed task revisions fail
+  explicitly. Unknown/infra outcomes retain denominators. Missing cells withhold
+  complete track scores. Execution-config fingerprints separate recorded model
+  settings and budgets; credential contents are not exported.
+- Mechanism/timeout reuse: Git reads have a 10-second deadline; execution
+  replaces the CLI process with Pier, retaining its original build, agent,
+  verifier and cleanup budgets. There is no nested timeout or automatic retry.
+- Review corrections: preserve actual ratios below 1 instead of reconstructing
+  them from clipped rewards; give the upstream text void sentinel precedence;
+  do not score partial metrics; set UTF-8 when handing off to upstream Python
+  on Windows; refuse reuse of prior output directories.
+- Verification: 18 new RSI contract tests plus 36 existing scorer/coverage
+  tests pass locally (54 total); whole-repository Ruff passes. Both the adapter
+  and upstream Task loader parse all 37 real tasks. The real Pier CLI parses
+  the generated argv, and four cases use the actual upstream reward functions.
+  Wheel/sdist packaging is checked. The original Windows full-suite attempt
+  stops at five pre-existing native-platform failures (30 pass, one skip);
+  wider performance/contracts checks expose POSIX paths and host clock
+  assumptions. Linux/macOS CI and physical GPU/NPU acceptance are separate
+  evidence, not inferred from these CPU checks.
+
 ## Current benchmark improvements
 
 Reviewed final implementation commit: `52466b4`; its 51-file runtime digest is
