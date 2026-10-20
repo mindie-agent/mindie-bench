@@ -141,6 +141,21 @@ def parser():
     verify_value.add_argument("--evidence", type=Path, required=True)
     verify_value.add_argument("--release-manifest", type=Path)
     verify_value.add_argument("--output", type=Path)
+    replay = commands.add_parser(
+        "mechanism-replay",
+        help="prepare isolated learner prompt views or evaluate M1-01..M6-01 mechanism decisions",
+    )
+    replay.add_argument("--case", required=True)
+    replay.add_argument("--decision", type=Path)
+    replay.add_argument("--prompt-only", action="store_true")
+    replay.add_argument("--output", type=Path, required=True)
+    qual_gate = commands.add_parser(
+        "qualification-gate",
+        help="execute zero-burden G0..G3 qualification gate checks from a JSON specification",
+    )
+    qual_gate.add_argument("--gate", choices=["G0", "G1", "G2", "G3"], required=True)
+    qual_gate.add_argument("--input", type=Path, required=True)
+    qual_gate.add_argument("--output", type=Path, required=True)
     return root
 
 
@@ -160,6 +175,39 @@ def main(argv=None):
             write_json(args.output, result)
             print(json.dumps(result, indent=2, ensure_ascii=False))
             return {"passed": 0, "failed": 1, "inconclusive": 2}[result["status"]]
+        elif args.command == "mechanism-replay":
+            from mindie_bench.evaluation.mechanism_replay import (
+                prepare_learner_prompt_view,
+                run_host_mechanism_replay,
+            )
+
+            if args.prompt_only or not args.decision:
+                result = prepare_learner_prompt_view(args.case)
+                write_json(args.output, result)
+                print(json.dumps(result, indent=2, ensure_ascii=False))
+                return 0
+            result = run_host_mechanism_replay(
+                args.case, decision_payload=read_json(args.decision)
+            )
+            write_json(args.output, result)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return {"completed": 0, "failed": 1, "unknown": 2}[result["state"]]
+        elif args.command == "qualification-gate":
+            from mindie_bench.runner.qualification_gate import (
+                G0Spec,
+                QualificationGateRunner,
+            )
+
+            payload = read_json(args.input)
+            runner = QualificationGateRunner()
+            if args.gate == "G0":
+                gate_result = runner.evaluate_g0_artifacts(G0Spec(**payload))
+            else:
+                raise ValueError(f"unsupported direct JSON gate dispatch: {args.gate}")
+            result = gate_result.to_dict()
+            write_json(args.output, result)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return {"completed": 0, "failed": 1, "unknown": 2}[result["state"]]
         elif args.command == "value-collect":
             from mindie_bench.value_release import collect
 

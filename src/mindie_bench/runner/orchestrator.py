@@ -480,9 +480,12 @@ def run_trial(
         )
         fingerprint.update(profile.fingerprint)
         paths = runtime_paths(config, profile)
+        repo_path = Path(environment.repo_path)
+        if not repo_path.is_absolute() and (task_root / repo_path).exists():
+            repo_path = (task_root / repo_path).resolve(strict=True)
         protected = [
             *(task_root / relative for relative in oracle_manifest.protected_paths),
-            Path(environment.repo_path),
+            repo_path,
             Path.home() / ".codex",
             Path.home() / ".claude",
             Path.home() / ".kimi-code",
@@ -622,7 +625,11 @@ def run_trial(
                 gateway_port=gateway.port,
                 gateway_socket=gateway.unix_socket,
                 directory_watchers=config.harness.name == "kimi",
-                loopback_client_ports=(native_service_instance.port,) if native_service_instance else (),
+                loopback_client_ports=(
+                    getattr(native_service_instance, "ports", None) or (native_service_instance.port,)
+                    if native_service_instance
+                    else ()
+                ),
                 ephemeral_loopback_listener=native_service_instance is not None,
             )
 

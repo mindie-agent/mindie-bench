@@ -1,0 +1,56 @@
+{
+  "schema": "mindie.qwen35-historical-support-set/1.0",
+  "status": "frozen_before_target_output",
+  "context_id": "dsh-dev-qwen35-reference-execution-v1",
+  "model": {
+    "repo": "Qwen/Qwen3.5-0.8B",
+    "revision": "2fc06364715b967f1860aea9cf38778875588b17",
+    "path": "/mnt/weight/Qwen3.5-0.8B",
+    "weight_sha256": "04b1c301231dd422b8860db31311ab2721511346a32cb1e079c4c4e5f1fe4696",
+    "weight_bytes": 1746942600,
+    "config_sha256": "b90b86f35c8e6925ef74ee04d0e758f0a845c83a42089ad82bbaa948de9b4204",
+    "index_sha256": "d8a08838a613b025eb7952ed9db11696213e57e76a375661ef5c12f9dd5dcf4e",
+    "loaded_scope": "full language + vision weights; 473/488 tensors; 15 MTP tensors ignored",
+    "mtp": false,
+    "image_input": false
+  },
+  "controls": {
+    "text_only": true,
+    "prompt": "Hello, my name is",
+    "prompt_utf8_hex": "48656c6c6f2c206d79206e616d65206973",
+    "chat_template": false,
+    "seed": 0,
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "do_sample": false,
+    "max_new_tokens": 8,
+    "eos_token_id": 248044,
+    "tokenizer_eos_token_id": 248046,
+    "eos_note": "both EOS ids are absent from the existing 8 reference tokens",
+    "target_dtype": "bfloat16",
+    "target_dtype_basis": "checkpoint torch_dtype bfloat16 and historical Ascend serving default; not tuned from target",
+    "engine_mode": "eager",
+    "tensor_parallel_size": 1,
+    "pipeline_parallel_size": 1,
+    "max_model_len": 2048,
+    "enable_prefix_caching": false,
+    "cache": "enabled for prefill + incremental decode; no MTP/spec decode",
+    "trust_remote_code": false
+  },
+  "expected_cpu_reference": {
+    "prompt_ids": [9419, 11, 821, 803, 369],
+    "generated_ids": [3629, 13, 353, 1044, 264, 220, 17, 15],
+    "generated_text_no_special": " John. I am a 20",
+    "teacher_forced_logits_sha256": "06b3d086e2ff7e65e81ebe082deee083e1320f2beea5a6d2e23a2f5c0b619261",
+    "cache_step_logits_sha256": "02a7892ecf93f1210dc2234fe5e10c3cb4dc92ba6b9fa43e07022365c7b86290",
+    "full_prefix_logits_sha256": "43cc2f6f70a06e23114fcf7ddb3f61b7ace4d33dc4d74a4483f4e994d3da0064",
+    "generated_ids_sha256": "fcde667461879acad17eef3cc112517708138c59a02f1c04ea7c489f209242bb",
+    "prompt_ids_sha256": "7e8bda2f8f64856287296a18ed414261f768bff942afbc3d69153e1481227a0e"
+  },
+  "comparison": {
+    "primary": "exact tokenizer input IDs and exact eight greedy output IDs/argmax; finite returned logprobs; every individual mismatch visible",
+    "secondary_diagnostic": "chosen-token logprob deltas at generated positions 0..7; optional top-k overlap; no pass threshold set here",
+    "not_claimed": "full-vocab logits, full-vocab accuracy, NPU numeric tolerance, cache-internal equality",
+    "cpu_1e_4": "CPU cache self-consistency only; never an NPU tolerance"
+  }
+}

@@ -1,0 +1,65 @@
+schema_version = "1.0"
+
+[task]
+instance_id = "qwen35-0.8b-historical-language-prefill-decode"
+domain_category = "model_adaptation"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+
+[task.source]
+task_type = "model_adaptation"
+family = "problem:github.com/vllm-project/vllm-ascend/pull/7109"
+owner = "ORIGINAL native DSH Qwen author"
+native_session_id = "session-1779cef2-9a4c-42ea-ab8d-63064c183f60"
+model_repo = "Qwen/Qwen3.5-0.8B"
+model_revision = "2fc06364715b967f1860aea9cf38778875588b17"
+weight_sha256 = "04b1c301231dd422b8860db31311ab2721511346a32cb1e079c4c4e5f1fe4696"
+vllm_commit = "4034c3d32e30d01639459edd3ab486f56993876d"
+ascend_source0 = "a78a00e0b1b618f26a3bfce2519055b40cf4bf1e"
+ascend_after = "0f289fa2a8a381a644a5f329af61715a73ec2aec"
+runtime_status = "verified"
+runtime_requirement = "same preprovisioned and verified historical runtime, fixed fullweight cache and same reset snapshot for all three arms"
+cold_provisioning = "separate shared setup cost; not a P2 causal benefit and not hidden in TaskSpec"
+claim_boundary = "verified 0-model-cost 1-NPU soundness receipt on 192.168.13.165:46000 (source0 a78a00e0 pre-fix recurrent_gated_delta_rule decode failure; after 0f289fa2 exact 8-token greedy match)"
+
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "no_hit"
+same_origin_task_hashes = []
+analogical_task_hashes = []
+oracle_block_ids = []
+target_files = ["vllm_ascend/patch/worker/patch_qwen3_5.py", "vllm_ascend/patch/worker/__init__.py"]
+conditions = {}
+
+[budget]
+max_turns = 40
+max_npu_runs = 8
+timeout_sec = 1800.0
+verifier_timeout_sec = 600.0
+max_output_bytes = 33554432
+
+[environment.l1]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "a78a00e0b1b618f26a3bfce2519055b40cf4bf1e"
+npu_model = "Ascend910"
+npu_count = 1
+replay_commands = ["prepare", "source0", "after"]
+
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "a78a00e0b1b618f26a3bfce2519055b40cf4bf1e"
+npu_model = "Ascend910"
+npu_count = 1
+replay_commands = ["prepare", "source0", "after"]
+
+[environment.l3]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "a78a00e0b1b618f26a3bfce2519055b40cf4bf1e"
+npu_model = "Ascend910"
+npu_count = 1
+replay_commands = ["prepare", "source0", "after"]
+
+[oracle]
+protected_paths = ["environment", "reference", "support-set.json", "verifier"]
+probes = []

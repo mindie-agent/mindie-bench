@@ -1,0 +1,36 @@
+schema_version = "1.0"
+[task]
+instance_id = "qwen35-gdn-dp2-tp2-asymmetric-aclgraph"
+domain_category = "distributed_state_correctness"
+difficulty = "hard"
+evidence = "candidate"
+cluster = "qwen35-gdn-dp2-tp2"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
+task_type = "distributed_correctness"
+validation_scope = "S1 four-Die A3 DP=2 x TP=2 Qwen3.5 GDN hybrid model; asymmetric [B,0]/[1,B] batches under piecewise ACLGraph, Eager reference parity, idle-DP HCCL participation and conv_state/ssm_state isolation"
+runtime_requirements = "REAL Qwen3.5 GDN snapshot supplied as MINDIE_BENCH_QWEN35_MODEL or MINDIE_BENCH_MODEL_PATH; four idle A3 Dies; vllm+torch_npu; DP=2 TP=2 Eager and default ACLGraph arms"
+acceptance_boundary = "BLOCKED / incomplete: no production acceptance path. The verifier only reports blocked prerequisites (unsupported:model_cache_unavailable or unsupported:task_blocked_real_workload_harness_incomplete); it must not be promoted or described as available."
+real_workload = "vllm serve <snapshot> --tensor-parallel-size 2 --data-parallel-size 2 [--enforce-eager]; asymmetric [B,0]/[1,B] requests and repeated-state comparisons"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "analogical"
+target_files = ["vllm_ascend/worker/model_runner_v1.py", "vllm_ascend/ops/gdn.py"]
+conditions = { query = "Qwen3.5 GDN DP2 TP2 asymmetric batch idle DP empty batch ACLGraph conv_state ssm_state HCCL keepalive", topology_scale = "S1", placement = "intra_node_hccs", die_count = 4, npu_model = "Ascend910", npu_count = 4, hosts = ["192.168.13.165"] }
+[budget]
+max_turns = 50
+max_npu_runs = 10
+timeout_sec = 1800
+verifier_timeout_sec = 360
+[environment.l3]
+repo_path = "../../../repositories/vllm-ascend-idle-dp"
+base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
+npu_model = "Ascend910"
+npu_count = 4
+topology_scale = "S1"
+die_count = 4
+placement = "intra_node_hccs"
+hosts = ["192.168.13.165"]
+visible_phy_ids = []

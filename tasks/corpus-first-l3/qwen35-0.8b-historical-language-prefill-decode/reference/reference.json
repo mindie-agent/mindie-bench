@@ -1,0 +1,26 @@
+{
+  "schema": "mindie.qwen35-historical-reference/1.0",
+  "support_set_sha256": "09d733f5c7156c4eff224113e26734711be61c141a07be3d096b0038c7dc872a",
+  "cpu_report_sha256": "61a1bb8bc869b583c2af6d8ad5098eca33dba85e5cc146465490c219cbd2f974",
+  "prompt": "Hello, my name is",
+  "prompt_ids": [9419, 11, 821, 803, 369],
+  "generated_ids": [3629, 13, 353, 1044, 264, 220, 17, 15],
+  "generated_text_no_special": " John. I am a 20",
+  "eos_token_id": 248044,
+  "tokenizer_eos_token_id": 248046,
+  "eos_note": "both EOS ids are absent from the eight accepted reference tokens",
+  "cpu_array_sha256": {
+    "teacher_forced_logits": "06b3d086e2ff7e65e81ebe082deee083e1320f2beea5a6d2e23a2f5c0b619261",
+    "cache_step_logits": "02a7892ecf93f1210dc2234fe5e10c3cb4dc92ba6b9fa43e07022365c7b86290",
+    "full_prefix_logits": "43cc2f6f70a06e23114fcf7ddb3f61b7ace4d33dc4d74a4483f4e994d3da0064",
+    "generated_ids": "fcde667461879acad17eef3cc112517708138c59a02f1c04ea7c489f209242bb",
+    "prompt_ids": "7e8bda2f8f64856287296a18ed414261f768bff942afbc3d69153e1481227a0e"
+  },
+  "comparison": "exact prompt IDs and exact eight greedy IDs; finite returned logprobs; no full-vocab/logit accuracy and no numeric NPU tolerance",
+  "cpu_1e_4": "CPU cache self-consistency only; never an NPU tolerance",
+  "source": {
+    "vllm_commit": "4034c3d32e30d01639459edd3ab486f56993876d",
+    "ascend_source0": "a78a00e0b1b618f26a3bfce2519055b40cf4bf1e",
+    "ascend_after": "0f289fa2a8a381a644a5f329af61715a73ec2aec"
+  }
+}
