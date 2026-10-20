@@ -14,8 +14,8 @@ record four-gate outcomes.
   supported and sub-target-valid candidates are `distill_ready`.
 - Speedup is the default objective. Correctness, localization and diagnosis
   tasks report `goal_met`/`diagnostic_gain` instead of a synthetic ratio.
-- Compiles are CPU-only (`npu_count == 0`); NPU timing is serial, exclusive to
-  the assigned device lease, and admitted only for proved compiles.
+- CPU-only compiles may overlap; device compilation and timing use real
+  coordinator leases through the execution adapter.
 - The ledger is append-only; PROGRESS.md is deterministic and atomically replaced.
 
 [Timeouts & Locks]
@@ -24,7 +24,7 @@ record four-gate outcomes.
   callers own all experiment and NPU timeouts.
 
 [Side-Effect Policy]
-- Only `append_ledger_and_render_progress` writes: the JSONL ledger and PROGRESS.md.
+- Ledger writes are local; the execution entry delegates effects to TaskClient.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ import json
 import math
 import os
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -212,6 +212,21 @@ def _compile_proof(candidate: Mapping[str, Any]) -> bool | None:
     return None
 
 
+def _compile_proved(candidate: Mapping[str, Any]) -> str:
+    """Classify the compile proof that admits a candidate to NPU timing."""
+    proof = _compile_proof(candidate)
+    if proof is True:
+        return "passed"
+    if proof is False:
+        return "failed"
+    return "missing"
+
+
+def _candidate_identity(candidate: Mapping[str, Any], index: int) -> str:
+    raw = candidate.get("candidate_id", candidate.get("id", candidate.get("unit_id")))
+    return str(raw) if raw not in (None, "") else f"candidate-{index}"
+
+
 def _item(candidate_id: str, phase: str, resources: dict[str, Any], **extra: Any) -> dict[str, Any]:
     return {"candidate_id": candidate_id, "phase": phase, "parallel": phase == "compile",
             "resources": resources, **extra}
@@ -239,8 +254,7 @@ def plan_rsi_compile_and_timing(
         raise ValueError("max_compile_slots must be a positive integer")
     devices = _device_lease(npu_device, assigned_devices)
     primary = devices[0]
-    ids = [str(c.get("candidate_id", c.get("id", c.get("unit_id"))) or f"candidate-{i}")
-           for i, c in enumerate(candidates)]
+    ids = [_candidate_identity(c, i) for i, c in enumerate(candidates)]
     if len(set(ids)) != len(ids):
         raise ValueError("candidate IDs must be unique")
     proofs = {identity: _compile_proof(candidate) for identity, candidate in zip(ids, candidates)}
@@ -475,7 +489,20 @@ def _line(value: Any) -> str:
 
 
 def _render_progress(entries: Sequence[Mapping[str, Any]], *, campaign_id: str, goal: str) -> str:
-    entries = list({entry["run_id"]: entry for entry in entries}.values())
+    # Compile failures have no observed execution ID by design. Deduplicate by
+    # run ID only when it exists so separate failed candidates never collapse
+    # into one progress line.
+    unique: dict[str, Mapping[str, Any]] = {}
+    for entry in entries:
+        run_id = str(entry.get("run_id") or "")
+        if run_id:
+            # A later append for the same execution supersedes its earlier view.
+            unique[run_id] = entry
+        else:
+            identity = (f"{entry.get('candidate_id', '')}:"
+                        f"{entry.get('outcome', '')}:{entry.get('gate_reached', '')}")
+            unique.setdefault(identity, entry)
+    entries = list(unique.values())
     supported = [entry for entry in entries if str(entry.get("verdict", "")).lower() == "supported"]
     subtarget = [entry for entry in entries if entry.get("verdict") == "subtarget_valid"]
     refuted = [entry for entry in entries if str(entry.get("verdict", "")).lower() == "refuted"]
@@ -519,3 +546,48 @@ def append_ledger_and_render_progress(
     _append_json_line(ledger, entry)
     text = _render_progress(_read_ledger(ledger), campaign_id=campaign_id, goal=goal)
     _atomic_write_text(_artifact(Path(progress_path), "PROGRESS.md"), text)
+
+
+def execute_rsi_compile_and_timing(
+    candidates: Sequence[Mapping[str, Any]],
+    *,
+    compile_runner: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+    timing_runner: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+    execution_backend: Any = None,
+    lease_authority: Any = None,
+    state_dir: str | Path = "/tmp/mindie-rsi-coordinator",
+    npu_device: int = 0,
+    assigned_devices: Sequence[int] | None = None,
+    max_compile_slots: int = 4,
+    min_speedup_ratio: float = 1.05,
+    max_workspace_delta_bytes: int | None = None,
+    required_guard_workloads: Sequence[str] | None = None,
+    lease_timeout_seconds: float = 300.0,
+    compile_timeout_seconds: float | None = None,
+    ledger_path: str | Path | None = None,
+    progress_path: str | Path | None = None,
+    goal: str = "Optimize operator throughput",
+) -> dict[str, Any]:
+    """Execute the planner through a coordinator-backed RSI execution adapter.
+
+    The implementation lives in `rsi_execution` so the pure context/gate module
+    stays bounded. CPU-only compiles run concurrently; device compilation and
+    every timing callback require a real coordinator lease. Without one, timing
+    is reported unavailable rather than executed beside another owner.
+    ``compile_timeout_seconds=None`` derives the outer compile deadline from the
+    production adapter's inner waits plus cleanup grace.
+    ``state_dir`` is plan/ledger metadata, never a lease authority.
+    """
+    from mindie_bench.runner.rsi_execution import execute_rsi_compile_and_timing as _execute
+
+    return _execute(
+        candidates, compile_runner=compile_runner, timing_runner=timing_runner,
+        execution_backend=execution_backend, lease_authority=lease_authority,
+        state_dir=state_dir, npu_device=npu_device, assigned_devices=assigned_devices,
+        max_compile_slots=max_compile_slots, min_speedup_ratio=min_speedup_ratio,
+        max_workspace_delta_bytes=max_workspace_delta_bytes,
+        required_guard_workloads=required_guard_workloads,
+        lease_timeout_seconds=lease_timeout_seconds,
+        compile_timeout_seconds=compile_timeout_seconds,
+        ledger_path=ledger_path, progress_path=progress_path, goal=goal,
+    )
