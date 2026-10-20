@@ -3,6 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
+import signal
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +17,7 @@ from mindie_bench.evaluation.oracle_freezer import (
     check_oracle,
     freeze_oracle,
 )
-from mindie_bench.models import OracleContract, OracleProbe
+from mindie_bench.models import OracleContract, OracleProbe, UnknownExternalEffects
 from mindie_bench.runner.verifier import local_verifier
 
 
@@ -128,14 +131,17 @@ def test_post_execution_tamper_overrides_forged_pass_and_preserves_raw_stdout(ju
 
     root, *_ = judge
     frozen = freeze_oracle(root)
-    actual_run = verifier.subprocess.run
+    actual_check = verifier.check_oracle
+    checks = 0
 
-    def mutate_after_process(*args, **kwargs):
-        result = actual_run(*args, **kwargs)
-        (root / "oracle/golden.py").write_text("ANSWER = 'forged'\n")
-        return result
+    def mutate_before_post_execution_check(*args, **kwargs):
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            (root / "oracle/golden.py").write_text("ANSWER = 'forged'\n")
+        return actual_check(*args, **kwargs)
 
-    monkeypatch.setattr(verifier.subprocess, "run", mutate_after_process)
+    monkeypatch.setattr(verifier, "check_oracle", mutate_before_post_execution_check)
     verdict, record = verify(judge, oracle_manifest=frozen)
     assert verdict.reward == 0 and verdict.oracle_status == "oracle_tampered"
     assert json.loads((judge[3] / "verifier.stdout").read_text())["reward"] == 1
@@ -145,6 +151,63 @@ def test_post_execution_tamper_overrides_forged_pass_and_preserves_raw_stdout(ju
 def test_legacy_nonperformance_judge_still_runs(judge):
     verdict, record = verify(judge)
     assert verdict.reward == 1 and record["returncode"] == 0
+
+
+@pytest.mark.parametrize("ignore_term, inventory_failure", [(False, False), (True, False), (True, True)])
+def test_local_timeout_stops_owned_descendant_and_keeps_partial_output(
+    judge, monkeypatch, ignore_term, inventory_failure,
+):
+    from mindie_bench.runner import verifier
+
+    root, _workspace, profile, trial = judge
+    sentinel = profile.root / "tmp" / "late-write"
+    child = (
+        "import os,pathlib,signal,time\n"
+        + ("signal.signal(signal.SIGTERM, signal.SIG_IGN)\n" if ignore_term else "")
+        + "print('child='+str(os.getpid()), flush=True)\n"
+        + "print('judge-started', file=__import__('sys').stderr, flush=True)\n"
+        + f"time.sleep(8); pathlib.Path({str(sentinel)!r}).write_text('late mutation')\n"
+    )
+    (root / "verifier/test.sh").write_text(
+        f"{shlex.quote(sys.executable)} -I -c {shlex.quote(child)} &\nwait\n"
+    )
+    if inventory_failure:
+        actual_run = subprocess.run
+
+        def fail_inventory(command, **kwargs):
+            if command == ["ps", "-e", "-o", "pgid=,stat="]:
+                raise OSError("process inventory unavailable")
+            return actual_run(command, **kwargs)
+
+        monkeypatch.setattr(verifier.subprocess, "run", fail_inventory)
+    child_pid = None
+    try:
+        with pytest.raises((subprocess.TimeoutExpired, UnknownExternalEffects)) as raised:
+            local_verifier(
+                *judge, timeout=1, read_paths=[Path(sys.base_prefix), Path(sys.prefix)]
+            )
+        timeout = raised.value.__cause__ if inventory_failure else raised.value
+        # Parse the original timeout first so even the red phase cleans up its child.
+        if timeout is None:
+            timeout = raised.value
+        child_pid = int(timeout.stdout.decode().split("child=")[1].splitlines()[0])
+        expected = UnknownExternalEffects if inventory_failure else subprocess.TimeoutExpired
+        assert isinstance(raised.value, expected)
+        state = subprocess.run(
+            ["ps", "-p", str(child_pid), "-o", "stat="], capture_output=True, text=True
+        ).stdout.strip()
+        assert not state or state.startswith("Z"), "timed-out judge child can still mutate state"
+        assert not sentinel.exists()
+        assert (trial / "verifier.stdout").read_bytes() == timeout.stdout
+        assert (trial / "verifier.stderr").read_bytes() == timeout.stderr
+        assert b"judge-started" in timeout.stderr
+    finally:
+        # The red phase must not leave the deliberately faulty old implementation running.
+        if child_pid is not None:
+            try:
+                os.kill(child_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
 
 def test_probe_hash_uses_actual_bytes_without_newline_normalization(judge):
