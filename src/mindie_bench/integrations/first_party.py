@@ -56,6 +56,12 @@ def packages(corpus):
 
 
 def consumer(corpus, state, revision):
+    from mindie_bench.runner.graded_view import is_graded
+
+    if is_graded(corpus):
+        from mindie_bench.integrations.graded_consumer import GradedConsumer
+
+        return GradedConsumer(corpus, state)
     from mindie_knowledge.materials.store import MaterialStore
 
     store = MaterialStore(state, "vllm-ascend")
@@ -75,6 +81,10 @@ def consumer(corpus, state, revision):
 
 
 def explain(store, ref):
+    from mindie_bench.integrations.graded_consumer import GradedConsumer
+
+    if isinstance(store, GradedConsumer):
+        return store.explain(ref)
     from mindie_knowledge.materials.references import parse_read_ref
 
     selected = parse_read_ref(ref, domain="vllm-ascend")
@@ -131,15 +141,23 @@ def serve(args):
 
         @server.tool()
         async def knowledge_query(
-            query: str | None = None, limit: int = 5, continuation: str | None = None
-        ) -> list[dict]:
+            query: str | None = None,
+            limit: int = 5,
+            continuation: str | None = None,
+            conditions: dict | None = None,
+            include_unknown: bool = False,
+            domain_path: str | None = None,
+        ) -> dict | list[dict]:
             """Search reference experience; retain failures and check current applicability."""
+            request = dict(query=query, limit=limit, continuation=continuation)
+            if conditions is not None or include_unknown:
+                request.update(conditions=conditions, include_unknown=include_unknown)
+            if domain_path is not None:
+                request["domain_path"] = domain_path
             return await invoke(
                 "query",
-                lambda: store.search(query=query, limit=limit, continuation=continuation),
-                query=query,
-                limit=limit,
-                continuation=continuation,
+                lambda: store.search(**request),
+                **request,
             )
 
         @server.tool()
@@ -168,6 +186,7 @@ def git(*arguments, cwd=None):
             check=True,
             capture_output=True,
             text=True,
+            timeout=30,
         ).stdout.strip()
     except subprocess.CalledProcessError as error:
         error.add_note("Git stderr (at most 16 KiB): " + (error.stderr or "")[:16_384])

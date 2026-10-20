@@ -32,6 +32,13 @@ def parser():
     )
     validate.add_argument("--tasks", type=Path, required=True)
     validate.add_argument("--config", type=Path)
+    for name, description in (
+        ("ablation-evaluate", "evaluate measured C4 conditional ablations and sequential pruning"),
+        ("gate-check", "check candidate identity, task correctness and applicable measurement gates"),
+    ):
+        evidence = commands.add_parser(name, help=description)
+        evidence.add_argument("--input", type=Path, required=True)
+        evidence.add_argument("--output", type=Path, required=True)
     coverage = commands.add_parser(
         "coverage", help="check whether a study can answer its declared metric questions"
     )
@@ -139,7 +146,20 @@ def parser():
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        if args.command == "value-collect":
+        if args.command in {"ablation-evaluate", "gate-check"}:
+            from mindie_bench.evaluation.ablation import AblationRequest
+            from mindie_bench.evaluation.gates import GateRequest
+
+            request_type = AblationRequest if args.command == "ablation-evaluate" else GateRequest
+            result = (
+                request_type.model_validate_json(args.input.read_text())
+                .evaluate()
+                .model_dump(mode="json")
+            )
+            write_json(args.output, result)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return {"passed": 0, "failed": 1, "inconclusive": 2}[result["status"]]
+        elif args.command == "value-collect":
             from mindie_bench.value_release import collect
 
             result = collect(suite=args.suite, manifest=args.manifest, output=args.output)

@@ -7,6 +7,14 @@ on:
         description: Exact mindie-bench commit containing this collector and runner
         type: string
         required: true
+      value-suite-path:
+        description: >-
+          Optional exact path inside the checked-out product tag to a value suite
+          (for example docs/releases/0.0.3/value-suite.json). Leave empty to keep
+          the legacy release-tool/benchmarks/product-value-v1.json.
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -57,12 +65,104 @@ jobs:
           python-version: '3.13'
       - name: Install fixed benchmark collector
         run: uv sync --project release-tool --locked
+      - name: Select the value suite inside the product tag
+        id: suite
+        env:
+          VALUE_SUITE_PATH: ${{ inputs.value-suite-path }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, pathlib
+          workspace = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          product = (workspace / "product").resolve()
+          legacy = (workspace / "release-tool/benchmarks/product-value-v1.json").resolve()
+          relative = os.environ.get("VALUE_SUITE_PATH", "").strip()
+          if relative:
+              candidate = pathlib.Path(relative)
+              if candidate.is_absolute() or ".." in candidate.parts or "\\" in relative:
+                  raise SystemExit("value-suite-path must be a confined relative path in the product tag")
+              selected = (product / candidate).resolve()
+              if selected == product or product not in selected.parents:
+                  raise SystemExit("value-suite-path must stay inside the checked-out product tag")
+              if not selected.is_file():
+                  raise SystemExit("value-suite-path does not name an existing product-tag file")
+          else:
+              selected = legacy
+              if not selected.is_file():
+                  raise SystemExit("legacy release-tool/benchmarks/product-value-v1.json is missing")
+          raw = selected.read_bytes()
+          suite = json.loads(raw)
+          schema = suite.get("schema_version")
+          if schema not in {"mindie-value-suite/1", "mindie-value-suite/2"}:
+              raise SystemExit("unsupported value suite schema")
+          identity = {
+              "schema_version": schema,
+              "source_path": (
+                  selected.relative_to(product).as_posix()
+                  if selected.is_relative_to(product)
+                  else "release-tool/benchmarks/product-value-v1.json"
+              ),
+              "sha256": hashlib.sha256(raw).hexdigest(),
+              "selected_from_input": bool(relative),
+          }
+          output = pathlib.Path(os.environ["RUNNER_TEMP"]) / "product-value"
+          output.mkdir(parents=True, exist_ok=True)
+          (output / "value-suite.json").write_bytes(raw)
+          (output / "value-suite-identity.json").write_text(
+              json.dumps(identity, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+              stream.write(f"value_suite={selected}\n")
+              stream.write(f"value_suite_sha256={identity['sha256']}\n")
+              stream.write(f"value_suite_schema={schema}\n")
+          PY
+      - name: Canonicalize the public value suite
+        id: public-suite
+        env:
+          VALUE_SUITE: ${{ steps.suite.outputs.value_suite }}
+          VALUE_SUITE_SCHEMA: ${{ steps.suite.outputs.value_suite_schema }}
+        run: |
+          uv run --project release-tool --no-sync python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from mindie_bench.value_product import public_suite
+          source = Path(os.environ["VALUE_SUITE"])
+          raw = source.read_bytes()
+          suite = json.loads(raw)
+          if suite.get("schema_version") != os.environ["VALUE_SUITE_SCHEMA"]:
+              raise SystemExit("selected value suite schema changed before canonicalization")
+          target = Path(os.environ["RUNNER_TEMP"]) / "product-value/value-suite.json"
+          if suite.get("schema_version") == "mindie-value-suite/2":
+              public = public_suite(suite)
+              data = json.dumps(public, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+              target.write_text(data, encoding="utf-8")
+              public_sha = hashlib.sha256(target.read_bytes()).hexdigest()
+              identity_path = target.parent / "value-suite-identity.json"
+              identity = json.loads(identity_path.read_text())
+              identity.update(
+                  sha256=public_sha,
+                  private_suite_sha256=hashlib.sha256(raw).hexdigest(),
+                  public_canonical=True,
+              )
+              identity_path.write_text(
+                  json.dumps(identity, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+              )
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+                  stream.write(f"value_suite={target}\n")
+                  stream.write(f"value_suite_sha256={public_sha}\n")
+          else:
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+                  stream.write(f"value_suite={source}\n")
+                  stream.write(f"value_suite_sha256={hashlib.sha256(raw).hexdigest()}\n")
+          PY
       - name: Require source-matched product value results
         env:
           PRODUCT_VERSION: ${{ steps.product.outputs.version }}
+          VALUE_SUITE: ${{ steps.public-suite.outputs.value_suite }}
         run: |
+          test -f "$VALUE_SUITE"
           uv run --project release-tool --no-sync mindie-bench value-verify \
-            --suite release-tool/benchmarks/product-value-v1.json \
+            --suite "$VALUE_SUITE" \
             --evidence "product/docs/releases/$PRODUCT_VERSION/value-evidence.json" \
             --release-manifest "product/docs/releases/$PRODUCT_VERSION/benchmark-manifest.json" \
             --output "$RUNNER_TEMP/product-value"
@@ -70,10 +170,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCT_VERSION: ${{ steps.product.outputs.version }}
+          VALUE_SUITE: ${{ steps.public-suite.outputs.value_suite }}
         run: |
           uv run --project release-tool --no-sync python \
             release-tool/.github/scripts/attach_product_value.py \
-            --suite release-tool/benchmarks/product-value-v1.json \
+            --suite "$VALUE_SUITE" \
             --evidence "product/docs/releases/$PRODUCT_VERSION/value-evidence.json" \
             --manifest "product/docs/releases/$PRODUCT_VERSION/benchmark-manifest.json" \
             --output "$RUNNER_TEMP/product-value/components" \
@@ -82,6 +183,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCT_VERSION: ${{ steps.product.outputs.version }}
+          VALUE_SUITE_SCHEMA: ${{ steps.suite.outputs.value_suite_schema }}
         run: |
           uv run --project release-tool --no-sync python \
             release-tool/.github/scripts/collect_product_benchmarks.py \
@@ -94,8 +196,13 @@ jobs:
              "$RUNNER_TEMP/product-value/value-results.md" \
              "$RUNNER_TEMP/product-value/value-homepage.md" \
              "$RUNNER_TEMP/product-value/value-homepage.en.md" \
-             release-tool/benchmarks/product-value-v1.json \
+             "$RUNNER_TEMP/product-value/value-suite.json" \
+             "$RUNNER_TEMP/product-value/value-suite-identity.json" \
              "$RUNNER_TEMP/product-benchmarks/"
+          if [ "$VALUE_SUITE_SCHEMA" = "mindie-value-suite/1" ]; then
+            cp "$RUNNER_TEMP/product-value/value-suite.json" \
+               "$RUNNER_TEMP/product-benchmarks/product-value-v1.json"
+          fi
           tar -C "$RUNNER_TEMP/product-value" -czf \
             "$RUNNER_TEMP/product-benchmarks/component-value-results.tar.gz" components
           python - <<'PY'
@@ -124,6 +231,8 @@ jobs:
             ${{ runner.temp }}/product-benchmarks/value-results.md
             ${{ runner.temp }}/product-benchmarks/value-homepage.md
             ${{ runner.temp }}/product-benchmarks/value-homepage.en.md
+            ${{ runner.temp }}/product-benchmarks/value-suite.json
+            ${{ runner.temp }}/product-benchmarks/value-suite-identity.json
             ${{ runner.temp }}/product-benchmarks/product-value-v1.json
             ${{ runner.temp }}/product-benchmarks/component-value-results.tar.gz
       - name: Recheck product tag and create formal release
@@ -131,22 +240,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCT_VERSION: ${{ steps.product.outputs.version }}
+          VALUE_SUITE_SCHEMA: ${{ steps.suite.outputs.value_suite_schema }}
         run: |
           git fetch --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/release-check/product"
           test "$(git rev-parse 'refs/release-check/product^{commit}')" = "$GITHUB_SHA"
           (cd "$RUNNER_TEMP/product-benchmarks" && sha256sum -c SHA256SUMS)
           cp "docs/releases/$PRODUCT_VERSION.md" "$RUNNER_TEMP/product-release-notes.md"
-          gh release create "$GITHUB_REF_NAME" \
-            "$RUNNER_TEMP/product-benchmarks/benchmark-results.json" \
-            "$RUNNER_TEMP/product-benchmarks/benchmark-results.md" \
-            "$RUNNER_TEMP/product-benchmarks/benchmark-SHA256SUMS" \
-            "$RUNNER_TEMP/product-benchmarks/benchmark-manifest.json" \
-            "$RUNNER_TEMP/product-benchmarks/product-release-provenance.json" \
-            "$RUNNER_TEMP/product-benchmarks/SHA256SUMS" \
-            "$RUNNER_TEMP/product-benchmarks/value-evidence.json" \
-            "$RUNNER_TEMP/product-benchmarks/value-results.json" \
-            "$RUNNER_TEMP/product-benchmarks/value-results.md" \
-            "$RUNNER_TEMP/product-benchmarks/product-value-v1.json" \
-            "$RUNNER_TEMP/product-benchmarks/component-value-results.tar.gz" \
+          assets=(
+            "$RUNNER_TEMP/product-benchmarks/benchmark-results.json"
+            "$RUNNER_TEMP/product-benchmarks/benchmark-results.md"
+            "$RUNNER_TEMP/product-benchmarks/benchmark-SHA256SUMS"
+            "$RUNNER_TEMP/product-benchmarks/benchmark-manifest.json"
+            "$RUNNER_TEMP/product-benchmarks/product-release-provenance.json"
+            "$RUNNER_TEMP/product-benchmarks/SHA256SUMS"
+            "$RUNNER_TEMP/product-benchmarks/value-evidence.json"
+            "$RUNNER_TEMP/product-benchmarks/value-results.json"
+            "$RUNNER_TEMP/product-benchmarks/value-results.md"
+            "$RUNNER_TEMP/product-benchmarks/value-suite.json"
+            "$RUNNER_TEMP/product-benchmarks/value-suite-identity.json"
+            "$RUNNER_TEMP/product-benchmarks/component-value-results.tar.gz"
+          )
+          if [ "$VALUE_SUITE_SCHEMA" = "mindie-value-suite/1" ]; then
+            assets+=("$RUNNER_TEMP/product-benchmarks/product-value-v1.json")
+          fi
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --verify-tag --target "$GITHUB_SHA" --title "$GITHUB_REF_NAME" \
             --notes-file "$RUNNER_TEMP/product-release-notes.md"

@@ -55,8 +55,11 @@ from mindie_bench.models import (
     UnknownExternalEffects,
 )
 from mindie_bench.runner.drivers import driver_for
+from mindie_bench.runner.dsh_summary import SummaryHost, optional_host
 from mindie_bench.runner.gateway import Gateway
 from mindie_bench.runner.mcp_probe import probe_servers
+from mindie_bench.runner.native_product import optional_service
+from mindie_bench.runner.phase_budget import lifecycle_overrun
 from mindie_bench.runner.process import stream_process
 from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profile, filtered_corpus
 from mindie_bench.runner.remote_slot import RemoteSlot
@@ -70,6 +73,60 @@ from mindie_bench.runner.verifier import (
 from mindie_bench.runner.worktree_slot import WorktreeSlot
 from mindie_bench.scorer.comparator import grouped_summaries
 from mindie_bench.scorer.metrics import trajectory_metrics
+
+
+class ProductDeadlineExhausted(RuntimeError):
+    """Preparation consumed the shared product deadline before any model call."""
+
+
+def product_execution_window(
+    experiment_context: dict, task, elapsed_sec: float
+) -> tuple[float, dict]:
+    """Use the predeclared total; never recompute a reserve for the actual arm.
+
+    The experiment context already persists the cohort's total delivery budget.
+    Its difference from the shared execution allowance is the reserve every arm
+    consumes, including cleanup owned by services a particular arm does not start.
+    """
+    declared = float(experiment_context["max_wall_clock_sec"])
+    execution = float(task.budget.timeout_sec)
+    reserve = declared - execution
+    if reserve < 0:
+        raise ValueError("predeclared product budget is smaller than the execution allowance")
+    window = min(execution, declared - elapsed_sec - reserve)
+    if window <= 0:
+        raise ProductDeadlineExhausted(
+            "product preparation exhausted the shared execution deadline"
+        )
+    return window, {
+        "contract": "phase-budget/2",
+        "source": "experiment_context.max_wall_clock_sec",
+        "execution_allowance_sec": execution,
+        "post_agent_reserve_sec": reserve,
+        "total_delivery_sec": declared,
+    }
+
+
+def budget_outcome(
+    status: TerminalStatus, measured_total_sec: float, declared_total_sec: float
+) -> TerminalStatus:
+    """A PASS/FAIL beyond the declared total is a failure; UNKNOWN keeps priority."""
+    if measured_total_sec <= declared_total_sec:
+        return status
+    if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
+        return TerminalStatus.FAIL
+    return status
+
+
+def failure_status(exc: BaseException, phase: str) -> TerminalStatus:
+    """Classify a failure by its truthful stage; only agent uncertainty is UNKNOWN."""
+    if isinstance(exc, CorpusLintRejected):
+        return TerminalStatus.FAIL
+    if isinstance(exc, ProductDeadlineExhausted):
+        return TerminalStatus.INFRA
+    if phase == "agent" or isinstance(exc, UnknownExternalEffects):
+        return TerminalStatus.UNKNOWN
+    return TerminalStatus.INFRA
 
 
 def runtime_paths(config: ExperimentConfig, profile) -> list[Path]:
@@ -99,18 +156,31 @@ RUNTIME_HELPER_MODULES = (
     "mindie_bench.integrations.codex_stop",
     "mindie_bench.integrations.claude_stop",
     "mindie_bench.integrations.first_party",
+    "mindie_bench.integrations.graded_capture",
+    "mindie_bench.runner.dsh_summary",
 )
 
 
-def native_capture_payload(harness, trajectory, profile, workspace):
+def native_capture_payload(harness, trajectory, profile, workspace, *, native_descriptor=None):
     identity = trajectory.native_session_id
     if not identity:
         raise ValueError("G3 capture requires the actual native session identity")
     stop_path = profile.root / "native-stop.json"
-    if harness == "codex":
-        transcripts = list(
-            (Path(profile.env["CODEX_HOME"]) / "sessions").rglob(f"*-{identity}.jsonl")
+    if harness == "dsh":
+        from mindie_bench.integrations.dsh_capture import bind_dsh_capture
+
+        if native_descriptor is None or native_descriptor.get("session_id") != identity:
+            raise ValueError(
+                "DSH capture requires this foreground driver's completed session descriptor"
+            )
+        return bind_dsh_capture(
+            profile_root=profile.root,
+            dsh_home=Path(profile.env["DSH_HOME"]),
+            workspace=workspace,
+            observed=native_descriptor,
         )
+    if harness == "codex":
+        transcripts = list((Path(profile.env["CODEX_HOME"]) / "sessions").rglob(f"*-{identity}.jsonl"))
         if len(transcripts) != 1:
             raise ValueError("G3 cannot identify exactly one native task transcript")
         transcript = transcripts[0].resolve(strict=True)
@@ -306,6 +376,7 @@ def run_trial(
     devices: list[int] | None = None,
     corpus_override: Path | None = None,
     cancelled=None,
+    experiment_context: dict | None = None,
 ) -> TrialReceipt:
     task_root = task_root.resolve(strict=True)
     run_root = run_root.resolve(strict=True)
@@ -341,12 +412,21 @@ def run_trial(
         npu_count=environment.npu_count if environment else None,
         remote_environment=None,
     )
+    # A product experiment is bound before execution. The internal component
+    # mode remains G0..G3; historical receipts never acquire product labels.
+    if experiment_context is not None:
+        fingerprint["experiment_context"] = json.loads(json.dumps(experiment_context))
     write_json(
         trial_dir / "attempt_started.json",
         dict(
             trial_id=trial_id,
             task_digest=task_digest,
             warning="A missing terminal receipt is UNKNOWN. Never automatically resume this attempt.",
+            **(
+                {"experiment_context": fingerprint["experiment_context"]}
+                if experiment_context is not None
+                else {}
+            ),
         ),
         exclusive=True,
     )
@@ -354,7 +434,8 @@ def run_trial(
     trajectory = Trajectory()
     status, reason = TerminalStatus.INFRA, "trial did not start"
     errors, auxiliary, primary = [], {}, {}
-    profile = slot = workspace = remote = result = gateway = None
+    profile = slot = workspace = remote = result = gateway = native_service_instance = None
+    agent_phase_budget = None
     phase = "preflight"
     wall_clock = 0.0
     verifier_record = None
@@ -372,9 +453,7 @@ def run_trial(
             and read_json(task_root / "soundness_receipt.json")["tier"] != tier
         ):
             raise ValueError("soundness proof does not cover the requested execution tier")
-        if group == Group.G3 and not (
-            config.groups.get(group) and config.groups[group].capture_command
-        ):
+        if group == Group.G3 and not (config.groups.get(group) and config.groups[group].capture_command):
             raise ValueError("G3 requires an explicit offline capture adapter")
         if config.harness.name == "fixture" and (
             config.backend != "fixture" or task.task.evidence != "synthetic"
@@ -390,7 +469,14 @@ def run_trial(
             raise ValueError("L3 native evaluation requires the five-component runtime configuration")
         if tier == "l3":
             validate_remote_oracle_contract(task.oracle)
-        profile = build_profile(trial_dir, task, group, config, corpus_override=corpus_override)
+        profile = build_profile(
+            trial_dir,
+            task,
+            group,
+            config,
+            corpus_override=corpus_override,
+            product_experiment=experiment_context is not None,
+        )
         fingerprint.update(profile.fingerprint)
         paths = runtime_paths(config, profile)
         protected = [
@@ -430,7 +516,33 @@ def run_trial(
             raise ValueError(
                 f"harness version mismatch: expected {config.harness.expected_version!r}, got {version!r}"
             )
-        if group == Group.G3 and config.harness.name in {"dsh", "kimi"}:
+        if group == Group.G3 and config.harness.name == "dsh":
+            from mindie_bench.runner import dsh_summary, graded_view
+
+            capture_config = config.groups[group]
+            if (
+                capture_config.capture_protocol != "graded-c6"
+                or not capture_config.dsh_summary_plugin
+                or not task.mindie_knowledge.conditions
+                or not graded_view.is_graded(profile.corpus)
+            ):
+                raise ValueError(
+                    "DSH G3 requires a configured native summary host, graded C6 corpus and actual applicability conditions"
+                )
+            if capture_config.capture_timeout_sec < 1200:
+                raise ValueError(
+                    "graded capture requires 1200s for scanner/model/Git/feed budgets and cleanup"
+                )
+            capture_harness = config.harness.model_copy(
+                update={"model": capture_config.capture_model or config.harness.model}
+            )
+            fingerprint["dsh_summary_profile"] = dsh_summary.prepare(
+                profile, capture_harness, capture_config.dsh_summary_plugin
+            )
+            profile.env["MINDIE_BENCH_GATEWAY"] = "http://127.0.0.1:9"
+            with SummaryHost(profile, read_paths=paths) as summary:
+                fingerprint["capture_sdk_preflight"] = summary.receipt
+        if group == Group.G3 and config.harness.name == "kimi":
             raise ValueError(f"G3 native capture is not supported for the {config.harness.name} harness")
         if group == Group.G3:
             fingerprint["capture_git_preflight"] = probe_capture_git(profile, paths, trial_dir)
@@ -499,17 +611,44 @@ def run_trial(
                 fingerprint["mcp_preflight"] = probe_servers(
                     profile, config.groups.get(group), paths, trial_dir, gateway
                 )
-            command = driver.command(profile, config.harness)
-            command = native_command(
-                command,
+                fingerprint["mcp_preflight_finished_monotonic_sec"] = time.monotonic()
+            native_service = optional_service(profile, paths, trial_dir, gateway)
+            native_service_instance = native_service.__enter__()
+            native_grants = dict(
                 read=paths,
                 write=[workspace, profile.root],
                 cwd=workspace,
-                policy_path=trial_dir / "agent.sb",
                 gateway_port=gateway.port,
                 gateway_socket=gateway.unix_socket,
                 directory_watchers=config.harness.name == "kimi",
+                loopback_client_ports=(native_service_instance.port,) if native_service_instance else (),
+                ephemeral_loopback_listener=native_service_instance is not None,
             )
+
+            def sandboxed(arguments, policy_name):
+                return native_command(
+                    arguments, policy_path=trial_dir / policy_name, **native_grants
+                )
+
+            phase = "preparation"
+            if experiment_context is not None and config.harness.name == "dsh":
+                from mindie_bench.runner.profile_builder import (
+                    assert_catalog_policy,
+                    probe_dsh_catalog,
+                )
+
+                probe_command = sandboxed(
+                    [str(Path(config.harness.executable).absolute()), "--profile", "bench", "--json"],
+                    "catalog-probe.sb",
+                )
+                mounted_catalog = probe_dsh_catalog(
+                    profile, trial_dir, workspace, probe_command
+                )
+                product_group = (experiment_context.get("cell") or {}).get("group")
+                assert_catalog_policy(mounted_catalog["identity"], product_group)
+                fingerprint["preflight_catalog"] = mounted_catalog
+                auxiliary["preflight_catalog"] = mounted_catalog
+            command = sandboxed(driver.command(profile, config.harness), "agent.sb")
             from mindie_bench.runner.profile_builder import knowledge_prompt
 
             prompt = knowledge_prompt(profile) + (task_root / "instruction.md").read_text()
@@ -544,8 +683,17 @@ def run_trial(
                     "Choose validation proportional to the change and observed failures; "
                     "report any unavailable dependencies in your final answer.\n"
                 )
-            phase = "agent"
             auxiliary["preflight_wall_clock_sec"] = time.monotonic() - trial_started
+            agent_timeout = task.budget.timeout_sec
+            if experiment_context is not None:
+                agent_timeout, agent_phase_budget = product_execution_window(
+                    experiment_context,
+                    task,
+                    time.monotonic() - trial_started,
+                )
+                auxiliary["product_agent_timeout_sec"] = agent_timeout
+                auxiliary["product_phase_budget"] = agent_phase_budget
+            phase = "agent"
             result = stream_process(
                 command,
                 env=profile.env,
@@ -553,7 +701,7 @@ def run_trial(
                 prompt=prompt,
                 output=trial_dir / "native_events.jsonl",
                 stderr=trial_dir / "agent.stderr",
-                timeout=task.budget.timeout_sec,
+                timeout=agent_timeout,
                 max_bytes=task.budget.max_output_bytes,
                 consume=driver.consume,
                 gateway=gateway,
@@ -586,7 +734,10 @@ def run_trial(
             ):
                 # A native startup stall never attempted the task. Running the
                 # oracle on its untouched source would misreport model failure.
-                status, reason = TerminalStatus.INFRA, "native startup timed out before any model request or tool call"
+                status, reason = (
+                    TerminalStatus.INFRA,
+                    "native startup timed out before any model request or tool call",
+                )
                 auxiliary["native_process"]["classification"] = "native_startup_infrastructure"
                 auxiliary["native_process"]["observed_model_requests"] = 0
             elif (
@@ -678,10 +829,25 @@ def run_trial(
                 "local_remote": profile.private_env["MINDIE_BENCH_LOCAL_KNOWLEDGE_REMOTE"],
                 "instance_id": task.task.instance_id,
                 "cluster": task.task.cluster,
+                "business_terminal_status": status.value,
+                "capture_conditions": task.mindie_knowledge.conditions,
+                "task_manifest": dict(
+                    instance_id=task.task.instance_id,
+                    conditions=task.mindie_knowledge.conditions,
+                    business_terminal_status=status.value,
+                    verifier=primary.get("performance_metrics"),
+                    benchmark_source_sha256=fingerprint["benchmark_source_sha256"],
+                ),
             }
             if config.harness.name != "fixture":
                 public["native"] = native_capture_payload(
-                    config.harness.name, trajectory, profile, workspace
+                    config.harness.name,
+                    trajectory,
+                    profile,
+                    workspace,
+                    native_descriptor=(
+                        driver.native_capture_payload() if config.harness.name == "dsh" else None
+                    ),
                 )
             corpus_before_capture = tree_hash(profile.corpus)
             capture_harness = config.harness.model_copy(
@@ -701,28 +867,40 @@ def run_trial(
                     MINDIE_BENCH_GATEWAY=capture_gateway.url, ANTHROPIC_BASE_URL=capture_gateway.url
                 )
                 driver_for(config.harness.name).command(profile, capture_harness)
-                capture = native_command(
-                    group_config.capture_command,
-                    read=[*knowledge_paths, profile.private_root],
-                    write=[profile.root, profile.private_root],
-                    cwd=profile.root,
-                    policy_path=trial_dir / "capture.sb",
+                summary_context = optional_host(
+                    profile,
+                    read_paths=knowledge_paths,
                     gateway_port=capture_gateway.port,
                     gateway_socket=capture_gateway.unix_socket,
                 )
-                records = []
-                captured = stream_process(
-                    capture,
-                    env=dict(profile.env, **profile.private_env),
-                    cwd=profile.root,
-                    prompt=json.dumps(public),
-                    output=trial_dir / "capture_events.jsonl",
-                    stderr=trial_dir / "capture.stderr",
-                    timeout=task.budget.verifier_timeout_sec,
-                    max_bytes=task.budget.max_output_bytes,
-                    consume=lambda event, *_: records.append(event),
-                    gateway=capture_gateway,
-                )
+                with summary_context as summary:
+                    if summary is not None:
+                        profile.env["MINDIE_DSH_STATE_DIR"] = summary.env["MINDIE_DSH_STATE_DIR"]
+                    capture = native_command(
+                        group_config.capture_command,
+                        read=[*knowledge_paths, profile.private_root],
+                        write=[profile.root, profile.private_root],
+                        cwd=profile.root,
+                        policy_path=trial_dir / "capture.sb",
+                        gateway_port=capture_gateway.port,
+                        gateway_socket=capture_gateway.unix_socket,
+                        loopback_client_ports=(summary.port,) if summary is not None else (),
+                    )
+                    records = []
+                    captured = stream_process(
+                        capture,
+                        env=dict(profile.env, **profile.private_env),
+                        cwd=profile.root,
+                        prompt=json.dumps(public),
+                        output=trial_dir / "capture_events.jsonl",
+                        stderr=trial_dir / "capture.stderr",
+                        timeout=group_config.capture_timeout_sec,
+                        max_bytes=task.budget.max_output_bytes,
+                        consume=lambda event, *_: records.append(event),
+                        gateway=capture_gateway,
+                    )
+                if summary is not None:
+                    auxiliary["capture_sdk"] = summary.receipt
                 auxiliary["capture_process"] = dict(
                     returncode=captured.returncode,
                     stop_reason=captured.stop_reason,
@@ -789,17 +967,25 @@ def run_trial(
         raise
     except Exception as exc:
         errors.append(dict(stage=phase, type=type(exc).__name__, message=str(exc)))
-        if isinstance(exc, CorpusLintRejected):
-            status = TerminalStatus.FAIL
+        status = failure_status(exc, phase)
+        if status == TerminalStatus.FAIL:
             primary.update(resolved=False, reward=0.0)
-        elif phase == "agent" or isinstance(exc, UnknownExternalEffects):
-            status = TerminalStatus.UNKNOWN
-        else:
-            if phase == "postflight":
-                auxiliary["business_terminal_status"] = status.value
-            status = TerminalStatus.INFRA
+        elif phase == "postflight" and status != TerminalStatus.UNKNOWN:
+            auxiliary["business_terminal_status"] = status.value
         reason = reason if status == TerminalStatus.PASS else f"{phase}: {type(exc).__name__}: {exc}"
     finally:
+        if native_service_instance is not None:
+            try:
+                native_service_instance.close()
+                auxiliary["native_knowledge_service_cleanup"] = "completed"
+            except Exception as exc:
+                errors.append(
+                    dict(stage="native_service_cleanup", type=type(exc).__name__, message=str(exc))
+                )
+                auxiliary["native_knowledge_service_cleanup"] = "failed"
+                if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
+                    auxiliary["business_terminal_status"] = status.value
+                    status, reason = TerminalStatus.INFRA, "native knowledge service cleanup failed"
         auxiliary["capture_wall_clock_sec"] = (
             time.monotonic() - capture_started if capture_started is not None else None
         )
@@ -838,6 +1024,9 @@ def run_trial(
                     trial_dir / "broker.jsonl",
                     process_origin_monotonic_sec=(
                         result.started_monotonic_sec if result is not None else None
+                    ),
+                    preflight_finished_monotonic_sec=fingerprint.get(
+                        "mcp_preflight_finished_monotonic_sec"
                     ),
                 )
                 write_json(trial_dir / "broker_knowledge.json", broker_knowledge, exclusive=True)
@@ -885,6 +1074,10 @@ def run_trial(
             if status != TerminalStatus.UNKNOWN:
                 status, reason = TerminalStatus.INFRA, "trajectory scoring failed"
         if gateway:
+            primary["model_calls"] = gateway.model_calls + auxiliary.get("capture_model_calls", 0)
+            auxiliary["model_call_measurement_basis"] = (
+                "Gateway initiated requests, including unknown attempts"
+            )
             auxiliary["replay_test_runs"] = gateway.replay_calls
             auxiliary["remote_test_budget_invocations"] = gateway.remote_test_calls
             auxiliary["remote_delivery_failures"] = gateway.remote_delivery_failures
@@ -902,9 +1095,7 @@ def run_trial(
                         TerminalStatus.INFRA,
                         "remote postflight failed; preserve separate business verdict",
                     )
-            auxiliary["owned_namespace_cleanup_confirmed"] = getattr(
-                remote, "cleanup_confirmed", None
-            )
+            auxiliary["owned_namespace_cleanup_confirmed"] = getattr(remote, "cleanup_confirmed", None)
             auxiliary["files_modified"] = getattr(remote, "modified_files", None)
             auxiliary["files_modified_scope"] = "remote_judged_workspace"
             auxiliary["files_modified_reason"] = (
@@ -966,6 +1157,40 @@ def run_trial(
         if status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}:
             primary.update(resolved=None, reward=None)
         primary["delivery_wall_clock_sec"] = time.monotonic() - trial_started
+        if agent_phase_budget is not None and experiment_context is not None:
+            declared = experiment_context["max_wall_clock_sec"]
+            lifecycle = lifecycle_overrun(declared, primary["delivery_wall_clock_sec"])
+            lifecycle["execution_allowance_sec"] = agent_phase_budget["execution_allowance_sec"]
+            lifecycle["post_agent_reserve_sec"] = agent_phase_budget["post_agent_reserve_sec"]
+            lifecycle["source"] = agent_phase_budget["source"]
+            auxiliary["lifecycle_budget"] = lifecycle
+            if lifecycle["overrun"]:
+                lifecycle["budget_exceeded"] = True
+                auxiliary["budget_exceeded"] = True
+                final_status = budget_outcome(status, lifecycle["measured_total_sec"], declared)
+                if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
+                    auxiliary["business_terminal_status"] = status.value
+                    auxiliary["business_resolved"] = primary.get("resolved")
+                    auxiliary["business_reward"] = primary.get("reward")
+                    auxiliary["business_failure_reason"] = reason
+                    primary.update(resolved=False, reward=0.0)
+                    reason = (
+                        "budget: measured lifecycle exceeded the declared product budget by "
+                        f"{lifecycle['overrun_sec']:.3f}s; business status was {status.value}"
+                    )
+                elif status == TerminalStatus.UNKNOWN:
+                    lifecycle["unknown_priority"] = True
+                status = final_status
+                errors.append(
+                    dict(
+                        stage="budget",
+                        type="BudgetOverrun",
+                        message=(
+                            "measured lifecycle exceeded the declared product budget by "
+                            f"{lifecycle['overrun_sec']:.3f}s"
+                        ),
+                    )
+                )
         auxiliary["verifier_wall_clock_sec"] = verifier_seconds
         write_json(trial_dir / "trajectory.json", trajectory.model_dump(mode="json"), exclusive=True)
         receipt = TrialReceipt(
@@ -1130,9 +1355,7 @@ def run_matrix(
                 if (
                     receipt.terminal_status not in {TerminalStatus.PASS, TerminalStatus.FAIL}
                     or receipt.auxiliary_metrics.get("capture", {}).get("status") != "completed"
-                    or receipt.auxiliary_metrics.get("capture", {})
-                    .get("corpus_lint", {})
-                    .get("status")
+                    or receipt.auxiliary_metrics.get("capture", {}).get("corpus_lint", {}).get("status")
                     != "passed"
                 ):
                     blocked = [

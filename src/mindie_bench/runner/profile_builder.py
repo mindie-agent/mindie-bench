@@ -28,8 +28,10 @@ import json
 import os
 import platform
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -94,6 +96,10 @@ def bind_mcp_transport(profile: Profile):
 
 
 def filtered_corpus(source: Path, destination: Path, excluded: set[str]) -> str:
+    from mindie_bench.runner import graded_view
+
+    if graded_view.is_graded(source):
+        return graded_view.project(source, destination, excluded)
     if not (source / "tasks").is_dir():
         raise ValueError("corpus must contain tasks/")
     destination.mkdir()
@@ -121,6 +127,7 @@ def build_profile(
     config: ExperimentConfig,
     *,
     corpus_override: Path | None = None,
+    product_experiment: bool = False,
 ) -> Profile:
     root = trial_dir / "profile"
     root.mkdir(mode=0o700)
@@ -155,9 +162,18 @@ def build_profile(
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
     )
     group_config = config.groups.get(group)
+    native_plugin = group_config.native_dsh_plugin if group_config else None
+    if native_plugin and (config.harness.name != "dsh" or group not in {Group.G2, Group.G3}):
+        raise ValueError("the full native DSH product requires a knowledge-enabled DSH profile")
     knowledge_mode = group_config.knowledge_mode if group_config else "advisory"
     servers = group_config.mcp_servers if group_config else {}
     components = {server.component for server in servers.values()}
+    if native_plugin:
+        if "knowledge" in components:
+            raise ValueError(
+                "the native product host owns knowledge tools; do not register a duplicate MCP"
+            )
+        components.add("knowledge")
     if group == Group.G0 and (servers or (group_config and group_config.skills_path)):
         raise ValueError("G0 must contain no MindIE tools or skills")
     if group != Group.G0 and "remote-dev" not in components:
@@ -196,9 +212,9 @@ def build_profile(
             *task.mindie_knowledge.same_origin_task_hashes,
             *task.mindie_knowledge.analogical_task_hashes,
         }
-        missing = sorted(
-            identity for identity in declared_tasks if not (source / "tasks" / identity).is_dir()
-        )
+        from mindie_bench.runner.graded_view import identifiers
+
+        missing = sorted(declared_tasks - identifiers(source))
         if missing:
             raise ValueError(f"declared knowledge task IDs are absent from the source corpus: {missing}")
         if (
@@ -212,7 +228,7 @@ def build_profile(
         retained_analogies = sorted(
             identity
             for identity in task.mindie_knowledge.analogical_task_hashes
-            if (corpus / "tasks" / identity).is_dir()
+            if identity in identifiers(corpus)
         )
         if retained_analogies != sorted(task.mindie_knowledge.analogical_task_hashes):
             raise ValueError("declared analogical knowledge must remain in the filtered corpus")
@@ -308,8 +324,29 @@ def build_profile(
         (root / "oracle-context.md").write_text(oracle_text)
     write_json(root / "settings.json", {"disableAllHooks": True, "autoUpdatesChannel": "stable"})
     dsh_profile = None
+    native_product = None
     if config.harness.name == "dsh":
-        dsh_profile = build_dsh_profile(root, env, config, mcp, servers)
+        if native_plugin:
+            from mindie_bench.runner.native_product import prepare
+
+            native_product = prepare(root, env, native_plugin, corpus)
+            runtime_paths.extend(
+                [
+                    Path(native_plugin.package_path),
+                    Path(native_plugin.runtime_python).absolute().parent.parent,
+                    Path(native_product["initialization"]["python_base_prefix"]),
+                    Path(native_plugin.redactor_executable),
+                ]
+            )
+        dsh_profile = build_dsh_profile(
+            root,
+            env,
+            config,
+            mcp,
+            servers,
+            native_product=native_product,
+            catalog_checkpoint=product_experiment,
+        )
         runtime_root = Path(config.harness.executable).resolve(strict=True)
         node = shutil.which("node", path=env["PATH"])
         dsh_roots = [runtime_root]
@@ -326,6 +363,7 @@ def build_profile(
     fingerprint = {
         "group": group.value,
         "knowledge_mode": knowledge_mode,
+        "knowledge_conditions": task.mindie_knowledge.conditions,
         "oracle_context_sha256": (
             hashlib.sha256((root / "oracle-context.md").read_bytes()).hexdigest()
             if oracle_files
@@ -336,6 +374,7 @@ def build_profile(
         },
         "model_catalog_sha256": model_catalog_sha256,
         "dsh_profile": dsh_profile,
+        "native_product": native_product,
         "skills_sha256": skills_fingerprint,
         "corpus_commit": corpus_commit,
         "corpus_view_sha256": corpus_fingerprint,
@@ -347,7 +386,11 @@ def build_profile(
         "capture_git_runtime": git_runtime,
         "corpus_projection": "task Markdown and format contract; no feedback, docs, or cached indexes",
         "mcp_config": json.loads((root / "mcp.json").read_text()),
-        "knowledge_access": "parent-owned MCP stdio; no foreground corpus or state file grant",
+        "knowledge_access": (
+            "native product Store contains only the filtered trial corpus; original corpus remains private"
+            if native_product
+            else "parent-owned MCP stdio; no foreground corpus or state file grant"
+        ),
         "knowledge_backend_config_sha256": {
             name: hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()
             for name, spec in knowledge_servers.items()
@@ -365,7 +408,16 @@ def build_profile(
     )
 
 
-def build_dsh_profile(root: Path, env: dict[str, str], config, mcp: dict, servers: dict) -> dict:
+def build_dsh_profile(
+    root: Path,
+    env: dict[str, str],
+    config,
+    mcp: dict,
+    servers: dict,
+    *,
+    native_product=None,
+    catalog_checkpoint: bool = False,
+) -> dict:
     """Create an owned headless DSH profile with the benchmark MCP/model row."""
     import yaml
 
@@ -420,6 +472,27 @@ def build_dsh_profile(root: Path, env: dict[str, str], config, mcp: dict, server
         f"    model: {json.dumps(config.harness.model)}",
     ]
     insert_rows = []
+    if native_product:
+        package = Path(native_product["package_path"])
+        insert_rows += [
+            "    - id: mindie-agent-host",
+            "      name: " + json.dumps(str(package / "host.mjs")),
+            "      inject: [tools, agents, llm]",
+            "    - id: mindie-agent-skill",
+            "      name: '@deepseek-ai/dsh-skill-filesystem'",
+            "      config:",
+            "        providerName: mindie",
+            "        includeDefaultRoots: false",
+            "        watch: false",
+            "        customSkillDirs:",
+            "          - " + json.dumps(str(package / "skills")),
+        ]
+    if catalog_checkpoint:
+        checkpoint = Path(__file__).resolve().parent / "catalog_checkpoint.mjs"
+        insert_rows += [
+            "    - id: bench-catalog-checkpoint",
+            "      name: " + json.dumps(str(checkpoint)),
+        ]
     if mcp:
         for name, server in mcp.items():
             row_id = "bench-mcp-" + "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in name)
@@ -468,17 +541,43 @@ def build_dsh_profile(root: Path, env: dict[str, str], config, mcp: dict, server
         DSH_PROFILE_DIR=str(profile_dir),
         MINDIE_BENCH_DUMMY_KEY="broker-only",
     )
+    checkpoint_info = None
+    if catalog_checkpoint:
+        checkpoint_info = {
+            "row_id": "bench-catalog-checkpoint",
+            "source": str(Path(__file__).resolve().parent / "catalog_checkpoint.mjs"),
+            "output": str(root / "catalog-checkpoint.json"),
+        }
+        env.update(
+            MINDIE_BENCH_CATALOG_CHECKPOINT_OUT=checkpoint_info["output"],
+            MINDIE_BENCH_CATALOG_CHECKPOINT_DELAY_MS="1500",
+        )
     return {
         "home": str(dsh_home),
         "profile": "bench",
         "patch_sha256": hashlib.sha256((profile_dir / "cordis.patch.yml").read_bytes()).hexdigest(),
+        "catalog_checkpoint": checkpoint_info,
     }
 
 
 def knowledge_prompt(profile: Profile) -> str:
     mode = profile.fingerprint.get("knowledge_mode", "advisory")
+    conditions = profile.fingerprint.get("knowledge_conditions")
+    premises = (
+        "Actual task applicability conditions: "
+        + json.dumps(conditions, sort_keys=True)
+        + ". Pass these exact known premises to knowledge_query; unknown premises must stay unknown.\n\n"
+        if conditions
+        else ""
+    )
+    if profile.fingerprint.get("native_product"):
+        premises = (
+            "Use the installed MindIE Agent for this task. Initialize its current session with "
+            'mindie_entry(op="init") before using its knowledge tools. Contribution is disabled '
+            "in this isolated experiment; retain that setting.\n\n" + premises
+        )
     if mode == "explicit":
-        return (
+        return premises + (
             "Use the mindie-agent skill for this task. First use knowledge_query to find "
             "historical engineering experience relevant to this request, then use "
             "knowledge_explain to inspect relevant hits before diagnosing it. If the selected "
@@ -486,11 +585,155 @@ def knowledge_prompt(profile: Profile) -> str:
             "experience is advisory; verify its applicability to the current environment.\n\n"
         )
     if mode == "oracle":
-        return (
+        return premises + (
             "Controlled oracle-context condition: the following selected historical material "
             "is supplied directly to distinguish content utility from routing. Treat it as "
             "fallible reference material and verify applicability in the current environment.\n\n"
             + (profile.root / "oracle-context.md").read_text()
             + "\n\nCurrent engineering request:\n"
         )
-    return ""
+    return premises
+
+
+def _catalog_identity(payload: dict) -> dict:
+    tools = sorted(
+        (str(item.get("name")), str(item.get("description") or ""))
+        for item in payload.get("tools") or []
+    )
+    skills = sorted(
+        (str(item.get("name")), str(item.get("provider") or ""))
+        for item in payload.get("skills") or []
+    )
+    rows = sorted(
+        (str(item.get("id") or ""), str(item.get("name") or ""))
+        for item in payload.get("loader_rows") or []
+    )
+    mindie_tools = sorted(
+        name
+        for name, _ in tools
+        if name == "mindie_entry" or name.startswith(("knowledge_", "remote_"))
+    )
+    mindie_skills = sorted(name for name, provider in skills if provider == "mindie" or name == "mindie-agent")
+    mindie_rows = sorted(
+        {"id": row_id, "name": name}
+        for row_id, name in rows
+        if "mindie-agent" in name.lower() or "mindie-agent" in row_id.lower()
+    )
+    canonical = json.dumps(
+        {"tools": tools, "skills": skills, "rows": rows}, sort_keys=True, separators=(",", ":")
+    )
+    return {
+        "sha256": hashlib.sha256(canonical.encode()).hexdigest(),
+        "tool_count": len(tools),
+        "tool_names": [name for name, _ in tools],
+        "skill_count": len(skills),
+        "skill_names": [name for name, _ in skills],
+        "loader_row_count": len(rows),
+        "loader_rows": [{"id": row_id, "name": name} for row_id, name in rows],
+        "checkpoint_row_present": any(row_id == "bench-catalog-checkpoint" for row_id, _ in rows),
+        "mindie_identities": {
+            "tools": mindie_tools,
+            "skills": mindie_skills,
+            "loader_rows": mindie_rows,
+        },
+    }
+
+
+def assert_catalog_policy(identity: dict, product_group: str | None) -> None:
+    """Fail closed on a missing checkpoint row or a MindIE row in P0."""
+    if not identity.get("checkpoint_row_present"):
+        raise ValueError("mounted product catalog is missing the accounted checkpoint row")
+    if product_group == "P0_bare_host":
+        forbidden = identity.get("mindie_identities") or {}
+        if any(forbidden.get(name) for name in ("tools", "skills", "loader_rows")):
+            raise ValueError("P0 mounted catalog contains a MindIE identity")
+
+
+def _stop_probe_group(process: subprocess.Popen, *, reason: str) -> None:
+    """Stop the whole probe process group, never only its leader."""
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"catalog probe process group did not stop after {reason}")
+
+
+def probe_dsh_catalog(
+    profile, trial_dir: Path, workspace: Path, command: list[str], *, timeout: float = 120.0
+) -> dict:
+    """Run the mounted catalog checkpoint through the trial's own sandbox.
+
+    `command` is built by the caller with the same native_command grants, cwd,
+    read paths, write paths and loopback ports as the coming agent. The hook
+    writes at the supported `llm/stream` pre-dispatch seam and exits before
+    next(), so no model request is sent. The whole process group is stopped.
+    """
+    if not profile.env.get("MINDIE_BENCH_CATALOG_CHECKPOINT_OUT"):
+        raise ValueError("this profile has no accounted catalog checkpoint row")
+    output = Path(profile.root) / "catalog-checkpoint.probe.json"
+    if output.exists():
+        output.unlink()
+    env = dict(
+        profile.env,
+        MINDIE_BENCH_CATALOG_CHECKPOINT_OUT=str(output),
+        MINDIE_BENCH_CATALOG_CHECKPOINT_EXIT="1",
+    )
+    stdout_path = trial_dir / "preflight-catalog.stdout"
+    stderr_path = trial_dir / "preflight-catalog.stderr"
+    started = time.monotonic()
+    with stdout_path.open("w") as stdout, stderr_path.open("w") as stderr:
+        process = subprocess.Popen(
+            command,
+            cwd=workspace,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=stdout,
+            stderr=stderr,
+            start_new_session=True,
+            text=True,
+        )
+        try:
+            if process.stdin:
+                process.stdin.write("catalog checkpoint\n")
+                process.stdin.close()
+            try:
+                returncode = process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                _stop_probe_group(process, reason="timeout")
+                raise RuntimeError("mounted catalog checkpoint timed out before writing")
+            _stop_probe_group(process, reason="completion")
+        finally:
+            if process.stdin and not process.stdin.closed:
+                process.stdin.close()
+    if returncode != 0:
+        raise RuntimeError(
+            "mounted catalog checkpoint exited "
+            f"{returncode}: {stderr_path.read_text()[-2000:]}"
+        )
+    if not output.is_file():
+        raise RuntimeError("mounted catalog checkpoint wrote no identity")
+    payload = json.loads(output.read_text())
+    if payload.get("schema") != "dsh-live-catalog-checkpoint/2":
+        raise ValueError("mounted catalog checkpoint has an unknown schema")
+    for error_field in ("tools_error", "skills_error", "loader_error"):
+        if payload.get(error_field):
+            raise ValueError(f"mounted catalog checkpoint failed {error_field}: {payload[error_field]}")
+    identity = _catalog_identity(payload)
+    return {
+        "path": str(output),
+        "sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+        "elapsed_sec": time.monotonic() - started,
+        "identity": identity,
+    }

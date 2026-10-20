@@ -25,6 +25,9 @@ def native_command(
     gateway_port: int | None = None,
     gateway_socket: Path | None = None,
     directory_watchers: bool = False,
+    loopback_listener_port: int | None = None,
+    loopback_client_ports: tuple[int, ...] = (),
+    ephemeral_loopback_listener: bool = False,
 ) -> list[str]:
     system = platform.system()
     if system == "Darwin":
@@ -69,6 +72,16 @@ def native_command(
                 lines.append(f"(allow file-read* (literal {json.dumps(str(path))}))")
         if gateway_port:
             lines.append(f'(allow network-outbound (remote ip "localhost:{gateway_port}"))')
+        for port in loopback_client_ports:
+            lines.append(f'(allow network-outbound (remote ip "localhost:{port}"))')
+        if loopback_listener_port:
+            lines.append(f'(allow network-bind (local ip "localhost:{loopback_listener_port}"))')
+            lines.append(f'(allow network-inbound (local ip "localhost:{loopback_listener_port}"))')
+        if ephemeral_loopback_listener:
+            # The original product host and knowledge service choose their own
+            # loopback listener ports. Outbound grants remain exact known ports.
+            lines.append('(allow network-bind (local ip "localhost:*"))')
+            lines.append('(allow network-inbound (local ip "localhost:*"))')
         policy_path.write_text("\n".join(lines) + "\n")
         return [executable, "-f", str(policy_path), *command]
     if system == "Linux":

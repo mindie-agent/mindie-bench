@@ -156,6 +156,10 @@ def _transfer_lines(study: dict, language: str) -> list[str]:
 
 def homepage_markdown(report: dict, language: str = "zh") -> str:
     """Render only a report whose release gate has already passed."""
+    if report.get("schema_version") == "mindie-value-report/2":
+        from mindie_bench.value_product_views import homepage_markdown_product
+
+        return homepage_markdown_product(report, language)
     if report["release_gate"] is not True:
         raise ValueError("homepage results require a passed release gate")
     if language not in {"zh", "en"}:

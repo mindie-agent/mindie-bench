@@ -55,6 +55,7 @@ class KnowledgeSpec(StrictModel):
     analogical_task_hashes: list[str] = Field(default_factory=list)
     oracle_block_ids: list[str] = Field(default_factory=list)
     target_files: list[str] = Field(default_factory=list)
+    conditions: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("same_origin_task_hashes", "analogical_task_hashes")
     @classmethod
@@ -207,12 +208,24 @@ class UnknownExternalEffects(RuntimeError):
     """A model/remote write may have happened; automatic repetition is forbidden."""
 
 
+class NativeDSHPlugin(StrictModel):
+    package_path: str
+    runtime_python: str
+    redactor_executable: str
+    domain: str = "vllm-ascend"
+    contribution_enabled: Literal[False] = False
+
+
 class GroupConfig(StrictModel):
     mcp_servers: dict[str, MCPServer] = Field(default_factory=dict)
     skills_path: str | None = None
     capture_command: list[str] = Field(default_factory=list)
     capture_model: str | None = None
     capture_max_model_calls: int = Field(default=1, gt=0)
+    capture_protocol: Literal["material-package", "graded-c6"] = "material-package"
+    capture_timeout_sec: float = Field(default=1200, gt=0)
+    dsh_summary_plugin: str | None = None
+    native_dsh_plugin: NativeDSHPlugin | None = None
     knowledge_mode: Literal["advisory", "explicit", "oracle"] = "advisory"
     oracle_context_files: list[str] = Field(default_factory=list)
 

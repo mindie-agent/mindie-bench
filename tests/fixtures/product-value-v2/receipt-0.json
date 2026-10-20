@@ -1,0 +1,167 @@
+{
+  "ablation_group": "G0",
+  "artifacts": {
+    "private_trial_dir": "/private/trial"
+  },
+  "auxiliary_metrics": {
+    "budget_exceeded": false,
+    "business_terminal_status": "completed_pass",
+    "capture": {
+      "consumer": {
+        "revision": "consumer-1"
+      },
+      "corpus_lint": {
+        "status": "passed"
+      },
+      "publication": {
+        "revision": "publication-1"
+      },
+      "status": "completed"
+    },
+    "lifecycle_budget": {
+      "budget_exceeded": false,
+      "declared_total_sec": 3361.65,
+      "measured_total_sec": 100.0,
+      "overrun": false,
+      "overrun_sec": 0.0
+    },
+    "verifier_wall_clock_sec": 2.0
+  },
+  "environment_fingerprint": {
+    "backend": "native",
+    "base_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "base_model": "deepseek-flash",
+    "benchmark_source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "benchmark_version": "0.3.0",
+    "budget": {
+      "max_turns": 40
+    },
+    "component_revisions": {
+      "mindie-bench": "cccccccccccccccccccccccccccccccccccccccc"
+    },
+    "components": [],
+    "experiment_context": {
+      "actual_runtime": {
+        "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "cell": {
+        "cohort": "fused-shared-budget",
+        "group": "P0_bare_host",
+        "hardware_tier": "A2",
+        "order": 0,
+        "profile_id": "fused-shared-budget-P0_bare_host",
+        "protocol": "matched-product/1",
+        "repetition": 1,
+        "task_family": "performance",
+        "task_id": "fused-rmsnorm-gate-dispatch-performance"
+      },
+      "cohort": "fused-shared-budget",
+      "derived_inputs_sha256": "c739b2bff1fed912df281971c98605584c00c0735dd639abe572b38d789b68b9",
+      "execution_tier": "l3",
+      "internal_capability_mode": "G0",
+      "max_wall_clock_sec": 3361.65,
+      "native_config_sha256": "46e636fa5bc945923062675aba4b2c4dc49d50fd1928d2a7032e8c05b96827a8",
+      "profile": {
+        "budget": {
+          "capture_cost_usd": 0.0,
+          "capture_model_calls": 0,
+          "capture_organizer_cost_usd": 0.0,
+          "capture_organizer_model_calls": 0,
+          "child_model_calls": 0,
+          "foreground_model_calls": 40,
+          "human_interventions": 0,
+          "independent_review_cost_usd": 0.0,
+          "independent_review_model_calls": 0,
+          "lifecycle_cost_usd": null,
+          "lifecycle_model_calls": null,
+          "max_cost_usd": 2.0,
+          "max_wall_clock_sec": 3361.65,
+          "npu_runs": 8,
+          "organizer_cost_usd": 0.0,
+          "organizer_model_calls": 0,
+          "review_cost_usd": 0.0,
+          "review_model_calls": 0,
+          "seed_cost_usd": 0.0,
+          "seed_model_calls": 0,
+          "seed_npu_runs": 0,
+          "total_model_calls": 40,
+          "unknown_cost_roles": []
+        },
+        "cohort": "fused-shared-budget",
+        "conditions": {
+          "inference_profile": "temperature=0",
+          "input_digest": "input:fused-rmsnorm-gate-dispatch-performance",
+          "knowledge_cutoff": "2026-10-01",
+          "model_id": "deepseek-flash",
+          "oracle_digest": "3d37c49ce17b48de5965383d6a1fbf4af8f221b1d88f483ecffe2281bcdc41c8",
+          "persistence_permission_digest": "persist-sha",
+          "task_start_digest": "start:fused-rmsnorm-gate-dispatch-performance",
+          "tool_permission_digest": "tools-sha"
+        },
+        "conditions_fingerprint": "b8df464268138c0d1064e4454689fbed5e90de37b8c2cd67a36fe3d8dfdeb76c",
+        "description": "bare host, no MindIE Agent components",
+        "experiment_profile": "profile:c30e1b6021ae30148b3288e45f14f99eef59e605f60c94870d53c9e5b709eb75",
+        "fidelity": "matched",
+        "group": "P0_bare_host",
+        "notes": "",
+        "p3_lineage": null,
+        "preserved_capabilities": [],
+        "profile_id": "fused-shared-budget-P0_bare_host",
+        "protocol": "matched-product/1"
+      },
+      "profile_group": "P0_bare_host",
+      "profile_id": "fused-shared-budget-P0_bare_host",
+      "profile_sha256": "0aa39d83eb9114aa33e42ad1378bd4b0d06341f829ddca0eaf99b7e455e78a77",
+      "protocol": "matched-product/1",
+      "runtime_manifest": "/private/runtime.json",
+      "runtime_manifest_sha256": "d8594fd7c2e6fe7adb8ee924dce5f8fa262a87db32dc64130012475923f4589f",
+      "schema": "mindie-bench-product-execution/1",
+      "task_sha256": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff"
+    },
+    "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "harness_name": "dsh",
+    "harness_version": "native",
+    "host_arch": "arm64",
+    "host_os": "test",
+    "npu_count": 1,
+    "npu_model": "910B",
+    "provider_url": "http://private-service",
+    "reasoning_effort": "high",
+    "remote_environment": {
+      "host": "private-host"
+    }
+  },
+  "errors": [],
+  "evidence": "synthetic",
+  "experiment_digest": "46e636fa5bc945923062675aba4b2c4dc49d50fd1928d2a7032e8c05b96827a8",
+  "failure_reason": null,
+  "instance_id": "fused-rmsnorm-gate-dispatch-performance",
+  "knowledge_gradient": "no_hit",
+  "primary_metrics": {
+    "cost_complete": true,
+    "delivery_wall_clock_sec": 100.0,
+    "estimated_cost_usd": 0.1,
+    "manual_interventions": 0,
+    "model_calls": 5,
+    "npu_test_runs": 1,
+    "resolved": true,
+    "reward": 1.0,
+    "tokens": {
+      "cache_creation": 0,
+      "complete": true,
+      "indexer_small_model_total": 0,
+      "input_cached": 10,
+      "input_uncached": 100,
+      "output": 20
+    },
+    "total_wall_clock_sec": 90.0,
+    "zero_human_intervention": true
+  },
+  "repetition": 1,
+  "schema_version": "mindie-bench-receipt/1.0",
+  "task_digest": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff",
+  "task_role": "eval",
+  "terminal_status": "completed_pass",
+  "tier": "l3",
+  "trial_id": "fused-shared-budget-P0_bare_host-fused-rmsnorm-gate-dispatch-performance"
+}

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from mindie_bench.io import digest, read_json, write_json
 from mindie_bench.models import TerminalStatus, TrialReceipt
-from mindie_bench.scorer.comparator import CONTROL_KEYS, comparison
+from mindie_bench.scorer.comparator import comparison
 from mindie_bench.scorer.metrics import summarize
 from mindie_bench.value_controls import (
     expected_cells,
@@ -33,6 +33,7 @@ from mindie_bench.value_controls import (
 )
 from mindie_bench.value_controls import source_matches as _source_matches
 from mindie_bench.value_homepage import homepage_markdown
+from mindie_bench.value_projection import public_receipt as public_receipt
 from mindie_bench.value_resources import (
     TOKEN_FIELDS,
     project_component_case,
@@ -42,74 +43,6 @@ from mindie_bench.value_resources import (
 )
 
 VALID = {TerminalStatus.PASS, TerminalStatus.FAIL}
-METRICS = {
-    "reward",
-    "resolved",
-    "tokens",
-    "total_turns",
-    "total_wall_clock_sec",
-    "delivery_wall_clock_sec",
-    "estimated_cost_usd",
-    "cost_complete",
-    "npu_test_runs",
-    "npu_execution_wait_sec",
-    "knowledge_query_sec",
-    "llm_and_exploration_sec",
-    "knowledge_measurement_basis",
-    "turns_to_first_localization",
-    "localization_penalty_turns",
-    "time_to_first_localization_sec",
-    "time_to_first_target_edit_sec",
-    "zero_human_intervention",
-    "foreground_knowledge_queries_count",
-    "foreground_knowledge_explains_count",
-}
-
-
-def public_receipt(row: TrialReceipt) -> dict:
-    """Keep the measurement contract while removing commands, endpoints and paths."""
-    source = row.environment_fingerprint
-    fingerprint = {key: source[key] for key in CONTROL_KEYS if key in source}
-    for key in ("provider_url", "remote_environment"):
-        if key in fingerprint:
-            fingerprint[key] = {"private_control_identity": digest(fingerprint[key])}
-    for key in (
-        "components", "component_revisions", "knowledge_mode", "skills_sha256", "corpus_view_sha256"
-    ):
-        if key in source:
-            fingerprint[key] = source[key]
-    capture = row.auxiliary_metrics.get("capture") or {}
-    auxiliary = {
-        "capture_wall_clock_sec": row.auxiliary_metrics.get("capture_wall_clock_sec"),
-        "captured_corpus_sha256": row.auxiliary_metrics.get("captured_corpus_sha256"),
-        "capture": {
-            "status": capture.get("status"),
-            "corpus_lint": {"status": capture.get("corpus_lint", {}).get("status")},
-            "publication": {"revision": capture.get("publication", {}).get("revision")},
-            "consumer": {"revision": capture.get("consumer", {}).get("revision")},
-        },
-        "knowledge_measurement": {
-            key: value for key, value in row.auxiliary_metrics.get("knowledge_measurement", {}).items()
-            if key in {"query_count", "explain_count", "successful_calls", "failed_calls",
-                       "timing_complete", "basis"}
-        },
-    }
-    return row.model_copy(
-        update={
-            "environment_fingerprint": fingerprint,
-            "primary_metrics": {
-                key: value for key, value in row.primary_metrics.items() if key in METRICS
-            },
-            "auxiliary_metrics": auxiliary,
-            "failure_reason": "details_retained_in_private_evidence" if row.failure_reason else None,
-            "errors": [{"stage": "trial", "message": "details retained in private evidence"}]
-            if row.errors
-            else [],
-            "artifacts": {},
-        }
-    ).model_dump(mode="json")
-
-
 def _cell(row):
     return row.instance_id, row.ablation_group.value, row.repetition
 
@@ -344,6 +277,10 @@ def _study(study, rows, sources, runner_patches, source_patches, excluded, infra
 
 def evaluate(suite: dict, evidence: dict) -> dict:
     """Recompute the gate from public observations, including in release CI."""
+    if suite.get("schema_version") == "mindie-value-suite/2":
+        from mindie_bench.value_product import evaluate_product
+
+        return evaluate_product(suite, evidence)
     if suite["schema_version"] != "mindie-value-suite/1":
         raise ValueError("unsupported product-value suite")
     if evidence["schema_version"] != "mindie-value-evidence/1":
@@ -509,6 +446,12 @@ def evaluate(suite: dict, evidence: dict) -> dict:
 def collect(*, suite: Path, manifest: Path, output: Path, collector_source=None) -> dict:
     """Read explicit receipt paths; never discover and silently select a good retry."""
     protocol, inputs = read_json(suite), read_json(manifest)
+    if protocol.get("schema_version") == "mindie-value-suite/2":
+        from mindie_bench.value_product import collect_product
+
+        return collect_product(
+            suite=suite, inputs=manifest, output=output, collector_source=collector_source
+        )
     collector = require_collector_source(inputs["runner_release"], collector_source)
     root = manifest.resolve().parent
     evidence = {
@@ -599,6 +542,10 @@ def collect(*, suite: Path, manifest: Path, output: Path, collector_source=None)
 
 
 def write_report(report: dict, output: Path) -> None:
+    if report.get("schema_version") == "mindie-value-report/2":
+        from mindie_bench.value_product import write_report_product
+
+        return write_report_product(report, output)
     output.mkdir(parents=True, exist_ok=True)
     write_json(output / "value-results.json", report)
     (output / "value-results.md").write_text(markdown(report), encoding="utf-8")
@@ -612,7 +559,14 @@ def write_report(report: dict, output: Path) -> None:
 
 def verify_publication(*, suite: Path, evidence: Path, manifest: Path, collector_source=None) -> dict:
     """Bind the measured product sources to the component release manifest."""
-    report = evaluate(read_json(suite), read_json(evidence))
+    protocol, payload = read_json(suite), read_json(evidence)
+    if protocol.get("schema_version") == "mindie-value-suite/2":
+        from mindie_bench.value_product import verify_publication_product
+
+        return verify_publication_product(
+            suite=suite, evidence=evidence, manifest=manifest, collector_source=collector_source
+        )
+    report = evaluate(protocol, payload)
     report["collector_source"] = require_collector_source(report["runner_release"], collector_source)
     targets = read_json(manifest)
     if report["product_version"] != targets["product_version"]:
@@ -632,6 +586,10 @@ def _fmt_sample(value) -> str:
 
 
 def markdown(report: dict) -> str:
+    if report.get("schema_version") == "mindie-value-report/2":
+        from mindie_bench.value_product_views import markdown_product
+
+        return markdown_product(report)
     lines = [
         "# Product value benchmark",
         "",
