@@ -38,6 +38,16 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from mindie_bench.runner.cann_sentry_eval import (
+    CANONICAL_SWIMLANES,
+    OPERATOR_COMPLEXITY_TAXONOMY,
+    RSICandidateResult,
+    audit_sentry_trajectory,
+    classify_operator_complexity,
+    compare_swimlane_attributions,
+    compute_hap_score,
+    compute_operator_composite_score,
+)
 from mindie_bench.runner.rsi_campaign import (
     build_isolated_jit_cache_env,
     build_subagent_fact_pack,
@@ -54,13 +64,17 @@ DEFAULT_MIN_SPEEDUP_RATIO = 1.05
 RETURN_TIERS = frozenset({"L1", "L2", "L3", "L4"})
 _COMPILE_PASS = frozenset({"compiled", "ok", "pass", "passed", "success", "succeeded"})
 __all__ = [
-    "append_ledger_and_render_progress", "build_debiased_rsi_context",
+    "CANONICAL_SWIMLANES", "OPERATOR_COMPLEXITY_TAXONOMY", "RSICandidateResult",
+    "append_ledger_and_render_progress", "audit_sentry_trajectory",
+    "build_debiased_rsi_context", "build_isolated_jit_cache_env",
+    "build_subagent_fact_pack", "classify_candidate_patch_shape",
+    "classify_operator_complexity", "compare_swimlane_attributions",
+    "compute_hap_score", "compute_operator_composite_score",
     "evaluate_exploration_axes", "evaluate_hidden_input_generalization",
-    "evaluate_rsi_candidate_gates", "execute_rsi_compile_and_timing",
+    "evaluate_rsi_candidate_gates", "evaluate_speculative_acceptance",
+    "execute_rsi_compile_and_timing", "harvest_candidate_patch",
     "plan_rsi_compile_and_timing", "run_rsi_gate_campaign",
     "should_escalate_to_rsi", "verify_sequential_ablation",
-    "build_isolated_jit_cache_env", "classify_candidate_patch_shape",
-    "evaluate_speculative_acceptance", "harvest_candidate_patch",
 ]
 
 
@@ -424,17 +438,44 @@ def evaluate_exploration_axes(
         "distill_ready": verdict in {"supported", "subtarget_valid"},
     }
 
+def _opt_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    return num if math.isfinite(num) else None
+
+
 def evaluate_rsi_candidate_gates(
     *, run_id: str, candidate_id: str, mutation_summary: str,
     conditions: Mapping[str, Any], compile_ok: bool, oracle_passed: bool,
-    measurement_passed: bool, speedup_ratio: float | None,
+    measurement_passed: bool, speedup_ratio: float | None = None,
     min_speedup_ratio: float = DEFAULT_MIN_SPEEDUP_RATIO,
     ablation_retained: bool | None = None, failure_reason: str = "",
     preserve_subtarget_evidence: bool = True, noise_margin: float = 0.01,
     return_tier: str = "L4", hidden_input_summary: Mapping[str, Any] | None = None,
     ablation_receipt: Mapping[str, Any] | None = None,
+    t_cand_us: float | None = None, t_baseline_us: float | None = None,
+    t_hw_us: float | None = None, roofline_floor_us: float | None = None,
 ) -> dict[str, Any]:
     """Judge observed results using the executor's run ID, without synthetic proof."""
+    cond_map = conditions if isinstance(conditions, Mapping) else {}
+    hw_anchor = _opt_float(
+        t_hw_us if t_hw_us is not None else (
+            roofline_floor_us if roofline_floor_us is not None else cond_map.get("t_hw_us", cond_map.get("roofline_floor_us"))
+        )
+    )
+    cand_anchor = _opt_float(
+        t_cand_us if t_cand_us is not None else cond_map.get("t_cand_us", cond_map.get("cand_latency_us", cond_map.get("latency_us")))
+    )
+    base_anchor = _opt_float(
+        t_baseline_us if t_baseline_us is not None else cond_map.get("t_baseline_us", cond_map.get("baseline_perf_us", cond_map.get("baseline_latency_us")))
+    )
+    if speedup_ratio is None and cand_anchor is not None and base_anchor is not None and cand_anchor > 0.0 and base_anchor > 0.0:
+        speedup_ratio = base_anchor / cand_anchor
+
     generalization_ok = hidden_input_summary.get("generalization_ok") if isinstance(hidden_input_summary, Mapping) else None
     if generalization_ok is False:
         oracle_passed = False
@@ -454,6 +495,12 @@ def evaluate_rsi_candidate_gates(
     speedup = None if speedup_ratio is None else float(speedup_ratio)
     measured = (compile_ok and oracle_passed and measurement_passed
                 and speedup is not None and math.isfinite(speedup) and speedup >= 0)
+    if measured and speedup is not None and speedup > 0.0:
+        if cand_anchor is None and base_anchor is not None and base_anchor > 0.0:
+            cand_anchor = base_anchor / speedup
+        elif base_anchor is None and cand_anchor is not None and cand_anchor > 0.0:
+            base_anchor = cand_anchor * speedup
+    hap_score = compute_hap_score(cand_anchor, base_anchor, hw_anchor) if (measured and hw_anchor is not None) else None
     # Gates stop at the first incomplete or failed stage. A later stage did not
     # pass merely because its caller supplied a default True value.
     checks = [
@@ -474,12 +521,19 @@ def evaluate_rsi_candidate_gates(
         "schema_version": SCHEMA_VERSION, "run_id": run_id,
         "candidate_id": candidate_id, "mutation_summary": mutation_summary,
         "verdict": verdict, "outcome": outcome, "gate_reached": gate_reached,
-        "speedup_ratio": speedup if measured else None,
+        "speedup_ratio": speedup if measured else None, "hap_score": hap_score,
         "min_speedup_ratio": minimum, "conditions": dict(conditions), "gates": gates,
         "axes": result["axes"], "return_tier": result["return_tier"],
         "distill_ready": result["distill_ready"],
         "failure_reason": failure_reason.strip() or (outcome if verdict != "supported" else ""),
     }
+    if hw_anchor is not None:
+        entry["t_hw_us"] = hw_anchor
+        entry["roofline_floor_us"] = hw_anchor
+    if cand_anchor is not None:
+        entry["t_cand_us"] = cand_anchor
+    if base_anchor is not None:
+        entry["t_baseline_us"] = base_anchor
     if hidden_input_summary is not None:
         entry.update({"hidden_input_summary": dict(hidden_input_summary), "generalization_ok": generalization_ok})
         gate = entry["gates"]["gate1_compile_oracle"]

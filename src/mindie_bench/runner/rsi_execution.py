@@ -674,6 +674,10 @@ def execute_rsi_compile_and_timing(
             min_speedup_ratio=min_speedup_ratio,
             ablation_retained=candidate.get("ablation_retained"),
             failure_reason=failure_reason,
+            t_cand_us=candidate.get("t_cand_us", candidate.get("cand_latency_us", candidate.get("latency_us"))),
+            t_baseline_us=candidate.get("t_baseline_us", candidate.get("baseline_perf_us", candidate.get("baseline_latency_us"))),
+            t_hw_us=candidate.get("t_hw_us"),
+            roofline_floor_us=candidate.get("roofline_floor_us"),
         )
         if problems and entry["gate_reached"] == 2:
             entry["gates"]["gate2_measurement_guard"]["reasons"] = list(problems)
