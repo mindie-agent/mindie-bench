@@ -90,7 +90,7 @@ def test_l3_stall_requires_a_valid_experiment_before_escalating():
     assert should_escalate_to_rsi([slow, dict(slow)])[0] is False
     escalate, reason = should_escalate_to_rsi([slow, {**slow, "run_id": "remote-l3-next"}])
     assert escalate is True
-    assert "speedup_below_target" in reason
+    assert "speedup_within_noise" in reason
 
 
 def test_l3_stall_requires_consecutive_evidence_and_resets_on_success():
@@ -232,7 +232,7 @@ def test_plan_compiles_on_cpu_then_times_only_proved_candidates_serially():
         ({"measurement_passed": False}, 2, "inconclusive"),
         ({"ablation_retained": None}, 3, "inconclusive"),
         ({"ablation_retained": False}, 3, "refuted"),
-        ({"speedup_ratio": 1.01, "min_speedup_ratio": 1.05}, 4, "refuted"),
+        ({"speedup_ratio": 0.95, "min_speedup_ratio": 1.05}, 4, "refuted"),
     ],
 )
 def test_gate_failure_keeps_execution_and_hypothesis_outcomes_separate(failure_kwargs, gate, verdict):
@@ -260,6 +260,19 @@ def test_gate_failure_keeps_execution_and_hypothesis_outcomes_separate(failure_k
     assert entry["run_id"] == values["run_id"]
     assert all(item["passed"] is None for item in list(entry["gates"].values())[gate:])
     assert entry["conditions"] == values["conditions"]
+
+    # A valid gain above noise but below target is reusable evidence, not a
+    # refutation and not a conditional avoidance rule.
+    subtarget = evaluate_rsi_candidate_gates(
+        run_id="remote-gate-subtarget", candidate_id="candidate-subtarget",
+        mutation_summary="change one launch-config knob",
+        conditions={"device": "A2", "shape": "decode"}, compile_ok=True,
+        oracle_passed=True, measurement_passed=True, speedup_ratio=1.04,
+        min_speedup_ratio=1.05, ablation_retained=True,
+    )
+    assert subtarget["verdict"] == "subtarget_valid"
+    assert subtarget["distill_ready"] is True
+    assert subtarget["conditional_avoid"] == []
 
 
 def test_four_gate_pass_is_supported_and_distill_ready():
@@ -415,17 +428,26 @@ def test_subtarget_speedup_keeps_valid_evidence_and_never_becomes_conditional_av
 
 
 def test_backward_compatible_below_target_still_refutes_without_opt_in():
-    entry = evaluate_rsi_candidate_gates(
-        run_id="remote-legacy", candidate_id="tiling-legacy", mutation_summary="wider tile",
-        conditions={"soc": "A2"}, compile_ok=True, oracle_passed=True,
-        measurement_passed=True, speedup_ratio=1.04, min_speedup_ratio=1.05,
-        ablation_retained=True,
-    )
-    assert entry["verdict"] == "refuted"
+    values = {
+        "run_id": "remote-legacy", "candidate_id": "tiling-legacy",
+        "mutation_summary": "wider tile", "conditions": {"soc": "A2"},
+        "compile_ok": True, "oracle_passed": True, "measurement_passed": True,
+        "speedup_ratio": 1.04, "min_speedup_ratio": 1.05, "ablation_retained": True,
+    }
+    entry = evaluate_rsi_candidate_gates(**values)
+    assert entry["verdict"] == "subtarget_valid"
+    assert entry["outcome"] == "speedup_below_target_valid_evidence"
     assert entry["axes"]["evidence_validity"] == "valid"
     assert entry["axes"]["goal_attainment"] == "not_attained"
-    assert entry["axes"]["reusability"] == "reusable_negative_boundary"
-    assert entry["conditional_avoid"][0]["candidate_id"] == "tiling-legacy"
+    assert entry["axes"]["reusability"] == "reusable_observation"
+    assert entry["distill_ready"] is True
+    assert entry["conditional_avoid"] == []
+
+    legacy = evaluate_rsi_candidate_gates(**values, preserve_subtarget_evidence=False)
+    assert legacy["verdict"] == "refuted"
+    assert legacy["outcome"] == "speedup_below_target"
+    assert legacy["axes"]["reusability"] == "reusable_negative_boundary"
+    assert legacy["conditional_avoid"][0]["candidate_id"] == "tiling-legacy"
 
 
 @pytest.mark.parametrize(
@@ -515,3 +537,31 @@ def test_subtarget_evidence_does_not_require_a_finished_ablation_to_be_valid():
     assert entry["gate_reached"] == 4
     assert entry["gates"]["gate3_ablation_gate"]["passed"] is None
     assert entry["distill_ready"] is True
+
+
+def test_non_speedup_goals_use_goal_met_and_diagnostic_gain_instead_of_ratio():
+    values = {"compile_ok": True, "oracle_passed": True, "measurement_passed": True,
+              "speedup_ratio": None, "goal_type": "correctness"}
+    attained = evaluate_exploration_axes(**values, goal_met=True)
+    assert attained["verdict"] == "supported"
+    assert attained["axes"] == {"evidence_validity": "valid", "goal_attainment": "attained",
+                                "reusability": "reusable_observation"}
+    assert attained["distill_ready"] is True
+
+    diagnostic = evaluate_exploration_axes(
+        **{**values, "goal_type": "diagnose"}, goal_met=False, diagnostic_gain=True)
+    assert diagnostic["verdict"] == "subtarget_valid"
+    assert diagnostic["outcome"] == "diagnostic_gain_valid_evidence"
+    assert diagnostic["axes"]["reusability"] == "reusable_observation"
+    assert diagnostic["distill_ready"] is True
+
+    refuted = evaluate_exploration_axes(**values, goal_met=False)
+    assert refuted["verdict"] == "refuted"
+    assert refuted["outcome"] == "goal_not_met"
+    assert refuted["axes"]["reusability"] == "reusable_negative_boundary"
+
+    unverified = evaluate_exploration_axes(**values, goal_met=None)
+    assert unverified["verdict"] == "inconclusive"
+    assert unverified["outcome"] == "goal_unverified"
+    assert unverified["axes"]["goal_attainment"] == "not_applicable"
+    assert unverified["distill_ready"] is False

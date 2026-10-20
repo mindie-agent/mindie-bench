@@ -22,6 +22,7 @@ dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 addopts = "-ra"
 markers = [
     "live_npu: non-destructive live Ascend NPU remote slot verification",

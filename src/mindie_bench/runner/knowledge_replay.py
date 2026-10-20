@@ -12,6 +12,8 @@ metrics without calling a model or touching a live corpus.
   native compaction only what is required.
 - Token estimates are UTF-8 body bytes / 4, matching the routing manifest; a
   response is charged for navigation cards plus complete unit bodies.
+- Loading-config comparisons are simulations over real corpus reads: they are
+  marked `simulation_only` and name the `utf8_bytes_div_4_ceiling` estimator.
 - Growth ratios are `None` when no verified milestone exists. Merges and
   supersedes never count as new active units; a branch retains a new condition.
 - Rare conditions stay recallable after consolidation unless explicitly dropped.
@@ -137,13 +139,16 @@ def _simulate(index: RoutingIndex, task: Mapping[str, Any], config: str,
                 row["compaction_reread_tokens"] += loaded
         else:
             if turn.get("compacted"):
-                visible = {_unit_id(ref) for ref in _seq(turn.get("retained_refs"))}
-            explanation = index.explain_closure(required, known_refs=visible, conditions=conditions,
-                                                token_budget=body_budget)
+                # Exact id@revision visibility only; a bare retained ID resolves
+                # to the current revision, while an outdated version stays unseen.
+                visible = set(index.resolve_known_refs(_seq(turn.get("retained_refs"))))
+            explanation = index.explain_closure(required, known_refs=sorted(visible),
+                                                conditions=conditions, token_budget=body_budget)
             body_loaded = sum(unit["token_estimate"] + _RECORD_OVERHEAD
                               for unit in explanation["units"])
-            visible.update(unit["unit_id"] for unit in explanation["units"])
-            available = visible
+            visible.update(index.resolve_known_refs(
+                [f"{unit['unit_id']}@{unit['revision']}" for unit in explanation["units"]]))
+            available = {_unit_id(ref) for ref in visible}
             row["total_loaded_tokens"] += _tokens(cards) + body_loaded
             if turn.get("compacted"):
                 row["compaction_reread_tokens"] += body_loaded
@@ -197,7 +202,8 @@ def compare_loading_configs(
             categories[category][name]["net_token_savings_c_vs_b"] = (
                 category_savings if name == "C" else 0)
     return {
-        "schema_version": SCHEMA_VERSION, "corpus_root": str(corpus_root),
+        "schema_version": SCHEMA_VERSION, "simulation_only": True,
+        "estimator": "utf8_bytes_div_4_ceiling", "corpus_root": str(corpus_root),
         "nav_budget": nav_budget, "body_budget": body_budget, "task_count": len(suite),
         "configs": configs, "config_a": configs["A"], "config_b": configs["B"],
         "config_c": configs["C"], "categories": categories,
