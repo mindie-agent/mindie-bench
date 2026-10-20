@@ -1,5 +1,6 @@
 import json
 import os
+import platform
 import select
 import socket
 import struct
@@ -179,7 +180,12 @@ def test_actual_os_boundary_denies_direct_corpus_and_state_but_relays_mcp(case, 
     alias.symlink_to(profile.private_root, target_is_directory=True)
     paths = runtime_paths(config, profile)
     with Gateway(
-        config.harness, case["spec"], case["task"], case["repo"], trial / "broker.jsonl"
+        config.harness,
+        case["spec"],
+        case["task"],
+        case["repo"],
+        trial / "broker.jsonl",
+        use_unix_socket=platform.system() == "Linux",
     ) as gateway:
         gateway.attach_knowledge(profile, paths)
         profile.env["MINDIE_BENCH_GATEWAY"] = gateway.url
