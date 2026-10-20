@@ -31,11 +31,10 @@ import sys
 import time
 
 from mindie_bench.io import digest
+from mindie_bench.runner import graded_view
 from mindie_bench.runner.sandbox import native_command
 
-_STEP_TIMEOUT_SECONDS = float(
-    os.environ.get("MINDIE_BENCH_MCP_PROBE_TIMEOUT_SECONDS", "15.0")
-)
+_STEP_TIMEOUT_SECONDS = float(os.environ.get("MINDIE_BENCH_MCP_PROBE_TIMEOUT_SECONDS", "15.0"))
 
 
 def close_probe(process, timeout: float | None = None):
@@ -182,6 +181,35 @@ def probe_servers(profile, group_config, read_paths, trial_dir, gateway):
                     tool_names=sorted(tools),
                     tool_schema_sha256=digest(catalog),
                 )
+                if (
+                    spec.component == "knowledge"
+                    and profile.corpus is not None
+                    and graded_view.is_graded(profile.corpus)
+                ):
+                    query_tool = next(tool for tool in ("knowledge_query", "query") if tool in tools)
+                    send(
+                        dict(
+                            jsonrpc="2.0",
+                            id=3,
+                            method="tools/call",
+                            params=dict(
+                                name=query_tool,
+                                arguments=dict(
+                                    query="benchmark readiness",
+                                    conditions=profile.fingerprint["knowledge_conditions"],
+                                    limit=1,
+                                ),
+                            ),
+                        )
+                    )
+                    result = response(3)
+                    if result.get("isError"):
+                        raise ValueError(
+                            f"graded knowledge query failed during zero-model preflight: {result}"
+                        )
+                    observed[name]["read_probe"] = dict(
+                        tool=query_tool, response_sha256=digest(result), status="completed"
+                    )
             except BaseException as error:
                 failure = error
                 raise

@@ -1,0 +1,56 @@
+{
+  "product_version": "0.0.3",
+  "repositories": [
+    {
+      "repository": "mindie-agent/knowledge",
+      "revision": "3abdebac568714e29536991415c12059cc308357",
+      "version": "0.0.3"
+    },
+    {
+      "repository": "mindie-agent/remote-dev",
+      "revision": "4bde385536a4a7e2a06fb5ff63a332aa3a490807",
+      "version": "0.0.3"
+    },
+    {
+      "repository": "mindie-agent/diagnostics",
+      "revision": "e581f83d0c752738600cf67202a72fb409cabea2",
+      "version": "0.0.3"
+    },
+    {
+      "repository": "mindie-agent/coordinator",
+      "revision": "34812c2d385f3ff112be3a597d27fd3a0c15c104",
+      "version": "0.5.3"
+    },
+    {
+      "repository": "mindie-agent/npu-top",
+      "revision": "9bbf6de590b12fe1109040e0ef86817bd2c5f3e0",
+      "version": "0.1.9"
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-codex",
+      "revision": "6e482a2aeaf65e47c998339de6442ba899bba46f",
+      "version": "0.0.3"
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-cc",
+      "revision": "80af30d34b9c8f92e825df8e770bcd185484c357",
+      "version": "0.0.3"
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-kimi",
+      "revision": "b05707ea1c0f3f0492645ed0d174d19bf5bdae9c",
+      "version": "0.0.3"
+    },
+    {
+      "repository": "mindie-agent/mindie-agent-dsh",
+      "revision": "e6f034b82c4afc541f6ec8785e034b5a438d7ee4",
+      "version": "0.0.3"
+    },
+    {
+      "repository": "mindie-agent/mindie-bench",
+      "revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "version": "0.3.0"
+    }
+  ],
+  "schema_version": "mindie-release-manifest/1"
+}

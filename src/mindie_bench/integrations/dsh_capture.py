@@ -18,8 +18,8 @@ from mindie_bench.io import write_json
 def bind_dsh_capture(*, profile_root: Path, dsh_home: Path, workspace: Path, observed: dict) -> dict:
     """Bind metadata for a caller-owned capture backend, never a dead endpoint.
 
-    G3 execution stays preflight-blocked until a capture backend survives the
-    foreground headless process and its model calls can be metered.
+    Backend initialization and C6 acceptance belong to the orchestrator; this
+    descriptor alone cannot claim either operation succeeded.
     """
     profile_root = profile_root.resolve(strict=True)
     dsh_home = dsh_home.resolve(strict=True)
@@ -63,9 +63,9 @@ def bind_dsh_capture(*, profile_root: Path, dsh_home: Path, workspace: Path, obs
         **event,
         "stop_event_path": str(stop_path),
         "history_read": False,
-        "capture_backend_status": "not_configured",
+        "capture_backend_status": "not_executed",
         "measurement_limitations": [
             "artifact location binding does not validate transcript contents or run C6 distillation",
-            "the foreground DSH summary endpoint does not survive headless exit",
+            "a separate owned summary host is required after foreground exit",
         ],
     }

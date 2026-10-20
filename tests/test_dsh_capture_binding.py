@@ -34,7 +34,7 @@ def test_dsh_metadata_binds_real_session_turn_and_artifact_without_claiming_c6(t
     assert event["session_id"] == "session-observed"
     assert event["turn_id"] == "7"
     assert event["event_source"] == "observed_headless_turn_end"
-    assert result["capture_backend_status"] == "not_configured"
+    assert result["capture_backend_status"] == "not_executed"
     assert result["history_read"] is False
 
 

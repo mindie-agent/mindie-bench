@@ -9,7 +9,10 @@ product profiles.
 - `ProductGroup` is a separate protocol (`mindie-bench-product-matrix/1`); it
   never maps or reinterprets `models.Group` G0..G3 component-increment results.
 - Matched profiles in one cohort share model, inference, task start, oracle,
-  input, knowledge cutoff, tool/persistence permissions and total budget.
+  input, knowledge cutoff, tool/persistence permissions and matched downstream
+  budget. Separately accounted prerequisite flywheel cost is not free Seed and
+  is never added to P2's downstream total; equal downstream budget proves
+  conditional reuse only.
 - Faithful external profiles must declare a different execution protocol and
   are reported in their own columns; they are never silently paired or pooled.
 - Every planned cell remains in the denominator. Pass, fail, infra, unknown and
@@ -19,12 +22,14 @@ product profiles.
   starts a model, NPU or paid experiment on its own.
 
 [Timeouts & Locks]
-- Pure planning, validation and accounting; the caller owns execution timeouts.
-  No locks or background workers are created here.
+- Planning, validation and accounting are pure. The P3 execution entrance
+  performs bounded read-only receipt/corpus verification before any caller-owned
+  executor; the caller still owns native execution timeouts and locks.
 
 [Side-Effect Policy]
-- No I/O, subprocess, network or filesystem mutation. The optional executor is
-  a caller-provided callable invoked in the planned order.
+- Planning performs no I/O. P3 matrix execution reads only bound receipts and
+  corpus bytes before invoking the caller executor; it never starts a model, NPU
+  or paid experiment itself.
 """
 
 from __future__ import annotations
@@ -103,6 +108,49 @@ from mindie_bench.runner.matrix_contracts import (
 from mindie_bench.runner.matrix_contracts import (
     normalize_outcome as normalize_outcome,
 )
+from mindie_bench.runner.p3_lineage import P3LineageRejected
+
+
+def _admit_p3_profile(
+    profile: ProductProfile,
+    task_id: str,
+    *,
+    verify_artifacts: bool,
+    task_family: str | None = None,
+    hardware_tier: str | None = None,
+) -> None:
+    """Use the same entrance as ProductExecutor.
+
+    Planning may pass verify_artifacts=False. Matrix execution must pass True so
+    a caller-owned executor cannot skip fresh receipt/corpus verification.
+    """
+    binding = profile.p3_lineage
+    if binding is None:
+        raise ValueError("P3 product profiles require a closed-family lineage admission")
+    target = binding.manifest.target
+    if target.matrix_task_family is not None and task_family is not None:
+        if target.matrix_task_family != task_family:
+            raise ValueError(
+                "P3 lineage matrix task_family label conflicts with the planned cell "
+                f"({target.matrix_task_family!r} != {task_family!r})"
+            )
+    if target.hardware_tier is not None and hardware_tier is not None:
+        if target.hardware_tier != hardware_tier:
+            raise ValueError(
+                "P3 lineage hardware tier conflicts with the planned cell "
+                f"({target.hardware_tier!r} != {hardware_tier!r})"
+            )
+    try:
+        binding.admit(
+            profile_id=profile.profile_id,
+            product_group=profile.group.value,
+            cohort=profile.cohort,
+            protocol=profile.protocol,
+            task_id=task_id,
+            verify_artifacts=verify_artifacts,
+        )
+    except P3LineageRejected as error:
+        raise ValueError(f"P3 lineage admission failed for {task_id}: {error}") from error
 
 
 def _validate_profiles(profiles: Sequence[ProductProfile]) -> None:
@@ -183,6 +231,27 @@ def plan_product_matrix(
     if len(set(task_ids)) != len(task_ids):
         raise ValueError("matrix task IDs must be unique")
     _validate_profiles(profiles)
+    p3_profiles = [profile for profile in profiles if profile.group == ProductGroup.P3_V003_FLYWHEEL]
+    if p3_profiles:
+        planned_tasks = {task.task_id for task in tasks}
+        for profile in p3_profiles:
+            target = profile.p3_lineage.manifest.target
+            if planned_tasks != {target.task_id}:
+                raise ValueError(
+                    "P3 lineage must bind exactly the planned downstream Heldout task; "
+                    f"lineage={target.task_id!r} plan={sorted(planned_tasks)}"
+                )
+            _admit_p3_profile(
+                profile,
+                target.task_id,
+                verify_artifacts=False,
+                task_family=next(
+                    task.task_family for task in tasks if task.task_id == target.task_id
+                ),
+                hardware_tier=next(
+                    task.hardware_tier for task in tasks if task.task_id == target.task_id
+                ),
+            )
     if require_all_groups and {profile.group for profile in profiles} != set(ALL_PRODUCT_GROUPS):
         missing = sorted(group.value for group in set(ALL_PRODUCT_GROUPS) - {p.group for p in profiles})
         raise ValueError("product matrix is missing groups: " + ", ".join(missing))
@@ -347,6 +416,84 @@ def _attempt_totals(
     }
 
 
+def _budget_contract(profile: ProductProfile) -> dict:
+    """Make downstream reuse vs full-lifecycle allocation explicit."""
+    budget = profile.budget
+    return {
+        "matched_downstream": {
+            "total_model_calls": budget.total_model_calls,
+            "npu_runs": budget.npu_runs,
+            "max_wall_clock_sec": budget.max_wall_clock_sec,
+            "max_cost_usd": budget.max_cost_usd,
+        },
+        "conditional_reuse_only": True,
+        "lifecycle_predeclared": budget.lifecycle_model_calls is not None
+        and budget.lifecycle_cost_usd is not None,
+        "lifecycle_model_calls": budget.lifecycle_model_calls,
+        "lifecycle_cost_usd": budget.lifecycle_cost_usd,
+        "seed_organizer_overhead": {
+            "seed_model_calls": budget.seed_model_calls,
+            "capture_model_calls": budget.capture_model_calls,
+            "capture_organizer_model_calls": budget.capture_organizer_model_calls,
+            "independent_review_model_calls": budget.independent_review_model_calls,
+            "seed_npu_runs": budget.seed_npu_runs,
+            "seed_cost_usd": budget.seed_cost_usd,
+            "capture_cost_usd": budget.capture_cost_usd,
+            "capture_organizer_cost_usd": budget.capture_organizer_cost_usd,
+            "independent_review_cost_usd": budget.independent_review_cost_usd,
+            "downstream_organizer_allowance": budget.organizer_model_calls,
+            "downstream_review_allowance": budget.review_model_calls,
+            "downstream_organizer_cost_allowance": budget.organizer_cost_usd,
+            "downstream_review_cost_allowance": budget.review_cost_usd,
+            "unknown_cost_roles": list(budget.unknown_cost_roles),
+        },
+        "same_lifecycle_budget_requires_predeclared_allocation": True,
+        "matched_downstream_proves": "conditional_reuse_only",
+        "prerequisite_costs_separately_accounted": True,
+        "downstream_allowances_are_separate": True,
+        "free_seed": False,
+        "p2_waste_padding": False,
+        "note": (
+            "matched downstream budget is conditional reuse only, not a full lifecycle budget; "
+            "same-lifecycle comparison requires the separately predeclared lifecycle allocation "
+            "including Seed and Organizer overhead"
+        ),
+    }
+
+
+def _budget_overruns(
+    cells: Sequence[ProductCell],
+    observations: Mapping[tuple[ProductGroup, str, int], ProductObservation],
+    profile: ProductProfile,
+) -> tuple[dict, ...]:
+    """Keep observed-vs-declared overruns visible instead of silently averaging."""
+    declared = {
+        "model_calls": profile.budget.total_model_calls,
+        "npu_runs": profile.budget.npu_runs,
+        "total_wall_clock_sec": profile.budget.max_wall_clock_sec,
+    }
+    if profile.budget.max_cost_usd is not None:
+        declared["estimated_cost_usd"] = profile.budget.max_cost_usd
+    overruns = []
+    for cell in cells:
+        observation = observations.get(cell.key())
+        if observation is None:
+            continue
+        for field, limit in declared.items():
+            observed = getattr(observation, field)
+            if observed is not None and observed > limit:
+                overruns.append(
+                    {
+                        "task_id": cell.task_id,
+                        "repetition": cell.repetition,
+                        "field": field,
+                        "observed": observed,
+                        "declared": limit,
+                    }
+                )
+    return tuple(overruns)
+
+
 def build_product_report(
     plan: ProductMatrixPlan,
     observations: Sequence[ProductObservation],
@@ -385,6 +532,9 @@ def build_product_report(
             _bucket_denominators(cells, by_key, "hardware_tier"),
             tuple(cell.to_dict() for cell in cells if cell.key() not in by_key),
             present,
+            p3_lineage=profile.p3_lineage.to_dict() if profile.p3_lineage else None,
+            budget_overruns=_budget_overruns(cells, by_key, profile),
+            budget_contract=_budget_contract(profile),
             **_attempt_totals(present, len(cells)),
         )
     cohort_buckets = defaultdict(list)
@@ -426,7 +576,16 @@ def execute_product_matrix(plan: ProductMatrixPlan, execute: Executor) -> Produc
     Returning `None` records a missing cell rather than inventing an outcome.
     """
     observations = []
+    profiles = plan.profile_by_group()
     for cell in plan.cells:
+        if cell.group == ProductGroup.P3_V003_FLYWHEEL:
+            _admit_p3_profile(
+                profiles[cell.group],
+                cell.task_id,
+                verify_artifacts=True,
+                task_family=cell.task_family,
+                hardware_tier=cell.hardware_tier,
+            )
         result = execute(cell)
         if result is None:
             continue

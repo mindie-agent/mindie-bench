@@ -2,8 +2,11 @@
 
 [Role] Define the separate product-level comparison protocol and result schemas.
 [Invariants] Legacy component groups retain their original meaning; product
-profiles fix conditions and total budget, preserve missing data, and keep
-faithful external baselines separate from matched comparisons.
+profiles fix conditions and the matched downstream budget plus separately
+accounted prerequisite flywheel cost, preserve missing data, and keep faithful
+external baselines separate from matched comparisons. Equal downstream budget is
+conditional reuse only; a same-lifecycle total needs a separately predeclared
+allocation.
 [Timeouts & Locks] Pure record construction and validation, no waits or locks.
 [Side-Effect Policy] No I/O, model requests or hardware execution.
 """
@@ -17,6 +20,7 @@ from typing import Literal
 
 from mindie_bench.io import digest
 from mindie_bench.models import Group, TerminalStatus
+from mindie_bench.runner.p3_lineage import P3LineageBinding
 from mindie_bench.runner.protocol_json import JsonRecord, record_payload
 
 PRODUCT_MATRIX_PROTOCOL = "mindie-bench-product-matrix/1"
@@ -122,9 +126,18 @@ class MatrixTask(JsonRecord):
                 raise ValueError(f"matrix task {name} must be non-empty")
 
 
+_PREREQUISITE_COST_ROLES = ("seed", "capture", "organizer", "review")
+
+
 @dataclass(frozen=True)
 class BudgetEnvelope(JsonRecord):
-    """Total budget, including child, organizer and review model calls."""
+    """Matched downstream budget plus visible prerequisite flywheel cost.
+
+    Seed and capture usage is additional P3 prerequisite cost, not a free part of
+    the downstream envelope. It is therefore excluded from ``comparison_dict``
+    (P2/P3 remain matched on the same downstream total) but retained in every
+    report and cross-checked against the P3 cost ledger before execution.
+    """
 
     total_model_calls: int
     foreground_model_calls: int = 0
@@ -134,6 +147,21 @@ class BudgetEnvelope(JsonRecord):
     npu_runs: int = 0
     human_interventions: int = 0
     max_wall_clock_sec: float = 0.0
+    max_cost_usd: float | None = None
+    lifecycle_model_calls: int | None = None
+    lifecycle_cost_usd: float | None = None
+    seed_model_calls: int = 0
+    capture_model_calls: int = 0
+    capture_organizer_model_calls: int = 0
+    independent_review_model_calls: int = 0
+    seed_npu_runs: int = 0
+    seed_cost_usd: float = 0.0
+    capture_cost_usd: float = 0.0
+    capture_organizer_cost_usd: float = 0.0
+    independent_review_cost_usd: float = 0.0
+    organizer_cost_usd: float = 0.0
+    review_cost_usd: float = 0.0
+    unknown_cost_roles: tuple[str, ...] = ()
 
     def __post_init__(self):
         values = (
@@ -144,6 +172,11 @@ class BudgetEnvelope(JsonRecord):
             self.review_model_calls,
             self.npu_runs,
             self.human_interventions,
+            self.seed_model_calls,
+            self.capture_model_calls,
+            self.capture_organizer_model_calls,
+            self.independent_review_model_calls,
+            self.seed_npu_runs,
         )
         if any(type(value) is not int or value < 0 for value in values):
             raise ValueError("budget fields must be non-negative integers")
@@ -154,16 +187,98 @@ class BudgetEnvelope(JsonRecord):
             raise ValueError(
                 "foreground/child/organizer/review model calls must fit the total model budget"
             )
-        if not math.isfinite(self.max_wall_clock_sec) or self.max_wall_clock_sec < 0:
-            raise ValueError("max_wall_clock_sec must be finite and non-negative")
+        if self.max_cost_usd is not None and (
+            not math.isfinite(self.max_cost_usd) or self.max_cost_usd < 0
+        ):
+            raise ValueError("max_cost_usd must be finite and non-negative or None")
+        if (self.lifecycle_model_calls is None) != (self.lifecycle_cost_usd is None):
+            raise ValueError("lifecycle model-call and cost allocations must be declared together")
+        if self.lifecycle_model_calls is not None:
+            if type(self.lifecycle_model_calls) is not int or self.lifecycle_model_calls < 0:
+                raise ValueError("lifecycle_model_calls must be a non-negative integer or None")
+            minimum = (
+                self.total_model_calls
+                + self.seed_model_calls
+                + self.capture_model_calls
+                + self.capture_organizer_model_calls
+                + self.independent_review_model_calls
+            )
+            if self.lifecycle_model_calls < minimum:
+                raise ValueError(
+                    "lifecycle_model_calls must include downstream plus Seed/capture/in-capture organizer/independent review"
+                )
+        if self.lifecycle_cost_usd is not None and (
+            not math.isfinite(self.lifecycle_cost_usd) or self.lifecycle_cost_usd < 0
+        ):
+            raise ValueError("lifecycle_cost_usd must be finite and non-negative or None")
+        if self.lifecycle_cost_usd is not None:
+            downstream_cost = (
+                self.max_cost_usd
+                if self.max_cost_usd is not None
+                else self.organizer_cost_usd + self.review_cost_usd
+            )
+            minimum = (
+                downstream_cost
+                + self.seed_cost_usd
+                + self.capture_cost_usd
+                + self.capture_organizer_cost_usd
+                + self.independent_review_cost_usd
+            )
+            if self.lifecycle_cost_usd < minimum:
+                raise ValueError("lifecycle_cost_usd must include Seed/Organizer overhead")
+        for name in (
+            "max_wall_clock_sec",
+            "seed_cost_usd",
+            "capture_cost_usd",
+            "capture_organizer_cost_usd",
+            "independent_review_cost_usd",
+            "organizer_cost_usd",
+            "review_cost_usd",
+        ):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and non-negative")
+        roles = tuple(self.unknown_cost_roles)
+        if any(role not in _PREREQUISITE_COST_ROLES for role in roles):
+            raise ValueError(f"unknown_cost_roles must be drawn from {_PREREQUISITE_COST_ROLES}")
+        if len(set(roles)) != len(roles) or tuple(sorted(roles)) != roles:
+            raise ValueError("unknown_cost_roles must be unique and sorted")
+        object.__setattr__(self, "unknown_cost_roles", roles)
 
     def comparison_dict(self) -> dict:
-        """Only the common envelope is matched; role shares are mechanism choices."""
+        """Common downstream envelope, including the enforced cost cap; role shares are choices."""
         return {
             "total_model_calls": self.total_model_calls,
             "npu_runs": self.npu_runs,
             "human_interventions": self.human_interventions,
             "max_wall_clock_sec": self.max_wall_clock_sec,
+            "max_cost_usd": self.max_cost_usd,
+        }
+
+    def task_derived_dict(self) -> dict:
+        """Fields derivable from the task; role shares and caps are plan choices."""
+        return {
+            "total_model_calls": self.total_model_calls,
+            "npu_runs": self.npu_runs,
+            "human_interventions": self.human_interventions,
+            "max_wall_clock_sec": self.max_wall_clock_sec,
+        }
+
+    def ledger_dict(self) -> dict:
+        """Downstream plus Seed/capture/organizer/review identity for the P3 ledger."""
+        return {
+            "total_model_calls": self.total_model_calls,
+            "npu_runs": self.npu_runs,
+            "seed_model_calls": self.seed_model_calls,
+            "capture_model_calls": self.capture_model_calls,
+            "capture_organizer_model_calls": self.capture_organizer_model_calls,
+            "independent_review_model_calls": self.independent_review_model_calls,
+            "seed_npu_runs": self.seed_npu_runs,
+            "seed_cost_usd": self.seed_cost_usd,
+            "capture_cost_usd": self.capture_cost_usd,
+            "capture_organizer_cost_usd": self.capture_organizer_cost_usd,
+            "independent_review_cost_usd": self.independent_review_cost_usd,
+            "unknown_cost_roles": list(self.unknown_cost_roles),
         }
 
 
@@ -213,6 +328,7 @@ class ProductProfile(JsonRecord):
     budget: BudgetEnvelope
     preserved_capabilities: tuple[str, ...] = ()
     notes: str = ""
+    p3_lineage: P3LineageBinding | None = None
 
     def __post_init__(self):
         if isinstance(self.group, Group):
@@ -236,6 +352,23 @@ class ProductProfile(JsonRecord):
             )
         if any(not value for value in self.preserved_capabilities):
             raise ValueError("preserved capabilities must be non-empty names")
+        if self.p3_lineage is not None and not isinstance(self.p3_lineage, P3LineageBinding):
+            raise TypeError("p3_lineage must be a prepared P3LineageBinding")
+        if self.group == ProductGroup.P3_V003_FLYWHEEL and self.p3_lineage is None:
+            raise ValueError(
+                "P3 product profiles require a closed-family lineage admission; "
+                "a product label alone is not a flywheel"
+            )
+        if self.group != ProductGroup.P3_V003_FLYWHEEL and self.p3_lineage is not None:
+            raise ValueError("only the P3 product profile may carry a P3 lineage admission")
+        if self.p3_lineage is not None:
+            target = self.p3_lineage.manifest.target
+            if (target.profile_id, target.cohort, target.protocol) != (
+                self.profile_id,
+                self.cohort,
+                self.protocol,
+            ):
+                raise ValueError("P3 lineage target differs from its product profile")
 
     def comparison_fingerprint(self) -> str:
         return digest(
@@ -382,6 +515,9 @@ class ProductGroupReport(JsonRecord):
     wall_clock_sec_total: MeasurementTotal
     npu_runs_total: MeasurementTotal
     manual_interventions_total: MeasurementTotal
+    p3_lineage: dict | None = None
+    budget_overruns: tuple[dict, ...] = ()
+    budget_contract: dict | None = None
 
     def to_dict(self) -> dict:
         payload = record_payload(self)

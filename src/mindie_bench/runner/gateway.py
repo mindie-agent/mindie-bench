@@ -13,6 +13,11 @@ enforcing turn/NPU-test budgets and recording an append-only `broker.jsonl` ledg
   uploaded Python worker source are never miscounted as test runs.
 - One-shot `/bench/ssh` results are persisted to `remote-results/<id>.json` before socket write so a
   broken client pipe records `external_effects="completed"` rather than polluting `unknown`.
+- `model_error` transport metadata is measured from the live connection (stage durations, TLS
+  identity, immediate socket peer, bytes handed to the socket, observed alert reason). Alert
+  direction is only inferred from the OpenSSL reason, and the socket peer may be a local
+  proxy/TUN fake-IP, not the provider edge. It never records bodies or credentials; `null` means
+  unavailable/not observed, never inferred.
 
 [Timeouts & Locks]
 - `self.lock` (`RLock`) serializes budget accounting, journal writes, and connection tracking.
@@ -54,6 +59,39 @@ from mindie_bench.scorer.command_observations import is_recognized_npu_command
 
 _SETTLEMENT_GRACE_SECONDS = float(os.environ.get("MINDIE_BENCH_SETTLEMENT_GRACE_SECONDS", "30.0"))
 MODEL_SETTLEMENT_GRACE_SEC = _SETTLEMENT_GRACE_SECONDS
+_TRANSPORT_STAGES = ("connect", "submit", "response_headers", "response_body")
+
+
+def _tls_transport_observation(transport) -> dict:
+    """Read TLS identity and the immediate socket peer; null means unavailable.
+
+    `peer_ip`/`peer_port` come from getpeername(), so they identify the next TCP hop
+    (possibly a local proxy or TUN fake-IP), not the provider edge.
+    """
+    observation = dict(
+        tls_version=None,
+        tls_cipher=None,
+        tls_alpn=None,
+        peer_ip=None,
+        peer_port=None,
+        peer_scope=None,
+    )
+    try:
+        observation["tls_version"] = transport.version()
+        cipher = transport.cipher()
+        observation["tls_cipher"] = cipher[0] if cipher else None
+        observation["tls_alpn"] = transport.selected_alpn_protocol()
+    except (AttributeError, OSError, ValueError):
+        pass
+    try:
+        peer = transport.getpeername()
+        if isinstance(peer, tuple) and len(peer) >= 2:
+            observation["peer_ip"] = str(peer[0])
+            observation["peer_port"] = int(peer[1])
+            observation["peer_scope"] = "immediate_socket_peer"
+    except (AttributeError, OSError, ValueError):
+        pass
+    return observation
 
 
 class RemoteBudgetExhausted(ValueError):
@@ -518,17 +556,44 @@ class Gateway(AbstractContextManager):
                         if self.headers.get("anthropic-beta"):
                             headers["anthropic-beta"] = self.headers["anthropic-beta"]
                     transport_stage = "connect"
+                    stage_started, stage_durations = {}, dict.fromkeys(_TRANSPORT_STAGES)
+                    stage_started["connect"] = time.monotonic()
+                    # Count only complete socket writes. A failed sendall leaves its
+                    # chunk's delivery unknown; never report that as "not sent".
+                    wire = {"written": 0, "pending": 0, "complete": False}
+                    tls_observation = dict.fromkeys(
+                        ("tls_version", "tls_cipher", "tls_alpn", "peer_ip", "peer_port", "peer_scope")
+                    )
                     try:
                         connection.connect()
                         transport = connection.sock
+                        tls_observation = _tls_transport_observation(transport)
+                        stage_durations["connect"] = time.monotonic() - stage_started["connect"]
                         with gateway.lock:
                             gateway.connections[connection] = transport
                             if gateway.closed or gateway.model_settlement_expired:
                                 raise TimeoutError("model settlement deadline expired before submission")
                         transport_stage = "submit"
+                        stage_started["submit"] = time.monotonic()
+                        unmodified_send = getattr(connection, "send", None)
+                        if callable(unmodified_send):
+
+                            def counting_send(data):
+                                wire["pending"] = len(data)
+                                unmodified_send(data)
+                                wire["written"] += len(data)
+                                wire["pending"] = 0
+
+                            connection.send = counting_send
                         connection.request("POST", target, body=body, headers=headers)
+                        wire["complete"] = True
+                        stage_durations["submit"] = time.monotonic() - stage_started["submit"]
                         transport_stage = "response_headers"
+                        stage_started["response_headers"] = time.monotonic()
                         response = connection.getresponse()
+                        stage_durations["response_headers"] = (
+                            time.monotonic() - stage_started["response_headers"]
+                        )
                         if response.status >= 400:
                             if response.status in {400, 401, 403, 404, 422}:
                                 gateway.infrastructure_error = (
@@ -556,6 +621,7 @@ class Gateway(AbstractContextManager):
                         except OSError as exc:
                             delivery_failed(exc)
                         transport_stage = "response_body"
+                        stage_started["response_body"] = time.monotonic()
                         while True:
                             if delivery_deadline is not None:
                                 remaining = delivery_deadline - time.monotonic()
@@ -585,16 +651,39 @@ class Gateway(AbstractContextManager):
                         gateway.record("model_end", ordinal=ordinal, http_status=response.status)
                     except (OSError, http.client.HTTPException) as exc:
                         gateway.unknown = True
+                        stage_durations[transport_stage] = (
+                            time.monotonic() - stage_started[transport_stage]
+                            if transport_stage in stage_started
+                            else None
+                        )
+                        ssl_reason = (
+                            exc.reason or exc.strerror if isinstance(exc, ssl.SSLError) else None
+                        )
+                        alert_reason = (
+                            ssl_reason if ssl_reason and "ALERT" in ssl_reason.upper() else None
+                        )
+                        # The reason string says an alert was seen, but not which direction
+                        # carried it on the wire. Keep the measured/inferred split explicit.
+                        alert_direction = "inferred_received_from_peer" if alert_reason else None
                         gateway.record(
                             "model_error",
                             ordinal=ordinal,
                             error=type(exc).__name__,
                             transport_stage=transport_stage,
                             errno=exc.errno if isinstance(exc, OSError) else None,
-                            ssl_reason=(
-                                exc.reason or exc.strerror
-                                if isinstance(exc, ssl.SSLError) else None
+                            ssl_reason=ssl_reason,
+                            transport_stage_sec=stage_durations[transport_stage],
+                            transport_stage_durations=stage_durations,
+                            request_bytes_written=wire["written"],
+                            request_write_complete=wire["complete"],
+                            request_write_uncertain_bytes=wire["pending"],
+                            alert_reason=alert_reason,
+                            alert_direction=alert_direction,
+                            alert_direction_basis=(
+                                "openssl_reason_contains_ALERT" if alert_reason else None
                             ),
+                            alert_direction_measured=(False if alert_reason else None),
+                            **tls_observation,
                         )
                         self.close_connection = True
                     finally:

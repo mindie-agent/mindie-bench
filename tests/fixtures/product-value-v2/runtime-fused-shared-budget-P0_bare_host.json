@@ -1,0 +1,42 @@
+{
+  "catalog": {
+    "schema": "mindie-catalog/1",
+    "sha256": "6ba3d288ee0b059739ef6d598cab0c9217d9c38511a4cbb795f9fbbfd2945a28",
+    "units": 0
+  },
+  "config_sha256": "46e636fa5bc945923062675aba4b2c4dc49d50fd1928d2a7032e8c05b96827a8",
+  "derived_inputs": {
+    "budget": {
+      "human_interventions": 0,
+      "max_wall_clock_sec": 3361.65,
+      "npu_runs": 8,
+      "total_model_calls": 40
+    },
+    "budget_scope": "shared phase budget from run_trial start through completed cleanup",
+    "conditions": {
+      "inference_profile": "temperature=0",
+      "input_digest": "input:fused-rmsnorm-gate-dispatch-performance",
+      "knowledge_cutoff": "2026-10-01",
+      "model_id": "deepseek-flash",
+      "oracle_digest": "3d37c49ce17b48de5965383d6a1fbf4af8f221b1d88f483ecffe2281bcdc41c8",
+      "persistence_permission_digest": "persist-sha",
+      "task_start_digest": "start:fused-rmsnorm-gate-dispatch-performance",
+      "tool_permission_digest": "tools-sha"
+    },
+    "corpora": {},
+    "tasks": {
+      "fused-rmsnorm-gate-dispatch-performance": {
+        "oracle_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "task_root": "/private/tasks/fused-rmsnorm-gate-dispatch-performance",
+        "task_sha256": "e321a287be142fc1d18aea078c65c7fa0703c49bc2a35339cf719ff7318d72ff"
+      }
+    }
+  },
+  "native_plugin": null,
+  "product_group": "P0_bare_host",
+  "profile_id": "fused-shared-budget-P0_bare_host",
+  "runtime_snapshot": {
+    "harness_binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "scope": "Native-contract publication fixture"
+}

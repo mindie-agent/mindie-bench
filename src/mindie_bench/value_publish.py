@@ -22,6 +22,10 @@ def component_name(repository: str) -> str:
 
 
 def component_view(report: dict, target: dict) -> dict:
+    if report.get("schema_version") == "mindie-value-report/2":
+        from mindie_bench.value_product_views import component_view_product
+
+        return component_view_product(report, target)
     component = component_name(target["repository"])
     if report["component_revisions"].get(component) != target["revision"]:
         raise ValueError(f"component value attachment source differs: {component}")
@@ -93,10 +97,15 @@ def write_component_views(report: dict, targets: dict, output: Path) -> list[Pat
         stem = f"product-{report['product_version']}-value-results"
         data, prose = directory / f"{stem}.json", directory / f"{stem}.md"
         write_json(data, view)
-        prose.write_text(
-            f"# {target['repository']} {target['version']}\n\n"
-            + markdown(view).removeprefix("# Product value benchmark\n"),
-            encoding="utf-8",
-        )
+        if report.get("schema_version") == "mindie-value-report/2":
+            from mindie_bench.value_product_views import component_markdown_product
+
+            prose.write_text(component_markdown_product(view), encoding="utf-8")
+        else:
+            prose.write_text(
+                f"# {target['repository']} {target['version']}\n\n"
+                + markdown(view).removeprefix("# Product value benchmark\n"),
+                encoding="utf-8",
+            )
         written.extend((data, prose))
     return written

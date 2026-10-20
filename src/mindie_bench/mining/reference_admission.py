@@ -18,6 +18,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from mindie_bench.mining.material_dispatch import MaterialPrivacyEvidence
+from mindie_bench.mining.reference_derivation import ReferenceDerivation, verify_derivation
 from mindie_bench.models import StrictModel
 
 SHA = r"^[0-9a-f]{64}$"
@@ -47,6 +48,7 @@ class ReferenceMaterial(StrictModel):
     content_sha256: str = Field(pattern=SHA)
     privacy_proof_ref: str
     privacy_proof_sha256: str = Field(pattern=SHA)
+    derivation: ReferenceDerivation | None = None
 
     @model_validator(mode="after")
     def source_range(self):
@@ -137,6 +139,8 @@ def admit_public_references(
     observed_git_blobs: dict[str, dict],
     protected_references: list[ProtectedReference],
     observed_source_bytes: dict[str, bytes] | None = None,
+    observed_readable_bytes: dict[str, bytes] | None = None,
+    observed_derivation_evidence: dict[str, dict[str, bytes]] | None = None,
     purpose: Literal["public_reference_research"] = "public_reference_research",
 ) -> dict:
     """Allow only currently bound references; never create problem/split claims.
@@ -147,6 +151,8 @@ def admit_public_references(
     """
     sources = {(row.source_id, row.revision): row for row in source_evidence}
     observed_source_bytes = observed_source_bytes or {}
+    observed_readable_bytes = observed_readable_bytes or {}
+    observed_derivation_evidence = observed_derivation_evidence or {}
     marker_replay_required = any(row.exact_content_markers for row in protected_references)
     scans = {(row.proof_ref, row.material_locator): row for row in privacy_evidence}
     global_reasons = []
@@ -173,22 +179,50 @@ def admit_public_references(
         if observed_sha256.get(material.material_id) != material.content_sha256:
             reasons.append("readable_material_current_hash_mismatch_or_missing")
         source_bytes = observed_source_bytes.get(material.material_id)
+        readable_bytes = observed_readable_bytes.get(material.material_id)
+        derivation_summary = None
+        original_slice_sha256 = (
+            material.derivation.original_slice_sha256
+            if material.derivation else material.content_sha256
+        )
         if source_bytes is None:
-            if marker_replay_required:
+            if material.derivation:
+                reasons.append("derivation_original_source_bytes_missing")
+            elif marker_replay_required:
                 reasons.append("protected_marker_replay_missing")
         elif (
             hashlib.sha256(source_bytes).hexdigest() != material.source_sha256
             or hashlib.sha256(source_bytes[material.byte_start:material.byte_end]).hexdigest()
-            != material.content_sha256
+            != original_slice_sha256
         ):
             reasons.append("protected_source_bytes_not_bound_to_material")
+        if material.derivation:
+            if readable_bytes is None:
+                reasons.append("derivation_readable_bytes_missing")
+            elif source_bytes is not None:
+                try:
+                    derivation_summary = verify_derivation(
+                        derivation=material.derivation,
+                        source_bytes=source_bytes, readable_bytes=readable_bytes,
+                        source_sha256=material.source_sha256,
+                        byte_start=material.byte_start, byte_end=material.byte_end,
+                        content_sha256=material.content_sha256,
+                        evidence=observed_derivation_evidence.get(material.material_id, {}),
+                    )
+                except ValueError as error:
+                    reasons.append("derivation_not_verified:" + str(error))
         blocked_families = []
         for protected in protected_references:
-            if protected_match_fields(
+            original_match = protected_match_fields(
                 protected.model_dump(), repo_url=material.repo_url, path=material.path,
-                source_sha256=material.source_sha256, content_sha256=material.content_sha256,
+                source_sha256=material.source_sha256, content_sha256=original_slice_sha256,
                 source_bytes=source_bytes,
-            ):
+            )
+            derived_match = material.derivation and protected_match_fields(
+                protected.model_dump(), repo_url=material.repo_url, path=material.path,
+                content_sha256=material.content_sha256, source_bytes=readable_bytes,
+            )
+            if original_match or derived_match:
                 blocked_families.append(protected.family_id)
         if blocked_families:
             reasons.append("protected_heldout_source_material")
@@ -222,11 +256,16 @@ def admit_public_references(
                 "reasons": reasons,
                 "protected_family_ids": sorted(set(blocked_families)),
                 "status": "denied" if reasons or global_reasons else "admitted",
+                **({"derivation": derivation_summary} if material.derivation else {}),
             }
         )
     allowed = not global_reasons and all(row["status"] == "admitted" for row in rows)
     return {
-        "schema_version": "mindie-public-reference-admission/1",
+        "schema_version": (
+            "mindie-public-reference-admission/2"
+            if any(material.derivation for material in materials)
+            else "mindie-public-reference-admission/1"
+        ),
         "purpose": purpose,
         "context_id": context_id,
         "status": "admitted" if allowed else "denied",

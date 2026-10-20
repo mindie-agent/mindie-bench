@@ -153,6 +153,17 @@ def test_matched_cohort_rejects_different_inputs_and_common_total_budget():
         plan_product_matrix(tasks(), [profile(ProductGroup.P0_BARE_HOST), different_total])
 
 
+def test_matched_cohort_requires_the_same_downstream_cost_cap():
+    with pytest.raises(ValueError, match="max_cost_usd"):
+        plan_product_matrix(
+            tasks(),
+            [
+                profile(ProductGroup.P0_BARE_HOST, envelope=budget(max_cost_usd=2.0)),
+                profile(ProductGroup.P2_V003_FULL, envelope=budget(max_cost_usd=3.0)),
+            ],
+        )
+
+
 def test_faithful_external_group_requires_its_own_protocol_and_is_reported_separately():
     matched = [profile(ProductGroup.P0_BARE_HOST), profile(ProductGroup.P2_V003_FULL)]
     same_protocol_external = profile(
@@ -323,14 +334,14 @@ def test_matched_pairing_keeps_missing_sides_and_rejects_different_conditions():
     assert pairs[0].right.status.value == "fail"
     assert not pairs[1].both_observed
 
-    other_cohort = profile(ProductGroup.P3_V003_FLYWHEEL, cohort="other")
+    other_cohort = profile(ProductGroup.P1_V002_BASELINE, cohort="other")
     two_cohorts = plan_product_matrix(
         tasks()[:1],
         [profile(ProductGroup.P0_BARE_HOST), profile(ProductGroup.P2_V003_FULL), other_cohort],
     )
     with pytest.raises(ValueError, match="same declared cohort"):
         pair_matched_observations(
-            two_cohorts, [], ProductGroup.P0_BARE_HOST, ProductGroup.P3_V003_FLYWHEEL
+            two_cohorts, [], ProductGroup.P0_BARE_HOST, ProductGroup.P1_V002_BASELINE
         )
 
 
