@@ -24,12 +24,13 @@ cold_provisioning = "separate shared setup cost; not a P2 causal benefit and not
 claim_boundary = "verified 0-model-cost 1-NPU soundness receipt on 192.168.13.165:46000 (source0 a78a00e0 pre-fix recurrent_gated_delta_rule decode failure; after 0f289fa2 exact 8-token greedy match)"
 
 [mindie_knowledge]
+corpus_id = "ascend"
 knowledge_gradient = "no_hit"
 same_origin_task_hashes = []
 analogical_task_hashes = []
 oracle_block_ids = []
-target_files = []
-conditions = { historical_source0 = "a78a00e0b1b618f26a3bfce2519055b40cf4bf1e", historical_after = "0f289fa2a8a381a644a5f329af61715a73ec2aec", vllm_empty_target = "4034c3d32e30d01639459edd3ab486f56993876d" }
+target_files = ["vllm_ascend/patch/worker/patch_qwen3_5.py", "vllm_ascend/patch/worker/__init__.py"]
+conditions = {}
 
 [budget]
 max_turns = 40

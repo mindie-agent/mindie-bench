@@ -1,0 +1,33 @@
+schema_version = "1.0"
+[task]
+instance_id = "qwen3-moe-tp2-ep4-mc2-eplb-skew"
+domain_category = "moe_load_balance"
+difficulty = "hard"
+evidence = "candidate"
+cluster = "qwen3-moe-tp2-ep4-mc2"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
+task_type = "distributed_optimization"
+validation_scope = "S2 eight-Die A3 Qwen3-MoE TP=2 x EP=4 with MC2 Dispatch/Combine and EPLB under skewed expert routing; rank-skew, AlltoAll tail latency, correctness and guard-workload parity"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "compositional"
+target_files = ["vllm_ascend/ops/moe.py", "vllm_ascend/eplb/eplb_worker.py"]
+conditions = { query = "Qwen3 MoE TP2 EP4 MC2 Dispatch Combine EPLB expert load skew AlltoAll slow rank tail latency", topology_scale = "S2", placement = "intra_node_hccs", die_count = 8, npu_model = "Ascend910", npu_count = 8, hosts = ["192.168.13.165"] }
+[budget]
+max_turns = 50
+max_npu_runs = 12
+timeout_sec = 2400
+verifier_timeout_sec = 480
+[environment.l3]
+repo_path = "../../../repositories/vllm-ascend-idle-dp"
+base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
+npu_model = "Ascend910"
+npu_count = 8
+topology_scale = "S2"
+die_count = 8
+placement = "intra_node_hccs"
+hosts = ["192.168.13.165"]
+visible_phy_ids = []

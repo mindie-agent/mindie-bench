@@ -1,0 +1,33 @@
+schema_version = "1.0"
+[task]
+instance_id = "a3-dual-die-tp2-allreduce-placement"
+domain_category = "distributed_topology_correctness"
+difficulty = "hard"
+evidence = "candidate"
+cluster = "a3-same-package-dual-die"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
+task_type = "distributed_correctness"
+validation_scope = "S1 A3 same-package dual-Die TP=2 MatmulAllReduce/MC2 placement; cross-package Phy-ID fallback must be explicitly rejected or measured as degraded"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "analogical"
+target_files = ["vllm_ascend/distributed/parallel_state.py", "vllm_ascend/ops/mc2.py"]
+conditions = { query = "A3 same NPU package dual Die Phy-ID 0 1 MatmulAllReduce TP2 HCCL allreduce bandwidth", topology_scale = "S1", placement = "same_npu_dual_die", die_count = 2, npu_model = "Ascend910", npu_count = 2, hosts = ["192.168.13.165"] }
+[budget]
+max_turns = 40
+max_npu_runs = 8
+timeout_sec = 1200
+verifier_timeout_sec = 240
+[environment.l3]
+repo_path = "../../../repositories/vllm-ascend-idle-dp"
+base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"
+npu_model = "Ascend910"
+npu_count = 2
+topology_scale = "S1"
+die_count = 2
+placement = "same_npu_dual_die"
+hosts = ["192.168.13.165"]
+visible_phy_ids = []

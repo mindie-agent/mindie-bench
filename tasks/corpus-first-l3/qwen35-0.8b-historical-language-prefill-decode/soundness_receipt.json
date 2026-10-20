@@ -60,7 +60,7 @@
     "verifier_stdout": "PASS exact_prompt_ids exact_8_greedy_ids finite_8_logprobs eos_hit=false"
   },
   "status": "completed",
-  "task_sha256": "b9215205b4c0df069d5669d6f8fd52148910c271e482508ca820eccd91fd43a4",
+  "task_sha256": "dcd1abdb5af0989b8a25caf5757351ba3af9b579ca10d884ba6bb6e9244c8d90",
   "tier": "l3",
   "vllm_commit": "4034c3d32e30d01639459edd3ab486f56993876d"
 }

@@ -219,12 +219,20 @@ def build_profile(
         ).stdout
         if actual != declared.commit or dirty:
             raise ValueError("corpus must be clean at its exact declared commit")
-        declared_tasks = {
-            *task.mindie_knowledge.same_origin_task_hashes,
-            *task.mindie_knowledge.analogical_task_hashes,
-        }
-        from mindie_bench.runner.graded_view import identifiers
+        from mindie_bench.runner.graded_view import identifiers, is_graded
 
+        graded_source = is_graded(source)
+        same_origin = [
+            item
+            for item in task.mindie_knowledge.same_origin_task_hashes
+            if not (graded_source and len(item) == 64 and all(c in "0123456789abcdef" for c in item))
+        ]
+        analogical = [
+            item
+            for item in task.mindie_knowledge.analogical_task_hashes
+            if not (graded_source and len(item) == 64 and all(c in "0123456789abcdef" for c in item))
+        ]
+        declared_tasks = {*same_origin, *analogical}
         missing = sorted(declared_tasks - identifiers(source))
         if missing:
             raise ValueError(f"declared knowledge task IDs are absent from the source corpus: {missing}")
@@ -233,15 +241,15 @@ def build_profile(
             or task.task.role == "seed"
             or task.mindie_knowledge.knowledge_gradient != "near_exact"
         ):
-            excluded.update(task.mindie_knowledge.same_origin_task_hashes)
+            excluded.update(same_origin)
         corpus = private_root / "corpus"
         corpus_fingerprint = filtered_corpus(corpus_override or source, corpus, excluded)
         retained_analogies = sorted(
             identity
-            for identity in task.mindie_knowledge.analogical_task_hashes
+            for identity in analogical
             if identity in identifiers(corpus)
         )
-        if retained_analogies != sorted(task.mindie_knowledge.analogical_task_hashes):
+        if retained_analogies != sorted(analogical):
             raise ValueError("declared analogical knowledge must remain in the filtered corpus")
         corpus_commit = declared.commit
     local_bare = private_root / "local_knowledge.git"
@@ -587,11 +595,21 @@ def knowledge_prompt(profile: Profile) -> str:
         if conditions
         else ""
     )
-    if profile.fingerprint.get("native_product"):
+    if native := profile.fingerprint.get("native_product"):
+        graded_hint = (
+            " When querying graded knowledge before all unit condition keys are known, pass "
+            "include_unknown=true (and navigation_only=true to inspect bounded cards and "
+            "missing_conditions first), then use knowledge_explain with the returned ref or "
+            "refs=[...] to load the selected unit bodies and their L1 prerequisites."
+            if (native.get("initialization") or {}).get("corpus_format") == "graded"
+            else ""
+        )
         premises = (
             "Use the installed MindIE Agent for this task. Initialize its current session with "
-            'mindie_entry(op="init") before using its knowledge tools. Contribution is disabled '
-            "in this isolated experiment; retain that setting.\n\n" + premises
+            'mindie_entry(op="init") before using its knowledge tools.'
+            + graded_hint
+            + " Contribution is disabled in this isolated experiment; retain that setting.\n\n"
+            + premises
         )
     if mode == "explicit":
         return premises + (
