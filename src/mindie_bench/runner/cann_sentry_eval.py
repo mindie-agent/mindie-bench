@@ -331,16 +331,8 @@ class RSICandidateResult(Mapping[str, Any]):
                 self.hap_score = compute_hap_score(cand, base, hw)
 
     def to_dict(self) -> dict[str, Any]:
-        base_dict = {
-            k: getattr(self, k)
-            for k in (
-                "run_id", "candidate_id", "mutation_summary", "verdict", "outcome",
-                "gate_reached", "speedup_ratio", "hap_score", "t_cand_us", "t_baseline_us",
-                "t_hw_us", "roofline_floor_us", "min_speedup_ratio", "compile_ok",
-                "oracle_passed", "measurement_passed", "ablation_retained", "distill_ready",
-                "failure_reason", "return_tier",
-            )
-        }
+        keys = ("run_id", "candidate_id", "mutation_summary", "verdict", "outcome", "gate_reached", "speedup_ratio", "hap_score", "t_cand_us", "t_baseline_us", "t_hw_us", "roofline_floor_us", "min_speedup_ratio", "compile_ok", "oracle_passed", "measurement_passed", "ablation_retained", "distill_ready", "failure_reason", "return_tier")
+        base_dict = {k: getattr(self, k) for k in keys}
         base_dict.update(conditions=dict(self.conditions), gates=dict(self.gates), axes=dict(self.axes))
         base_dict.update(self.extra)
         return base_dict
@@ -348,35 +340,25 @@ class RSICandidateResult(Mapping[str, Any]):
     @classmethod
     def from_gate_entry(cls, entry: Mapping[str, Any]) -> RSICandidateResult:
         gates = entry.get("gates") if isinstance(entry.get("gates"), Mapping) else {}
-        g1 = gates.get("gate1_compile_oracle", {}).get("passed")
-        g2 = gates.get("gate2_measurement_guard", {}).get("passed")
-        g3 = gates.get("gate3_ablation_gate", {}).get("passed")
+        g1, g2, g3 = gates.get("gate1_compile_oracle", {}).get("passed"), gates.get("gate2_measurement_guard", {}).get("passed"), gates.get("gate3_ablation_gate", {}).get("passed")
         known = set(cls.__dataclass_fields__) - {"extra"}
         return cls(
             run_id=str(entry.get("run_id") or ""), candidate_id=str(entry.get("candidate_id") or ""),
-            verdict=str(entry.get("verdict") or "inconclusive"), outcome=str(entry.get("outcome") or ""),
-            gate_reached=int(entry.get("gate_reached") or 1),
+            verdict=str(entry.get("verdict") or "inconclusive"), outcome=str(entry.get("outcome") or ""), gate_reached=int(entry.get("gate_reached") or 1),
             speedup_ratio=_finite_float(entry.get("speedup_ratio")), hap_score=_finite_float(entry.get("hap_score")),
             t_cand_us=_finite_float(entry.get("t_cand_us")), t_baseline_us=_finite_float(entry.get("t_baseline_us")),
             t_hw_us=_finite_float(entry.get("t_hw_us")), roofline_floor_us=_finite_float(entry.get("roofline_floor_us")),
             min_speedup_ratio=float(_finite_float(entry.get("min_speedup_ratio")) or 1.05),
             compile_ok=bool(entry.get("compile_ok", g1 is True)), oracle_passed=bool(entry.get("oracle_passed", g1 is True)),
-            measurement_passed=bool(entry.get("measurement_passed", g2 is True)),
-            ablation_retained=entry.get("ablation_retained", g3), distill_ready=bool(entry.get("distill_ready", False)),
-            mutation_summary=str(entry.get("mutation_summary") or ""), failure_reason=str(entry.get("failure_reason") or ""),
-            return_tier=str(entry.get("return_tier") or "L4"),
+            measurement_passed=bool(entry.get("measurement_passed", g2 is True)), ablation_retained=entry.get("ablation_retained", g3),
+            distill_ready=bool(entry.get("distill_ready", False)), mutation_summary=str(entry.get("mutation_summary") or ""),
+            failure_reason=str(entry.get("failure_reason") or ""), return_tier=str(entry.get("return_tier") or "L4"),
             conditions=dict(entry.get("conditions") or {}), gates=dict(gates), axes=dict(entry.get("axes") or {}),
             extra={k: v for k, v in entry.items() if k not in known},
         )
-
-    def __getitem__(self, key: str) -> Any:
-        return self.to_dict()[key]
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self.to_dict())
-
-    def __len__(self) -> int:
-        return len(self.to_dict())
+    def __getitem__(self, key: str) -> Any: return self.to_dict()[key]
+    def __iter__(self) -> Iterator[str]: return iter(self.to_dict())
+    def __len__(self) -> int: return len(self.to_dict())
 
 
 _ACTION_TOKEN_MAP: dict[str, set[str]] = {
@@ -439,23 +421,16 @@ def _event_succeeded(raw: Mapping[str, Any]) -> bool:
 
 def _build_swimlane_attribution(normalized_events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     lanes: dict[str, dict[str, Any]] = {
-        lane: {
-            "lane": lane, "turns": 0, "event_count": 0, "tool_calls": 0, "tokens": 0,
-            "input_tokens": 0, "output_tokens": 0, "duration_ms": 0.0, "duration_seconds": 0.0,
-            "token_share": 0.0, "duration_share": 0.0, "step_indices": [], "event_ids": [],
-        }
+        lane: {"lane": lane, "turns": 0, "event_count": 0, "tool_calls": 0, "tokens": 0, "input_tokens": 0, "output_tokens": 0, "duration_ms": 0.0, "duration_seconds": 0.0, "token_share": 0.0, "duration_share": 0.0, "step_indices": [], "event_ids": []}
         for lane in CANONICAL_SWIMLANES
     }
     total_turns = total_tool_calls = total_tokens = 0
     total_duration_ms = 0.0
     for evt in normalized_events:
         b = lanes[evt["lane"]]
-        b["turns"] += int(evt["turns"])
+        for k in ("turns", "tool_calls", "input_tokens", "output_tokens", "tokens"):
+            b[k] += int(evt[k])
         b["event_count"] += 1
-        b["tool_calls"] += int(evt["tool_calls"])
-        b["input_tokens"] += int(evt["input_tokens"])
-        b["output_tokens"] += int(evt["output_tokens"])
-        b["tokens"] += int(evt["tokens"])
         b["duration_ms"] += float(evt["duration_ms"])
         b["duration_seconds"] = b["duration_ms"] / 1000.0
         b["step_indices"].append(evt["step_index"])
@@ -464,7 +439,6 @@ def _build_swimlane_attribution(normalized_events: Sequence[Mapping[str, Any]]) 
         total_tool_calls += int(evt["tool_calls"])
         total_tokens += int(evt["tokens"])
         total_duration_ms += float(evt["duration_ms"])
-
     for b in lanes.values():
         b["token_share"] = (b["tokens"] / total_tokens) if total_tokens > 0 else 0.0
         b["duration_share"] = (b["duration_ms"] / total_duration_ms) if total_duration_ms > 0.0 else 0.0
@@ -478,9 +452,7 @@ def _build_swimlane_attribution(normalized_events: Sequence[Mapping[str, Any]]) 
     }
 
 
-def compare_swimlane_attributions(
-    with_knowledge: Mapping[str, Any], without_knowledge: Mapping[str, Any],
-) -> dict[str, Any]:
+def compare_swimlane_attributions(with_knowledge: Mapping[str, Any], without_knowledge: Mapping[str, Any]) -> dict[str, Any]:
     """Compute per-lane and total A/B deltas (`with_knowledge` vs `without_knowledge`)."""
     wk = with_knowledge.get("swimlane_attribution", with_knowledge) if isinstance(with_knowledge, Mapping) else {}
     wok = without_knowledge.get("swimlane_attribution", without_knowledge) if isinstance(without_knowledge, Mapping) else {}
@@ -500,25 +472,18 @@ def compare_swimlane_attributions(
     return {
         "total_tokens_delta": tok_a - tok_b,
         "total_duration_ms_delta": float(wk.get("total_duration_ms") or 0.0) - float(wok.get("total_duration_ms") or 0.0),
-        "token_reduction_ratio": ((tok_b - tok_a) / tok_b) if tok_b > 0 else 0.0,
-        "lane_deltas": lane_deltas,
+        "token_reduction_ratio": ((tok_b - tok_a) / tok_b) if tok_b > 0 else 0.0, "lane_deltas": lane_deltas,
     }
 
 
-def _make_check(
-    check_id: str, category: str, verdict: str,
-    evidence_events: Sequence[Mapping[str, Any]], evidence: str, *, reason: str = "",
-) -> dict[str, Any]:
-    steps = [int(e["step_index"]) for e in evidence_events]
-    eids = [str(e["event_id"]) for e in evidence_events]
+def _make_check(check_id: str, category: str, verdict: str, evidence_events: Sequence[Mapping[str, Any]], evidence: str, *, reason: str = "") -> dict[str, Any]:
+    steps, eids = [int(e["step_index"]) for e in evidence_events], [str(e["event_id"]) for e in evidence_events]
     return {
         "check_id": check_id, "category": category, "verdict": verdict,
         "passed": True if verdict == "PASS" else (False if verdict == "FAIL" else None),
-        "method": "PROGRAMMATIC", "step_indices": steps, "turn_refs": steps,
-        "event_ids": eids,
+        "method": "PROGRAMMATIC", "step_indices": steps, "turn_refs": steps, "event_ids": eids,
         "evidence_backlinks": [{"step_index": s, "event_id": i} for s, i in zip(steps, eids)],
-        "reason": reason or ("ok" if verdict == "PASS" else check_id),
-        "evidence": evidence,
+        "reason": reason or ("ok" if verdict == "PASS" else check_id), "evidence": evidence,
     }
 
 
@@ -593,17 +558,11 @@ def audit_sentry_trajectory(
     elif mutation_evts:
         first_mut = mutation_evts[0]
         prior_k = [e for e in knowledge_evts if e["step_index"] < first_mut["step_index"]]
-        if prior_k:
-            checks["knowledge_before_mutation"] = _make_check(
-                "knowledge_before_mutation", "step", "PASS", [prior_k[0], first_mut],
-                f"knowledge_query at step {prior_k[0]['step_index']} preceded code_mutation at step {first_mut['step_index']}",
-            )
-        else:
-            reason = "knowledge_query_after_code_mutation" if knowledge_evts else "missing_knowledge_query_before_mutation"
-            checks["knowledge_before_mutation"] = _make_check(
-                "knowledge_before_mutation", "prohibition", "FAIL", [first_mut, *knowledge_evts],
-                f"code_mutation at step {first_mut['step_index']} occurred without prior knowledge_query", reason=reason,
-            )
+        checks["knowledge_before_mutation"] = (
+            _make_check("knowledge_before_mutation", "step", "PASS", [prior_k[0], first_mut], f"knowledge_query at step {prior_k[0]['step_index']} preceded code_mutation at step {first_mut['step_index']}")
+            if prior_k else
+            _make_check("knowledge_before_mutation", "prohibition", "FAIL", [first_mut, *knowledge_evts], f"code_mutation at step {first_mut['step_index']} occurred without prior knowledge_query", reason="knowledge_query_after_code_mutation" if knowledge_evts else "missing_knowledge_query_before_mutation")
+        )
     elif knowledge_evts:
         checks["knowledge_before_mutation"] = _make_check("knowledge_before_mutation", "step", "PASS", knowledge_evts, "knowledge_query executed")
     elif any("knowledge" in s for s in req_stages):
@@ -626,16 +585,11 @@ def audit_sentry_trajectory(
             elif prior_m and prior_m[-1]["step_index"] > prior_c[-1]["step_index"]:
                 timing_violations.extend([prior_m[-1], t_evt])
                 reason = "uncompiled_code_mutation_before_npu_timing"
-        if not timing_violations:
-            checks["compile_before_timing"] = _make_check(
-                "compile_before_timing", "step", "PASS", [ok_compile_evts[-1], timing_evts[0]],
-                f"compile_check at step {ok_compile_evts[-1]['step_index']} preceded npu_timing at step {timing_evts[0]['step_index']}",
-            )
-        else:
-            checks["compile_before_timing"] = _make_check(
-                "compile_before_timing", "prohibition", "FAIL", [*compile_evts, *timing_violations],
-                f"npu_timing violated compile-before-timing ordering ({reason})", reason=reason,
-            )
+        checks["compile_before_timing"] = (
+            _make_check("compile_before_timing", "step", "PASS", [ok_compile_evts[-1], timing_evts[0]], f"compile_check at step {ok_compile_evts[-1]['step_index']} preceded npu_timing at step {timing_evts[0]['step_index']}")
+            if not timing_violations else
+            _make_check("compile_before_timing", "prohibition", "FAIL", [*compile_evts, *timing_violations], f"npu_timing violated compile-before-timing ordering ({reason})", reason=reason)
+        )
 
     for cid, req_flag, evts, ok_msg, miss_reason, fail_reason in (
         ("hidden_input_generalization", req_generalization, gen_evts, "hidden_input_generalization verified", "missing_hidden_input_generalization_check", "failed_or_stale_hidden_input_generalization"),
@@ -753,39 +707,76 @@ def audit_sentry_trajectory(
     result_consistency = {
         "consistent": consistent, "passed": consistent, "reward_hacking_detected": not consistent,
         "discrepancies": discrepancies, "violations": discrepancies, "discrepancy_codes": [d["code"] for d in discrepancies],
-        "claimed_summary": {
-            "speedup_ratio": claimed_speedup, "hap_score": claimed_hap, "verdict": claimed_verdict,
-            "outcome": claimed_outcome, "accuracy_passed": claimed_acc,
-            "compile_passed": claimed_compile, "measurement_passed": claimed_meas,
-        },
-        "verified_summary": {
-            "speedup_ratio": actual_speedup, "hap_score": actual_hap, "verdict": actual_verdict,
-            "compile_ok": actual_compile, "oracle_passed": actual_oracle,
-            "generalization_ok": actual_gen, "measurement_passed": actual_meas, "ablation_retained": actual_ablation,
-        },
+        "claimed_summary": {"speedup_ratio": claimed_speedup, "hap_score": claimed_hap, "verdict": claimed_verdict, "outcome": claimed_outcome, "accuracy_passed": claimed_acc, "compile_passed": claimed_compile, "measurement_passed": claimed_meas},
+        "verified_summary": {"speedup_ratio": actual_speedup, "hap_score": actual_hap, "verdict": actual_verdict, "compile_ok": actual_compile, "oracle_passed": actual_oracle, "generalization_ok": actual_gen, "measurement_passed": actual_meas, "ablation_retained": actual_ablation},
     }
-
-    result_pass = bool(
-        receipt and actual_compile is not False and actual_oracle is not False
-        and actual_gen is not False and actual_meas is not False and actual_ablation is not False
-        and (actual_verdict in {None, "supported", "subtarget_valid", "attained", "pass", "passed"})
-    )
-    calibration_verdict = (
-        "PROCESS_UNKNOWN" if proc_status == "UNKNOWN" else
-        (("TRUSTED" if result_pass else "FIXABLE") if (proc_compliant and consistent) else
-         ("HIGH_SCORE_SUSPECT" if (result_pass or claimed_verdict == "supported") else "SKILL_FAILED"))
-    )
+    result_pass = bool(receipt and actual_compile is not False and actual_oracle is not False and actual_gen is not False and actual_meas is not False and actual_ablation is not False and (actual_verdict in {None, "supported", "subtarget_valid", "attained", "pass", "passed"}))
+    calibration_verdict = "PROCESS_UNKNOWN" if proc_status == "UNKNOWN" else (("TRUSTED" if result_pass else "FIXABLE") if (proc_compliant and consistent) else ("HIGH_SCORE_SUSPECT" if (result_pass or claimed_verdict == "supported") else "SKILL_FAILED"))
     dual_ok = proc_compliant and consistent
+    return {"schema_version": SCHEMA_CANN_SENTRY, "audit_passed": dual_ok and result_pass, "dual_verification_passed": dual_ok, "calibration_verdict": calibration_verdict, "process_compliance": process_compliance, "result_consistency": result_consistency, "swimlane_attribution": swimlane_attribution}
+
+
+def audit_inference_benchmark_validity(benchmark_record: Mapping[str, Any] | None = None, **kwargs: Any) -> dict[str, Any]:
+    """Audit end-to-end `vllm-ascend` / MindIE inference benchmark records for methodology distortions."""
+    rec = {**dict(benchmark_record or {}), **kwargs}
+    violations: list[dict[str, Any]] = []
+    normalized_metrics: dict[str, Any] = {}
+    def _add(code: str, field_name: str, message: str, remediation: str) -> None:
+        violations.append({"code": code, "severity": "error", "field": field_name, "message": message, "remediation": remediation})
+
+    # 1. Unexcluded compilation / ACLGraph bucket capture warmup steps polluting steady-state TPOT/TTFT
+    warmup_val = next((rec[k] for k in ("warmup_steps", "warmup_requests", "num_warmup", "warmup_iters") if k in rec and rec[k] is not None), None)
+    warmup_count = int(_finite_float(warmup_val) or 0) if warmup_val is not None else None
+    warmup_polluted = (warmup_count is not None and warmup_count <= 0) or bool(rec.get("include_warmup_in_metrics") or rec.get("warmup_included") or rec.get("compile_or_capture_included") or rec.get("aclgraph_capture_in_timed_window"))
+    first_ttft, steady_ttft = _finite_float(rec.get("first_request_ttft_ms")), _finite_float(rec.get("steady_state_ttft_ms", rec.get("ttft_ms")))
+    if first_ttft is not None and steady_ttft is not None and steady_ttft > 0.0 and first_ttft > 5.0 * steady_ttft and bool(rec.get("include_first_request", False)):
+        warmup_polluted = True
+    if warmup_polluted:
+        _add("unexcluded_warmup_or_graph_capture", "warmup_steps", "Compilation or ACLGraph bucket capture warmup steps were not excluded from the timed TTFT/TPOT measurement window.", "Run >= 2-3 warmup requests covering all target batch/token buckets before starting the timed window so torch.npugraph_ex / ACLGraph capture is excluded.")
+
+    # 2. Dummy / zero / uncalibrated synthetic weights used in quantized performance benchmarks
+    quant_str, w_bit = str(rec.get("quantization") or rec.get("quant_method") or "").strip().lower(), _finite_float(rec.get("w_bit"))
+    is_quantized = bool(quant_str and quant_str not in {"none", "null", "false", "fp16", "bf16", "float16", "bfloat16"}) or (w_bit is not None and w_bit <= 8)
+    weights_src = str(rec.get("load_format") or rec.get("weights_source") or rec.get("weight_mode") or "").strip().lower()
+    is_dummy_weights = weights_src in {"dummy", "random", "zero", "zeros", "synthetic", "uncalibrated"} or bool(rec.get("dummy_weights") or rec.get("zero_weights") or rec.get("synthetic_weights")) or (rec.get("calibrated_weights") is False)
+    if is_quantized and is_dummy_weights:
+        _add("dummy_or_uncalibrated_quant_weights", "load_format", f"Quantized benchmark ({quant_str or f'w{int(w_bit or 8)}'}) used {weights_src or 'dummy/uncalibrated'} weights, distorting dynamic quant scales, activation sparsity, and MoE routing.", "Benchmark quantized (W8A8/W4A8/MXFP8/MXFP4) models only with real msmodelslim-calibrated weights (--load-format auto/safetensors).")
+
+    # 3. Speculative decoding (MTP / DSpark / DFlash / Eagle3) step latency reported without acceptance metrics
+    spec_cfg = rec.get("speculative_config") if isinstance(rec.get("speculative_config"), Mapping) else {}
+    spec_method = str(rec.get("speculative_method") or spec_cfg.get("method") or "").strip().lower()
+    num_spec = int(_finite_float(rec.get("num_speculative_tokens", spec_cfg.get("num_speculative_tokens"))) or 0)
+    is_speculative = bool(spec_method and spec_method not in {"none", "false", "0"}) or num_spec > 0 or bool(rec.get("speculative_enabled"))
+    mean_acc_len = _finite_float(rec.get("mean_acceptance_length", rec.get("acceptance_length", rec.get("accepted_tokens_per_step"))))
+    acc_rate = _finite_float(rec.get("acceptance_rate", rec.get("draft_acceptance_rate", rec.get("alpha"))))
+    step_lat_ms, reported_tpot_ms = _finite_float(rec.get("step_latency_ms", rec.get("draft_step_latency_ms"))), _finite_float(rec.get("tpot_ms", rec.get("reported_tpot_ms")))
+    if mean_acc_len is None and acc_rate is not None and num_spec > 0:
+        mean_acc_len = 1.0 + num_spec * acc_rate
+    if step_lat_ms is not None and mean_acc_len is not None and mean_acc_len > 0.0:
+        normalized_metrics["effective_tpot_ms"] = step_lat_ms / mean_acc_len
+        normalized_metrics["mean_acceptance_length"] = mean_acc_len
+    if is_speculative and ((mean_acc_len is None and acc_rate is None) or (step_lat_ms is not None and reported_tpot_ms is not None and mean_acc_len is not None and mean_acc_len > 1.05 and abs(reported_tpot_ms - step_lat_ms) < 1e-3)):
+        _add("speculative_decoding_missing_acceptance_metrics", "mean_acceptance_length", f"Speculative decoding ({spec_method or 'mtp/eagle'}) reported step latency as TPOT without effective draft acceptance length (`mean_acceptance_length = 1 + sum(alpha)`).", "Report mean_acceptance_length and acceptance_rate on real prompts and compute effective_tpot_ms = step_latency_ms / mean_acceptance_length.")
+
+    # 4. Short output_len (< 32) misrepresented as steady-state long-context decode TPOT
+    out_len_val = next((rec[k] for k in ("output_len", "max_tokens", "output_tokens", "decode_len") if k in rec and rec[k] is not None), None)
+    out_len = int(_finite_float(out_len_val) or 0) if out_len_val is not None else None
+    claim_mode = str(rec.get("benchmark_claim") or rec.get("claim_type") or rec.get("profile_mode") or "").strip().lower()
+    if out_len is not None and 0 < out_len < 32 and (claim_mode in {"steady_state_tpot", "decode_tpot", "long_context_decode", "steady_state"} or bool(rec.get("claims_steady_state_tpot")) or ("steady_state_tpot_ms" in rec)):
+        _add("short_output_len_tpot_distortion", "output_len", f"Short output window (output_len={out_len} < 32) is misrepresented as steady-state decode TPOT.", "Use output_len >= 128 (minimum >= 32) decode steps when measuring steady-state decode TPOT.")
+
+    valid = len(violations) == 0
     return {
-        "schema_version": SCHEMA_CANN_SENTRY, "audit_passed": dual_ok and result_pass,
-        "dual_verification_passed": dual_ok, "calibration_verdict": calibration_verdict,
-        "process_compliance": process_compliance, "result_consistency": result_consistency,
-        "swimlane_attribution": swimlane_attribution,
+        "schema_version": SCHEMA_CANN_SENTRY, "valid": valid, "status": "valid" if valid else "distorted",
+        "verdict": "TRUSTED" if valid else "DISTORTED", "violations": violations,
+        "violation_codes": [v["code"] for v in violations],
+        "remediation_steps": [v["remediation"] for v in violations], "normalized_metrics": normalized_metrics,
     }
 
 
 __all__ = [
     "CANONICAL_SWIMLANES", "OPERATOR_COMPLEXITY_TAXONOMY", "RSICandidateResult",
-    "SCHEMA_CANN_SENTRY", "audit_sentry_trajectory", "classify_operator_complexity",
-    "compare_swimlane_attributions", "compute_hap_score", "compute_operator_composite_score",
+    "SCHEMA_CANN_SENTRY", "audit_inference_benchmark_validity", "audit_sentry_trajectory",
+    "classify_operator_complexity", "compare_swimlane_attributions", "compute_hap_score",
+    "compute_operator_composite_score",
 ]
