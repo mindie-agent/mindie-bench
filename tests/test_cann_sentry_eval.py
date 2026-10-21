@@ -379,3 +379,20 @@ def test_audit_inference_benchmark_validity_catches_four_distortions_and_normali
     assert trusted["verdict"] == "TRUSTED"
     assert trusted["normalized_metrics"]["mean_acceptance_length"] == pytest.approx(2.5)
     assert trusted["normalized_metrics"]["effective_tpot_ms"] == pytest.approx(8.0)
+
+    codex_distorted = audit_inference_benchmark_validity(
+        {
+            "warmup_steps": 3,
+            "pd_disaggregated": True,
+            "transferred_kv_bytes": 0,
+            "enforce_eager": True,
+            "cudagraph_mode": "FULL_DECODE_ONLY",
+            "client_network_hop": "vpn",
+        }
+    )
+    assert codex_distorted["valid"] is False
+    assert {
+        "pd_disaggregated_silent_recompute_fallback",
+        "conflicting_cli_flags_or_stale_compile_cache",
+        "remote_client_over_vpn_rtt_distortion",
+    } == set(codex_distorted["violation_codes"])
