@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
@@ -20,6 +21,75 @@ from pathlib import Path
 from .value_common import source_revisions, write_json
 
 REPOSITORY = "mindie-value-fixture/local-receiver"
+
+FAULT_LOG = """\
+[INFO] 2026-10-20-12:00:00.000.000 (1234,5678) HCCL init completed rank_id: 3 device_id: 3
+[ERROR] 2026-10-20-12:00:00.100.123 (1234,5678) [rank_id: 3] [device_id: 3] [stream_id: 7] \
+AICore error 507015 MTE2_ERR aic_error_mask=0x800000 failed operator=aclnnFlashAttention \
+workspace=/home/alice/private/qwen/token ghp_valuefixture0123456789valuefixture01
+[ERROR] 2026-10-20-12:00:00.250.456 (4321,8765) [rank_id: 7] [device_id: 7] \
+HCCL_E_WAIT_TIMEOUT EI0002 notify wait timeout while peer rank 3 is unreachable
+[ERROR] 2026-10-20-12:00:00.300.000 (4321,8765) [rank_id: 7] [device_id: 7] \
+get socket timeout EI0006 peer 10.18.4.22:64000 closed
+"""
+
+
+def _triage_fault(text: str) -> dict:
+    """Call the installed deterministic triage entry point and preserve its result."""
+    from mindie_diagnostics import npu_fault_triage
+
+    function = getattr(npu_fault_triage, "triage_npu_fault", None)
+    if function is None:
+        function = getattr(npu_fault_triage, "triage_ascend_plog", None)
+    if function is None:
+        raise RuntimeError(
+            "installed mindie-diagnostics lacks npu_fault_triage/triage_ascend_plog"
+        )
+    return function(text)
+
+
+def fault_triage_evidence(root: Path) -> dict:
+    """Prove redaction and deterministic root-cause selection on an Ascend log."""
+    from mindie_diagnostics.redact import redact_text, scan_text
+
+    raw = FAULT_LOG
+    redacted = redact_text(raw)
+    findings = scan_text(raw)
+    assert findings, "fault fixture must contain privacy findings"
+    assert "ghp_valuefixture" not in redacted
+    assert "10.18.4.22" not in redacted
+    assert "/home/alice" not in redacted
+    first = _triage_fault(raw)
+    second = _triage_fault(raw)
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+    assert first.get("root_cause_rank") == "3"
+    assert "AICore error" in str(first.get("root_cause_line"))
+    assert first.get("fault_domain") == "aicore_memory_or_tiling"
+    assert first.get("cascading_timeout_detected") is True
+    assert first.get("cascading_rank") == "7"
+    assert "asys" in first.get("recommended_tools", ())
+    assert "msaicerr" in first.get("recommended_tools", ())
+    raw_path = root / "ascend-hccl-device.log"
+    redacted_path = root / "ascend-hccl-device.redacted.log"
+    raw_path.write_text(raw)
+    redacted_path.write_text(redacted)
+    return {
+        "status": "pass",
+        "raw": str(raw_path),
+        "redacted": str(redacted_path),
+        "raw_sha256": hashlib.sha256(raw.encode()).hexdigest(),
+        "redacted_sha256": hashlib.sha256(redacted.encode()).hexdigest(),
+        "privacy_findings": len(findings),
+        "secrets_removed": True,
+        "deterministic": True,
+        "root_cause_rank": first.get("root_cause_rank"),
+        "root_cause_domain": first.get("fault_domain"),
+        "root_cause_codes": first.get("error_codes", []),
+        "cascading_timeout_detected": first.get("cascading_timeout_detected"),
+        "cascading_rank": first.get("cascading_rank"),
+        "recommended_tools": first.get("recommended_tools", []),
+        "root_cause_line": first.get("root_cause_line"),
+    }
 
 
 class Receiver:
@@ -121,6 +191,7 @@ def one(output: str, repetition: int, exercise_retry: bool = True):
                 ))
         assert all(row["recorded"] and not row["logging_failed"] for row in recorded)
         (root / "baseline-raw.log").write_text("\n".join(baseline))
+        triage = fault_triage_evidence(root)
         queue = Outbox(root / "outbox.sqlite3")
         ingested = ingest(events, queue, config=policy)
         initial_rows = queue.rows()
@@ -167,6 +238,7 @@ def one(output: str, repetition: int, exercise_retry: bool = True):
                    "first_publish": first, "delivery": delivered, "reconcile": reconciled,
                    "withdrawn": off, "receiver_requests": receiver.requests,
                    "receiver_issues": receiver.issues, "final_outbox": queue.rows(),
+                   "fault_triage": triage,
                    "receiver_scope": "loopback transport fixture; no public Issue exists"}
             write_json(root / "raw.json", raw)
             (root / "delivered-report.md").write_text(body)
@@ -179,6 +251,12 @@ def one(output: str, repetition: int, exercise_retry: bool = True):
                               "delivered_reports": 1, "reconciled_without_duplicate": True,
                               "private_fixture_removed": True, "useful_fault_fields_retained": True,
                               "withdrawal_prevented_requests": True,
+                              "fault_log_redacted": triage["secrets_removed"],
+                              "fault_triage_deterministic": triage["deterministic"],
+                              "fault_triage_root_cause_rank": triage["root_cause_rank"],
+                              "fault_triage_domain": triage["root_cause_domain"],
+                              "fault_triage_cascading_timeout": triage["cascading_timeout_detected"],
+                              "fault_triage_cascading_rank": triage["cascading_rank"],
                               "production_retry_wait_sec": retry_wait_sec,
                               "failure_to_delivery_sec": delivery_sec},
                 "raw": str(root / "raw.json"),
@@ -204,11 +282,13 @@ def run(output: Path, repetitions: int, *, exercise_retry=True):
         measurements = [future.result(timeout=110) for future in futures]
     return {
         "id": "diagnostics-fault-delivery", "component": "diagnostics", "status": "pass",
-        "scope": "real logging, linked consent, ingestion, outbox and reporter with local HTTP",
-        "baseline": "Three real exception tracebacks retained as ordinary local raw logs.",
-        "candidate": "One sanitized issue payload, remote-marker deduplication and read-failure recovery.",
+        "scope": "real logging, redaction, deterministic fault triage, outbox and reporter with local HTTP",
+        "baseline": "Three raw exception tracebacks and an unredacted Ascend HCCL/device plog.",
+        "candidate": "One sanitized issue payload, a redacted deterministic root cause and deduplicated delivery.",
         "repetitions": repetitions, "measurements": measurements,
         "limitations": [
+            "The Ascend plog is a deterministic fixture with a synthetic credential, not a fresh device failure.",
+            "Fault triage selects root cause deterministically; it does not execute the recommended commands.",
             "The HTTP receiver implements a bounded GitHub-compatible fixture, not GitHub availability.",
             "GitHub.request and subprocess parsing are production code; only its executable transport is local.",
             "The controlled fault is FileNotFoundError; reporting does not repair the failing operation.",

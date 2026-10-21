@@ -20,6 +20,8 @@ COMPONENTS = {
     "remote-dev": "mindie-agent/remote-dev",
     "mindie-coordinator": "mindie-agent/coordinator",
     "npu-top": "mindie-agent/npu-top",
+    "mindie-profiler": "mindie-agent/profiler",
+    "mindie-sim": "mindie-agent/sim",
 }
 
 
