@@ -263,13 +263,7 @@ def compute_operator_composite_score(
         b_haps = [h for ok, h in bucket if ok and h is not None]
         b_score = ((wc + (b_passed / b_total) * wf + (sum(b_haps) / b_total) * wp) * 100.0
                    if (b_total > 0 and compile_passed and not anti_cheat) else 0.0)
-        complexity_summary[lvl] = {
-            "level": lvl, "rank": spec["rank"], "category": spec["category"],
-            "canonical_operators": list(spec["operators"]), "case_count": b_total,
-            "passed_cases": b_passed, "accuracy_pass_rate": (b_passed / b_total) if b_total > 0 else 0.0,
-            "mean_hap": (sum(b_haps) / len(b_haps)) if b_haps else None,
-            "each_operator_score": b_score,
-        }
+        complexity_summary[lvl] = {"level": lvl, "rank": spec["rank"], "category": spec["category"], "canonical_operators": list(spec["operators"]), "case_count": b_total, "passed_cases": b_passed, "accuracy_pass_rate": (b_passed / b_total) if b_total > 0 else 0.0, "mean_hap": (sum(b_haps) / len(b_haps)) if b_haps else None, "each_operator_score": b_score}
 
     return {
         "schema_version": SCHEMA_CANN_SENTRY, "operator": operator or complexity_info["matched_operator"] or "",
@@ -506,13 +500,7 @@ def _normalize_events(events: Sequence[Mapping[str, Any]] | None) -> list[dict[s
             dur_ms = 0.0
         raw_tcalls = raw_item.get("tool_calls")
         tool_calls = max(0, raw_tcalls) if isinstance(raw_tcalls, int) and not isinstance(raw_tcalls, bool) else (len(raw_tcalls) if isinstance(raw_tcalls, Sequence) and not isinstance(raw_tcalls, (str, bytes)) else 1)
-        normalized.append({
-            "raw": dict(raw_item), "step_index": step_index, "event_id": event_id,
-            "lane": lane, "actions": actions, "succeeded": _event_succeeded(raw_item),
-            "tokens": max(0, tok), "input_tokens": max(0, in_tok), "output_tokens": max(0, out_tok),
-            "duration_ms": max(0.0, dur_ms), "tool_calls": tool_calls,
-            "turns": max(1, int(_finite_float(raw_item.get("turns")) or 1)),
-        })
+        normalized.append({"raw": dict(raw_item), "step_index": step_index, "event_id": event_id, "lane": lane, "actions": actions, "succeeded": _event_succeeded(raw_item), "tokens": max(0, tok), "input_tokens": max(0, in_tok), "output_tokens": max(0, out_tok), "duration_ms": max(0.0, dur_ms), "tool_calls": tool_calls, "turns": max(1, int(_finite_float(raw_item.get("turns")) or 1))})
     return normalized
 
 
@@ -764,6 +752,27 @@ def audit_inference_benchmark_validity(benchmark_record: Mapping[str, Any] | Non
     claim_mode = str(rec.get("benchmark_claim") or rec.get("claim_type") or rec.get("profile_mode") or "").strip().lower()
     if out_len is not None and 0 < out_len < 32 and (claim_mode in {"steady_state_tpot", "decode_tpot", "long_context_decode", "steady_state"} or bool(rec.get("claims_steady_state_tpot")) or ("steady_state_tpot_ms" in rec)):
         _add("short_output_len_tpot_distortion", "output_len", f"Short output window (output_len={out_len} < 32) is misrepresented as steady-state decode TPOT.", "Use output_len >= 128 (minimum >= 32) decode steps when measuring steady-state decode TPOT.")
+
+    # 5. PD disaggregated benchmark silently falling back to local prefill recomputation (transferred_kv_bytes == 0)
+    is_pd = bool(rec.get("pd_disaggregated")) or str(rec.get("kv_role") or "").strip().lower() in {"kv_consumer", "decode", "pd_both"}
+    kv_bytes = _finite_float(rec.get("transferred_kv_bytes", rec.get("kv_transfer_bytes")))
+    recompute_cnt = int(_finite_float(rec.get("local_prefill_recompute_count")) or 0)
+    if is_pd and ((kv_bytes is not None and kv_bytes <= 0.0) or recompute_cnt > 0 or bool(rec.get("silent_prefill_recompute"))):
+        _add("pd_disaggregated_silent_recompute_fallback", "transferred_kv_bytes", "PD disaggregated Decode instance fell back to local prefill recomputation (transferred_kv_bytes == 0 or local_prefill_recompute_count > 0).", "Verify Mooncake/HIXL KV connector transfer counters (transferred_kv_bytes > 0) before accepting PD disaggregated TTFT/TPOT.")
+
+    # 6. Conflicting CLI flags (--enforce-eager + cudagraph_mode) or stale torch_compile / .torchair_cache after C++ custom-op mutation
+    comp_cfg = rec.get("compilation_config") if isinstance(rec.get("compilation_config"), Mapping) else {}
+    cg_mode = str(rec.get("cudagraph_mode") or comp_cfg.get("cudagraph_mode") or "").strip().upper()
+    conflict_eager = bool(rec.get("enforce_eager")) and bool(cg_mode and cg_mode not in {"NONE", "0", "FALSE"})
+    stale_cache = bool(rec.get("custom_op_mutated")) and bool(rec.get("stale_compile_cache") or (rec.get("compile_cache_cleared") is False))
+    if conflict_eager or stale_cache:
+        _add("conflicting_cli_flags_or_stale_compile_cache", "compilation_config", "Conflicting --enforce-eager + cudagraph_mode flags or unpurged .torchair_cache / torch_compile_cache after C++ custom-op mutation.", "Never combine --enforce-eager with cudagraph_mode, and set VLLM_DISABLE_COMPILE_CACHE=1 or purge .torchair_cache after C++ custom-op rebuilds.")
+
+    # 7. Remote HTTP benchmark client run over VPN/WAN RTT distorting low-latency TPOT/ITL
+    hop = str(rec.get("client_network_hop") or rec.get("client_location") or "").strip().lower()
+    rtt_ms = _finite_float(rec.get("client_rtt_ms"))
+    if hop in {"vpn", "wan", "cross_region", "external_laptop"} or (rtt_ms is not None and rtt_ms >= 5.0):
+        _add("remote_client_over_vpn_rtt_distortion", "client_network_hop", f"Benchmark client executed over {hop or f'RTT={rtt_ms}ms'}, inflating streaming chunk arrival and TPOT/ITL.", "Run vllm bench serve / ais_bench inside the target server host or container over loopback/local NIC.")
 
     valid = len(violations) == 0
     return {
