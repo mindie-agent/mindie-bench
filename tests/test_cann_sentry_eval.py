@@ -28,6 +28,7 @@ from mindie_bench.runner import (
     CANONICAL_SWIMLANES,
     OPERATOR_COMPLEXITY_TAXONOMY,
     RSICandidateResult,
+    audit_inference_benchmark_validity,
     audit_sentry_trajectory,
     classify_operator_complexity,
     compare_swimlane_attributions,
@@ -336,3 +337,45 @@ def test_evaluate_rsi_candidate_gates_and_candidate_result_integrate_hap():
         {"total_tokens": 1000, "lanes": {"explore": {"tokens": 400}}},
         {"total_tokens": 2000, "lanes": {"explore": {"tokens": 1100}}},
     )["token_reduction_ratio"] == pytest.approx(0.5)
+
+
+def test_audit_inference_benchmark_validity_catches_four_distortions_and_normalizes_spec_tpot():
+    distorted = audit_inference_benchmark_validity(
+        {
+            "warmup_steps": 0,
+            "quantization": "w8a8_dynamic",
+            "load_format": "dummy",
+            "speculative_method": "dflash",
+            "num_speculative_tokens": 3,
+            "step_latency_ms": 18.0,
+            "output_len": 16,
+            "benchmark_claim": "steady_state_tpot",
+        }
+    )
+    assert distorted["valid"] is False
+    assert distorted["verdict"] == "DISTORTED"
+    assert {
+        "unexcluded_warmup_or_graph_capture",
+        "dummy_or_uncalibrated_quant_weights",
+        "speculative_decoding_missing_acceptance_metrics",
+        "short_output_len_tpot_distortion",
+    } == set(distorted["violation_codes"])
+
+    trusted = audit_inference_benchmark_validity(
+        {
+            "warmup_steps": 3,
+            "quantization": "w8a8_dynamic",
+            "load_format": "safetensors",
+            "speculative_method": "mtp",
+            "num_speculative_tokens": 2,
+            "acceptance_rate": 0.75,
+            "step_latency_ms": 20.0,
+            "tpot_ms": 8.0,
+            "output_len": 256,
+            "benchmark_claim": "steady_state_tpot",
+        }
+    )
+    assert trusted["valid"] is True
+    assert trusted["verdict"] == "TRUSTED"
+    assert trusted["normalized_metrics"]["mean_acceptance_length"] == pytest.approx(2.5)
+    assert trusted["normalized_metrics"]["effective_tpot_ms"] == pytest.approx(8.0)
