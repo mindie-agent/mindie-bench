@@ -172,6 +172,8 @@ def test_transfer_preserves_missed_seed_and_counts_capture_and_retest_once(langu
 
 def component_report():
     suite, observations = evidence()
+    observations["component_revisions"]["profiler"] = "4010d72f0b6950caf1425e3b683d495a6c76016a"
+    observations["component_revisions"]["sim"] = "b520b1c41b5dcf97ce7a00cbb6578ff9f834907b"
     scenarios = [
         (
             "coordinator-contention", "coordinator", "mindie-coordinator",
@@ -190,6 +192,18 @@ def component_report():
             {"failure_occurrences": 3, "delivered_reports": 1, "http_posts": 1,
              "useful_fault_fields_retained": True, "private_fixture_removed": True,
              "withdrawal_prevented_requests": True, "failure_to_delivery_sec": 60.58435137500055},
+        ),
+        (
+            "profiler-rank-link-memory-attribution", "profiler", "mindie-profiler",
+            {"raw_arithmetic_matches_report": True},
+            {"profile_steps_aligned": True, "memory_target_met": True,
+             "db_mutation": False, "analyze_latency_ms": 5.65},
+        ),
+        (
+            "sim-a3-graph-and-boundary-screening", "sim", "mindie-sim",
+            {"graph_ttft_ms": 50.85, "graph_tpot_ms": 15.71},
+            {"qwen_case_deterministic": True, "subgraph_overflow_rejected": True,
+             "tpot_error_pct": -4.139485949421207, "subgraph_critical_path_saving_us": 5.0},
         ),
     ]
     for case_id, component, distribution, baseline, candidate in scenarios:
@@ -230,3 +244,7 @@ def test_component_numbers_keep_replay_counts_separate_from_unmeasured_human_res
     diagnostics = lines["- diagnostics"]
     assert "9" in diagnostics and "60.58" in diagnostics
     assert diagnostics.count("3/3") == 3
+    profiler = lines["- profiler"]
+    assert profiler.count("3/3") == 3 and "5.65" in profiler
+    sim = lines["- sim"]
+    assert sim.count("3/3") == 2 and "4.14%" in sim and "5.0" in sim

@@ -350,7 +350,7 @@ def component_view_product(report: dict, target: dict) -> dict:
             "configured product combination, not a causal single-component gain."
         )
         comparisons, matrix = report["comparisons"], report.get("matrix")
-    elif component in {"knowledge", "remote-dev", "coordinator", "npu-top", "diagnostics"}:
+    elif component in {"knowledge", "remote-dev", "coordinator", "npu-top", "diagnostics", "profiler", "sim"}:
         scope = (
             "Combination context and component functional evidence. Product arms are joint "
             "configurations, so these results cannot be attributed to this component alone."

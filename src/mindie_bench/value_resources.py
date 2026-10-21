@@ -53,7 +53,61 @@ COMPONENT_METRICS = {
         "withdrawal_prevented_requests",
         "production_retry_wait_sec",
         "failure_to_delivery_sec",
+        "fault_log_redacted",
+        "fault_triage_cascading_rank",
+        "fault_triage_cascading_timeout",
+        "fault_triage_deterministic",
+        "fault_triage_domain",
+        "fault_triage_root_cause_rank",
     },
+    "profiler-rank-link-memory-attribution": {
+        "raw_arithmetic_matches_report",
+        "profile_steps_aligned",
+        "slow_link_dominant_block",
+        "slow_rank_dominant_block",
+        "comparison_status",
+        "comm_delta_ms",
+        "attention_delta_ms",
+        "known_sum_bytes",
+        "residual_bytes",
+        "residual_status",
+        "memory_target_met",
+        "msprof_reference_not_added",
+        "db_mutation",
+        "analyze_latency_ms",
+        "compare_latency_ms",
+        "memory_latency_ms",
+    },
+    "sim-a3-graph-and-boundary-screening": {
+        "prompt_tokens",
+        "output_tokens",
+        "graph_ttft_ms",
+        "graph_tpot_ms",
+        "qwen_case_deterministic",
+        "a3_graph_ttft_ms",
+        "a3_graph_tpot_ms",
+        "ttft_absolute_error_ms",
+        "ttft_error_pct",
+        "tpot_absolute_error_ms",
+        "tpot_error_pct",
+        "operator_plan_elapsed_ms",
+        "subgraph_removable_gm_bytes",
+        "subgraph_critical_path_saving_us",
+        "subgraph_overflow_rejected",
+        "qwen_prediction_latency_ms",
+        "operator_plan_latency_ms",
+        "subgraph_screen_latency_ms",
+        "subgraph_overflow_latency_ms",
+    },
+}
+COMPONENT_STRING_METRICS = {
+    "fault_triage_cascading_rank",
+    "fault_triage_domain",
+    "fault_triage_root_cause_rank",
+    "slow_link_dominant_block",
+    "slow_rank_dominant_block",
+    "comparison_status",
+    "residual_status",
 }
 
 
@@ -163,6 +217,11 @@ def project_component_case(case: dict) -> dict:
             observations = {}
             for key, value in sample[side].items():
                 if key not in allowed:
+                    continue
+                if key in COMPONENT_STRING_METRICS and type(value) is str:
+                    if any(token in value for token in ("/", "\\", ":")):
+                        raise ValueError(f"component string observation cannot contain paths or URLs: {key}")
+                    observations[key] = value
                     continue
                 if value is not None and type(value) not in (int, float, bool):
                     raise ValueError(f"component observation must be numeric or boolean: {key}")

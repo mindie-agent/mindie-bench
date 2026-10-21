@@ -108,6 +108,52 @@ def _component_line(case: dict, language: str) -> str:
             f"requests stopped after consent withdrawal {withdrawal}. Delivery took {duration} s "
             "(including the ~60 s production retry wait; local HTTP does not measure GitHub availability or human triage time)."
         )
+    if case["id"] == "profiler-rank-link-memory-attribution":
+        aligned = observed(candidate, "profile_steps_aligned")
+        memory_met = observed(candidate, "memory_target_met")
+        mutations = [row.get("db_mutation") for row in candidate]
+        immutable = (
+            ("未测" if zh else "not measured")
+            if any(value is None for value in mutations)
+            else f"{sum(value is False for value in mutations)}/{len(mutations)}"
+        )
+        analyze_ms = _span((row.get("analyze_latency_ms") for row in candidate), language, digits=2)
+        return (
+            f"- profiler：{count} 轮确定性 SQLite 采集归因回放，Step 窗口对齐 {aligned}，"
+            f"慢卡（Attention）与慢链路（Comm）归因分离，显存归因达标 {memory_met}，"
+            f"只读零库文件变更 {immutable}，分析耗时 {analyze_ms} ms（夹具回放验证归因准确性，不等同于新增实机采样）。"
+            if zh else
+            f"- profiler: {count} deterministic SQLite attribution runs; step alignment {aligned}, "
+            f"slow-rank (Attention) vs slow-link (Comm) separated, memory attribution target met {memory_met}, "
+            f"read-only DB immutability {immutable}, analyze latency {analyze_ms} ms "
+            "(fixture replay verifies attribution accuracy rather than new hardware captures)."
+        )
+    if case["id"] == "sim-a3-graph-and-boundary-screening":
+        deterministic = observed(candidate, "qwen_case_deterministic")
+        overflow_rejected = observed(candidate, "subgraph_overflow_rejected")
+        tpot_err = _span(
+            (
+                abs(row["tpot_error_pct"]) if isinstance(row.get("tpot_error_pct"), (int, float)) else None
+                for row in candidate
+            ),
+            language,
+            digits=2,
+        )
+        saving_us = _span(
+            (row.get("subgraph_critical_path_saving_us") for row in candidate),
+            language,
+            digits=1,
+        )
+        return (
+            f"- sim：{count} 轮 A3 物理标定图预测与算子/子图边界筛查，Qwen2.5-7B 图预测确定性 {deterministic}"
+            f"（TPOT 相对误差 {tpot_err}%），UB 溢出融合拦截 {overflow_rejected}，"
+            f"可行融合关键路径收益 {saving_us} us（基于公开标定锚点与算术夹具，不含客户端固定调度底噪）。"
+            if zh else
+            f"- sim: {count} A3 physical-calibration graph prediction and operator/subgraph screening runs; "
+            f"Qwen2.5-7B graph prediction determinism {deterministic} (TPOT relative error {tpot_err}%), "
+            f"UB overflow fusion rejected {overflow_rejected}, feasible fusion critical-path saving {saving_us} us "
+            "(anchored on published calibration fixtures without client scheduler floor)."
+        )
     raise ValueError(f"unsupported homepage component case: {case['id']}")
 
 
