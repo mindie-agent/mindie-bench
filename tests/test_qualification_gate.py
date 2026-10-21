@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -68,25 +69,43 @@ def _compile_shared(path: Path, source: str, *, unresolved: bool = False) -> Pat
     source_path = path.with_suffix(".c")
     source_path.write_text(source)
     command = ["cc", "-shared", "-fPIC", "-o", str(path), str(source_path)]
-    if unresolved:
+    if unresolved and sys.platform == "darwin":
+        # Darwin links shared libraries with -undefined error by default. Linux
+        # has no equivalent restriction: `cc -shared -fPIC` keeps undefined
+        # symbols as dynamic imports, which is exactly what `ldd -r` inspects.
         command[1:1] = ["-undefined", "dynamic_lookup"]
     completed = subprocess.run(command, capture_output=True, text=True)
     assert completed.returncode == 0, completed.stderr
     return path
 
 
+def _is_weak_or_crt_symbol(symbol: str) -> bool:
+    """Weak CRT references reported by `nm -u` are not unresolved imports."""
+    return (
+        symbol.startswith("w ")
+        or symbol.lstrip("_").startswith(
+            ("ITM_registerTMCloneTable", "cxa_finalize", "gmon_start__",
+             "dyld_stub_binder")
+        )
+    )
+
+
 def _portable_symbol_executor(command: GateCommand) -> CommandReceipt:
-    """Use the host's real undefined-symbol view for `ldd -r` on macOS."""
-    if command.argv[:2] == ("ldd", "-r"):
+    """Use the host's real undefined-symbol view for `ldd -r`.
+
+    Linux has a native `ldd -r`. macOS does not, so adapt `nm -u` output there
+    and drop weak/CRT stubs, which are never genuine unresolved references.
+    """
+    if sys.platform == "darwin" and command.argv[:2] == ("ldd", "-r"):
         completed = subprocess.run(
             ["nm", "-u", command.argv[2]], capture_output=True, text=True, timeout=10
         )
         stderr = "\n".join(
-            f"undefined symbol: {line.strip()}"
-            for line in completed.stdout.splitlines()
-            if line.strip() and not line.strip().startswith("dyld_stub_binder")
+            f"undefined symbol: {symbol}"
+            for symbol in (line.strip() for line in completed.stdout.splitlines())
+            if symbol and not _is_weak_or_crt_symbol(symbol)
         )
-        return CommandReceipt(command.argv, completed.returncode, completed.stdout, stderr)
+        return CommandReceipt(command.argv, completed.returncode, "", stderr)
     return run_local_command(command)
 
 
