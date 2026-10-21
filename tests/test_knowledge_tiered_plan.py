@@ -193,6 +193,7 @@ def _material(session: str, body: str, *, operation: str = "create", identity: s
 # --------------------------------------------------------------- L1 and L2
 @pytest.mark.tier1
 def test_l1_condition_boundaries_missing_facts_and_natural_trigger(tmp_path):
+    _require(OPERATORS)
     conditions = ("no_knowledge", "oracle", "normal_retrieval")
     cases = [
         _case(
@@ -276,6 +277,8 @@ def test_l1_condition_boundaries_missing_facts_and_natural_trigger(tmp_path):
 
 @pytest.mark.tier1
 def test_l2_complete_sop_loading_and_premise_failure_stop(tmp_path):
+    _require(OPERATORS)
+    _require(TRANSCRIPT)
     operators = [
         _case(
             "L2-01-reduction-sop", query="vector reduction FP32 accumulator UB alignment SOP",
@@ -335,6 +338,7 @@ def test_l2_complete_sop_loading_and_premise_failure_stop(tmp_path):
 # --------------------------------------------------------------- distractors
 @pytest.mark.tier1
 def test_distractors_are_injected_in_a_copy_and_wrong_adoption_is_counted(tmp_path):
+    _require(OPERATORS)
     matched_conditions = {
         "activation": "sigmoid", "dtype": "bfloat16", "soc": "Ascend910B4",
         "target_file": "vllm_ascend/ops/layernorm.py",

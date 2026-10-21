@@ -21,17 +21,20 @@ def write_json(path: Path, value):
     path.write_text(json.dumps(value, indent=2, ensure_ascii=True) + "\n")
 
 
-def source_revisions():
-    packages = {}
-    for name in ("mindie-coordinator", "npu-top", "mindie-diagnostics", "mindie-knowledge"):
+def source_revisions(packages: tuple[str, ...] | None = None):
+    packages = packages or (
+        "mindie-coordinator", "npu-top", "mindie-diagnostics", "mindie-knowledge",
+    )
+    revisions = {}
+    for name in packages:
         distribution = importlib.metadata.distribution(name)
         origin = json.loads(distribution.read_text("direct_url.json") or "{}")
-        packages[name] = {
+        revisions[name] = {
             "version": distribution.version,
             "revision": origin.get("vcs_info", {}).get("commit_id"),
             "editable": origin.get("dir_info", {}).get("editable", False),
         }
-    return packages
+    return revisions
 
 
 def environment():

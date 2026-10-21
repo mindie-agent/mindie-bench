@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -72,7 +73,12 @@ def test_actual_fastmcp_catalog_and_scoped_denials_keep_knowledge_session_usable
     config.runtime_read_paths.append(str(executable.parent.parent))
     paths = runtime_paths(config, profile)
     with Gateway(
-        config.harness, case["spec"], case["task"], case["repo"], trial / "broker.jsonl"
+        config.harness,
+        case["spec"],
+        case["task"],
+        case["repo"],
+        trial / "broker.jsonl",
+        use_unix_socket=platform.system() == "Linux",
     ) as gateway:
         gateway.attach_knowledge(profile, paths)
         profile.env["MINDIE_BENCH_GATEWAY"] = gateway.url
