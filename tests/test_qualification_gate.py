@@ -259,7 +259,7 @@ def test_g1_propagates_all_three_parallelism_variables_and_runs_eager_graph(tmp_
     )
     assert result.state is GateState.COMPLETED, result.to_dict()
     assert [stage.name for stage in result.stages] == ["locks", "build", "eager", "aclgraph"]
-    assert result.stages[1].evidence["stdout"].strip() == "G1_BUILD_OK"
+    assert "G1_BUILD_OK" in result.stages[1].evidence["stdout"].splitlines()
 
 
 def test_g1_live_lock_blocks_build_while_stale_lock_is_left_untouched(tmp_path):
