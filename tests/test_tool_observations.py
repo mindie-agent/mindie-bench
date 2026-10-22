@@ -3,6 +3,7 @@ import pytest
 from mindie_bench.models import ToolCall, ToolResultObservation, Trajectory
 from mindie_bench.scorer.tool_observations import (
     observe_codex_result,
+    observe_dsh_result,
     summarize_tool_observations,
 )
 
@@ -278,3 +279,48 @@ def test_terminal_state_without_exit_is_not_reported_as_still_pending():
         ]
     )
     assert result["job_terminal_counts"] == {"unclassified": 1}
+
+
+def test_dsh_native_remote_text_and_unknown_tool_errors_are_attributable():
+    bash_call = ToolCall(
+        id="call_01",
+        name="remote_bash",
+        component="remote-dev",
+        arguments={"command": "python3 reproduce.py"},
+        turn=1,
+        is_error=False,
+    )
+    bash_call.result_observation = observe_dsh_result(
+        {
+            "type": "tool_result",
+            "callId": "call_01",
+            "status": "completed",
+            "result": "Remote command succeeded. Exit code: 0.\nsession_id: job-20261022T053855Z-ed70b8ba\n",
+        },
+        bash_call,
+    )
+    unknown_tool_call = ToolCall(
+        id="call_02",
+        name="remote_job_output",
+        component="remote-dev",
+        arguments={"job_id": "job-20261022T053855Z-ed70b8ba"},
+        turn=1,
+        is_error=True,
+    )
+    unknown_tool_call.result_observation = observe_dsh_result(
+        {
+            "type": "tool_result",
+            "callId": "call_02",
+            "status": "error",
+            "result": 'Error: unknown tool "mcp__remote-dev__remote_job_output"',
+        },
+        unknown_tool_call,
+    )
+    summary = summarize_tool_observations([bash_call, unknown_tool_call])
+    assert bash_call.result_observation.classification == "business_success"
+    assert bash_call.result_observation.job_id == "job-20261022T053855Z-ed70b8ba"
+    assert unknown_tool_call.result_observation.classification == "component_error"
+    assert unknown_tool_call.result_observation.error_domain == "component"
+    assert summary["non_business_attribution_coverage"] == 1.0
+    assert summary["non_business_error_count"] == 1
+

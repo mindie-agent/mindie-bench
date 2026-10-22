@@ -67,6 +67,7 @@ def _stream(gateway, command):
 
 
 def main():
+    stdin_null = False
     args = sys.argv[1:]
     while args and args[0].startswith("-"):
         option = args.pop(0)
@@ -76,15 +77,21 @@ def main():
             if not args:
                 raise ValueError("SSH option requires a value")
             args.pop(0)
-        elif option not in {"-T", "-n", "-q"}:
+        elif option == "-n":
+            stdin_null = True
+        elif option not in {"-T", "-q", "-v"}:
             raise ValueError(f"unsupported benchmark SSH operation: {option}")
     if not args or args.pop(0) not in {"bench-slot", "root@bench-slot"} or not args:
         raise ValueError("only one-shot commands to bench-slot are available")
     command = " ".join(args)
     gateway = os.environ["MINDIE_BENCH_GATEWAY"]
-    if os.environ.get("MINDIE_BENCH_SSH_STREAM") == "1":
+    if os.environ.get("MINDIE_BENCH_SSH_STREAM") == "1" and command != "bash -s":
         return _stream(gateway, command)
-    stdin = b"" if sys.stdin.isatty() else sys.stdin.buffer.read(8 * 1024 * 1024)
+    if stdin_null or sys.stdin.isatty():
+        stdin = b""
+    else:
+        readable, _, _ = select.select([sys.stdin.fileno()], [], [], 0.2)
+        stdin = sys.stdin.buffer.read(8 * 1024 * 1024) if readable else b""
     payload = dict(command=command, stdin_b64=base64.b64encode(stdin).decode())
     result = _post(gateway, "/bench/ssh", payload)
     sys.stdout.buffer.write(base64.b64decode(result["stdout_b64"]))

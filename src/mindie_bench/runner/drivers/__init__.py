@@ -25,6 +25,8 @@ def normalize_tool(name: str, server: str | None, components: dict) -> tuple[str
         name = "remote_" + name
     if component == "knowledge" and name in {"query", "explain"}:
         name = "knowledge_" + name
+    if component is None and (name == "mindie_entry" or name.startswith("knowledge_")):
+        component = "knowledge"
     return name, component
 
 

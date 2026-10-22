@@ -434,7 +434,9 @@ class RemoteSlot:
                 raise ValueError("invalid NPU probe; expected device -> {used_mb, pids, model}")
             if row["used_mb"] >= self.config.memory_limit_mb or row["pids"]:
                 raise RuntimeError(f"NPU device {device} is occupied")
-            if row["model"] != self.environment.npu_model:
+            if row["model"] != self.environment.npu_model and not (
+                self.environment.npu_model == "Ascend910" and row["model"].startswith("Ascend950")
+            ):
                 raise RuntimeError(f"NPU model mismatch for device {device}")
         return {
             **{str(device): data[str(device)] for device in self.devices},
@@ -494,7 +496,8 @@ class RemoteSlot:
             "--ro-bind " + quote(path) + " " + quote(path) for path in self.config.runtime_read_paths
         )
         device_bind = (
-            "for device in /dev/davinci[0-9]* /dev/davinci_manager /dev/devmm_svm /dev/hisi_hdc; do\n"
+            "for device in /dev/davinci[0-9]* /dev/davinci_manager /dev/devmm_svm /dev/hisi_hdc "
+            "/dev/hisi_soc_cache_mgmt /dev/ubagg /dev/ubcore /dev/ubmempfd /dev/uburma /dev/ummu; do\n"
             ' test ! -e "$device" || device_args+=(--dev-bind "$device" "$device")\n'
             "done"
         )
@@ -537,8 +540,8 @@ device_args=()
 {device_bind}
 bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts \\
  --cap-add ALL --new-session --proc /proc --dev /dev "${{device_args[@]}}" \\
- --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \\
- --ro-bind /etc /etc --bind /sys /sys --tmpfs /tmp --tmpfs /var {bind} \\
+ --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind-try /sbin /sbin --ro-bind /lib /lib --ro-bind-try /lib64 /lib64 \\
+ --ro-bind /etc /etc --bind /sys /sys --bind-try /run /run --tmpfs /tmp --tmpfs /var {bind} \\
  --bind {quote(self.path)} {quote(self.path)} \\
  --bind {quote(self.tmpdir_backing)} {quote(self.slot_environment["TMPDIR"])} \\
  --chdir {quote(self.path)} --setenv HOME {quote(self.path + "/.bench-home")} \\

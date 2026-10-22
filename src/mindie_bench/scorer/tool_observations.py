@@ -471,12 +471,39 @@ def observe_dsh_result(event: dict, call: ToolCall) -> ToolResultObservation:
         native_status=status,
         error=error,
     )
-    if (
+    if observed.classification == "unclassified" and status == "completed" and not error:
+        if call.component is None:
+            observed.classification = "success"
+            observed.classification_reason = "explicit_native_tool_success"
+        elif call.component == "remote-dev" and isinstance(payload, str):
+            match = re.match(r"Remote command ([a-z_]+)\.(?: Exit code: (-?\d+)\.)?", payload)
+            if match:
+                state = match.group(1)
+                observed.remote_status = _label(state)
+                if match.group(2) is not None:
+                    observed.exit_code = int(match.group(2))
+                sid = re.search(r"(?m)^session_id: ([A-Za-z0-9_.-]+)$", payload)
+                if sid:
+                    observed.job_id = _label(sid.group(1), 256)
+                if state in _TERMINAL and observed.exit_code is not None:
+                    observed.classification = (
+                        "business_failure" if observed.exit_code else "business_success"
+                    )
+                    observed.classification_reason = "explicit_remote_command_exit"
+                elif state in _PENDING:
+                    observed.classification = "pending"
+                    observed.classification_reason = "explicit_remote_job_pending"
+            elif observed.operation_kind in {"file", "observation", "control"}:
+                observed.classification = "success"
+                observed.classification_reason = "explicit_native_mcp_completion"
+    elif (
         observed.classification == "unclassified"
-        and status == "completed"
-        and not error
-        and call.component is None
+        and status == "error"
+        and isinstance(payload, str)
+        and payload.startswith("Error: unknown tool ")
     ):
-        observed.classification = "success"
-        observed.classification_reason = "explicit_native_tool_success"
+        observed.classification = "component_error"
+        observed.error_category = "caller"
+        observed.error_domain = "component"
+        observed.classification_reason = "explicit_unknown_tool_error"
     return observed

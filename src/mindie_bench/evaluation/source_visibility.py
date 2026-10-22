@@ -152,6 +152,9 @@ def _outputs(event):
                         block.get("content"), f"message.content[{index}].content"
                     ):
                         yield block.get("tool_use_id"), field, text
+    if event.get("type") == "tool_result" and isinstance(event.get("callId"), str):
+        for field, text in _text_content(event.get("result"), "result"):
+            yield event["callId"], field, text
 
 
 def observe_source_visibility(

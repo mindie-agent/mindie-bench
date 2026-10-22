@@ -341,7 +341,7 @@ def check_read_boundaries(paths: list[Path], protected: list[Path]):
 
 def _install_shims(profile, commands: list[str], *, remote: bool):
     directory = profile.root / "bin"
-    directory.mkdir()
+    directory.mkdir(exist_ok=True)
     for command in commands + (["ssh"] if remote else []):
         module = (
             "mindie_bench.runner.ssh_shim" if command == "ssh" else "mindie_bench.shim.npu_replay_shim"
@@ -352,7 +352,9 @@ def _install_shims(profile, commands: list[str], *, remote: bool):
             f"#!{sys.executable} -I\nfrom {module} import main\nraise SystemExit(main())\n"
         )
         script.chmod(0o700)
-    profile.env["PATH"] = str(directory) + os.pathsep + profile.env["PATH"]
+    prefix = str(directory) + os.pathsep
+    if not profile.env["PATH"].startswith(prefix):
+        profile.env["PATH"] = prefix + profile.env["PATH"]
 
 
 def run_trial(
@@ -1029,7 +1031,12 @@ def run_trial(
                     public_root=task_root / "environment",
                 )
                 write_json(trial_dir / "source_visibility.json", source_visibility, exclusive=True)
-            if config.backend == "native" and gateway and (trial_dir / "broker.jsonl").is_file():
+            if (
+                config.backend == "native"
+                and gateway
+                and not fingerprint.get("native_product")
+                and (trial_dir / "broker.jsonl").is_file()
+            ):
                 from mindie_bench.evaluation.broker_knowledge import summarize_broker_knowledge
 
                 broker_knowledge = summarize_broker_knowledge(

@@ -54,6 +54,7 @@ def native_command(
             "(allow file-read-metadata)",
             '(allow file-read* (subpath "/System") (subpath "/usr") '
             '(subpath "/bin") (subpath "/sbin") (subpath "/Library/Apple") '
+            '(subpath "/Library/Developer/CommandLineTools") '
             '(subpath "/opt/homebrew") (subpath "/private/etc") '
             '(subpath "/private/var/db/timezone") '
             '(literal "/") (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random"))',
