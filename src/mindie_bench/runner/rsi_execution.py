@@ -1,3 +1,5 @@
+# [Side-Effect Policy] Writes only explicitly owned trial artifacts; no network or unowned mutation.
+
 """RSI compile/timing execution with real coordinator-lease admission.
 
 [Role]

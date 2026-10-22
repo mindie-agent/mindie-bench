@@ -174,7 +174,17 @@ def serve(args):
                 exc.add_note(f"consumer cleanup also failed: {type(cleanup).__name__}: {cleanup}")
             raise
         else:
-            worker.submit(store.close).result()
+            try:
+                worker.submit(store.close).result()
+            except Exception as cleanup:
+                # The MCP server already completed its primary protocol work.
+                # Surface the cleanup failure without replacing that outcome
+                # with a transport error.
+                print(
+                    "knowledge MCP store cleanup also failed: "
+                    f"{type(cleanup).__name__}: {cleanup}",
+                    file=sys.stderr,
+                )
 
 
 def git(*arguments, cwd=None):
@@ -262,14 +272,14 @@ def close_capture_resources(engine, store, timing, *, primary=None):
         except BaseException as error:
             failures.append((stage, error))
     if not failures:
-        return
+        return []
     if primary is None:
-        _, primary = failures.pop(0)
-        for stage, error in failures:
-            primary.add_note(f"{stage} also failed: {type(error).__name__}: {error}")
-        raise primary
+        # The capture result is already complete: return the secondary
+        # failures so the caller can attach them without discarding it.
+        return failures
     for stage, error in failures:
         primary.add_note(f"{stage} also failed: {type(error).__name__}: {error}")
+    return []
 
 
 def native_capture_inputs(args, native, root):
@@ -399,6 +409,8 @@ def capture(args):
         summary_command=native_summary_command(Path(mindie_knowledge.__file__).parent, scripts, worker),
     )
     capture_failure = None
+    result = None
+    consumer_cleanup_errors = []
     try:
         with timing.measure("native_capture_admission"):
             receipt = engine.capture(
@@ -499,10 +511,11 @@ def capture(args):
                         reader.close()
                 except BaseException as error:
                     if consumer_failure is None:
-                        raise
-                    consumer_failure.add_note(
-                        f"consumer close also failed: {type(error).__name__}: {error}"
-                    )
+                        consumer_cleanup_errors.append(error)
+                    else:
+                        consumer_failure.add_note(
+                            f"consumer close also failed: {type(error).__name__}: {error}"
+                        )
         with timing.measure("warm_corpus_install"):
             for package in fetched:
                 target = corpus / "tasks" / package["task_id"]
@@ -528,13 +541,26 @@ def capture(args):
             stage_observations=timing.stages.copy(),
             stage_scope="adapter stages; native foreground Stop-hook latency is measured separately",
         )
-        write_json(root / "full-loop-receipt.json", result)
-        return result
+        if consumer_cleanup_errors:
+            result["cleanup_errors"] = [
+                dict(type=type(error).__name__, message=str(error))
+                for error in consumer_cleanup_errors
+            ]
+            result["cleanup_warning"] = "consumer close failed after completed readback"
     except BaseException as error:
         capture_failure = error
         raise
     finally:
-        close_capture_resources(engine, store, timing, primary=capture_failure)
+        failures = close_capture_resources(engine, store, timing, primary=capture_failure)
+        if result is not None and failures:
+            result.setdefault("cleanup_errors", []).extend(
+                dict(stage=stage, type=type(error).__name__, message=str(error))
+                for stage, error in failures
+            )
+            result["cleanup_warning"] = "capture resource cleanup failed after completed capture"
+        if result is not None:
+            write_json(root / "full-loop-receipt.json", result)
+    return result
 
 
 def main():

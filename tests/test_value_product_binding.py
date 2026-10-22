@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from test_value_product import (
+from test_value_product import (  # noqa: E402
     BENCHMARK,
     plugin_identity,
     preparation_entries,

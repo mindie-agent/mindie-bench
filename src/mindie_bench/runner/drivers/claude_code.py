@@ -1,3 +1,8 @@
+# [Role] Adapts the Claude Code native harness command, events, and trajectory.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Claude print stream-json; deduplicate message IDs and correlate tool results."""
 
 import json

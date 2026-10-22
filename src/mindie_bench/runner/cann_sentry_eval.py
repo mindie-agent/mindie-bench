@@ -526,7 +526,7 @@ def audit_sentry_trajectory(
 
     req_raw = contract.get("required_stages") or contract.get("required_order") or contract.get("workflow_stages") or ()
     req_stages = [str(s).strip().lower() for s in (req_raw if isinstance(req_raw, Sequence) and not isinstance(req_raw, str) else [req_raw])]
-    req_knowledge = _bool_flag(contract.get("require_knowledge_before_mutation", contract.get("require_pre_mutation_retrieval", contract.get("knowledge_before_mutation", True))), default=True) or any("knowledge" in s or "retrieve" in s for s in req_stages)
+    req_knowledge = _bool_flag(contract.get("require_knowledge_before_mutation", contract.get("require_pre_mutation_retrieval", contract.get("knowledge_before_mutation", False))), default=False) or any("knowledge" in s or "retrieve" in s for s in req_stages)
     req_compile_before_timing = _bool_flag(contract.get("require_compile_before_timing", contract.get("compile_before_timing", True)), default=True) or any("compile" in s for s in req_stages)
     req_generalization = _bool_flag(contract.get("require_generalization_gate", contract.get("require_hidden_input_generalization", contract.get("hidden_input_generalization", False))), default=False) or any("generalization" in s or "hidden_input" in s for s in req_stages)
     factor_count = int(_finite_float(contract.get("factor_count", receipt.get("factor_count"))) or 1)

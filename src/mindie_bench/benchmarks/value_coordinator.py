@@ -3,15 +3,19 @@
 [Role] Compare uncoordinated check-then-bind with a shared production lease authority.
 [Invariants] No NPU workload starts; hardware observations only supply device identities.
 [Timeouts & Locks] Each child exchange has a ten-second deadline; SQLite owns serialization.
+Child cleanup is `SIGTERM` -> 3s -> `SIGKILL` -> 3s on each child's own session group.
 [Side-Effect Policy] Own temporary state, child processes and loopback sockets only.
 """
 
 from __future__ import annotations
 
 import multiprocessing
+import os
 import socket
 import time
 from pathlib import Path
+
+from mindie_bench.runner.termination import terminate_process_group
 
 from .value_common import source_revisions, write_json
 
@@ -38,6 +42,9 @@ def _ports():
 
 
 def _worker(connection, task_id, state, observed, ports, coordinated):
+    # Own a process group so parent cleanup can terminate descendants without
+    # signalling the runner's own group.
+    os.setsid()
     from mindie_coordinator.host.mindie_npu_coordination import NpuCoordinator
 
     coordinator = NpuCoordinator(state) if coordinated else None
@@ -67,6 +74,8 @@ def _worker(connection, task_id, state, observed, ports, coordinated):
                         listener.bind(("127.0.0.1", grant["task"]["granted_service_port"]))
                         listener.listen(128)
                         result["bind"] = {"status": "listening"}
+                    except TimeoutError:
+                        raise
                     except OSError as error:
                         listener.close()
                         listener = None
@@ -198,8 +207,7 @@ def _pair(root, observed, ports, coordinated):
         for process in children:
             process.join(3)
             if process.is_alive():
-                process.terminate()
-                process.join(3)
+                terminate_process_group(process, term_wait=3, kill_wait=3)
 
 
 def run(output: Path, observed: dict, repetitions: int):

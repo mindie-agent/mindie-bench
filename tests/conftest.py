@@ -123,6 +123,29 @@ def _configure_default_test_env() -> None:
 _configure_default_test_env()
 
 
+@pytest.fixture(autouse=True)
+def isolate_host_user_directories(tmp_path, monkeypatch):
+    """Keep every test's user/config/state write inside its own tmp_path."""
+    root = tmp_path.parent / (tmp_path.name + "-host")
+    home = root / "home"
+    config = root / "config"
+    state = root / "state"
+    diagnostics = root / "diagnostics"
+    for directory in (home, config, state, diagnostics):
+        directory.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
+    monkeypatch.setenv("XDG_STATE_HOME", str(state))
+    monkeypatch.setenv("MINDIE_DIAGNOSTICS_ROOT", str(diagnostics))
+    monkeypatch.setenv("MINDIE_DIAGNOSTICS_CONFIG", str(config / "diagnostics.json"))
+    return {
+        "home": home,
+        "config": config,
+        "state": state,
+        "diagnostics": diagnostics,
+    }
+
+
 AGENT = """#!{python}
 import json, os, pathlib, subprocess, sys, time
 if "--version" in sys.argv:
@@ -149,7 +172,7 @@ if "mode=crash" in prompt:
 if "mode=pass" in prompt or "mode=replay" in prompt:
     pathlib.Path("module.py").write_text("VALUE = 2\\n")
 if "mode=replay" in prompt:
-    result=subprocess.run(["pytest", "-q"], capture_output=True, text=True)
+    result=subprocess.run(["pytest", "-q"], capture_output=True, text=True, timeout=30)
     if result.returncode:
         print(result.stderr, file=sys.stderr)
         raise SystemExit(9)
@@ -172,7 +195,11 @@ print(json.dumps({{"type":"fixture.trajectory","trajectory":{{
 
 def git(repo, *args):
     return subprocess.run(
-        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
     ).stdout.strip()
 
 

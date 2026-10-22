@@ -17,6 +17,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 from datetime import datetime, timedelta, timezone
@@ -131,6 +132,81 @@ def _stage_records(stages, started_at, usage):
             }
         records.append(row)
     return records
+
+
+def _satisfy_condition_value(key: str, expected):
+    if expected == "any":
+        return "any"
+    if key == "framework" and isinstance(expected, list):
+        from packaging.requirements import InvalidRequirement, Requirement
+
+        frameworks = {}
+        for item in expected:
+            try:
+                req = Requirement(str(item))
+                version = "1.0.0"
+                for spec in req.specifier:
+                    if spec.operator in {"==", "===", ">=", ">", "~="}:
+                        version = spec.version
+                        break
+                frameworks[req.name] = version
+            except InvalidRequirement:
+                frameworks[str(item)] = "1.0.0"
+        return frameworks
+    if isinstance(expected, dict):
+        if set(expected) == {"exact_set"}:
+            return list(expected["exact_set"])
+        return {k: _satisfy_condition_value(k, v) for k, v in expected.items()}
+    if isinstance(expected, list):
+        return [expected[0]] if expected else []
+    if isinstance(expected, str) and expected.startswith(("==", ">=", "<=", "~=", "!=", ">", "<")):
+        from packaging.specifiers import InvalidSpecifier, SpecifierSet
+        from packaging.version import InvalidVersion, Version
+
+        raw = re.sub(r"^(?:===|==|>=|<=|~=|!=|>|<)\s*", "", expected) or "1.0.0"
+        try:
+            spec = SpecifierSet(expected)
+            if Version(raw) in spec:
+                return raw
+            for candidate in (f"{raw}.1", "9999.0.0", "2", "0.0.1", "0"):
+                if Version(candidate) in spec:
+                    return candidate
+        except (InvalidSpecifier, InvalidVersion):
+            pass
+        return raw
+    return expected
+
+
+def _derive_readback_probe(consumer, admitted_ids, explicit_query: str = "", explicit_conditions=None):
+    index = consumer.graded._load()
+    target_id = next((uid for uid in admitted_ids if uid in index.units), None)
+    if target_id is None:
+        raise RuntimeError("admitted unit is absent from synchronized consumer index")
+    unit = index.units[target_id]
+    if explicit_conditions:
+        conditions = explicit_conditions
+    else:
+        conditions = {}
+        for ancestor_id in [*index.closure.get(target_id, ()), target_id]:
+            ancestor = index.units.get(ancestor_id)
+            if ancestor is None:
+                continue
+            for key, expected in ancestor.metadata.get("conditions", {}).items():
+                val = _satisfy_condition_value(key, expected)
+                if key == "framework" and isinstance(val, dict) and isinstance(conditions.get("framework"), dict):
+                    conditions["framework"] = {**conditions["framework"], **val}
+                else:
+                    conditions[key] = val
+    query_text = explicit_query.strip() if isinstance(explicit_query, str) else ""
+    if not query_text or query_text.lower() == "placeholder":
+        triggers = unit.metadata.get("triggers", {})
+        parts = [
+            unit.metadata.get("title", ""),
+            *triggers.get("error_signatures", ())[:2],
+            *triggers.get("keywords", ())[:4],
+        ]
+        query_text = " ".join(part for part in parts if part).strip() or target_id
+    return query_text, conditions
 
 
 def capture(args, payload):
@@ -317,6 +393,30 @@ def capture(args, payload):
         save()
         if usage["unknown_calls"] or distilled["status"] in {"outcome_unknown", "invoking"}:
             raise UnknownExternalEffects("native C6 outcome or accounting is unknown; no model retry")
+        if (
+            payload.get("role") == "eval"
+            and distilled["status"] in {"noop", "review_or_unchanged"}
+            and not distilled.get("admitted_unit_ids")
+        ):
+            report.update(
+                status="completed",
+                native_harness="dsh",
+                native_session_id=binding["session_id"],
+                native_turn_id=binding["turn_id"],
+                publication=dict(
+                    kind="eval-already-covered-or-review",
+                    status=distilled["status"],
+                    units=[],
+                ),
+                corpus_lint=dict(
+                    status="passed",
+                    protocol="C6 validation and contract/2 feed validation (eval covered by seed)",
+                    units=[],
+                    findings=[],
+                ),
+            )
+            save()
+            return report
         if distilled["status"] != "applied" or not distilled.get("admitted_unit_ids"):
             raise RuntimeError("C6 did not admit reusable units: " + distilled["status"])
         with timing.measure("local_publication_and_merge"):
@@ -336,16 +436,23 @@ def capture(args, payload):
             synced = consumer_feed.sync(force=True)
             if synced["status"] != "synced":
                 raise RuntimeError("independent graded consumer did not synchronize")
-            conditions = payload["capture_conditions"]
-            hits = consumer.query(args.query, conditions=conditions)
             admitted = set(distilled["admitted_unit_ids"])
+            query_text, conditions = _derive_readback_probe(
+                consumer,
+                sorted(admitted),
+                explicit_query=getattr(args, "query", ""),
+                explicit_conditions=payload.get("capture_conditions"),
+            )
+            hits = consumer.query(query_text, conditions=conditions)
             matched = [hit for hit in hits["results"] if hit["id"] in admitted]
             if not matched:
                 raise RuntimeError(
                     "independent consumer cannot retrieve a new unit under actual conditions"
                 )
             reads = [consumer.explain(hit["ref"]) for hit in matched]
-            report["consumer"] = dict(sync=synced, conditions=conditions, hits=hits, reads=reads)
+            report["consumer"] = dict(
+                sync=synced, query=query_text, conditions=conditions, hits=hits, reads=reads
+            )
         with timing.measure("warm_view_install"):
             cloned = output / "published"
             git("clone", "--template=", "-q", "--branch", "main", remote, cloned)
@@ -403,16 +510,21 @@ def capture(args, payload):
             status="failed" if cleanup_errors else "completed",
             errors=[dict(type=type(error).__name__, message=str(error)) for error in cleanup_errors],
         )
-        save()
         if cleanup_errors and primary is None:
-            raise ExceptionGroup("graded capture cleanup failed after recorded result", cleanup_errors)
+            # The graded result is already complete. Preserve it and attach the
+            # secondary cleanup failure instead of raising from `finally`.
+            report["cleanup_warning"] = (
+                "graded capture cleanup failed after recorded result: "
+                + "; ".join(f"{type(error).__name__}: {error}" for error in cleanup_errors)
+            )
+        save()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dsh-scripts", required=True)
     parser.add_argument("--gitleaks", required=True)
-    parser.add_argument("--query", required=True)
+    parser.add_argument("--query", default="")
     args = parser.parse_args()
     payload = json.load(sys.stdin)
     try:

@@ -26,15 +26,16 @@ def configure(case, corpus, *, mode, files=(), skills=False):
     return config
 
 
-def test_explicit_condition_requests_skill_query_and_explain_as_experimental_condition(case, corpus):
+def test_explicit_condition_uses_single_user_gesture_without_internal_tool_coaching(case, corpus):
     config = configure(case, corpus, mode="explicit", skills=True)
     profile = build_profile(case["root"], case["spec"], Group.G2, config)
     assert profile.fingerprint["knowledge_mode"] == "explicit"
     prompt = knowledge_prompt(profile)
-    assert "Use the mindie-agent skill" in prompt
-    assert "advisory" in prompt
-    assert "knowledge_query" in prompt
-    assert "knowledge_explain" in prompt
+    assert prompt == "/mindie-agent\n\n"
+    assert "mindie_entry" not in prompt
+    assert "knowledge_query" not in prompt
+    assert "knowledge_explain" not in prompt
+    assert "Actual task applicability conditions" not in prompt
     assert str(profile.corpus) not in prompt
     assert profile.fingerprint["oracle_context_sha256"] is None
 

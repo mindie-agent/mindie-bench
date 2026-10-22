@@ -325,6 +325,8 @@ def probe_npu_smi(host: str, *, timeout: float = 8.0, ssh: str = "ssh") -> NpuTo
         completed = subprocess.run(
             command, capture_output=True, text=True, timeout=timeout, check=False
         )
+    except TimeoutError:
+        raise
     except (OSError, subprocess.TimeoutExpired) as exc:
         return NpuTopology(host=host, dies=(), reachable=False, error=str(exc))
     if completed.returncode != 0:

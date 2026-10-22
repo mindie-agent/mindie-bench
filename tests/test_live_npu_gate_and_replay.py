@@ -24,12 +24,6 @@ import pytest
 
 from mindie_bench.evaluation.knowledge_tiered import distill_selected
 from mindie_bench.evaluation.knowledge_tiered_support import GradedUnit, Store
-from mindie_bench.evaluation.strategy_selection import (
-    PILOT_CASES,
-    load_combined_routing_index,
-    prepare_strategy_selector_view,
-    run_strategy_selection_pilot,
-)
 from mindie_bench.evaluation.mechanism_replay import (
     DECISION_SCHEMA,
     MAX_MERGED_BODY_BYTES,
@@ -37,6 +31,11 @@ from mindie_bench.evaluation.mechanism_replay import (
     collect_m6_repository_evidence,
     evaluate_mechanism_replay,
     prepare_learner_prompt_view,
+)
+from mindie_bench.evaluation.strategy_selection import (
+    load_combined_routing_index,
+    prepare_strategy_selector_view,
+    run_strategy_selection_pilot,
 )
 from mindie_bench.runner.qualification_gate import (
     CommandReceipt,

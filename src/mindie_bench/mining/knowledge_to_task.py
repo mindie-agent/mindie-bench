@@ -30,7 +30,7 @@ import subprocess
 from pathlib import Path
 
 from mindie_bench.corpus import read_package
-from mindie_bench.io import read_json, safe_relative, task_hash, tree_hash, write_json
+from mindie_bench.io import read_json, safe_relative, sha256_file, task_hash, tree_hash, write_json
 from mindie_bench.models import TaskSpec
 
 DOMAINS = {
@@ -48,10 +48,18 @@ def mine_knowledge(corpus: Path, output: Path, *, limit: int = 12) -> list[dict]
     if limit < 1:
         raise ValueError("candidate limit must be positive")
     commit = subprocess.run(
-        ["git", "-C", str(corpus), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+        ["git", "-C", str(corpus), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
     ).stdout.strip()
     if subprocess.run(
-        ["git", "-C", str(corpus), "status", "--porcelain"], check=True, capture_output=True, text=True
+        ["git", "-C", str(corpus), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
     ).stdout:
         raise ValueError("mine a clean, exact corpus revision")
     candidates = []
@@ -90,7 +98,7 @@ def mine_knowledge(corpus: Path, output: Path, *, limit: int = 12) -> list[dict]
                 source_blocks=[
                     dict(
                         path=path.relative_to(corpus).as_posix(),
-                        sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                        sha256=sha256_file(path),
                     )
                     for path in materials
                 ],
@@ -294,7 +302,7 @@ def compile_recipe(corpus: Path, recipe_manifest: Path, output: Path) -> dict:
     runtime = manifest["runtime"]
     python = Path(runtime["python"])
     python = (root / python).absolute() if not python.is_absolute() else python
-    if _sha(python.resolve(strict=True).read_bytes()) != runtime["python_binary_sha256"]:
+    if sha256_file(python.resolve(strict=True)) != runtime["python_binary_sha256"]:
         raise ValueError("recipe CPU interpreter hash mismatch")
     assets = {}
     for destination, record in manifest["assets"].items():
@@ -344,7 +352,7 @@ def compile_recipe(corpus: Path, recipe_manifest: Path, output: Path) -> dict:
         "instance_id": spec.task.instance_id,
         "evidence": spec.task.evidence,
         "task_sha256": task_hash(output),
-        "recipe_sha256": _sha(recipe_manifest.read_bytes()),
+        "recipe_sha256": sha256_file(recipe_manifest),
         "corpus_commit": commit,
         "source_commit": source.base_commit,
         "knowledge_condition": condition,

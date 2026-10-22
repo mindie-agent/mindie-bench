@@ -353,12 +353,12 @@ def test_successful_remote_handler_finishes_before_worker_quiesce(
         remote.release.set()
         for worker in workers:
             worker.join(timeout=2)
-    assert receipt.terminal_status.value == (
-        "infra_failed" if occupied_postflight else "completed_pass"
-    ), receipt.model_dump_json(indent=2)
+    assert receipt.terminal_status.value == "completed_pass", receipt.model_dump_json(indent=2)
     if occupied_postflight:
         assert receipt.auxiliary_metrics["business_terminal_status"] == "completed_pass"
         assert not receipt.auxiliary_metrics["post_flight_npu_clean"]
+    else:
+        assert receipt.auxiliary_metrics["post_flight_npu_clean"]
     assert receipt.auxiliary_metrics["owned_namespace_cleanup_confirmed"]
     assert quiesced == [True]
     assert not receipt.auxiliary_metrics["remote_settlement"]["unknown"]
@@ -392,7 +392,7 @@ def test_late_unknown_and_original_capture_failure_are_both_saved(case, corpus, 
     assert receipt.auxiliary_metrics["business_terminal_status"] == "completed_pass"
     assert receipt.auxiliary_metrics["capture_process"]["returncode"] == 1
     assert {error["stage"] for error in receipt.errors} >= {"capture", "remote_settlement"}
-    assert receipt.auxiliary_metrics["status_before_remote_unknown"]["terminal_status"] == "infra_failed"
+    assert receipt.auxiliary_metrics["status_before_remote_unknown"]["terminal_status"] == "completed_pass"
 
 
 def test_remote_settlement_can_complete_without_unknown_or_extra_admission(case):

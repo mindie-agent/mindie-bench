@@ -109,6 +109,8 @@ class LocalTlsEndpoint:
                     tls.sendall(self.response)
         except ssl.SSLError as exc:
             self.server_error = exc.reason or exc.strerror
+        except TimeoutError:
+            raise
         except (ConnectionError, OSError, ValueError) as exc:
             self.server_error = type(exc).__name__
 
@@ -127,11 +129,15 @@ class LocalTlsEndpoint:
                     target = upstream if source is client else client
                     try:
                         data = source.recv(65536)
+                    except TimeoutError:
+                        raise
                     except OSError:
                         data = b""
                     if not data:
                         try:
                             target.shutdown(socket.SHUT_WR)
+                        except TimeoutError:
+                            raise
                         except OSError:
                             pass
                         return
@@ -139,6 +145,8 @@ class LocalTlsEndpoint:
                 if self._ready.is_set() and not self.injected:
                     upstream.sendall(ALERT_TRIGGER)
                     self.injected = True
+        except TimeoutError:
+            raise
         except OSError:
             return
 
@@ -151,6 +159,8 @@ class LocalTlsEndpoint:
             if sock is not None:
                 try:
                     sock.shutdown(socket.SHUT_RDWR)
+                except TimeoutError:
+                    raise
                 except OSError:
                     pass
         for thread in (self._server_thread, self._proxy_thread):
@@ -165,6 +175,8 @@ class LocalTlsEndpoint:
             if sock is not None:
                 try:
                     sock.close()
+                except TimeoutError:
+                    raise
                 except OSError:
                     pass
         assert not self._server_thread.is_alive() and not self._proxy_thread.is_alive()
@@ -266,6 +278,8 @@ def test_failed_request_submission_separates_confirmed_and_uncertain_bytes(case,
     def provider():
         try:
             client, _ = listener.accept()
+        except TimeoutError:
+            raise
         except OSError:
             return
         with client:
@@ -279,6 +293,8 @@ def test_failed_request_submission_separates_confirmed_and_uncertain_bytes(case,
             observed["header_bytes"] = len(head)
             try:
                 observed["after_close"] = client.recv(1)
+            except TimeoutError:
+                raise
             except OSError:
                 observed["after_close"] = b""
 
@@ -304,6 +320,8 @@ def test_failed_request_submission_separates_confirmed_and_uncertain_bytes(case,
     def inject_body_failure(connection, data):
         try:
             peer = connection.sock.getpeername()
+        except TimeoutError:
+            raise
         except (AttributeError, OSError):
             peer = None
         if peer is not None and peer[1] == provider_port:

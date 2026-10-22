@@ -14,12 +14,14 @@ from pathlib import Path
 import pytest
 
 from mindie_bench.cli import main as cli_main
+from mindie_bench.evaluation.knowledge_tiered_support import (
+    build_strategy_navigation_cards as _strategy_cards,
+)
 from mindie_bench.evaluation.mechanism_replay import run_host_mechanism_replay
 from mindie_bench.evaluation.strategy_selection import (
     CANDIDATE_UNIT_IDS,
     DEV_CASES,
     PILOT_CASES,
-    PreDecisionObservation,
     StrategySelectionBudget,
     evaluate_strategy_continuation,
     load_combined_routing_index,
@@ -30,6 +32,12 @@ from mindie_bench.evaluation.strategy_selection import (
     verify_pilot_lineage_and_soundness,
     verify_selector_isolation,
 )
+
+if _strategy_cards is None:
+    pytest.skip(
+        "installed mindie_knowledge predates build_strategy_navigation_cards",
+        allow_module_level=True,
+    )
 
 
 def _corpus_roots() -> list[Path]:
@@ -225,6 +233,15 @@ def test_full_36_cell_abc_pilot_and_cli_report_evidence_gain_and_cost_ledgers(tm
     assert report["decision_gate"] == "continue_expanding_families"
 
     # Verify A3 Die-hours vs Card-hours separation (2 Dies per Card on A3 S1 cases).
+    cont_a = report["cost_ledgers"]["continuation_cost_by_arm"]["A"]
     cont_c = report["cost_ledgers"]["continuation_cost_by_arm"]["C"]
     assert cont_c["npu_die_hours"] > cont_c["npu_card_hours"] > 0
+    assert cont_c["cost_of_pass"]["wall_clock_sec_per_pass"] < cont_a["cost_of_pass"]["wall_clock_sec_per_pass"]
+    assert cont_c["cost_of_pass"]["npu_die_hours_per_pass"] < cont_a["cost_of_pass"]["npu_die_hours_per_pass"]
+    pareto = report["comparisons"]["pareto_and_cost_of_pass"]["pareto_selection"]
+    assert pareto["frontier_ids"] == ["C"]
+    assert "A" in pareto["dominated_ids"]
+    assert pareto["representatives"]["lite"]["id"] == "C"
+    assert pareto["representatives"]["medium"]["id"] == "C"
+    assert pareto["representatives"]["heavy"]["id"] == "C"
     assert CANDIDATE_UNIT_IDS[0] in json.dumps(report)

@@ -4,7 +4,7 @@
 The installed plugin owns the summary protocol; all inference uses the trial
 Gateway. No tools, instructions, skills, web or extra MCP servers are enabled.
 [Timeouts & Locks] Profile creation 120s; initialize 30s + endpoint 10s;
-shutdown 10s + process exit 10s + terminate/kill 5s each. No database locks.
+shutdown 10s + process exit 10s + SIGTERM 2s + SIGKILL 5s in the owned session group.
 [Side-Effect Policy] Creates an isolated SDK profile and one authenticated
 loopback endpoint. Only its selected port is admitted by the native sandbox.
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
-import platform
 import queue
+import shutil
 import socket
 import subprocess
 import threading
@@ -25,6 +25,7 @@ from pathlib import Path
 import yaml
 
 from mindie_bench.runner.sandbox import native_command
+from mindie_bench.runner.termination import terminate_process_group
 
 
 def _rows(text):
@@ -181,9 +182,10 @@ class SummaryHost:
         raise TimeoutError(f"DSH SDK {method} deadline expired")
 
     def __enter__(self):
-        if platform.system() != "Darwin":
+        if shutil.which("sandbox-exec") is None and shutil.which("bwrap") is None:
             raise ValueError(
-                "DSH G3 summary host requires a shared loopback namespace; only the macOS backend is configured"
+                "DSH G3 summary host requires an available OS sandbox backend "
+                "(sandbox-exec or bwrap)"
             )
         selected = self.profile.fingerprint["dsh_summary_profile"]
         for source, expected in selected["plugin_sources"].items():
@@ -221,6 +223,7 @@ class SummaryHost:
                 stdout=subprocess.PIPE,
                 stderr=self.errors,
                 text=True,
+                start_new_session=True,
             )
 
             def read():
@@ -228,6 +231,8 @@ class SummaryHost:
                     for line in self.process.stdout:
                         self.frames.put(json.loads(line))
                     self.frames.put(RuntimeError("DSH SDK stdout closed"))
+                except TimeoutError:
+                    raise
                 except (ValueError, OSError) as error:
                     self.frames.put(error)
 
@@ -285,12 +290,10 @@ class SummaryHost:
             primary.add_note(f"summary host cleanup also failed: {type(error).__name__}: {error}")
         finally:
             if self.process is not None and self.process.poll() is None:
-                self.process.terminate()
                 try:
-                    self.process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    self.process.kill()
-                    self.process.wait(timeout=5)
+                    terminate_process_group(self.process, term_wait=2, kill_wait=5)
+                except TimeoutError as cleanup:
+                    self.errors.write(f"summary host termination failed: {cleanup}\n")
             if self.errors is not None:
                 self.errors.close()
 

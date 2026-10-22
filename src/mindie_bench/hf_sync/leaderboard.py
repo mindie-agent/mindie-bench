@@ -1,3 +1,8 @@
+# [Role] Builds and publishes the redacted public leaderboard view.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Static viewer for already-redacted summaries; no external dependencies."""
 
 from html import escape

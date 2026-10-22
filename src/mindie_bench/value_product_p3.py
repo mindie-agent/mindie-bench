@@ -375,6 +375,8 @@ def load_private_p3_claim(
             "scope": scope,
             "reasons": list(error.reasons)[:12],
         }
+    except TimeoutError:
+        raise
     except OSError:
         return {
             "status": "failed",
@@ -763,6 +765,8 @@ def load_public_p3_claim(
         return _public_claim(
             raw, public, profile, source, cell, comparison_cohort=comparison_cohort
         )
+    except TimeoutError:
+        raise
     except (OSError, ValueError, KeyError) as error:
         return {
             "status": "failed",

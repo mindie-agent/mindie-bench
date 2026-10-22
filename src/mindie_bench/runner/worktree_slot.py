@@ -75,6 +75,7 @@ class WorktreeSlot:
             check=True,
             capture_output=True,
             text=True,
+            timeout=60,
         ).stdout.strip()
         if actual != self.environment.base_commit:
             raise ValueError("base revision did not resolve to exact declared commit")
@@ -147,6 +148,7 @@ class WorktreeSlot:
                 [*command, "diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD", *diff_paths()],
                 check=True,
                 capture_output=True,
+                timeout=60,
             ).stdout
             (output / "final_patch.diff").write_bytes(patch)
             changed = subprocess.run(
@@ -162,11 +164,13 @@ class WorktreeSlot:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=60,
             ).stdout.splitlines()
             untracked = subprocess.run(
                 [*command, "ls-files", "--others", "--exclude-standard", "-z", *diff_paths()],
                 check=True,
                 capture_output=True,
+                timeout=60,
             ).stdout.split(b"\0")
             modified = set(
                 changed

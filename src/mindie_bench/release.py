@@ -3,7 +3,7 @@
 [Role] Bind real workloads and raw samples to an exact release candidate.
 [Invariants] Unknown external writes are never retried; dirty or missing evidence
 cannot pass a release gate. Measurements do not imply causal productivity gains.
-[Timeouts & Locks] Case timeout + 5 seconds for local process cleanup; Git: 10s.
+[Timeouts & Locks] Case timeout + two-stage 2s TERM/5s KILL process-group cleanup; Git: 10s.
 [Side-Effect Policy] Runs explicitly declared commands; writes local reports only.
 Only allowlisted numeric payloads enter public assets. Logs remain under private/.
 """
@@ -14,7 +14,6 @@ import hashlib
 import importlib.metadata
 import os
 import platform
-import signal
 import statistics
 import subprocess
 import sys
@@ -29,6 +28,7 @@ from mindie_bench.release_contract import (
     ReleaseManifest,
     ReleaseSuite,
 )
+from mindie_bench.runner.termination import terminate_process_group
 
 
 class CommandNotStarted(RuntimeError):
@@ -76,6 +76,8 @@ def _execute(command, *, repo, env, destination, timeout):
                 command, cwd=repo, env=env, stdout=out, stderr=err,
                 start_new_session=os.name == "posix",
             )
+        except TimeoutError:
+            raise
         except OSError as error:
             raise CommandNotStarted(str(error)) from error
         timed_out = False
@@ -87,10 +89,7 @@ def _execute(command, *, repo, env, destination, timeout):
         finally:
             # A command can leave descendants after its leader exits.
             if os.name == "posix":
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                terminate_process_group(process, term_wait=2, kill_wait=5)
             elif process.poll() is None:
                 subprocess.run(
                     ["taskkill", "/PID", str(process.pid), "/T", "/F"],
@@ -136,6 +135,8 @@ def _run_case(case, *, repo, python, private):
                     attempt.update(status="fail", reason_code="measurement_contract_changed")
                 if attempt["status"] == "pass":
                     expected_metrics = signature
+        except TimeoutError:
+            raise
         except (CommandNotStarted, OSError, ValueError, subprocess.SubprocessError) as error:
             # The public reason is stable; potentially sensitive diagnostics stay local.
             (destination / "runner-error.log").write_text(

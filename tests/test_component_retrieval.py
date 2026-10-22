@@ -183,13 +183,16 @@ def test_component_original_failure_and_cleanup_failure_are_both_durable(tmp_pat
     assert closed == [True]
 
 
-def test_component_successful_queries_do_not_hide_required_close_failure(tmp_path, monkeypatch):
+def test_component_successful_queries_attach_close_failure_as_secondary(tmp_path, monkeypatch):
     from mindie_bench.evaluation.retrieval import evaluate_retrieval
 
     corpus, labels, closed = runtime(tmp_path, monkeypatch, close_error=OSError("close failed"))
     output = tmp_path / "run"
-    with pytest.raises(OSError, match="close failed"):
-        evaluate_retrieval(corpus, labels, output)
-    assert read_json(output / "failure.json")["phase"] == "close"
-    assert not (output / "summary.json").exists()
+    result = evaluate_retrieval(corpus, labels, output)
+    assert result["status"] == "completed"
+    assert result["cleanup_errors"] == [{"type": "OSError", "message": "close failed"}]
+    assert result["cleanup_warning"] == "retrieval store close failed after completed evaluation"
+    summary = read_json(output / "summary.json")
+    assert summary["status"] == "completed"
+    assert not (output / "failure.json").exists()
     assert closed == [True]

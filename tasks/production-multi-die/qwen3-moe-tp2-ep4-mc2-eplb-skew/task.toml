@@ -24,7 +24,7 @@ visible_phy_ids = []
 corpus_id = "ascend"
 knowledge_gradient = "compositional"
 target_files = ["vllm_ascend/ops/fused_moe/moe_comm_method.py", "vllm_ascend/eplb/core/eplb_worker.py"]
-conditions = { query = "Qwen3 MoE TP2 EP4 MC2 Dispatch Combine EPLB expert load skew AlltoAll slow rank tail latency", topology_scale = "S2", placement = "intra_node_hccs", die_count = 8, npu_model = "Ascend910", npu_count = 8, hosts = ["192.168.13.165"] }
+conditions = { topology_scale = "S2", placement = "intra_node_hccs", die_count = 8, npu_model = "Ascend910", npu_count = 8, hosts = ["192.168.13.165"] }
 [budget]
 max_turns = 50
 max_npu_runs = 12

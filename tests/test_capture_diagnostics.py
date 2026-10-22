@@ -120,8 +120,10 @@ def test_capture_interruption_preserves_process_state_and_separate_settled_usage
     receipt = orchestrator.run_trial(
         case["task"], config, tier="l2", group=Group.G3, repetition=1, run_root=output
     )
-    assert receipt.terminal_status.value == "unknown"
+    assert receipt.terminal_status.value == "completed_pass"
     assert receipt.auxiliary_metrics["business_terminal_status"] == "completed_pass"
+    assert receipt.auxiliary_metrics["capture"]["status"] == "failed"
+    assert any(error["stage"] == "capture" for error in receipt.errors)
     assert receipt.auxiliary_metrics["capture_provider_tokens"]["complete"]
     assert receipt.auxiliary_metrics["capture_model_calls"] == 1
     expected = {
@@ -169,8 +171,9 @@ def test_corpus_rejection_findings_survive_without_inventing_capture_token_recei
     receipt = orchestrator.run_trial(
         case["task"], config, tier="l2", group=Group.G3, repetition=1, run_root=output
     )
-    assert receipt.terminal_status.value == "completed_fail"
-    assert receipt.primary_metrics["reward"] == 0
+    assert receipt.terminal_status.value == "completed_pass"
+    assert receipt.primary_metrics["reward"] == 1
     assert receipt.auxiliary_metrics["capture"]["corpus_lint"] == report
+    assert receipt.auxiliary_metrics["capture"]["status"] == "failed"
     assert receipt.auxiliary_metrics["business_terminal_status"] == "completed_pass"
     assert not any(error["stage"] == "scoring" for error in receipt.errors)

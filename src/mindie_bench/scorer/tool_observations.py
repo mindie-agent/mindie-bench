@@ -1,3 +1,8 @@
+# [Role] Classifies tool results and remote errors into business versus infrastructure outcomes.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Normalize explicit tool receipts without interpreting command output as a verdict."""
 
 from __future__ import annotations
@@ -53,7 +58,7 @@ def operation_kind(call: ToolCall) -> str:
         return "execution"
     if call.name == "remote_job_stdin":
         return "control" if call.arguments.get("chars") or call.arguments.get("eof") else "observation"
-    if call.name in {"remote_job_status", "remote_job_tail"}:
+    if call.name in {"remote_job_status", "remote_job_tail", "remote_job_output"}:
         return "observation"
     if call.name in {"remote_job_stop", "remote_job_cancel"}:
         return "control"

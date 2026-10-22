@@ -304,6 +304,8 @@ def main(argv: list[str] | None = None) -> int:
                 records.append(record)
         if not records:
             raise ValueError("input contains no response records")
+    except TimeoutError:
+        raise
     except (OSError, UnicodeError, ValueError) as error:
         print(f"audit_outputs: {error}", file=sys.stderr)
         return 2

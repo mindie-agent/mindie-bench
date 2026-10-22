@@ -24,7 +24,7 @@ visible_phy_ids = []
 corpus_id = "ascend"
 knowledge_gradient = "analogical"
 target_files = ["vllm_ascend/distributed/parallel_state.py", "vllm_ascend/utils.py"]
-conditions = { query = "two node A3 RoCE HCCL_IF_IP HCCL_SOCKET_IFNAME cross node DP4 EP8 AlltoAll slow link HCCL_EXEC_TIMEOUT gang lease cleanup", topology_scale = "S3", placement = "multi_node_roce", die_count = 16, npu_model = "Ascend910", npu_count = 16, hosts = ["192.168.13.165", "192.168.13.156"] }
+conditions = { topology_scale = "S3", placement = "multi_node_roce", die_count = 16, npu_model = "Ascend910", npu_count = 16, hosts = ["192.168.13.165", "192.168.13.156"] }
 [budget]
 max_turns = 60
 max_npu_runs = 16

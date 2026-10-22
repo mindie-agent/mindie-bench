@@ -23,6 +23,8 @@ def main():
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(request, timeout=60) as response:
             result = json.load(response)
+    except TimeoutError:
+        raise
     except (OSError, ValueError, urllib.error.HTTPError) as exc:
         print(f"replay infrastructure error: {type(exc).__name__}", file=sys.stderr)
         return 125

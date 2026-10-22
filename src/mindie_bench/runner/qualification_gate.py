@@ -24,7 +24,7 @@ agent does not hand-write build, symbol, graph-capture or timing glue.
 
 [Timeouts & Locks]
 - Local commands run in their own POSIX session with the declared per-command
-  timeout; cleanup sends SIGKILL to the whole group and reaps for 2s.
+  timeout; cleanup sends `SIGTERM`, waits 2s, sends `SIGKILL`, then reaps for 5s.
 - Lock inspection is read-only and uses `os.kill(pid, 0)` by default.
 
 [Side-Effect Policy]
@@ -37,7 +37,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import signal
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -74,6 +73,7 @@ from mindie_bench.runner.qualification_gate_timing import (
 from mindie_bench.runner.qualification_gate_timing import (
     frozen_baseline_digest,
 )
+from mindie_bench.runner.termination import terminate_process_group
 
 __all__ = [
     "SCHEMA",
@@ -136,23 +136,22 @@ def run_local_command(command: GateCommand) -> CommandReceipt:
             errors="replace",
             start_new_session=True,
         )
+    except TimeoutError:
+        raise
     except OSError as error:
         return CommandReceipt(command.argv, None, error=f"{type(error).__name__}: {error}")
     try:
         stdout, stderr = process.communicate(timeout=float(command.timeout_sec))
     except subprocess.TimeoutExpired:
         try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError) as cleanup:
-            try:
-                process.kill()
-            except OSError:
-                return CommandReceipt(
-                    command.argv,
-                    None,
-                    timed_out=True,
-                    error=f"timeout cleanup failed: {type(cleanup).__name__}",
-                )
+            terminate_process_group(process, term_wait=2, kill_wait=5)
+        except (TimeoutError, OSError) as cleanup:
+            return CommandReceipt(
+                command.argv,
+                None,
+                timed_out=True,
+                error=f"timeout cleanup failed: {type(cleanup).__name__}",
+            )
         try:
             stdout, stderr = process.communicate(timeout=2)
         except subprocess.TimeoutExpired as cleanup:
@@ -545,6 +544,8 @@ class QualificationGateRunner:
                 continue
             try:
                 text = self.reader.read_bytes(path).decode("utf-8", errors="replace")
+            except TimeoutError:
+                raise
             except OSError as error:
                 locks.append(
                     DebugLock(
@@ -762,6 +763,8 @@ def _pid_alive(pid: int) -> bool | None:
         return False
     except PermissionError:
         return True
+    except TimeoutError:
+        raise
     except OSError:
         return None
     return True

@@ -1,3 +1,8 @@
+# [Role] Runs frozen source-bound retrieval queries against a first-party store.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Execute frozen, source-bound queries against the selected first-party store."""
 
 from __future__ import annotations
@@ -104,9 +109,9 @@ def evaluate_retrieval(
         raise ValueError("retrieval repetitions and k must be positive")
     corpus, labels = corpus.resolve(strict=True), labels.resolve(strict=True)
     revision = subprocess.check_output(
-        ["git", "-C", str(corpus), "rev-parse", "HEAD"], text=True
+        ["git", "-C", str(corpus), "rev-parse", "HEAD"], text=True, timeout=30
     ).strip()
-    dirty = subprocess.check_output(["git", "-C", str(corpus), "status", "--porcelain"], text=True)
+    dirty = subprocess.check_output(["git", "-C", str(corpus), "status", "--porcelain"], text=True, timeout=30)
     if dirty:
         raise ValueError("component retrieval requires a clean, pinned corpus")
     rows = load_labels(labels, corpus, revision)
@@ -144,6 +149,7 @@ def evaluate_retrieval(
     observations, summaries = [], []
     reader = None
     primary = None
+    result = None
     phase = "install"
     started = time.perf_counter()
     try:
@@ -270,6 +276,15 @@ def evaluate_retrieval(
                         f"retrieval store close also failed: {type(cleanup).__name__}: {cleanup}"
                     )
         failure = primary if primary is not None else cleanup_error
+        if primary is None and cleanup_error is not None and result is not None:
+            # The retrieval evaluation already completed. Keep its measured
+            # observations and attach the close failure as secondary evidence.
+            result["cleanup_errors"] = [
+                dict(type=type(cleanup_error).__name__, message=str(cleanup_error))
+            ]
+            result["cleanup_warning"] = "retrieval store close failed after completed evaluation"
+            failure = None
+            cleanup_error = None
         if failure is not None:
             try:
                 write_json(

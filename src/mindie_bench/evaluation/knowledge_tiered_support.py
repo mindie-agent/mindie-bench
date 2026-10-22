@@ -30,9 +30,22 @@ def _load_graded():
     from mindie_knowledge.graded.explore import (  # noqa: F401
         assess_stagnation,
         build_exploration_context,
-        build_strategy_navigation_cards,
         evaluate_exploration_candidate,
     )
+    try:
+        from mindie_knowledge.graded.explore import build_strategy_navigation_cards
+    except ImportError:
+        # Older pinned distributions predate the strategy-selector card API.
+        # Keep imports working; callers fail explicitly only when they use it.
+        build_strategy_navigation_cards = None
+    try:
+        from mindie_knowledge.graded.explore import (
+            select_pareto_candidates,
+            stage_budget_guidance,
+        )
+    except ImportError:
+        select_pareto_candidates = None
+        stage_budget_guidance = None
     from mindie_knowledge.graded.feedback import (  # noqa: F401
         record_usage_event,
         summarize_usage_events,
@@ -72,7 +85,9 @@ summarize_usage_events = _graded["summarize_usage_events"]
 evaluate_exploration_candidate = _graded["evaluate_exploration_candidate"]
 assess_stagnation = _graded["assess_stagnation"]
 build_exploration_context = _graded["build_exploration_context"]
-build_strategy_navigation_cards = _graded["build_strategy_navigation_cards"]
+build_strategy_navigation_cards = _graded.get("build_strategy_navigation_cards")
+select_pareto_candidates = _graded.get("select_pareto_candidates")
+stage_budget_guidance = _graded.get("stage_budget_guidance")
 
 SCHEMA_VERSION = "mindie-bench-knowledge-tiered/1"
 CONDITIONS = ("no_knowledge", "oracle", "normal_retrieval", "with_distractors")
@@ -542,3 +557,49 @@ def _rare_recall(repository: GradedRepository, probes: Sequence[Mapping], *, lim
         rows.append(row)
     return {"probes": rows, "recall_rate": recalled / len(rows) if rows else None,
             "recalled": recalled, "total": len(rows)}
+
+
+def summarize_arm_pareto_and_cop(
+    arm_summaries: Mapping[str, Mapping[str, Any]],
+    *,
+    baseline_arm: str = "A",
+) -> dict[str, Any]:
+    """Compute Cost-of-Pass (CoP) and HarnessPro Pareto frontier selection across arms."""
+    if select_pareto_candidates is None:
+        raise RuntimeError(
+            "installed mindie_knowledge lacks select_pareto_candidates; "
+            "install the pinned knowledge extra"
+        )
+    cop_by_arm: dict[str, dict[str, float | None]] = {}
+    candidates: list[dict[str, Any]] = []
+    for arm, summary in arm_summaries.items():
+        pr_info = summary.get("pass_rate") or {}
+        pass_rate = pr_info.get("value")
+        passed = int(pr_info.get("numerator") or 0)
+        valid_cells = int(summary.get("valid_cells") or 0)
+        wall_sec = float(summary.get("total_wall_clock_sec") or 0.0)
+        calls = int(summary.get("total_model_calls") or 0)
+        die_hours = float(summary.get("total_npu_die_hours") or 0.0)
+        cop_wall = round(wall_sec / passed, 4) if passed > 0 else None
+        cop_calls = round(calls / passed, 4) if passed > 0 else None
+        cop_die_hours = round(die_hours / passed, 6) if passed > 0 else None
+        cop_by_arm[arm] = {
+            "wall_clock_sec_per_pass": cop_wall,
+            "model_calls_per_pass": cop_calls,
+            "npu_die_hours_per_pass": cop_die_hours,
+        }
+        candidates.append({
+            "id": arm,
+            "label": summary.get("label", arm),
+            "status": "ok" if pass_rate is not None and valid_cells > 0 else "inconclusive",
+            "pass_rate": float(pass_rate or 0.0),
+            "cost": round(wall_sec / max(1, valid_cells), 4),
+            "pass_count": passed,
+            "total_cost": wall_sec,
+        })
+    base_pr = (arm_summaries.get(baseline_arm, {}).get("pass_rate") or {}).get("value")
+    pareto = select_pareto_candidates(candidates, pass_floor=base_pr)
+    return {
+        "cost_of_pass_by_arm": cop_by_arm,
+        "pareto_selection": pareto,
+    }

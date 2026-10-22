@@ -134,6 +134,7 @@ def test_unknown_paid_request_not_retried_and_key_stays_parent(case, monkeypatch
 
     class BrokenProvider:
         sock = None
+        debuglevel = 0
 
         def __init__(self, *args, **kwargs):
             pass
@@ -152,6 +153,8 @@ def test_unknown_paid_request_not_retried_and_key_stays_parent(case, monkeypatch
     with Gateway(harness, case["spec"], case["task"], case["repo"], case["root"] / "journal") as gateway:
         try:
             post(gateway.url, "/v1/responses", {"model": "test", "input": "sample"})
+        except TimeoutError:
+            raise
         except (OSError, Exception):
             pass
         assert gateway.unknown

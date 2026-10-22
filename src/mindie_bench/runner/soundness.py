@@ -1,3 +1,8 @@
+# [Role] Runs zero-model fail-before/pass-after soundness proofs for candidate tasks.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Zero-model fail-before / pass-after validation against the external judge."""
 
 from __future__ import annotations
@@ -125,21 +130,32 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
     except Exception as exc:
         errors.append(dict(stage="soundness", type=type(exc).__name__, message=str(exc)))
     finally:
+        cleanup_errors = []
         if remote:
             try:
                 remote.close()
                 proof["remote_postflight"] = remote.postflight
             except Exception as exc:
-                errors.append(dict(stage="remote_cleanup", type=type(exc).__name__, message=str(exc)))
+                cleanup_errors.append(
+                    dict(stage="remote_cleanup", type=type(exc).__name__, message=str(exc))
+                )
         try:
             slot.cleanup()
         except Exception as exc:
-            errors.append(dict(stage="worktree_cleanup", type=type(exc).__name__, message=str(exc)))
+            cleanup_errors.append(
+                dict(stage="worktree_cleanup", type=type(exc).__name__, message=str(exc))
+            )
+        errors.extend(cleanup_errors)
         proof["errors"] = errors
-        if errors:
+        if cleanup_errors:
+            proof["cleanup_errors"] = cleanup_errors
+            proof["cleanup_warning"] = (
+                "soundness cleanup failed after the primary proof was recorded"
+            )
+        if errors and proof["status"] != "completed":
             proof["status"] = "failed"
         write_json(output / "soundness_attempt.json", proof)
-    if errors:
+    if proof["status"] != "completed":
         raise RuntimeError("soundness failed; inspect its preserved soundness_attempt.json")
     if promote:
         manifest = task_root / "task.toml"

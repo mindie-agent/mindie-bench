@@ -28,333 +28,92 @@ across `G0`..`G3` and `l2`/`l3` tiers:
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
 import platform
 import shutil
-import subprocess
-import sys
-import threading
+import subprocess as subprocess
 import time
-import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor as ThreadPoolExecutor
+from concurrent.futures import as_completed as as_completed
 from pathlib import Path
 
-from mindie_bench import __version__
-from mindie_bench.evaluation.budget import BUDGET_STOPS, has_non_budget_errors
-from mindie_bench.evaluation.corpus_linter import CorpusLintRejected
-from mindie_bench.evaluation.oracle_freezer import freeze_oracle
-from mindie_bench.io import digest, read_json, task_hash, tree_hash, write_json
+from mindie_bench import __version__ as __version__  # noqa: F401
+from mindie_bench.evaluation.budget import BUDGET_STOPS
+from mindie_bench.evaluation.budget import has_non_budget_errors as has_non_budget_errors  # noqa: F401
+from mindie_bench.evaluation.corpus_linter import CorpusLintRejected as CorpusLintRejected  # noqa: F401
+from mindie_bench.evaluation.oracle_freezer import freeze_oracle as freeze_oracle  # noqa: F401
+from mindie_bench.io import digest as digest  # noqa: F401
+from mindie_bench.io import read_json as read_json  # noqa: F401
+from mindie_bench.io import task_hash as task_hash  # noqa: F401
+from mindie_bench.io import tree_hash as tree_hash  # noqa: F401
+from mindie_bench.io import write_json
 from mindie_bench.models import (
     ExperimentConfig,
     Group,
-    TaskSpec,
     TerminalStatus,
-    Trajectory,
     TrialReceipt,
-    UnknownExternalEffects,
 )
-from mindie_bench.runner.drivers import driver_for
-from mindie_bench.runner.dsh_summary import SummaryHost, optional_host
+from mindie_bench.models import TaskSpec as TaskSpec  # noqa: F401
+from mindie_bench.models import Trajectory as Trajectory  # noqa: F401
+from mindie_bench.models import UnknownExternalEffects as UnknownExternalEffects  # noqa: F401
+from mindie_bench.runner.drivers import driver_for as driver_for  # noqa: F401
+from mindie_bench.runner.dsh_summary import SummaryHost
+from mindie_bench.runner.dsh_summary import optional_host as optional_host  # noqa: F401
 from mindie_bench.runner.gateway import Gateway
+from mindie_bench.runner.matrix_runner import run_matrix as run_matrix
 from mindie_bench.runner.mcp_probe import probe_servers
 from mindie_bench.runner.native_product import optional_service
-from mindie_bench.runner.phase_budget import lifecycle_overrun
+from mindie_bench.runner.phase_budget import lifecycle_overrun as lifecycle_overrun  # noqa: F401
 from mindie_bench.runner.process import stream_process
-from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profile, filtered_corpus
+from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profile
+from mindie_bench.runner.profile_builder import filtered_corpus as filtered_corpus  # noqa: F401
 from mindie_bench.runner.remote_slot import RemoteSlot
 from mindie_bench.runner.sandbox import native_command
-from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS
+from mindie_bench.runner.source_projection import (
+    HARNESS_CONFIG_PATHS as HARNESS_CONFIG_PATHS,  # noqa: F401
+)
+from mindie_bench.runner.trial_finalize import (
+    finalize_trial_receipt,
+    run_g3_capture,
+    score_trial_trajectory,
+)
+from mindie_bench.runner.trial_preflight import (  # noqa: F401
+    RUNTIME_HELPER_MODULES as RUNTIME_HELPER_MODULES,
+)
+from mindie_bench.runner.trial_preflight import (
+    ProductDeadlineExhausted as ProductDeadlineExhausted,
+)
+from mindie_bench.runner.trial_preflight import (
+    _install_shims,
+    build_agent_prompt,
+    check_read_boundaries,
+    failure_status,
+    preflight_trial_admission,
+    prepare_trial,
+    probe_capture_git,
+    probe_harness_version,
+    probe_runtime_import,
+    product_execution_window,
+    runtime_paths,
+)
+from mindie_bench.runner.trial_preflight import (
+    implementation_digest as implementation_digest,
+)
+from mindie_bench.runner.trial_preflight import (
+    native_capture_payload as native_capture_payload,
+)
+from mindie_bench.runner.trial_preflight import (
+    require_corpus_lint as require_corpus_lint,
+)
 from mindie_bench.runner.verifier import (
     local_verifier,
     remote_verifier,
-    validate_remote_oracle_contract,
+)
+from mindie_bench.runner.verifier import (
+    validate_remote_oracle_contract as validate_remote_oracle_contract,  # noqa: F401
 )
 from mindie_bench.runner.worktree_slot import WorktreeSlot
-from mindie_bench.scorer.comparator import grouped_summaries
-from mindie_bench.scorer.metrics import trajectory_metrics
-
-
-class ProductDeadlineExhausted(RuntimeError):
-    """Preparation consumed the shared product deadline before any model call."""
-
-
-def product_execution_window(
-    experiment_context: dict, task, elapsed_sec: float
-) -> tuple[float, dict]:
-    """Use the predeclared total; never recompute a reserve for the actual arm.
-
-    The experiment context already persists the cohort's total delivery budget.
-    Its difference from the shared execution allowance is the reserve every arm
-    consumes, including cleanup owned by services a particular arm does not start.
-    """
-    declared = float(experiment_context["max_wall_clock_sec"])
-    execution = float(task.budget.timeout_sec)
-    reserve = declared - execution
-    if reserve < 0:
-        raise ValueError("predeclared product budget is smaller than the execution allowance")
-    window = min(execution, declared - elapsed_sec - reserve)
-    if window <= 0:
-        raise ProductDeadlineExhausted(
-            "product preparation exhausted the shared execution deadline"
-        )
-    return window, {
-        "contract": "phase-budget/2",
-        "source": "experiment_context.max_wall_clock_sec",
-        "execution_allowance_sec": execution,
-        "post_agent_reserve_sec": reserve,
-        "total_delivery_sec": declared,
-    }
-
-
-def failure_status(exc: BaseException, phase: str) -> TerminalStatus:
-    """Classify a failure by its truthful stage; only agent uncertainty is UNKNOWN."""
-    if isinstance(exc, CorpusLintRejected):
-        return TerminalStatus.FAIL
-    if isinstance(exc, ProductDeadlineExhausted):
-        return TerminalStatus.INFRA
-    if phase == "agent" or isinstance(exc, UnknownExternalEffects):
-        return TerminalStatus.UNKNOWN
-    return TerminalStatus.INFRA
-
-
-def runtime_paths(config: ExperimentConfig, profile) -> list[Path]:
-    return [
-        Path(__file__).resolve().parents[2],
-        Path(sys.prefix).resolve(),
-        Path(sys.base_prefix).resolve(),
-        Path(config.harness.executable).resolve(strict=True),
-        *profile.runtime_paths,
-        *[Path(p).resolve(strict=True) for p in config.runtime_read_paths],
-    ]
-
-
-def implementation_digest() -> str:
-    root = Path(__file__).resolve().parents[1]
-    return digest(
-        {
-            p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(root.rglob("*.py"))
-        }
-    )
-
-
-RUNTIME_HELPER_MODULES = (
-    "mindie_bench.runner.ssh_shim",
-    "mindie_bench.runner.knowledge_stdio",
-    "mindie_bench.integrations.codex_stop",
-    "mindie_bench.integrations.claude_stop",
-    "mindie_bench.integrations.first_party",
-    "mindie_bench.integrations.graded_capture",
-    "mindie_bench.runner.dsh_summary",
-)
-
-
-def native_capture_payload(harness, trajectory, profile, workspace, *, native_descriptor=None):
-    identity = trajectory.native_session_id
-    if not identity:
-        raise ValueError("G3 capture requires the actual native session identity")
-    stop_path = profile.root / "native-stop.json"
-    if harness == "dsh":
-        from mindie_bench.integrations.dsh_capture import bind_dsh_capture
-
-        if native_descriptor is None or native_descriptor.get("session_id") != identity:
-            raise ValueError(
-                "DSH capture requires this foreground driver's completed session descriptor"
-            )
-        return bind_dsh_capture(
-            profile_root=profile.root,
-            dsh_home=Path(profile.env["DSH_HOME"]),
-            workspace=workspace,
-            observed=native_descriptor,
-        )
-    if harness == "codex":
-        transcripts = list((Path(profile.env["CODEX_HOME"]) / "sessions").rglob(f"*-{identity}.jsonl"))
-        if len(transcripts) != 1:
-            raise ValueError("G3 cannot identify exactly one native task transcript")
-        transcript = transcripts[0].resolve(strict=True)
-    elif harness == "claude-code":
-        from mindie_bench.integrations.claude_stop import read_stop
-
-        event = read_stop(stop_path)
-        if event["session_id"] != identity:
-            raise ValueError("G3 Claude Stop differs from the foreground session identity")
-        if Path(event["cwd"]).resolve(strict=True) != workspace.resolve(strict=True):
-            raise ValueError("G3 Claude Stop differs from the foreground workspace")
-        transcript = Path(event["transcript_path"]).resolve(strict=True)
-        projects = (Path(profile.env["CLAUDE_CONFIG_DIR"]) / "projects").resolve(strict=True)
-        if not transcript.is_relative_to(projects) or not transcript.is_file():
-            raise ValueError("G3 Claude transcript is outside the owned native profile")
-    else:
-        raise ValueError(f"G3 capture is unsupported for harness {harness!r}")
-    return {
-        "harness": harness,
-        "session_id": identity,
-        "transcript_path": str(transcript),
-        "cwd": str(workspace),
-        "stop_event_path": str(stop_path),
-    }
-
-
-def require_corpus_lint(capture_receipt):
-    if capture_receipt.get("corpus_lint", {}).get("status") != "passed":
-        raise ValueError("G3 corpus quality gate did not pass; dependent evaluation is blocked")
-
-
-def probe_capture_git(profile, paths: list[Path], trial_dir: Path) -> dict:
-    code = (
-        "import json\n"
-        "from pathlib import Path\n"
-        "from mindie_bench.integrations.first_party import preflight_git\n"
-        "print(json.dumps(preflight_git(Path('capture-git-preflight'))))\n"
-    )
-    command = native_command(
-        [sys.executable, "-I", "-c", code],
-        read=paths,
-        write=[profile.root],
-        cwd=profile.root,
-        policy_path=trial_dir / "capture-git-preflight.sb",
-    )
-    try:
-        result = subprocess.run(
-            command,
-            env=dict(profile.env, **profile.private_env),
-            cwd=profile.root,
-            timeout=30,
-            capture_output=True,
-            text=True,
-        )
-    except subprocess.TimeoutExpired as error:
-        for name, value in [("stdout", error.stdout), ("stderr", error.stderr)]:
-            raw = value.encode() if isinstance(value, str) else value or b""
-            (trial_dir / f"capture-git-preflight.{name}").write_bytes(raw)
-        raise RuntimeError(
-            "capture Git preflight timed out; inspect capture-git-preflight.stderr"
-        ) from error
-    (trial_dir / "capture-git-preflight.stdout").write_text(result.stdout)
-    (trial_dir / "capture-git-preflight.stderr").write_text(result.stderr)
-    if result.returncode:
-        raise RuntimeError(
-            f"capture Git preflight failed (exit={result.returncode}); "
-            "inspect capture-git-preflight.stderr"
-        )
-    observed = json.loads(result.stdout)
-    if (
-        observed.get("status") != "completed"
-        or observed.get("executable") != profile.private_env["MINDIE_BENCH_GIT"]
-        or observed.get("exec_path") != profile.private_env["GIT_EXEC_PATH"]
-        or observed.get("model_calls") != 0
-    ):
-        raise ValueError("capture Git preflight returned an invalid runtime identity")
-    write_json(trial_dir / "capture-git-preflight.json", observed)
-    return observed
-
-
-def probe_runtime_import(profile, read_paths: list[Path], trial_dir: Path, expected_digest: str):
-    code = (
-        "import importlib,json,sys\n"
-        "from pathlib import Path\n"
-        "import mindie_bench\n"
-        "from mindie_bench.runner.orchestrator import implementation_digest\n"
-        f"names={RUNTIME_HELPER_MODULES!r}\n"
-        "modules={name:str(Path(importlib.import_module(name).__file__).resolve()) for name in names}\n"
-        "print(json.dumps(dict(benchmark_source_sha256=implementation_digest(),"
-        "executable=sys.executable,package_root=str(Path(mindie_bench.__file__).resolve().parent),"
-        "modules=modules)))\n"
-    )
-    command = native_command(
-        [sys.executable, "-I", "-c", code],
-        read=read_paths,
-        write=[profile.root],
-        cwd=profile.root,
-        policy_path=trial_dir / "runtime-preflight.sb",
-    )
-    diagnostic = dict(status="failed", expected_source_sha256=expected_digest)
-    try:
-        try:
-            result = subprocess.run(
-                command,
-                env=profile.env,
-                cwd=profile.root,
-                timeout=20,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.TimeoutExpired as exc:
-            for name, value in [("stdout", exc.stdout), ("stderr", exc.stderr)]:
-                raw = value.encode() if isinstance(value, str) else value or b""
-                (trial_dir / f"runtime-preflight.{name}").write_bytes(raw)
-            raise RuntimeError(
-                "runtime helper import timed out; inspect runtime-preflight.stderr"
-            ) from exc
-        (trial_dir / "runtime-preflight.stdout").write_text(result.stdout)
-        (trial_dir / "runtime-preflight.stderr").write_text(result.stderr)
-        diagnostic["returncode"] = result.returncode
-        if result.returncode:
-            raise RuntimeError(
-                f"runtime helper import failed (exit={result.returncode}); "
-                "inspect runtime-preflight.stderr"
-            )
-        observed = json.loads(result.stdout)
-        diagnostic["observed"] = observed
-        if not isinstance(observed, dict) or not all(
-            isinstance(observed.get(name), str)
-            for name in ["benchmark_source_sha256", "executable", "package_root"]
-        ):
-            raise ValueError("runtime helper identity is malformed")
-        modules = observed.get("modules")
-        if not isinstance(modules, dict) or set(modules) != set(RUNTIME_HELPER_MODULES):
-            raise ValueError("runtime module identity is malformed")
-        root = Path(observed["package_root"])
-        for name, path in modules.items():
-            if not isinstance(path, str) or Path(path) != root.joinpath(
-                *name.split(".")[1:]
-            ).with_suffix(".py"):
-                raise ValueError(f"runtime module identity mismatch: {name}")
-        if Path(observed["executable"]).absolute() != Path(sys.executable).absolute():
-            raise ValueError("runtime interpreter identity mismatch")
-        if observed["benchmark_source_sha256"] != expected_digest:
-            raise ValueError(
-                "runtime implementation digest mismatch: "
-                f"expected {expected_digest}, got {observed['benchmark_source_sha256']}"
-            )
-        diagnostic["status"] = "completed"
-    except Exception as exc:
-        diagnostic["error"] = dict(type=type(exc).__name__, message=str(exc))
-        write_json(trial_dir / "runtime-preflight.json", diagnostic)
-        raise
-    write_json(trial_dir / "runtime-preflight.json", diagnostic)
-    return observed
-
-
-def check_read_boundaries(paths: list[Path], protected: list[Path]):
-    for allowed in paths:
-        for private in protected:
-            if private.resolve().is_relative_to(allowed.resolve()) or allowed.resolve().is_relative_to(
-                private.resolve()
-            ):
-                raise ValueError(
-                    f"runtime read grant exposes protected benchmark/personal input: {allowed}"
-                )
-
-
-def _install_shims(profile, commands: list[str], *, remote: bool):
-    directory = profile.root / "bin"
-    directory.mkdir(exist_ok=True)
-    for command in commands + (["ssh"] if remote else []):
-        module = (
-            "mindie_bench.runner.ssh_shim" if command == "ssh" else "mindie_bench.shim.npu_replay_shim"
-        )
-        script = directory / command
-        # Absolute interpreter and package path are explicit read capabilities.
-        script.write_text(
-            f"#!{sys.executable} -I\nfrom {module} import main\nraise SystemExit(main())\n"
-        )
-        script.chmod(0o700)
-    prefix = str(directory) + os.pathsep
-    if not profile.env["PATH"].startswith(prefix):
-        profile.env["PATH"] = prefix + profile.env["PATH"]
+from mindie_bench.scorer.comparator import grouped_summaries as grouped_summaries  # noqa: F401
+from mindie_bench.scorer.metrics import trajectory_metrics as trajectory_metrics  # noqa: F401
 
 
 def run_trial(
@@ -372,106 +131,44 @@ def run_trial(
     expected_task_digest: str | None = None,
     expected_oracle_sha256: str | None = None,
 ) -> TrialReceipt:
-    task_root = task_root.resolve(strict=True)
-    run_root = run_root.resolve(strict=True)
-    trial_started = time.monotonic()
-    task = TaskSpec.load(task_root)
-    task_digest = task_hash(task_root)
-    if expected_task_digest is not None and task_digest != expected_task_digest:
-        raise ValueError("selected task changed after product preparation")
-    trial_id = f"{task.task.instance_id}_{group.value}_{repetition}_{uuid.uuid4().hex[:12]}"
-    trial_dir = run_root / trial_id
-    trial_dir.mkdir(mode=0o700)
-    fingerprint = dict(
-        host_os=platform.platform(),
-        host_arch=platform.machine(),
-        harness_name=config.harness.name,
-        harness_version=config.harness.expected_version,
-        harness_binary_sha256=None,
-        base_model=config.harness.model,
-        reasoning_effort=config.harness.reasoning_effort,
-        provider_url=config.harness.provider_url,
-        backend=config.backend,
-        budget=task.budget.model_dump(),
-        benchmark_version=__version__,
-        benchmark_source_sha256=implementation_digest(),
-        component_revisions=config.component_revisions,
-        evidence=task.task.evidence,
-        source_projection=list(HARNESS_CONFIG_PATHS),
+    # Keep moved phase helpers patch-compatible with callers that replace
+    # orchestrator.native_command/time/stream_process at runtime.
+    from mindie_bench.runner import trial_finalize, trial_preflight
+
+    trial_preflight.native_command = native_command
+    trial_preflight.time = time
+    trial_finalize.native_command = native_command
+    trial_finalize.stream_process = stream_process
+    trial_finalize.time = time
+
+    state = prepare_trial(
+        task_root,
+        config,
+        tier=tier,
+        group=group,
+        repetition=repetition,
+        run_root=run_root,
+        experiment_context=experiment_context,
+        expected_task_digest=expected_task_digest,
     )
-    if task.inference is not None:
-        fingerprint["inference_contract"] = task.inference.model_dump(mode="json")
-        if task.performance is not None:
-            fingerprint["performance_contract"] = task.performance.model_dump(mode="json")
-    environment = task.environment.get(tier)
-    fingerprint.update(
-        base_commit=environment.base_commit if environment else None,
-        npu_model=environment.npu_model if environment else None,
-        npu_count=environment.npu_count if environment else None,
-        remote_environment=None,
-    )
-    # A product experiment is bound before execution. The internal component
-    # mode remains G0..G3; historical receipts never acquire product labels.
-    if experiment_context is not None:
-        fingerprint["experiment_context"] = json.loads(json.dumps(experiment_context))
-    write_json(
-        trial_dir / "attempt_started.json",
-        dict(
-            trial_id=trial_id,
-            task_digest=task_digest,
-            warning="A missing terminal receipt is UNKNOWN. Never automatically resume this attempt.",
-            **(
-                {"experiment_context": fingerprint["experiment_context"]}
-                if experiment_context is not None
-                else {}
-            ),
-        ),
-        exclusive=True,
-    )
-    driver = driver_for(config.harness.name)
-    trajectory = Trajectory()
-    status, reason = TerminalStatus.INFRA, "trial did not start"
-    errors, auxiliary, primary = [], {}, {}
-    profile = slot = workspace = remote = result = gateway = native_service_instance = None
-    agent_phase_budget = None
-    phase = "preflight"
-    wall_clock = 0.0
-    verifier_record = None
-    verifier_seconds = None
-    capture_started = None
+    (
+        task_root, run_root, trial_started, task, task_digest, trial_id, trial_dir,
+        fingerprint, environment, driver, trajectory, status, reason, errors, auxiliary,
+        primary, profile, slot, workspace, remote, result, gateway,
+        native_service_instance, agent_phase_budget, phase, wall_clock,
+        verifier_record, verifier_seconds, capture_started, primary_verdict,
+    ) = state.values()
     try:
-        oracle_manifest = freeze_oracle(task_root, task.oracle)
-        if (
-            expected_oracle_sha256 is not None
-            and oracle_manifest.sha256 != expected_oracle_sha256
-        ):
-            raise ValueError("selected oracle changed after product preparation")
-        auxiliary["oracle_manifest"] = oracle_manifest.to_dict()
-        if environment is None:
-            raise ValueError(f"task has no {tier} environment")
-        if task.task.evidence == "candidate":
-            raise ValueError("candidate tasks require soundness validation before evaluation")
-        if (
-            task.task.evidence == "verified"
-            and read_json(task_root / "soundness_receipt.json")["tier"] != tier
-        ):
-            raise ValueError("soundness proof does not cover the requested execution tier")
-        if group == Group.G3 and not (config.groups.get(group) and config.groups[group].capture_command):
-            raise ValueError("G3 requires an explicit offline capture adapter")
-        if config.harness.name == "fixture" and (
-            config.backend != "fixture" or task.task.evidence != "synthetic"
-        ):
-            raise ValueError("fixture harness is restricted to synthetic tasks")
-        if config.harness.name != "fixture" and config.backend != "native":
-            raise ValueError("native harnesses require the OS-enforced native backend")
-        if (
-            tier == "l3"
-            and config.backend == "native"
-            and (config.remote is None or not config.remote.component_runtime)
-        ):
-            raise ValueError("L3 native evaluation requires the five-component runtime configuration")
-        if tier == "l3":
-            validate_remote_oracle_contract(task.oracle)
+        oracle_manifest = preflight_trial_admission(
+            task_root=task_root,
+            task=task,
+            config=config,
+            tier=tier,
+            group=group,
+            environment=environment,
+            auxiliary=auxiliary,
+            expected_oracle_sha256=expected_oracle_sha256,
+        )
         profile = build_profile(
             trial_dir,
             task,
@@ -502,26 +199,8 @@ def run_trial(
         fingerprint["runtime_preflight"] = probe_runtime_import(
             profile, paths, trial_dir, fingerprint["benchmark_source_sha256"]
         )
-        binary = Path(config.harness.executable).resolve(strict=True)
-        fingerprint["harness_binary_sha256"] = hashlib.sha256(binary.read_bytes()).hexdigest()
-        version_cmd = native_command(
-            [str(Path(config.harness.executable).absolute()), "--version"],
-            read=paths,
-            write=[profile.root],
-            cwd=profile.root,
-            policy_path=trial_dir / "version.sb",
-        )
-        version_result = subprocess.run(
-            version_cmd, env=profile.env, cwd=profile.root, timeout=20, capture_output=True, text=True
-        )
-        (trial_dir / "version.stdout").write_text(version_result.stdout)
-        (trial_dir / "version.stderr").write_text(version_result.stderr)
-        version_result.check_returncode()
-        version = version_result.stdout.strip()
-        if version != config.harness.expected_version:
-            raise ValueError(
-                f"harness version mismatch: expected {config.harness.expected_version!r}, got {version!r}"
-            )
+        harness_probe = probe_harness_version(config, profile, paths, trial_dir)
+        fingerprint["harness_binary_sha256"] = harness_probe["binary_sha256"]
         if group == Group.G3 and config.harness.name == "dsh":
             from mindie_bench.runner import dsh_summary, graded_view
 
@@ -529,11 +208,10 @@ def run_trial(
             if (
                 capture_config.capture_protocol != "graded-c6"
                 or not capture_config.dsh_summary_plugin
-                or not task.mindie_knowledge.conditions
                 or not graded_view.is_graded(profile.corpus)
             ):
                 raise ValueError(
-                    "DSH G3 requires a configured native summary host, graded C6 corpus and actual applicability conditions"
+                    "DSH G3 requires a configured native summary host and graded C6 corpus"
                 )
             if capture_config.capture_timeout_sec < 1200:
                 raise ValueError(
@@ -659,40 +337,9 @@ def run_trial(
                 fingerprint["preflight_catalog"] = mounted_catalog
                 auxiliary["preflight_catalog"] = mounted_catalog
             command = sandboxed(driver.command(profile, config.harness), "agent.sb")
-            from mindie_bench.runner.profile_builder import knowledge_prompt
-
-            prompt = knowledge_prompt(profile) + (task_root / "instruction.md").read_text()
-            if remote:
-                if "remote-dev" in profile.fingerprint.get("components", []):
-                    prompt += (
-                        f"\n\nWork on the isolated SSH endpoint bench-slot. "
-                        f"Remote workspace: {remote.path}. "
-                        f"Assigned NPU devices: {','.join(map(str, devices))}. "
-                        'Use remote-dev MCP tools with host="bench-slot", port=22: prefer remote_grep, '
-                        "remote_glob, remote_read, and remote_edit for fast remote code search, reading, and "
-                        "surgical edits in the remote workspace, and use remote_bash (with yield_time_ms=10000 "
-                        "or 30000) for running remote test scripts. The local directory is an empty client "
-                        "scratchpad; the source snapshot lives in the remote workspace without Git history. "
-                        "Apply the repair in the remote workspace that the NPU verifier will inspect.\n"
-                    )
-                else:
-                    prompt += (
-                        f"\n\nWork on the isolated SSH endpoint bench-slot. "
-                        f"Remote workspace: {remote.path}. "
-                        f"Assigned NPU devices: {','.join(map(str, devices))}. "
-                        "The local directory is an empty client scratchpad; the source snapshot lives in the "
-                        "remote workspace on bench-slot without Git history. Apply the repair in the remote "
-                        "workspace that the NPU verifier will inspect. Choose validation proportional to the "
-                        "change and observed failures.\n"
-                    )
-            else:
-                prompt += (
-                    "\n\nThe workspace is a plain source snapshot without Git history. "
-                    "Apply the repair here and use the public reproducer or relevant available "
-                    "tests for validation. Git history, stash and checkout are unavailable. "
-                    "Choose validation proportional to the change and observed failures; "
-                    "report any unavailable dependencies in your final answer.\n"
-                )
+            prompt = build_agent_prompt(
+                profile, task_root, remote=remote, devices=devices
+            )
             auxiliary["preflight_wall_clock_sec"] = time.monotonic() - trial_started
             agent_timeout = task.budget.timeout_sec
             if experiment_context is not None:
@@ -824,6 +471,7 @@ def run_trial(
                 )
                 auxiliary["verifier"] = verifier_record
                 verifier_seconds = time.monotonic() - verifier_started
+                primary_verdict = status
         phase = "postflight"
         if (
             group == Group.G3
@@ -831,149 +479,23 @@ def run_trial(
             and primary.get("performance_metrics", {}).get("oracle_status") != "oracle_tampered"
         ):
             phase = "capture"
-            capture_started = time.monotonic()
-            auxiliary["business_terminal_status"] = status.value
-            group_config = config.groups[group]
-            public = {
-                "messages": [
-                    {"role": "user", "text": (task_root / "instruction.md").read_text()},
-                    *trajectory.public_messages,
-                ],
-                "destination": str(profile.corpus),
-                "local_remote": profile.private_env["MINDIE_BENCH_LOCAL_KNOWLEDGE_REMOTE"],
-                "instance_id": task.task.instance_id,
-                "cluster": task.task.cluster,
-                "business_terminal_status": status.value,
-                "capture_conditions": task.mindie_knowledge.conditions,
-                "task_manifest": dict(
-                    instance_id=task.task.instance_id,
-                    conditions=task.mindie_knowledge.conditions,
-                    business_terminal_status=status.value,
-                    verifier=primary.get("performance_metrics"),
-                    benchmark_source_sha256=fingerprint["benchmark_source_sha256"],
-                ),
-            }
-            if config.harness.name != "fixture":
-                public["native"] = native_capture_payload(
-                    config.harness.name,
-                    trajectory,
-                    profile,
-                    workspace,
-                    native_descriptor=(
-                        driver.native_capture_payload() if config.harness.name == "dsh" else None
-                    ),
-                )
-            corpus_before_capture = tree_hash(profile.corpus)
-            capture_harness = config.harness.model_copy(
-                update={"model": group_config.capture_model or config.harness.model}
+            capture_started = run_g3_capture(
+                task_root=task_root,
+                task=task,
+                config=config,
+                group=group,
+                status=status,
+                primary=primary,
+                trajectory=trajectory,
+                profile=profile,
+                workspace=workspace,
+                driver=driver,
+                trial_dir=trial_dir,
+                fingerprint=fingerprint,
+                knowledge_paths=knowledge_paths,
+                auxiliary=auxiliary,
+                errors=errors,
             )
-            capture_task = task.model_copy(deep=True)
-            capture_task.budget.max_turns = group_config.capture_max_model_calls
-            with Gateway(
-                capture_harness,
-                capture_task,
-                task_root,
-                workspace,
-                trial_dir / "capture_broker.jsonl",
-                use_unix_socket=platform.system() == "Linux",
-            ) as capture_gateway:
-                profile.env.update(
-                    MINDIE_BENCH_GATEWAY=capture_gateway.url, ANTHROPIC_BASE_URL=capture_gateway.url
-                )
-                driver_for(config.harness.name).command(profile, capture_harness)
-                summary_context = optional_host(
-                    profile,
-                    read_paths=knowledge_paths,
-                    gateway_port=capture_gateway.port,
-                    gateway_socket=capture_gateway.unix_socket,
-                )
-                with summary_context as summary:
-                    if summary is not None:
-                        profile.env["MINDIE_DSH_STATE_DIR"] = summary.env["MINDIE_DSH_STATE_DIR"]
-                    capture = native_command(
-                        group_config.capture_command,
-                        read=[*knowledge_paths, profile.private_root],
-                        write=[profile.root, profile.private_root],
-                        cwd=profile.root,
-                        policy_path=trial_dir / "capture.sb",
-                        gateway_port=capture_gateway.port,
-                        gateway_socket=capture_gateway.unix_socket,
-                        loopback_client_ports=(summary.port,) if summary is not None else (),
-                    )
-                    records = []
-                    captured = stream_process(
-                        capture,
-                        env=dict(profile.env, **profile.private_env),
-                        cwd=profile.root,
-                        prompt=json.dumps(public),
-                        output=trial_dir / "capture_events.jsonl",
-                        stderr=trial_dir / "capture.stderr",
-                        timeout=group_config.capture_timeout_sec,
-                        max_bytes=task.budget.max_output_bytes,
-                        consume=lambda event, *_: records.append(event),
-                        gateway=capture_gateway,
-                    )
-                if summary is not None:
-                    auxiliary["capture_sdk"] = summary.receipt
-                auxiliary["capture_process"] = dict(
-                    returncode=captured.returncode,
-                    stop_reason=captured.stop_reason,
-                    errors=captured.errors,
-                    elapsed_sec=captured.elapsed,
-                    started=captured.started,
-                )
-                capture_gateway.finish_inference()
-                errors.extend(captured.errors)
-                if len(records) == 1 and isinstance(records[0], dict):
-                    auxiliary["capture"] = records[0]
-                auxiliary["capture_model_calls"] = capture_gateway.model_calls
-                auxiliary["capture_model"] = capture_harness.model
-                auxiliary["capture_provider_tokens"] = capture_gateway.metered_tokens().model_dump()
-                auxiliary["capture_model_delivery_failures"] = capture_gateway.model_delivery_failures
-                if (
-                    capture_gateway.unknown
-                    or any(record.get("status") == "unknown" for record in records)
-                    or (capture_gateway.model_calls and not capture_gateway.metered_tokens().complete)
-                ):
-                    raise UnknownExternalEffects("capture inference result is unknown; no retry")
-                if capture_gateway.model_calls and (captured.stop_reason or captured.errors):
-                    raise UnknownExternalEffects(
-                        "capture interrupted after model admission; reconcile its original receipts"
-                    )
-                if (
-                    captured.returncode != 0
-                    or captured.errors
-                    or captured.stop_reason
-                    or capture_gateway.infrastructure_error
-                    or len(records) != 1
-                ):
-                    lint = auxiliary.get("capture", {}).get("corpus_lint", {})
-                    if lint.get("status") == "rejected":
-                        raise CorpusLintRejected(lint)
-                    raise ValueError("required capture failed; inspect its original private receipts")
-                capture_receipt = records[0]
-            if capture_receipt.get("status") != "completed" or not isinstance(
-                capture_receipt.get("tokens"), dict
-            ):
-                raise ValueError(
-                    "offline capture adapter did not provide a completion and token receipt"
-                )
-            auxiliary["capture"] = capture_receipt
-            require_corpus_lint(capture_receipt)
-            if auxiliary["capture_model_calls"] and capture_receipt["tokens"].get("total") == 0:
-                raise ValueError("capture inference occurred but its usage was reported as zero")
-            provider_tokens = auxiliary["capture_provider_tokens"]
-            if (
-                auxiliary["capture_model_calls"]
-                and provider_tokens["complete"]
-                and capture_receipt["tokens"]["total"]
-                != sum(provider_tokens[name] for name in ["input_uncached", "input_cached", "output"])
-            ):
-                raise ValueError("capture usage differs from the observed model-provider ledger")
-            auxiliary["captured_corpus_sha256"] = tree_hash(profile.corpus)
-            if auxiliary["captured_corpus_sha256"] == corpus_before_capture:
-                raise ValueError("capture adapter reported completion without changing the local corpus")
-            auxiliary["captured_corpus_path"] = str(profile.corpus)
     except KeyboardInterrupt:
         status = TerminalStatus.UNKNOWN if phase in {"agent", "capture"} else TerminalStatus.INFRA
         reason = "interrupted; reconcile existing effects before another attempt"
@@ -981,12 +503,29 @@ def run_trial(
         raise
     except Exception as exc:
         errors.append(dict(stage=phase, type=type(exc).__name__, message=str(exc)))
-        status = failure_status(exc, phase)
-        if status == TerminalStatus.FAIL:
-            primary.update(resolved=False, reward=0.0)
-        elif phase == "postflight" and status != TerminalStatus.UNKNOWN:
-            auxiliary["business_terminal_status"] = status.value
-        reason = reason if status == TerminalStatus.PASS else f"{phase}: {type(exc).__name__}: {exc}"
+        if primary_verdict is not None:
+            # The verifier already produced an immutable business verdict.
+            # Capture/cleanup failure is secondary evidence, never a new
+            # terminal status and never a reason to erase the reward.
+            auxiliary.setdefault("business_terminal_status", primary_verdict.value)
+            if phase == "capture":
+                capture = dict(auxiliary.get("capture") or {})
+                capture.update(
+                    status="failed",
+                    error=dict(type=type(exc).__name__, message=str(exc)),
+                )
+                auxiliary["capture"] = capture
+        else:
+            status = failure_status(exc, phase)
+            if status == TerminalStatus.FAIL:
+                primary.update(resolved=False, reward=0.0)
+            elif phase == "postflight" and status != TerminalStatus.UNKNOWN:
+                auxiliary["business_terminal_status"] = status.value
+            reason = (
+                reason
+                if status == TerminalStatus.PASS
+                else f"{phase}: {type(exc).__name__}: {exc}"
+            )
     finally:
         if native_service_instance is not None:
             try:
@@ -997,101 +536,39 @@ def run_trial(
                     dict(stage="native_service_cleanup", type=type(exc).__name__, message=str(exc))
                 )
                 auxiliary["native_knowledge_service_cleanup"] = "failed"
-                if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
+                if primary_verdict is not None:
+                    auxiliary.setdefault("business_terminal_status", primary_verdict.value)
+                elif status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
                     auxiliary["business_terminal_status"] = status.value
                     status, reason = TerminalStatus.INFRA, "native knowledge service cleanup failed"
         auxiliary["capture_wall_clock_sec"] = (
             time.monotonic() - capture_started if capture_started is not None else None
         )
-        try:
-            trajectory = driver.trajectory()
-            if result:
-                trajectory.total_turns = max(trajectory.total_turns, gateway.model_calls)
-                trajectory.human_interventions = 0
-                if gateway.model_calls:
-                    observed = gateway.metered_tokens()
-                    if not observed.complete:
-                        for field in ["input_uncached", "input_cached", "cache_creation", "output"]:
-                            setattr(
-                                observed,
-                                field,
-                                max(getattr(observed, field), getattr(trajectory.tokens, field)),
-                            )
-                    trajectory.tokens = observed
-            source_visibility = None
-            broker_knowledge = None
-            if config.backend == "native" and result and result.started and environment is not None:
-                from mindie_bench.evaluation.source_visibility import observe_source_visibility
-
-                source_visibility = observe_source_visibility(
-                    trial_dir / "native_events.jsonl",
-                    trajectory,
-                    environment,
-                    task.mindie_knowledge.target_files,
-                    public_root=task_root / "environment",
-                )
-                write_json(trial_dir / "source_visibility.json", source_visibility, exclusive=True)
-            if (
-                config.backend == "native"
-                and gateway
-                and not fingerprint.get("native_product")
-                and (trial_dir / "broker.jsonl").is_file()
-            ):
-                from mindie_bench.evaluation.broker_knowledge import summarize_broker_knowledge
-
-                broker_knowledge = summarize_broker_knowledge(
-                    trial_dir / "broker.jsonl",
-                    process_origin_monotonic_sec=(
-                        result.started_monotonic_sec if result is not None else None
-                    ),
-                    preflight_finished_monotonic_sec=fingerprint.get(
-                        "mcp_preflight_finished_monotonic_sec"
-                    ),
-                )
-                write_json(trial_dir / "broker_knowledge.json", broker_knowledge, exclusive=True)
-            measured_primary, measured_aux = trajectory_metrics(
-                trajectory,
-                task,
-                config.harness,
-                wall_clock,
-                tier=tier,
-                source_visibility=source_visibility,
-                broker_knowledge=broker_knowledge,
-            )
-            primary = dict(measured_primary, **primary)
-            auxiliary = dict(measured_aux, **auxiliary)
-            if any(error["stage"] == "capture" for error in errors):
-                primary["cost_complete"] = False
-                partial = auxiliary.get("capture_provider_tokens", {})
-                primary["tokens"]["indexer_small_model_total"] = sum(
-                    partial.get(field, 0) for field in ["input_uncached", "input_cached", "output"]
-                )
-                primary["tokens"]["complete"] = False
-            capture = auxiliary.get("capture")
-            if capture and capture.get("tokens") is not None:
-                metering = capture["tokens"]
-                if (
-                    not isinstance(metering.get("total"), int)
-                    or metering["total"] < 0
-                    or type(metering.get("complete")) is not bool
-                ):
-                    raise ValueError("capture adapter has invalid indexer metering")
-                primary["tokens"]["indexer_small_model_total"] = metering["total"]
-                primary["tokens"]["complete"] = primary["tokens"]["complete"] and metering["complete"]
-                capture_cost = capture.get("estimated_cost_usd")
-                if (
-                    primary["estimated_cost_usd"] is not None
-                    and type(capture_cost) in {int, float}
-                    and capture_cost >= 0
-                ):
-                    primary["estimated_cost_usd"] += capture_cost
-                else:
-                    primary["cost_complete"] = False
-                primary["cost_complete"] = primary["cost_complete"] and metering["complete"]
-        except Exception as exc:
-            errors.append(dict(stage="scoring", type=type(exc).__name__, message=str(exc)))
-            if status != TerminalStatus.UNKNOWN:
-                status, reason = TerminalStatus.INFRA, "trajectory scoring failed"
+        scored = score_trial_trajectory(
+            driver=driver,
+            gateway=gateway,
+            result=result,
+            trajectory=trajectory,
+            config=config,
+            environment=environment,
+            task=task,
+            trial_dir=trial_dir,
+            task_root=task_root,
+            wall_clock=wall_clock,
+            tier=tier,
+            fingerprint=fingerprint,
+            errors=errors,
+            primary=primary,
+            auxiliary=auxiliary,
+            primary_verdict=primary_verdict,
+            status=status,
+            reason=reason,
+        )
+        trajectory = scored["trajectory"]
+        primary = scored["primary"]
+        auxiliary = scored["auxiliary"]
+        status = scored["status"]
+        reason = scored["reason"]
         if gateway:
             primary["model_calls"] = gateway.model_calls + auxiliary.get("capture_model_calls", 0)
             auxiliary["model_call_measurement_basis"] = (
@@ -1108,12 +585,15 @@ def run_trial(
             except Exception as exc:
                 errors.append(dict(stage="remote_cleanup", type=type(exc).__name__, message=str(exc)))
                 auxiliary["post_flight_npu_clean"] = False
-                auxiliary["business_terminal_status"] = status.value
-                if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
-                    status, reason = (
-                        TerminalStatus.INFRA,
-                        "remote postflight failed; preserve separate business verdict",
-                    )
+                if primary_verdict is not None:
+                    auxiliary.setdefault("business_terminal_status", primary_verdict.value)
+                else:
+                    auxiliary["business_terminal_status"] = status.value
+                    if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
+                        status, reason = (
+                            TerminalStatus.INFRA,
+                            "remote postflight failed; preserve separate business verdict",
+                        )
             auxiliary["owned_namespace_cleanup_confirmed"] = getattr(remote, "cleanup_confirmed", None)
             auxiliary["files_modified"] = getattr(remote, "modified_files", None)
             auxiliary["files_modified_scope"] = "remote_judged_workspace"
@@ -1133,7 +613,9 @@ def run_trial(
                     errors.append(
                         dict(stage="component_metrics", type=type(exc).__name__, message=str(exc))
                     )
-                    if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
+                    if primary_verdict is not None:
+                        auxiliary.setdefault("business_terminal_status", primary_verdict.value)
+                    elif status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
                         auxiliary["business_terminal_status"] = status.value
                         status, reason = TerminalStatus.INFRA, "component metric extraction failed"
         if slot:
@@ -1158,342 +640,29 @@ def run_trial(
                 shutil.make_archive(str(trial_dir / "final_workspace"), "gztar", workspace)
             except Exception as exc:
                 errors.append(dict(stage="workspace_cleanup", type=type(exc).__name__, message=str(exc)))
-        if gateway:
-            settlement = gateway.remote_state()
-            auxiliary["remote_settlement"] = settlement
-            if settlement["unknown"]:
-                if status != TerminalStatus.UNKNOWN:
-                    auxiliary["status_before_remote_unknown"] = dict(
-                        terminal_status=status.value, failure_reason=reason
-                    )
-                    if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
-                        auxiliary.setdefault("business_terminal_status", status.value)
-                reason = "remote effects are unknown; inspect the original broker journal; no retry"
-                errors.append(
-                    dict(stage="remote_settlement", type="UnknownExternalEffects", message=reason)
-                )
-                status = TerminalStatus.UNKNOWN
-        if status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}:
-            primary.update(resolved=None, reward=None)
-        primary["delivery_wall_clock_sec"] = time.monotonic() - trial_started
-        if experiment_context is not None and "max_wall_clock_sec" in experiment_context:
-            declared = experiment_context["max_wall_clock_sec"]
-            lifecycle = lifecycle_overrun(declared, primary["delivery_wall_clock_sec"])
-            lifecycle["source"] = "experiment_context.max_wall_clock_sec"
-            if agent_phase_budget is not None:
-                lifecycle["execution_allowance_sec"] = agent_phase_budget["execution_allowance_sec"]
-                lifecycle["post_agent_reserve_sec"] = agent_phase_budget["post_agent_reserve_sec"]
-            auxiliary["lifecycle_budget"] = lifecycle
-            if lifecycle["overrun"]:
-                lifecycle["budget_exceeded"] = True
-                auxiliary["budget_exceeded"] = True
-                if status == TerminalStatus.UNKNOWN:
-                    lifecycle["unknown_priority"] = True
-                errors.append(
-                    dict(
-                        stage="budget",
-                        type="BudgetOverrun",
-                        message=(
-                            "measured lifecycle exceeded the declared product budget by "
-                            f"{lifecycle['overrun_sec']:.3f}s"
-                        ),
-                    )
-                )
-        auxiliary["verifier_wall_clock_sec"] = verifier_seconds
-        write_json(trial_dir / "trajectory.json", trajectory.model_dump(mode="json"), exclusive=True)
-        receipt = TrialReceipt(
+        receipt = finalize_trial_receipt(
+            gateway=gateway,
+            status=status,
+            reason=reason,
+            primary_verdict=primary_verdict,
+            primary=primary,
+            auxiliary=auxiliary,
+            trial_started=trial_started,
+            experiment_context=experiment_context,
+            agent_phase_budget=agent_phase_budget,
+            errors=errors,
+            verifier_seconds=verifier_seconds,
+            trial_dir=trial_dir,
+            trajectory=trajectory,
             trial_id=trial_id,
-            instance_id=task.task.instance_id,
+            task=task,
             repetition=repetition,
             tier=tier,
-            ablation_group=group,
-            knowledge_gradient=task.mindie_knowledge.knowledge_gradient,
-            task_role=task.task.role,
-            cluster=task.task.cluster,
+            group=group,
             task_digest=task_digest,
-            experiment_digest=digest(config.model_dump(mode="json")),
-            environment_fingerprint=fingerprint,
-            terminal_status=status,
-            failure_reason=reason,
-            primary_metrics=primary,
-            auxiliary_metrics=auxiliary,
-            errors=errors,
-            artifacts={
-                "private_trial_dir": str(trial_dir),
-                **(
-                    {"captured_corpus": auxiliary["captured_corpus_path"]}
-                    if "captured_corpus_path" in auxiliary
-                    else {}
-                ),
-            },
-            evidence=task.task.evidence,
+            config=config,
+            fingerprint=fingerprint,
         )
-        write_json(trial_dir / "trial_receipt.json", receipt.model_dump(mode="json"), exclusive=True)
     return receipt
 
 
-def run_matrix(
-    task_roots: list[Path],
-    config: ExperimentConfig,
-    *,
-    tier: str,
-    groups: list[Group],
-    repetitions: int,
-    concurrency: int,
-    output: Path,
-    canary_first: bool = False,
-) -> list[TrialReceipt]:
-    if concurrency < 1 or repetitions < 1 or not groups or len(set(groups)) != len(groups):
-        raise ValueError("positive concurrency/repetitions and unique groups are required")
-    task_roots = [path.resolve(strict=True) for path in task_roots]
-    output = output.resolve()
-    specs = {path: TaskSpec.load(path) for path in task_roots}
-    if not specs or len(specs) != len(task_roots):
-        raise ValueError("matrix task paths must be nonempty and unique")
-    if len({spec.task.instance_id for spec in specs.values()}) != len(specs):
-        raise ValueError("matrix task instance IDs must be unique")
-    lineages = {}
-    if Group.G3 in groups:
-        if not any(spec.task.role == "seed" for spec in specs.values()):
-            raise ValueError(
-                "G3 requires seed tasks followed by eval tasks, not an unproven warm snapshot"
-            )
-        for path, spec in specs.items():
-            cluster, corpus_id = spec.task.cluster, spec.mindie_knowledge.corpus_id
-            if not cluster or corpus_id not in config.corpora:
-                raise ValueError("G3 requires explicit transfer clusters and corpus IDs")
-            lineages.setdefault((cluster, corpus_id), []).append(path)
-        if not lineages or any(
-            not any(specs[path].task.role == "seed" for path in paths) for paths in lineages.values()
-        ):
-            raise ValueError("G3 requires seed tasks in each lineage, not an unproven warm snapshot")
-        for paths in lineages.values():
-            paths.sort(key=lambda path: specs[path].task.role != "seed")
-    if tier == "l3":
-        if not config.remote:
-            raise ValueError("L3 requires explicit remote configuration")
-        for spec in specs.values():
-            count = spec.environment[tier].npu_count
-            if count < 1 or count > len(config.remote.devices):
-                raise ValueError("each L3 task must fit the explicitly configured NPU device pool")
-    output.mkdir(parents=True, exist_ok=False)
-    output.chmod(0o700)
-    task_digests = {path: task_hash(path) for path in task_roots}
-    cells = [
-        dict(
-            instance_id=spec.task.instance_id,
-            tier=tier,
-            group=group.value,
-            repetition=repetition,
-            role=spec.task.role,
-            task_digest=task_digests[path],
-            cluster=spec.task.cluster,
-            corpus_id=spec.mindie_knowledge.corpus_id,
-            inference_category=spec.inference.category if spec.inference else None,
-            evidence=spec.task.evidence,
-        )
-        for path, spec in specs.items()
-        for group in groups
-        for repetition in range(1, repetitions + 1)
-    ]
-    write_json(
-        output / "eval_manifest.json",
-        dict(
-            schema_version="1.0",
-            created_unix=time.time(),
-            experiment=config.model_dump(mode="json"),
-            tasks=[dict(path=str(p), sha256=tree_hash(p)) for p in task_roots],
-            tier=tier,
-            groups=[g.value for g in groups],
-            repetitions=repetitions,
-            automatic_retries=0,
-            cells=cells,
-        ),
-        exclusive=True,
-    )
-    receipts = []
-    blocked_cells = []
-    receipt_lock = threading.Lock()
-    device_condition = threading.Condition()
-    cancelled = threading.Event()
-    available_devices = set(config.remote.devices) if tier == "l3" else set()
-    excluded = {
-        identity for spec in specs.values() for identity in spec.mindie_knowledge.same_origin_task_hashes
-    }
-
-    def execute_cell(path, group, repetition, *, corpus_override=None):
-        devices = []
-        with device_condition:
-            if tier == "l3":
-                count = specs[path].environment[tier].npu_count
-                device_condition.wait_for(lambda: cancelled.is_set() or len(available_devices) >= count)
-            if cancelled.is_set():
-                raise RuntimeError("matrix cancelled before this trial was admitted")
-            if tier == "l3":
-                devices = sorted(available_devices)[:count]
-                available_devices.difference_update(devices)
-        try:
-            receipt = run_trial(
-                path,
-                config,
-                tier=tier,
-                group=group,
-                repetition=repetition,
-                run_root=output,
-                devices=devices or None,
-                corpus_override=corpus_override,
-                cancelled=cancelled,
-            )
-            # Retain completed cells even when a later capture in this lineage fails.
-            with receipt_lock:
-                receipts.append(receipt)
-            return receipt
-        finally:
-            with device_condition:
-                available_devices.update(devices)
-                device_condition.notify_all()
-
-    def execute_lineage(key, paths, repetition):
-        cluster, corpus_id = key
-        warm = output / "warm-initial" / str(repetition) / cluster / corpus_id
-        warm.parent.mkdir(parents=True, exist_ok=True)
-        filtered_corpus(Path(config.corpora[corpus_id].path), warm, excluded)
-        for index, path in enumerate(paths):
-            receipt = execute_cell(path, Group.G3, repetition, corpus_override=warm)
-            if specs[path].task.role == "seed":
-                if (
-                    receipt.terminal_status not in {TerminalStatus.PASS, TerminalStatus.FAIL}
-                    or receipt.auxiliary_metrics.get("capture", {}).get("status") != "completed"
-                    or receipt.auxiliary_metrics.get("capture", {}).get("corpus_lint", {}).get("status")
-                    != "passed"
-                ):
-                    blocked = [
-                        dict(
-                            **cell,
-                            reason="seed_prerequisite_not_completed",
-                            prerequisite_trial_id=receipt.trial_id,
-                            prerequisite_status=receipt.terminal_status.value,
-                        )
-                        for cell in cells
-                        if cell["group"] == "G3"
-                        and cell["repetition"] == repetition
-                        and cell["instance_id"]
-                        in {specs[remaining].task.instance_id for remaining in paths[index + 1 :]}
-                    ]
-                    with receipt_lock:
-                        blocked_cells.extend(blocked)
-                    raise RuntimeError(
-                        "G3 seed prerequisites failed; dependent evals were not started "
-                        f"(cluster={cluster}, corpus={corpus_id}, repetition={repetition}, "
-                        f"status={receipt.terminal_status.value}, "
-                        f"capture={receipt.auxiliary_metrics.get('capture', {}).get('status')})"
-                    )
-                # Failed engineering attempts are still valid reference experience.
-                # Held-out evaluations never become input to later evaluations.
-                warm = Path(receipt.artifacts["captured_corpus"])
-                if tree_hash(warm) != receipt.auxiliary_metrics["captured_corpus_sha256"]:
-                    raise ValueError("captured seed corpus changed before its held-out evaluation")
-
-    jobs = [
-        (path, group, repetition)
-        for path in task_roots
-        for group in groups
-        for repetition in range(1, repetitions + 1)
-        if group != Group.G3
-    ]
-    lineage_jobs = [
-        (key, paths, repetition)
-        for repetition in range(1, repetitions + 1)
-        for key, paths in lineages.items()
-    ]
-    matrix_error = None
-    try:
-        if canary_first and len(cells) > 1:
-            if jobs:
-                canary = execute_cell(*jobs.pop(0))
-                if (
-                    canary.terminal_status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}
-                    or has_non_budget_errors(canary)
-                ):
-                    raise RuntimeError(
-                        f"canary gate failed on {canary.trial_id} "
-                        f"(status={canary.terminal_status.value}); remaining cells were not admitted"
-                    )
-            elif lineage_jobs:
-                execute_lineage(*lineage_jobs.pop(0))
-                bad = next(
-                    (
-                        row
-                        for row in receipts
-                        if row.terminal_status in {TerminalStatus.INFRA, TerminalStatus.UNKNOWN}
-                        or has_non_budget_errors(row)
-                    ),
-                    None,
-                )
-                if bad is not None:
-                    raise RuntimeError(
-                        f"canary gate failed on {bad.trial_id} "
-                        f"(status={bad.terminal_status.value}); remaining cells were not admitted"
-                    )
-        with ThreadPoolExecutor(max_workers=concurrency) as pool:
-            futures = []
-            try:
-                # Interleave independent lineages and cells so neither class waits
-                # behind the complete queue of the other before it can start.
-                for index in range(max(len(jobs), len(lineage_jobs))):
-                    if index < len(jobs):
-                        futures.append(pool.submit(execute_cell, *jobs[index]))
-                    if index < len(lineage_jobs):
-                        futures.append(pool.submit(execute_lineage, *lineage_jobs[index]))
-                for future in as_completed(futures):
-                    try:
-                        future.result()
-                    except Exception as error:
-                        # A failed lineage stops its dependents. Independent
-                        # admitted trials can still finish their paid work.
-                        if matrix_error is None:
-                            matrix_error = error
-                        else:
-                            matrix_error.add_note(
-                                f"another independent matrix job failed: {type(error).__name__}: {error}"
-                            )
-            except BaseException:
-                cancelled.set()
-                for future in futures:
-                    future.cancel()
-                with device_condition:
-                    device_condition.notify_all()
-                raise
-    except BaseException as error:
-        matrix_error = error
-    try:
-        write_json(output / "summary.json", grouped_summaries(
-            receipts, expected_cells=cells, blocked_cells=blocked_cells,
-        ), exclusive=True)
-        from mindie_bench.evaluation.accounting import account_cells
-
-        manifest_path = output / "eval_manifest.json"
-        accounting = account_cells(read_json(manifest_path), receipts, blocked_cells=blocked_cells)
-        write_json(
-            output / "matrix_accounting.json",
-            dict(
-                schema="mindie-bench-matrix-accounting/1",
-                manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
-                receipt_sha256={
-                    row.trial_id: hashlib.sha256(
-                        (Path(row.artifacts["private_trial_dir"]) / "trial_receipt.json").read_bytes()
-                    ).hexdigest()
-                    for row in receipts
-                },
-                **accounting,
-            ),
-            exclusive=True,
-        )
-    except Exception as error:
-        if matrix_error is not None:
-            matrix_error.add_note(f"matrix reporting write also failed: {error}")
-            raise matrix_error from error
-        raise
-    if matrix_error is not None:
-        raise matrix_error
-    return receipts

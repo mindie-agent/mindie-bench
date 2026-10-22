@@ -12,16 +12,18 @@ from __future__ import annotations
 
 from mindie_bench.runner.gateway import MODEL_SETTLEMENT_GRACE_SEC
 
-# runner/process.py: wait 2s, group cleanup wait 5s, two reader joins 1s each.
-AGENT_TERMINATION_SEC = 9.0
+# runner/process.py: wait 2s, SIGTERM wait 2s, SIGKILL wait 5s, two reader joins 1s each.
+AGENT_TERMINATION_SEC = 11.0
 # runner/gateway.py: model settlement wait plus the 0.25s post-close drain.
 MODEL_SETTLEMENT_DRAIN_SEC = 0.25
 # runner/gateway.py __exit__: server thread join.
 GATEWAY_JOIN_SEC = 2.0
 # runner/remote_slot.py: quiesce request budget.
 REMOTE_QUIESCE_SEC = 30.0
-# runner/remote_slot.py execute: verifier host wait is verifier limit + 15s.
-VERIFIER_REMOTE_HOST_GRACE_SEC = 15.0
+# runner/remote_slot.py execute: verifier host wait is verifier limit + 25s.
+VERIFIER_REMOTE_HOST_GRACE_SEC = 25.0
+# runner/verifier.py local judge: outer deadline is timeout + 10s inventory grace.
+VERIFIER_LOCAL_HOST_GRACE_SEC = 10.0
 # runner/remote_slot.py close: 40s receipt + 5s wait + 5s kill/reap.
 REMOTE_CLOSE_IO_SEC = 50.0
 # integrations/component_runtime.py: 60s call + 5s terminate + 5s kill/reap.
@@ -84,6 +86,8 @@ def product_phase_budget(
             component_finish_release=COMPONENT_FINISH_RELEASE_CALLS * COMPONENT_CALL_SEC,
             component_finish_diagnostic=COMPONENT_FINISH_DIAGNOSTIC_CALLS * COMPONENT_CALL_SEC,
         )
+    else:
+        terms["verifier_local_host_grace"] = VERIFIER_LOCAL_HOST_GRACE_SEC
     if knowledge_sessions:
         terms["knowledge_close"] = knowledge_sessions * KNOWLEDGE_SESSION_CLOSE_SEC
     if native_product:

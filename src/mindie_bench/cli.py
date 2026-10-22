@@ -209,7 +209,7 @@ def main(argv=None):
             payload = read_json(args.input)
             runner = QualificationGateRunner()
             if args.gate == "G0":
-                gate_result = runner.evaluate_g0_artifacts(G0Spec(**payload))
+                gate_result = runner.verify_g0_artifact_and_contract(G0Spec(**payload))
             else:
                 raise ValueError(f"unsupported direct JSON gate dispatch: {args.gate}")
             result = gate_result.to_dict()

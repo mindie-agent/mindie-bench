@@ -1,3 +1,8 @@
+# [Role] Reads native local packages and the published knowledge feed contract.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Explicit readers for native local packages and the published feed contract."""
 
 from __future__ import annotations

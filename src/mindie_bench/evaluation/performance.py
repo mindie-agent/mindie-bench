@@ -1,3 +1,8 @@
+# [Role] Validates trusted-judge performance probes and measured evidence.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Trusted-judge measurement helpers and fail-closed performance evidence checks.
 
 These checks validate actual probe receipts, not candidate source text. The

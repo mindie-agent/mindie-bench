@@ -215,6 +215,8 @@ def main() -> int:
         return 2
     try:
         os.execv(executable, [executable, "-p", prompt, *args])
+    except TimeoutError:
+        raise
     except OSError as exc:
         # Includes E2BIG when the prompt exceeds the platform per-argument limit.
         print(f"kimi adapter failed to exec {executable}: {exc}", file=sys.stderr)

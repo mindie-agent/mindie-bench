@@ -1,3 +1,5 @@
+# [Side-Effect Policy] Writes only explicitly owned trial artifacts; no network or unowned mutation.
+
 """Production RSI coordinator adapter over `mindie_coordinator.TaskClient`.
 
 [Role]

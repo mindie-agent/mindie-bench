@@ -14,7 +14,7 @@ call intervals for scoring.
 [Timeouts & Locks]
 - `self.lock` (`RLock`) guards only the pending-request map and buffers.
   `exchange()` waits for one complete frame; `close()` drains with bounded
-  waits before killing the owned process.
+  waits, then sends `SIGTERM` -> `2.0s` -> `SIGKILL` -> `5.0s` to the owned group.
 
 [Side-Effect Policy]
 - Spawns a private stdio-only child under the profile's private root and writes
@@ -28,7 +28,6 @@ import hashlib
 import json
 import os
 import select
-import signal
 import subprocess
 import sys
 import threading
@@ -37,6 +36,7 @@ import uuid
 from pathlib import Path
 
 from mindie_bench.runner.sandbox import native_command
+from mindie_bench.runner.termination import terminate_process_group
 
 MAX_FRAME = 1024 * 1024
 MAX_SESSION_BYTES = 32 * MAX_FRAME
@@ -415,10 +415,8 @@ class KnowledgeSession:
             finally:
                 self.closed = True
                 try:
-                    os.killpg(self.process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                except OSError as exc:
+                    terminate_process_group(self.process, term_wait=2, kill_wait=5)
+                except (TimeoutError, OSError, subprocess.SubprocessError) as exc:
                     if primary is None:
                         primary = exc
                     else:
@@ -426,13 +424,6 @@ class KnowledgeSession:
                 if self.owner_fd is not None:
                     os.close(self.owner_fd)
                     self.owner_fd = None
-                try:
-                    self.process.wait(timeout=5)
-                except subprocess.TimeoutExpired as exc:
-                    if primary is None:
-                        primary = exc
-                    else:
-                        primary.add_note(f"knowledge process wait also failed: {exc}")
                 for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
                     stream.close()
                 self.raw.close()

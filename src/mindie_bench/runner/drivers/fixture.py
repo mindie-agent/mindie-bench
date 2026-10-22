@@ -1,3 +1,8 @@
+# [Role] Defines the deterministic synthetic fixture harness driver.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Explicitly synthetic integration driver; cannot produce live-NPU claims."""
 
 from mindie_bench.models import Trajectory

@@ -13,10 +13,10 @@ stdout/stderr into the trial journal, and reports an explicit stop reason.
   `BrokenPipeError`, never a silently successful turn.
 
 [Timeouts & Locks]
-- The `timeout` loop is the outer budget; teardown closes the owner pipe,
-  `SIGKILL`s the owned process group, waits 5s, and joins readers 1s each.
-  The event queue is bounded (`maxsize=32`) so a stalled consumer cannot grow
-  memory without bound.
+- The `timeout` loop is the outer budget; teardown closes the owner pipe, then
+  sends `SIGTERM` to the owned group, waits 2s, sends `SIGKILL`, waits 5s, and
+  joins readers 1s each. The event queue is bounded (`maxsize=32`) so a stalled
+  consumer cannot grow memory without bound.
 
 [Side-Effect Policy]
 - Creates `output`/`stderr` journals exclusively (`open("x")`) and owns the
@@ -29,13 +29,14 @@ import json
 import os
 import queue
 import select
-import signal
 import subprocess
 import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from mindie_bench.runner.termination import terminate_process_group
 
 
 @dataclass
@@ -192,18 +193,10 @@ def stream_process(
             os.close(read_fd)
         if process:
             try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            except OSError as exc:
-                result.errors.append(
-                    dict(stage="agent_cleanup", type=type(exc).__name__, message=str(exc))
-                )
-            try:
-                code = process.wait(timeout=5)
+                code = terminate_process_group(process, term_wait=2, kill_wait=5)
                 if result.returncode is None and result.stop_reason is None:
                     result.returncode = code
-            except subprocess.TimeoutExpired as exc:
+            except (TimeoutError, OSError, subprocess.SubprocessError) as exc:
                 result.errors.append(
                     dict(stage="agent_cleanup", type=type(exc).__name__, message=str(exc))
                 )

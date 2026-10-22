@@ -13,7 +13,7 @@ and exposes its required tool schema over stdio before the foreground agent is l
 [Timeouts & Locks]
 - Per-request RPC read budget: `45.0s`.
 - Graceful EOF drain (`close_probe`): `_STEP_TIMEOUT_SECONDS` (default `15.0s`), followed by
-  `SIGKILL` to the process group and a `5.0s` wait.
+  `SIGTERM` -> `2.0s` -> `SIGKILL` -> `5.0s` on the owned process group.
 
 [Side-Effect Policy]
 - Runs each MCP probe in an isolated session (`start_new_session=True`) bound to an `owner.py`
@@ -25,7 +25,6 @@ from __future__ import annotations
 import json
 import os
 import select
-import signal
 import subprocess
 import sys
 import time
@@ -34,6 +33,7 @@ from mindie_bench import __version__
 from mindie_bench.io import digest
 from mindie_bench.runner import graded_view
 from mindie_bench.runner.sandbox import native_command
+from mindie_bench.runner.termination import terminate_process_group
 
 _STEP_TIMEOUT_SECONDS = float(os.environ.get("MINDIE_BENCH_MCP_PROBE_TIMEOUT_SECONDS", "15.0"))
 
@@ -56,17 +56,14 @@ def close_probe(process, timeout: float | None = None):
     except BaseException as error:
         failure = error
     finally:
-        if process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            except BaseException as cleanup:
-                record_cleanup(cleanup, "forced cleanup")
-            try:
-                process.communicate(timeout=5)
-            except BaseException as cleanup:
-                record_cleanup(cleanup, "forced cleanup")
+        try:
+            terminate_process_group(process, term_wait=2, kill_wait=5)
+        except BaseException as cleanup:
+            record_cleanup(cleanup, "forced cleanup")
+        try:
+            process.communicate(timeout=5)
+        except BaseException as cleanup:
+            record_cleanup(cleanup, "forced cleanup")
         for stream in (process.stdin, process.stdout):
             if stream is not None and not stream.closed:
                 try:

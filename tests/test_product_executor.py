@@ -135,7 +135,7 @@ def test_shared_phase_budget_uses_real_owner_bounds_and_shared_allowance():
     terms = budget["terms"]
     # True maximum branches: one monitor stop, 3 verifier-before observes,
     # 3 finish observes + 2 releases + 1 diagnostic, 8 knowledge closes.
-    assert terms["agent_termination"] == 2 + 5 + 1 + 1
+    assert terms["agent_termination"] == 2 + 2 + 5 + 1 + 1
     assert terms["gateway_model_settlement"] == 30 + 0.25
     assert terms["verifier_before_observe"] == 3 * 70
     assert terms["component_monitor_stop"] == 75
@@ -144,8 +144,8 @@ def test_shared_phase_budget_uses_real_owner_bounds_and_shared_allowance():
     assert terms["component_finish_diagnostic"] == 1 * 70
     assert terms["knowledge_close"] == 8 * 10.05
     assert terms["native_service_stop"] == 10
-    assert budget["post_agent_reserve_sec"] == 981.65
-    assert budget["total_delivery_sec"] == 1081.65
+    assert budget["post_agent_reserve_sec"] == 993.65
+    assert budget["total_delivery_sec"] == 1093.65
     assert "capture" not in terms
 
     context = {"max_wall_clock_sec": budget["total_delivery_sec"]}
@@ -177,7 +177,7 @@ def test_derived_product_budget_is_the_shared_phase_total(case, tmp_path):
     assert basis["contract"] == "phase-budget/2"
     assert declared["max_wall_clock_sec"] == basis["total_delivery_sec"]
     # Local fixture: model/remote settlement, agent termination, gateway join, verifier.
-    assert basis["post_agent_reserve_sec"] == 30.25 + 30 + 9 + 2 + 3
+    assert basis["post_agent_reserve_sec"] == 30.25 + 30 + 11 + 2 + 3 + 10
     assert basis["total_delivery_sec"] == 30 + basis["post_agent_reserve_sec"]
 
 

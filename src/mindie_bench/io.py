@@ -1,3 +1,8 @@
+# [Role] Provides strict deterministic hashing, JSON, and safe-path artifact helpers.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Strict, deterministic local artifact operations."""
 
 from __future__ import annotations
@@ -24,6 +29,12 @@ def digest(value: object) -> str:
     ).hexdigest()
 
 
+def sha256_file(path: Path) -> str:
+    """Hash a file incrementally without loading its full contents into memory."""
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def tree_hash(root: Path, *, exclude: set[str] | None = None) -> str:
     files = {}
     for path in sorted(root.rglob("*")):
@@ -33,7 +44,7 @@ def tree_hash(root: Path, *, exclude: set[str] | None = None) -> str:
         if ".git" in rel.parts or is_ignored_cache_path(rel):
             continue
         if path.is_file() and not path.is_symlink():
-            files[rel.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+            files[rel.as_posix()] = sha256_file(path)
     return digest(files)
 
 

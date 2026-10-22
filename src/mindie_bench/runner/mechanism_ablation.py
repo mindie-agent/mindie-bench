@@ -39,6 +39,9 @@ from mindie_bench.runner.mechanism_contracts import (
     _OUTCOME_ALIASES as _OUTCOME_ALIASES,
 )
 from mindie_bench.runner.mechanism_contracts import (
+    ALL_MECHANISMS as ALL_MECHANISMS,
+)
+from mindie_bench.runner.mechanism_contracts import (
     CONFIG_FIELDS as CONFIG_FIELDS,
 )
 from mindie_bench.runner.mechanism_contracts import (
@@ -46,9 +49,6 @@ from mindie_bench.runner.mechanism_contracts import (
 )
 from mindie_bench.runner.mechanism_contracts import (
     MECHANISM_FIELDS as MECHANISM_FIELDS,
-)
-from mindie_bench.runner.mechanism_contracts import (
-    ALL_MECHANISMS as ALL_MECHANISMS,
 )
 from mindie_bench.runner.mechanism_contracts import (
     MECHANISMS as MECHANISMS,

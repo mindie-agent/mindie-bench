@@ -107,8 +107,14 @@ def prove(output: Path):
             try:
                 remote.close()
             except Exception as error:
-                proof["errors"].append(f"cleanup {type(error).__name__}: {error}")
-                proof["status"] = "failed"
+                cleanup = f"cleanup {type(error).__name__}: {error}"
+                proof["errors"].append(cleanup)
+                proof.setdefault("cleanup_errors", []).append(cleanup)
+                proof["cleanup_warning"] = (
+                    "remote cleanup failed after the primary proof was recorded"
+                )
+                if proof["status"] != "completed":
+                    proof["status"] = "failed"
         proof["preflight"] = remote.preflight
         proof["postflight"] = remote.postflight
         proof["remote_cleanup"] = remote.cleanup_receipt

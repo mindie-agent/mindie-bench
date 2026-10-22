@@ -1,3 +1,8 @@
+# [Role] Owns a child lifetime pipe so runner-owned processes die with their owner.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """macOS owner-pipe pattern from MindIE's native process contract.
 
 The pipe, unlike parent-PID polling, also handles a killed runner. Linux's

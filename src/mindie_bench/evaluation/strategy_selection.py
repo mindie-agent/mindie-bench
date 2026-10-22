@@ -1,3 +1,5 @@
+# [Side-Effect Policy] Writes only explicitly owned trial artifacts; no network or unowned mutation.
+
 """Conditional strategy selection pilot (Section 4.7 & Section 16).
 
 [Role]
@@ -44,21 +46,37 @@ from pathlib import Path
 from typing import Any, Literal
 
 from mindie_bench.evaluation.knowledge_tiered_support import (
-    RoutingIndex, _ratio, _sha, build_strategy_navigation_cards, read_units,
+    RoutingIndex, _ratio, _sha, build_strategy_navigation_cards,
+    read_units, summarize_arm_pareto_and_cop,
 )
-from mindie_bench.evaluation.strategy_selection_cases import (
-    ALL_STRATEGY_CASES, CANDIDATE_UNIT_IDS, DEV_CASES, PILOT_CASES,
-    PreDecisionObservation, StrategyCase, _strip_revision,
-    claude_cli_strategy_selector, evaluate_strategy_continuation,
-    resolve_strategy_case, verify_pilot_lineage_and_soundness,
+from mindie_bench.evaluation.strategy_selection_cases import (  # noqa: F401
+    ALL_STRATEGY_CASES,
+    CANDIDATE_UNIT_IDS,
+    DEV_CASES,
+    PILOT_CASES,
+    PreDecisionObservation,
+    StrategyCase,
+    _strip_revision,
+    claude_cli_strategy_selector,
+    evaluate_strategy_continuation,
+    resolve_strategy_case,
+    verify_pilot_lineage_and_soundness,
 )
 from mindie_bench.runner.compaction_contracts import SemanticEvent
 from mindie_bench.runner.mechanism_ablation import (
-    analyze_mechanism_ablations, build_mechanism_pairs, plan_mechanism_ablation,
+    analyze_mechanism_ablations,
+    build_mechanism_pairs,
+    plan_mechanism_ablation,
 )
 from mindie_bench.runner.mechanism_contracts import (
-    AblationObservation, AblationOutcome, AblationTask, ArmConfig, ArmRole,
-    FixedControls, Mechanism, PairSpec,
+    AblationObservation,
+    AblationOutcome,
+    AblationTask,
+    ArmConfig,
+    ArmRole,
+    FixedControls,
+    Mechanism,
+    PairSpec,
 )
 
 SCHEMA_VERSION = "mindie-bench-strategy-selection-pilot/1"
@@ -70,7 +88,6 @@ FORBIDDEN_SELECTOR_KEYS = {
     "private_judge", "reference_solution", "known_bad_solution",
     "expected_strategy", "scoring", "leak_markers",
 }
-
 
 @dataclass(frozen=True)
 class StrategySelectionBudget:
@@ -104,14 +121,12 @@ class StrategySelectionBudget:
                 f"business_window_sec + verifier_timeout_sec + cleanup_grace_sec ({min_outer})"
             )
 
-
 def load_combined_routing_index(corpus_roots: Sequence[str | Path]) -> RoutingIndex:
     """Build a unified RoutingIndex across domain corpora (`vllm-ascend` + `operators`)."""
     units = []
     for root in corpus_roots:
         units.extend(read_units(Path(root)))
     return RoutingIndex(units)
-
 
 # -------------------------------------- Input Projection & Strict Isolation
 def _walk_mapping_keys(value: Any):
@@ -122,7 +137,6 @@ def _walk_mapping_keys(value: Any):
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         for item in value:
             yield from _walk_mapping_keys(item)
-
 
 def verify_selector_isolation(
     view: Mapping[str, Any],
@@ -167,7 +181,6 @@ def verify_selector_isolation(
     ]
     return {"isolated": not issues, "arm": arm, "issues": issues, "checked_leak_markers": leak_markers}
 
-
 def prepare_strategy_selector_view(
     case: str | StrategyCase,
     *,
@@ -183,6 +196,11 @@ def prepare_strategy_selector_view(
         if arm == "B"
         else {**dict(selected.declared_conditions), **dict(selected.observed_conditions)}
     )
+    if build_strategy_navigation_cards is None:
+        raise RuntimeError(
+            "installed mindie_knowledge lacks build_strategy_navigation_cards; "
+            "install the pinned knowledge extra"
+        )
     cards = build_strategy_navigation_cards(
         routing_index, selected.candidate_ids, conditions=visible_conditions,
     )
@@ -227,7 +245,6 @@ def prepare_strategy_selector_view(
             + "; ".join(isolation["issues"])
         )
     return view
-
 
 # ------------------------------------ Reference Selector & Executor Policies
 def condition_aware_selector(view: Mapping[str, Any]) -> dict[str, Any]:
@@ -281,7 +298,6 @@ def condition_aware_selector(view: Mapping[str, Any]) -> dict[str, Any]:
         "applicability_basis": "mismatch", "missing_conditions_to_probe": [],
         "usage": {"prompt_tokens": 260, "completion_tokens": 40, "wall_clock_sec": 0.9},
     }
-
 
 def shared_prefix_executor(
     case: StrategyCase,
@@ -367,7 +383,6 @@ def shared_prefix_executor(
         "npu_runs": npu_runs, "uninformative_probes": uninformative_probes,
         "human_interventions": 0,
     }
-
 
 # ------------------------------------ Balanced Triplet Planning & Execution
 @dataclass(frozen=True)
@@ -700,6 +715,7 @@ def run_strategy_selection_pilot(
     c_pass = arm_summaries["C"]["pass_rate"]["value"] or 0.0
     a_pass = arm_summaries["A"]["pass_rate"]["value"] or 0.0
 
+    pareto_and_cop = summarize_arm_pareto_and_cop(arm_summaries, baseline_arm="A")
     if not readiness["ready"]:
         decision_gate = "return_to_implementation_fix"
     elif c_reasonable > b_reasonable and c_pass >= a_pass and negative_transfer_c_vs_a == 0:
@@ -749,6 +765,7 @@ def run_strategy_selection_pilot(
                 }
                 for arm in ARMS
             },
+            "pareto_and_cost_of_pass": pareto_and_cop,
         },
         "cost_ledgers": {
             "continuation_cost_by_arm": {
@@ -761,6 +778,7 @@ def run_strategy_selection_pilot(
                     "npu_runs": arm_summaries[arm]["total_npu_runs"],
                     "npu_card_hours": arm_summaries[arm]["total_npu_card_hours"],
                     "npu_die_hours": arm_summaries[arm]["total_npu_die_hours"],
+                    "cost_of_pass": pareto_and_cop["cost_of_pass_by_arm"][arm],
                 }
                 for arm in ARMS
             },

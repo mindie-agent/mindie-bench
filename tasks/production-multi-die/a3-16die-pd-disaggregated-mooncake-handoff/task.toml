@@ -24,7 +24,7 @@ visible_phy_ids = []
 corpus_id = "ascend"
 knowledge_gradient = "analogical"
 target_files = ["vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py", "vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_hybrid_connector.py"]
-conditions = { query = "A3 16 Die PD disaggregation Prefill Decode Mooncake KV cache handoff first token accuracy TTFT TPOT", topology_scale = "S2", placement = "disaggregated_pd_pair", die_count = 16, npu_model = "Ascend910", npu_count = 16, hosts = ["192.168.13.165"] }
+conditions = { topology_scale = "S2", placement = "disaggregated_pd_pair", die_count = 16, npu_model = "Ascend910", npu_count = 16, hosts = ["192.168.13.165"] }
 [budget]
 max_turns = 60
 max_npu_runs = 16

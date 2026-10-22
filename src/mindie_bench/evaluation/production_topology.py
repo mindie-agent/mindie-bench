@@ -608,10 +608,15 @@ def load_production_benchmark_task(root: str | Path) -> ProductionBenchmarkTask:
     )
     condition_rows = dict(task.mindie_knowledge.conditions)
     query = str(condition_rows.pop("query", "")) or " ".join(
-        str(condition_rows.get(key, ""))
-        for key in ("topology_scale", "placement", "model", "domain")
-        if condition_rows.get(key)
-    )
+        [
+            path.name.replace("-", " "),
+            *(
+                str(condition_rows.get(key, ""))
+                for key in ("topology_scale", "placement", "model", "domain")
+                if condition_rows.get(key)
+            ),
+        ]
+    ).strip()
     instruction = path / "instruction.md"
     if not instruction.is_file() or not instruction.read_text().strip():
         raise ValueError(f"{path} is missing a non-empty instruction.md")

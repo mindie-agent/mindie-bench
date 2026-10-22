@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from mindie_bench.corpus import read_package
-from mindie_bench.io import tree_hash, write_json
+from mindie_bench.io import sha256_file, tree_hash, write_json
 from mindie_bench.models import ExperimentConfig, Group, TaskSpec
 
 # The pi-ai provider rejects a custom route model that does not advertise the
@@ -70,7 +70,7 @@ def capture_git_runtime(env: dict[str, str]) -> dict:
     def inspect(command):
         try:
             return subprocess.run(
-                command, check=True, capture_output=True, text=True, env=env
+                command, check=True, capture_output=True, text=True, env=env, timeout=30
             ).stdout.strip()
         except subprocess.CalledProcessError as error:
             error.add_note("Git discovery stderr (at most 16 KiB): " + (error.stderr or "")[:16_384])
@@ -89,7 +89,7 @@ def capture_git_runtime(env: dict[str, str]) -> dict:
         raise ValueError("capture requires an executable Git and its actual helper directory")
     return dict(
         executable=str(binary),
-        executable_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
+        executable_sha256=sha256_file(binary),
         exec_path=str(helpers),
     )
 
@@ -188,13 +188,28 @@ def build_profile(
         components.add("knowledge")
     if group == Group.G0 and (servers or (group_config and group_config.skills_path)):
         raise ValueError("G0 must contain no MindIE tools or skills")
+    if config.remote and group != Group.G0:
+        mindie_dir = home / ".mindie"
+        mindie_dir.mkdir(exist_ok=True)
+        write_json(
+            mindie_dir / "endpoints.json",
+            {
+                "default_alias": "bench-slot",
+                "endpoints": {
+                    "bench-slot": {
+                        "host": "bench-slot",
+                        "port": 22,
+                    }
+                },
+            },
+        )
     if group != Group.G0 and "remote-dev" not in components:
         raise ValueError(f"{group} requires an explicit remote-dev MCP component")
     if group == Group.G1 and ("knowledge" in components or (group_config and group_config.skills_path)):
         raise ValueError("G1 must contain no knowledge or skills")
     if group in {Group.G0, Group.G1} and knowledge_mode != "advisory":
         raise ValueError("explicit and oracle knowledge conditions require G2 or G3")
-    if knowledge_mode == "explicit" and not group_config.skills_path:
+    if knowledge_mode == "explicit" and not (group_config.skills_path or native_plugin):
         raise ValueError("explicit knowledge condition requires the installed domain skill")
     if group in {Group.G2, Group.G3} and "knowledge" not in components:
         raise ValueError(f"{group} requires the real knowledge MCP component")
@@ -210,13 +225,18 @@ def build_profile(
         declared = config.corpora[corpus_id]
         source = Path(declared.path).resolve()
         actual = subprocess.run(
-            ["git", "-C", str(source), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+            ["git", "-C", str(source), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
         ).stdout.strip()
         dirty = subprocess.run(
             ["git", "-C", str(source), "status", "--porcelain"],
             check=True,
             capture_output=True,
             text=True,
+            timeout=30,
         ).stdout
         if actual != declared.commit or dirty:
             raise ValueError("corpus must be clean at its exact declared commit")
@@ -255,7 +275,11 @@ def build_profile(
         corpus_commit = declared.commit
     local_bare = private_root / "local_knowledge.git"
     subprocess.run(
-        ["git", "init", "--bare", "-q", str(local_bare)], check=True, env=env, capture_output=True
+        ["git", "init", "--bare", "-q", str(local_bare)],
+        check=True,
+        env=env,
+        capture_output=True,
+        timeout=30,
     )
     env["MINDIE_BENCH_PUBLICATION_POLICY"] = "local-only"
     private_env = {
@@ -356,10 +380,18 @@ def build_profile(
                 dom_decl = config.corpora[dom_cid]
                 dom_src = Path(dom_decl.path).resolve()
                 dom_head = subprocess.run(
-                    ["git", "-C", str(dom_src), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+                    ["git", "-C", str(dom_src), "rev-parse", "HEAD"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                 ).stdout.strip()
                 dom_dirty = subprocess.run(
-                    ["git", "-C", str(dom_src), "status", "--porcelain"], check=True, capture_output=True, text=True
+                    ["git", "-C", str(dom_src), "status", "--porcelain"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                 ).stdout
                 if dom_head != dom_decl.commit or dom_dirty:
                     raise ValueError("domain corpus must be clean at its exact declared commit")
@@ -406,8 +438,11 @@ def build_profile(
         runtime_paths.append(Path(config.harness.executable).resolve(strict=True).parent)
     fingerprint = {
         "group": group.value,
+        "harness": config.harness.name,
         "knowledge_mode": knowledge_mode,
-        "knowledge_conditions": task.mindie_knowledge.conditions,
+        "knowledge_conditions": {
+            k: v for k, v in (task.mindie_knowledge.conditions or {}).items() if k != "query"
+        },
         "oracle_context_sha256": (
             hashlib.sha256((root / "oracle-context.md").read_bytes()).hexdigest()
             if oracle_files
@@ -616,37 +651,18 @@ def build_dsh_profile(
 
 def knowledge_prompt(profile: Profile) -> str:
     mode = profile.fingerprint.get("knowledge_mode", "advisory")
-    conditions = profile.fingerprint.get("knowledge_conditions")
-    premises = (
-        "Actual task applicability conditions: "
-        + json.dumps(conditions, sort_keys=True)
-        + ". Pass these exact known premises to knowledge_query; unknown premises must stay unknown.\n\n"
-        if conditions
-        else ""
-    )
-    if profile.fingerprint.get("native_product"):
-        premises = (
-            "Use the installed MindIE Agent for this task. Initialize its current session with "
-            'mindie_entry(op="init") before using its knowledge tools. Contribution is disabled '
-            "in this isolated experiment; retain that setting.\n\n" + premises
-        )
     if mode == "explicit":
-        return premises + (
-            "Use the mindie-agent skill for this task. First use knowledge_query to find "
-            "historical engineering experience relevant to this request, then use "
-            "knowledge_explain to inspect relevant hits before diagnosing it. If the selected "
-            "corpus has no useful hit, continue from source and runtime evidence. Historical "
-            "experience is advisory; verify its applicability to the current environment.\n\n"
-        )
+        gesture = "$mindie-agent" if profile.fingerprint.get("harness") == "codex" else "/mindie-agent"
+        return f"{gesture}\n\n"
     if mode == "oracle":
-        return premises + (
+        return (
             "Controlled oracle-context condition: the following selected historical material "
             "is supplied directly to distinguish content utility from routing. Treat it as "
             "fallible reference material and verify applicability in the current environment.\n\n"
             + (profile.root / "oracle-context.md").read_text()
             + "\n\nCurrent engineering request:\n"
         )
-    return premises
+    return ""
 
 
 def _catalog_identity(payload: dict) -> dict:

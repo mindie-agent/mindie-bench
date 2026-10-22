@@ -1,3 +1,8 @@
+# [Role] Records bounded stage timing observations for evaluation artifacts.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Durable stage observations without changing the outcome of the measured work."""
 
 from __future__ import annotations

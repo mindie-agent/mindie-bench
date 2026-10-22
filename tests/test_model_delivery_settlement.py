@@ -49,6 +49,8 @@ def provider(serve):
             attempts.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
             try:
                 serve(self)
+            except TimeoutError:
+                raise
             except OSError:
                 # The deadline test intentionally aborts the owned provider socket.
                 pass

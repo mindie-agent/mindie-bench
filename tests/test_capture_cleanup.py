@@ -58,23 +58,30 @@ def test_capture_unknown_survives_both_cleanup_errors_and_both_are_attempted():
     assert "close failed" in original.__notes__[1]
 
 
-def test_capture_with_no_primary_raises_first_cleanup_error_and_retains_second():
+def test_completed_capture_returns_cleanup_failures_instead_of_raising():
     original = OSError("first cleanup failed")
     engine, store, called = resources(original, RuntimeError("second cleanup failed"))
-    with pytest.raises(OSError) as caught:
-        capture_finalizer()(engine, store, lambda: "business completed")
-    assert caught.value is original
+    failures = first_party.close_capture_resources(
+        engine,
+        store,
+        SimpleNamespace(measure=lambda stage, **kwargs: nullcontext()),
+        primary=None,
+    )
+    assert [type(error) for _, error in failures] == [OSError, RuntimeError]
     assert called == ["shutdown", "close"]
-    assert "second cleanup failed" in original.__notes__[0]
 
 
-def test_successful_capture_does_not_hide_cleanup_error_in_callers_handled_exception():
+def test_completed_capture_with_caller_error_still_attaches_cleanup_notes():
     engine, store, called = resources(None, OSError("close failed"))
-    try:
-        raise UnknownExternalEffects("caller's prior failure")
-    except UnknownExternalEffects:
-        with pytest.raises(OSError, match="close failed"):
-            capture_finalizer()(engine, store, lambda: "business completed")
+    original = UnknownExternalEffects("caller's prior failure")
+    failures = first_party.close_capture_resources(
+        engine,
+        store,
+        SimpleNamespace(measure=lambda stage, **kwargs: nullcontext()),
+        primary=original,
+    )
+    assert failures == []
+    assert "close failed" in original.__notes__[0]
     assert called == ["shutdown", "close"]
 
 

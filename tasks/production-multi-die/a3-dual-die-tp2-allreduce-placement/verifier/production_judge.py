@@ -1,3 +1,5 @@
+# [Side-Effect Policy] Writes only explicitly owned trial artifacts; no network or unowned mutation.
+
 """Judge a real A3 dual-Die TP=2 MatmulAllReduce placement run.
 
 [Role]

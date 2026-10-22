@@ -15,9 +15,9 @@ from infrastructure failure (`infra_failed`) and uncertain state (`unknown`).
 
 [Timeouts & Locks]
 - Inner judge timeout: `timeout` (`verifier_timeout_sec`).
-- Remote worker outer timeout: `outer_timeout = timeout + 10.0s` (gives `_PRIVATE_REMOTE_JUDGE`
-  a 10s grace window to run post-timeout `inventory()` and flush its JSON receipt).
-- Host pipe wait: `timeout + 15.0s`.
+- Remote worker outer timeout: `outer_timeout = timeout + 20.0s` (reserves the 5s
+  private-oracle inventory grace plus process-group drain and JSON flush).
+- Host pipe wait: `timeout + 25.0s`.
 
 [Side-Effect Policy]
 - Staging the remote private Oracle uses a `mktemp -d "${TMPDIR}/mindie-oracle.XXXXXX"` directory
@@ -79,11 +79,11 @@ def _drain_local_judge(process: subprocess.Popen) -> tuple[bytes, bytes]:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-        deadline = time.monotonic() + 2
+        deadline = time.monotonic() + 0.15
         while running := _local_group_running(process.pid):
             if time.monotonic() >= deadline:
                 break
-            time.sleep(0.05)
+            time.sleep(0.02)
     finally:
         # Even an inventory error must not prevent the final termination attempt.
         try:
@@ -321,74 +321,7 @@ def validate_remote_oracle_contract(contract: OracleContract) -> None:
         raise ValueError("remote oracle probe requires a nonempty executable")
 
 
-_PRIVATE_REMOTE_JUDGE = r"""
-import base64, hashlib, json, os, pathlib, subprocess, sys, time
-payload=json.loads(base64.b64decode(sys.argv[1], validate=True))
-root=pathlib.Path(os.environ["MINDIE_BENCH_ORACLE_ROOT"])
-deadline=time.monotonic()+max(.001, float(payload["timeout"]))
-receipt=dict(schema_version="mindie-bench-private-oracle/1",
-    nonce=os.environ["MINDIE_BENCH_PERFORMANCE_NONCE"],
-    manifest_sha256=os.environ["MINDIE_BENCH_ORACLE_SHA256"],
-    probes=[], judge=None, before=None, after=None, tampered=None, original_error=None,
-    timed_out=False)
-class IntegrityError(Exception): pass
-def inventory():
-    result={}
-    for path in root.rglob("*"):
-        if path.is_symlink(): raise IntegrityError("private oracle symlink: "+str(path.relative_to(root)))
-        if path.is_file():
-            result[path.relative_to(root).as_posix()]=hashlib.sha256(path.read_bytes()).hexdigest()
-    if result!=payload["expected"]:
-        changed=sorted(k for k in result.keys()|payload["expected"].keys()
-                       if result.get(k)!=payload["expected"].get(k))
-        raise IntegrityError("private oracle SHA-256 changed: "+", ".join(changed))
-    return dict(status="intact", file_count=len(result))
-def execute(command):
-    result=subprocess.run(command, capture_output=True,
-                          timeout=max(.001, deadline-time.monotonic()),
-                          env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
-    return dict(returncode=result.returncode,
-                stdout_b64=base64.b64encode(result.stdout).decode(),
-                stderr_b64=base64.b64encode(result.stderr).decode(),
-                stdout_sha256=hashlib.sha256(result.stdout).hexdigest())
-try:
-    for relative, encoded in payload["files"].items():
-        rel=pathlib.PurePosixPath(relative)
-        if rel.is_absolute() or ".." in rel.parts: raise IntegrityError("invalid private oracle path")
-        path=root/relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(base64.b64decode(encoded, validate=True))
-        path.chmod(0o444)
-    for directory in sorted((p for p in root.rglob("*") if p.is_dir()), reverse=True):
-        directory.chmod(0o555)
-    root.chmod(0o555)
-    receipt["before"]=inventory()
-    deadline=time.monotonic()+max(.001, float(payload["timeout"]))
-    for probe in payload["probes"]:
-        command=[part.replace("{oracle}", str(root)) for part in probe["command"]]
-        observed=execute(command)
-        observed["name"]=probe["name"]
-        receipt["probes"].append(observed)
-        if (observed["returncode"]!=probe["expected_returncode"]
-            or observed["stdout_sha256"]!=probe["stdout_sha256"]):
-            raise IntegrityError("oracle negative control "+repr(probe["name"])+" failed: exit="
-                +str(observed["returncode"])+", stdout_sha256="+observed["stdout_sha256"])
-    receipt["judge"]=execute(["/bin/bash", str(root/"verifier/test.sh")])
-except IntegrityError as error:
-    receipt["tampered"]=str(error)
-except subprocess.TimeoutExpired as error:
-    receipt["timed_out"]=True
-    receipt["original_error"]=dict(type=type(error).__name__, message=str(error))
-except Exception as error:
-    receipt["original_error"]=dict(type=type(error).__name__, message=str(error))
-finally:
-    try: receipt["after"]=inventory()
-    except IntegrityError as error: receipt["tampered"]=str(error)
-    except Exception as error:
-        receipt["original_error"]=receipt["original_error"] or dict(type=type(error).__name__,message=str(error))
-print(json.dumps(receipt, allow_nan=False), flush=True)
-sys.exit(2 if receipt["original_error"] else 0)
-"""
+_PRIVATE_REMOTE_JUDGE = Path(__file__).with_name("private_remote_judge.py").read_text(encoding="utf-8")
 
 
 def _private_remote_script(manifest: FrozenOracle, contract: OracleContract, timeout: float) -> bytes:
@@ -516,7 +449,17 @@ def remote_verifier(
             raise RuntimeError(f"private remote oracle failed: {envelope['original_error']}")
         else:
             if result["exit_code"] != 0:
-                raise RuntimeError(f"private remote oracle cleanup failed (exit={result['exit_code']})")
+                # The judge already produced its primary verdict. A failed
+                # post-judge cleanup (for example an unwritable mktemp tree)
+                # is a warning attached to that verdict, never a replacement
+                # for it.
+                cleanup_warning = (
+                    "private remote oracle cleanup failed "
+                    f"(exit={result['exit_code']})"
+                )
+                record["oracle"]["cleanup_warning"] = cleanup_warning
+                record["cleanup_warning"] = cleanup_warning
+                record["cleanup"] = dict(status="failed", warning=cleanup_warning)
             if len(envelope["probes"]) != len(oracle_contract.probes) or judge is None:
                 raise ValueError("required remote oracle probes or judge are missing")
             for observed, probe in zip(envelope["probes"], oracle_contract.probes, strict=True):

@@ -24,7 +24,7 @@ visible_phy_ids = []
 corpus_id = "ascend"
 knowledge_gradient = "analogical"
 target_files = ["vllm_ascend/worker/model_runner_v1.py", "vllm_ascend/ops/gdn.py"]
-conditions = { query = "Qwen3.5 GDN DP2 TP2 asymmetric batch idle DP empty batch ACLGraph conv_state ssm_state HCCL keepalive", topology_scale = "S1", placement = "intra_node_hccs", die_count = 4, npu_model = "Ascend910", npu_count = 4, hosts = ["192.168.13.165"] }
+conditions = { topology_scale = "S1", placement = "intra_node_hccs", die_count = 4, npu_model = "Ascend910", npu_count = 4, hosts = ["192.168.13.165"] }
 [budget]
 max_turns = 50
 max_npu_runs = 10

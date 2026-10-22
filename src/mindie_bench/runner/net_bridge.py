@@ -1,3 +1,8 @@
+# [Role] Relays loopback HTTP traffic to a Unix broker socket inside a network namespace.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Loopback-to-Unix broker relay inside a Linux network namespace."""
 
 import select

@@ -166,7 +166,7 @@ def test_local_timeout_stops_owned_descendant_and_keeps_partial_output(
         + ("signal.signal(signal.SIGTERM, signal.SIG_IGN)\n" if ignore_term else "")
         + "print('child='+str(os.getpid()), flush=True)\n"
         + "print('judge-started', file=__import__('sys').stderr, flush=True)\n"
-        + f"time.sleep(8); pathlib.Path({str(sentinel)!r}).write_text('late mutation')\n"
+        + f"time.sleep(0.9); pathlib.Path({str(sentinel)!r}).write_text('late mutation')\n"
     )
     (root / "verifier/test.sh").write_text(
         f"{shlex.quote(sys.executable)} -I -c {shlex.quote(child)} &\nwait\n"
@@ -194,7 +194,7 @@ def test_local_timeout_stops_owned_descendant_and_keeps_partial_output(
     try:
         with pytest.raises((subprocess.TimeoutExpired, UnknownExternalEffects)) as raised:
             local_verifier(
-                *judge, timeout=1, read_paths=[Path(sys.base_prefix), Path(sys.prefix)]
+                *judge, timeout=0.7, read_paths=[Path(sys.base_prefix), Path(sys.prefix)]
             )
         timeout = raised.value.__cause__ if inventory_failure else raised.value
         if timeout is None:
@@ -223,7 +223,7 @@ def test_local_timeout_stops_owned_descendant_and_keeps_partial_output(
             # fails. An old implementation's surviving child then writes and exits;
             # cleanup never guesses a host PID from namespace-local output.
             if owners:
-                deadline = time.monotonic() + 8.5
+                deadline = time.monotonic() + 1.0
                 while time.monotonic() < deadline:
                     late_write = late_write or sentinel.exists()
                     time.sleep(0.05)

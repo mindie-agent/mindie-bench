@@ -1,3 +1,8 @@
+# [Role] Builds the synthetic plumbing task and end-to-end demo without models, SSH, or NPUs.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """A labelled synthetic plumbing demonstration; no LLM, SSH, or NPU calls."""
 
 from __future__ import annotations
@@ -19,7 +24,7 @@ if "--version" in sys.argv:
     raise SystemExit(0)
 prompt=sys.stdin.read()
 pathlib.Path("operator.py").write_text("ACCUMULATE_DTYPE = 'float32'\n")
-tested=subprocess.run(["npu-replay-test"],capture_output=True,text=True)
+tested=subprocess.run(["npu-replay-test"],capture_output=True,text=True,timeout=30)
 if tested.returncode:
     print(tested.stderr,file=sys.stderr)
     raise SystemExit(tested.returncode)
@@ -39,8 +44,8 @@ def demo(output: Path) -> dict:
     source = output / "inputs/source"
     source.mkdir(parents=True)
     (source / "operator.py").write_text("ACCUMULATE_DTYPE = 'float16'\n")
-    subprocess.run(["git", "init", "-q", str(source)], check=True)
-    subprocess.run(["git", "-C", str(source), "add", "."], check=True)
+    subprocess.run(["git", "init", "-q", str(source)], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(source), "add", "."], check=True, timeout=30)
     subprocess.run(
         [
             "git",
@@ -55,9 +60,14 @@ def demo(output: Path) -> dict:
             "synthetic base",
         ],
         check=True,
+        timeout=30,
     )
     commit = subprocess.run(
-        ["git", "-C", str(source), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+        ["git", "-C", str(source), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
     ).stdout.strip()
     agent = output / "inputs/synthetic-agent"
     agent.write_text(f"#!{sys.executable}\n" + FIXTURE_AGENT)

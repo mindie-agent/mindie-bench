@@ -36,7 +36,7 @@ evidence = "private-verifier-attempt4 patched execution 93ec7011895397ee0668effe
 corpus_id = "ascend"
 knowledge_gradient = "analogical"
 target_files = ["vllm_ascend/distributed/placement.py", "vllm_ascend/distributed/parallel_state.py"]
-conditions = { query = "A3 same NPU package sibling Die Phy-ID 0 1 TP2 MatmulAllReduce HCCL allreduce placement guard cross-package control", topology_scale = "S1", placement = "same_npu_dual_die", die_count = 4, npu_model = "Ascend910", npu_count = 4, hosts = ["192.168.13.165"] }
+conditions = { topology_scale = "S1", placement = "same_npu_dual_die", die_count = 4, npu_model = "Ascend910", npu_count = 4, hosts = ["192.168.13.165"] }
 [budget]
 max_turns = 40
 max_npu_runs = 8

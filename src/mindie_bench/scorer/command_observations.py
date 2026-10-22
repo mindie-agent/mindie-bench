@@ -1,3 +1,8 @@
+# [Role] Statically recognizes NPU test commands without executing them.
+# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
+# [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
+
 """Bounded literal command-position observations, never hardware-run measurements."""
 
 from __future__ import annotations
