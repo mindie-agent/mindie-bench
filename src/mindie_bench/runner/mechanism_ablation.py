@@ -48,6 +48,9 @@ from mindie_bench.runner.mechanism_contracts import (
     MECHANISM_FIELDS as MECHANISM_FIELDS,
 )
 from mindie_bench.runner.mechanism_contracts import (
+    ALL_MECHANISMS as ALL_MECHANISMS,
+)
+from mindie_bench.runner.mechanism_contracts import (
     MECHANISMS as MECHANISMS,
 )
 from mindie_bench.runner.mechanism_contracts import (
@@ -128,7 +131,7 @@ def build_mechanism_pairs(
         )
         for spec in specs
     ]
-    return tuple(sorted(pairs, key=lambda pair: MECHANISMS.index(pair.mechanism)))
+    return tuple(sorted(pairs, key=lambda pair: ALL_MECHANISMS.index(pair.mechanism)))
 
 
 def plan_mechanism_ablation(
@@ -147,7 +150,7 @@ def plan_mechanism_ablation(
     if type(repetitions) is not int or repetitions < 1:
         raise ValueError("repetitions must be a positive integer")
     mechanisms = {pair.mechanism for pair in pairs}
-    if require_all_mechanisms and mechanisms != set(MECHANISMS):
+    if require_all_mechanisms and not set(MECHANISMS).issubset(mechanisms):
         raise ValueError("ablation plan must contain all four mechanism pairs")
     task_ids = [task.task_id for task in tasks]
     if len(set(task_ids)) != len(task_ids):
@@ -156,7 +159,7 @@ def plan_mechanism_ablation(
         raise ValueError("controls_by_task must bind exactly the planned task IDs")
     if any(not isinstance(controls, FixedControls) for controls in controls_by_task.values()):
         raise TypeError("every task must bind FixedControls")
-    ordered_pairs = sorted(pairs, key=lambda pair: MECHANISMS.index(pair.mechanism))
+    ordered_pairs = sorted(pairs, key=lambda pair: (ALL_MECHANISMS.index(pair.mechanism), pair.pair_id))
     ordered_tasks = sorted(tasks, key=lambda task: task.task_id)
     task_controls = tuple(
         TaskControls(task_id=task.task_id, controls=controls_by_task[task.task_id])

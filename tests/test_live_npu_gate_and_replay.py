@@ -24,6 +24,12 @@ import pytest
 
 from mindie_bench.evaluation.knowledge_tiered import distill_selected
 from mindie_bench.evaluation.knowledge_tiered_support import GradedUnit, Store
+from mindie_bench.evaluation.strategy_selection import (
+    PILOT_CASES,
+    load_combined_routing_index,
+    prepare_strategy_selector_view,
+    run_strategy_selection_pilot,
+)
 from mindie_bench.evaluation.mechanism_replay import (
     DECISION_SCHEMA,
     MAX_MERGED_BODY_BYTES,
@@ -540,3 +546,43 @@ def test_live_a2_end_to_end_mechanism_replay_and_graded_repository(sandbox, tmp_
                           "before_conditions": unit.metadata["conditions"]},
     )
     assert result["state"] == "completed", result
+
+
+def test_live_a2_and_a3_strategy_selection_navigation_and_abc_cells(live_targets):
+    a2_target = live_targets["A2"]
+    a3_target = live_targets["A3"]
+    a2_root = f"/tmp/mindie-npu-test-bench-{uuid.uuid4().hex}"
+    a3_root = f"/tmp/mindie-npu-test-bench-{uuid.uuid4().hex}"
+    try:
+        a2_probe = _remote_sh(
+            a2_target,
+            f"mkdir -p {shlex.quote(a2_root)} && npu-smi info | grep -m1 -o '910B4'",
+        )
+        a3_probe = _remote_sh(
+            a3_target,
+            f"mkdir -p {shlex.quote(a3_root)} && npu-smi info -l",
+        )
+        assert a2_probe.returncode == 0 and "910B4" in a2_probe.stdout
+        assert a3_probe.returncode == 0
+        chips = [int(value) for value in re.findall(r"Chip Count\s*:\s*(\d+)", a3_probe.stdout)]
+        assert len(chips) == 8 and sum(chips) == 16
+
+        workspace_root = Path(__file__).resolve().parents[2]
+        vllm_root = workspace_root / "knowledge-vllm-ascend"
+        operators_root = workspace_root / "knowledge-operators"
+        index = load_combined_routing_index((vllm_root, operators_root))
+        view_b = prepare_strategy_selector_view("S1-F2-boundary", arm="B", routing_index=index)
+        view_c = prepare_strategy_selector_view("S1-F2-boundary", arm="C", routing_index=index)
+        assert "pre_decision_observations" not in view_b
+        assert "pre_decision_observations" in view_c
+        assert all("body" not in card for card in view_c["candidate_navigation_cards"])
+
+        report = run_strategy_selection_pilot(corpus_roots=(vllm_root, operators_root), repetitions=2)
+        assert report["readiness"]["ready"] is True
+        assert report["comparisons"]["C_vs_B"]["selection_reasonable_delta"] > 0
+        assert report["comparisons"]["C_vs_B"]["false_adoption_delta"] < 0
+        assert report["comparisons"]["C_vs_A"]["pass_rate_delta"] > 0
+    finally:
+        _remote_sh(a2_target, f"rm -rf -- {shlex.quote(a2_root)}", timeout=15)
+        _remote_sh(a3_target, f"rm -rf -- {shlex.quote(a3_root)}", timeout=15)
+

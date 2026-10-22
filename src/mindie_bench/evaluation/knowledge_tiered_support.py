@@ -30,13 +30,14 @@ def _load_graded():
     from mindie_knowledge.graded.explore import (  # noqa: F401
         assess_stagnation,
         build_exploration_context,
+        build_strategy_navigation_cards,
         evaluate_exploration_candidate,
     )
     from mindie_knowledge.graded.feedback import (  # noqa: F401
         record_usage_event,
         summarize_usage_events,
     )
-    from mindie_knowledge.graded.index import RoutingIndex  # noqa: F401
+    from mindie_knowledge.graded.index import RoutingIndex, read_units  # noqa: F401
     from mindie_knowledge.graded.maintenance import growth_metrics  # noqa: F401
     from mindie_knowledge.graded.repository import GradedRepository  # noqa: F401
     from mindie_knowledge.graded.units import GradedUnit  # noqa: F401
@@ -60,6 +61,7 @@ except ImportError as exc:
 
 GradedRepository = _graded["GradedRepository"]
 RoutingIndex = _graded["RoutingIndex"]
+read_units = _graded["read_units"]
 GradedUnit = _graded["GradedUnit"]
 Store = _graded["Store"]
 Engine = _graded["Engine"]
@@ -70,6 +72,7 @@ summarize_usage_events = _graded["summarize_usage_events"]
 evaluate_exploration_candidate = _graded["evaluate_exploration_candidate"]
 assess_stagnation = _graded["assess_stagnation"]
 build_exploration_context = _graded["build_exploration_context"]
+build_strategy_navigation_cards = _graded["build_strategy_navigation_cards"]
 
 SCHEMA_VERSION = "mindie-bench-knowledge-tiered/1"
 CONDITIONS = ("no_knowledge", "oracle", "normal_retrieval", "with_distractors")

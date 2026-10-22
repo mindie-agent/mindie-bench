@@ -782,10 +782,19 @@ def run_host_mechanism_replay(
         repository=repository,
         revision_context=revision_context,
     )
+    raw_prompt_tokens = metrics.get("prompt_tokens")
+    raw_completion_tokens = metrics.get("completion_tokens")
+    has_native_usage = (
+        runner is not None
+        and raw_prompt_tokens is not None
+        and raw_completion_tokens is not None
+    )
     report["execution_metrics"] = {
+        "execution_mode": "host_runner" if runner is not None else "static_payload",
+        "usage_status": "native" if has_native_usage else "unavailable",
         "wall_clock_ms": float(metrics.get("wall_clock_ms", elapsed_ms)),
-        "prompt_tokens": int(metrics.get("prompt_tokens", 0)),
-        "completion_tokens": int(metrics.get("completion_tokens", 0)),
+        "prompt_tokens": int(raw_prompt_tokens) if raw_prompt_tokens is not None else None,
+        "completion_tokens": int(raw_completion_tokens) if raw_completion_tokens is not None else None,
         "tool_calls": list(metrics.get("tool_calls", ())),
         "commands_executed": list(metrics.get("commands_executed", ())),
     }

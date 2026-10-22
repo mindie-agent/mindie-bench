@@ -26,6 +26,7 @@ class Mechanism(StrEnum):
     LEDGER = "ledger"
     RETRIEVAL = "retrieval"
     PARALLEL_EXPLORATION = "parallel_exploration"
+    STRATEGY_SELECTION = "strategy_selection"
 
 
 MECHANISMS = (
@@ -35,16 +36,22 @@ MECHANISMS = (
     Mechanism.PARALLEL_EXPLORATION,
 )
 
+ALL_MECHANISMS = (
+    *MECHANISMS,
+    Mechanism.STRATEGY_SELECTION,
+)
+
 
 MECHANISM_FIELDS = {
     Mechanism.SINGLE_AGENT_VS_ROLES: "roles",
     Mechanism.LEDGER: "ledger",
     Mechanism.RETRIEVAL: "retrieval",
     Mechanism.PARALLEL_EXPLORATION: "exploration",
+    Mechanism.STRATEGY_SELECTION: "strategy_selection",
 }
 
 
-CONFIG_FIELDS = ("roles", "ledger", "retrieval", "exploration")
+CONFIG_FIELDS = ("roles", "ledger", "retrieval", "exploration", "strategy_selection")
 
 
 class ArmRole(StrEnum):
@@ -145,6 +152,7 @@ class ArmConfig(JsonRecord):
     ledger: str
     retrieval: str
     exploration: str
+    strategy_selection: str = "default"
 
     def __post_init__(self):
         for name in CONFIG_FIELDS:

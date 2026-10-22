@@ -156,6 +156,14 @@ def parser():
     qual_gate.add_argument("--gate", choices=["G0", "G1", "G2", "G3"], required=True)
     qual_gate.add_argument("--input", type=Path, required=True)
     qual_gate.add_argument("--output", type=Path, required=True)
+    strategy_pilot = commands.add_parser(
+        "strategy-selection-pilot",
+        help="run the Section 4.7 A/B/C conditional strategy selection continuation pilot",
+    )
+    strategy_pilot.add_argument("--corpus", type=Path, action="append", required=True)
+    strategy_pilot.add_argument("--repetitions", type=int, default=2)
+    strategy_pilot.add_argument("--selector-mode", choices=["reference", "claude"], default="reference")
+    strategy_pilot.add_argument("--output", type=Path, required=True)
     return root
 
 
@@ -208,6 +216,26 @@ def main(argv=None):
             write_json(args.output, result)
             print(json.dumps(result, indent=2, ensure_ascii=False))
             return {"completed": 0, "failed": 1, "unknown": 2}[result["state"]]
+        elif args.command == "strategy-selection-pilot":
+            from mindie_bench.evaluation.strategy_selection import (
+                claude_cli_strategy_selector,
+                condition_aware_selector,
+                run_strategy_selection_pilot,
+            )
+
+            selector = (
+                claude_cli_strategy_selector
+                if args.selector_mode == "claude"
+                else condition_aware_selector
+            )
+            result = run_strategy_selection_pilot(
+                corpus_roots=args.corpus,
+                repetitions=args.repetitions,
+                selector_fn=selector,
+            )
+            write_json(args.output, result)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return 0 if result["readiness"]["ready"] else 1
         elif args.command == "value-collect":
             from mindie_bench.value_release import collect
 
