@@ -1,0 +1,5 @@
+换了一组模型头维度配置后，在昇腾 NPU 上跑旋转位置编码缓存更新又崩了，报错如下，帮我直接定位并修复源码里的 RoPE 缓存维度计算逻辑：
+
+```text
+RuntimeError: The expanded size of the tensor (128) must match the existing size (32) at non-singleton dimension 3.  Target sizes: [1, 3, 1, 128].  Tensor sizes: [3, 1, 32]
+```

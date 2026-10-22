@@ -101,6 +101,7 @@ class Gateway(AbstractContextManager):
         self.model_delivery_failures: list[dict] = []
         self.remote_delivery_failures: list[dict] = []
         self.stream_input: dict[str, bytes] = {}
+        self.raw_streams: set[str] = set()
         self.use_unix_socket, self.remote = use_unix_socket, remote
         self.unix_socket = self.socket_directory = None
         self.api_key = os.environ.get(harness.api_key_env or "", "")
@@ -220,30 +221,50 @@ class Gateway(AbstractContextManager):
             pending = self.stream_input[identity] + data
             if len(pending) > 8 * 1024 * 1024:
                 raise ValueError("remote RPC frame exceeds evidence bound")
-            lines = pending.split(b"\n")
-            remainder = lines.pop()
-            if eof and remainder:
-                lines.append(remainder)
-                remainder = b""
-            # Count commands in RPC payloads, never the worker's uploaded source.
-            # Buffer partial frames so admission happens before any RPC submission.
             tests = 0
-            for line in lines:
-                message = json.loads(line)
-                payload = message.get("payload", {})
-                if not isinstance(payload, dict):
-                    raise ValueError("invalid remote RPC payload")
-                spec = payload.get("spec", {})
-                if not isinstance(spec, dict):
-                    raise ValueError("invalid remote job specification")
-                command = payload.get("command", payload.get("cmd", spec.get("command", "")))
-                tests += int(isinstance(command, str) and is_recognized_npu_command(command))
-            if self.remote_test_calls + tests > self.task.budget.max_npu_runs:
-                self.stop_reason = "max_npu_runs"
-                raise RemoteBudgetExhausted("benchmark NPU test budget exhausted")
-            self.remote_test_calls += tests
-            self.stream_input[identity] = remainder
-        submitted = b"".join(line + b"\n" for line in lines)
+            if identity in self.raw_streams:
+                submitted = pending
+                self.stream_input[identity] = b""
+            else:
+                lines = pending.split(b"\n")
+                remainder = lines.pop()
+                if eof and remainder:
+                    lines.append(remainder)
+                    remainder = b""
+                # Count commands in RPC payloads, never the worker's uploaded source.
+                # Buffer partial frames so admission happens before any RPC submission.
+                for line in lines:
+                    try:
+                        message = json.loads(line)
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        self.raw_streams.add(identity)
+                        break
+                    if not isinstance(message, dict) or (
+                        "operation" in message
+                        and "count" in message
+                        and "payload" not in message
+                    ):
+                        self.raw_streams.add(identity)
+                        break
+                    payload = message.get("payload", {})
+                    if not isinstance(payload, dict):
+                        raise ValueError("invalid remote RPC payload")
+                    spec = payload.get("spec", {})
+                    if not isinstance(spec, dict):
+                        raise ValueError("invalid remote job specification")
+                    command = payload.get("command", payload.get("cmd", spec.get("command", "")))
+                    tests += int(isinstance(command, str) and is_recognized_npu_command(command))
+                if identity in self.raw_streams:
+                    tests = 0
+                    submitted = pending
+                    self.stream_input[identity] = b""
+                else:
+                    if self.remote_test_calls + tests > self.task.budget.max_npu_runs:
+                        self.stop_reason = "max_npu_runs"
+                        raise RemoteBudgetExhausted("benchmark NPU test budget exhausted")
+                    self.remote_test_calls += tests
+                    self.stream_input[identity] = remainder
+                    submitted = b"".join(line + b"\n" for line in lines)
         try:
             result = self.remote.exchange_stream(identity, base64.b64encode(submitted).decode(), eof=eof)
         except Exception as exc:

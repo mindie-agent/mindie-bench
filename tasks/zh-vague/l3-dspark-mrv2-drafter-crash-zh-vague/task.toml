@@ -1,0 +1,26 @@
+schema_version = "1.0"
+[task]
+instance_id = "l3-dspark-mrv2-drafter-crash-zh-vague"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "4ce367a7d12db55c3dbe9b670eff52b2e14b3b9a"
+issue = "14696"
+validation_scope = "multi-file historical vllm-ascend regression check without workspace test spoilers"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/models/deepseek_v4/model.py", "vllm_ascend/attention/dsa_v1.py"]
+[budget]
+max_turns = 80
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l3]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "d8268faea90dd9b999a0a82f6d133751d57b5770"
+npu_model = "Ascend910"
+npu_count = 1

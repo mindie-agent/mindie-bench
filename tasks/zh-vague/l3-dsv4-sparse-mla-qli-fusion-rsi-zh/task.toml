@@ -1,0 +1,29 @@
+schema_version = "1.0"
+[task]
+instance_id = "l3-dsv4-sparse-mla-qli-fusion-rsi-zh"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "4de92fdfa7b35302693b7f87782226aff7922a39"
+issue = "rsi-g4"
+validation_scope = "RSI mode=reuse to mode=explore transition with L4 mutator 3-factor code transformation and leave-one-out ablation"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = ["unit-vllm-ascend-dsv4-v41-query-dequant-and-lighting-indexer-fusion-mutator"]
+analogical_task_hashes = ["unit-vllm-ascend-deepseek-v4-flash-pro-hash-topk-and-rope-workflow", "unit-vllm-ascend-dsv4-v41-sparse-mla-lightning-indexer-and-mtp-sop", "unit-vllm-ascend-dsv4-v41-qli-v2-compressor-and-engram-axioms"]
+target_files = ["vllm_ascend/models/deepseek_v4/sparse_mla_decode.py"]
+[budget]
+max_turns = 60
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l3]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "264445c1379b7e5c00df06752bf6a9c604c2c3cb"
+npu_model = "Ascend910"
+npu_count = 1
+

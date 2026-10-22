@@ -1,0 +1,97 @@
+diff --git a/vllm_ascend/attention/dsa_v1.py b/vllm_ascend/attention/dsa_v1.py
+index 3fe83199a..10a4c1bea 100644
+--- a/vllm_ascend/attention/dsa_v1.py
++++ b/vllm_ascend/attention/dsa_v1.py
+@@ -154,7 +154,7 @@ class AscendDSABackend(AttentionBackend):
+         block_size: int,
+         num_kv_heads: int,
+         head_size: int,
+-        cache_type: str = "",
++        cache_dtype_str: str = "",
+     ) -> tuple[int, ...]:
+         return num_blocks, block_size, num_kv_heads, head_size
+ 
+diff --git a/vllm_ascend/worker/v2/attn_utils.py b/vllm_ascend/worker/v2/attn_utils.py
+index cc2e6552f..0eb54f066 100644
+--- a/vllm_ascend/worker/v2/attn_utils.py
++++ b/vllm_ascend/worker/v2/attn_utils.py
+@@ -180,6 +180,7 @@ def build_attn_metadata(
+     graph_pad_size: int = -1,
+     num_actual_tokens: int | None = None,
+     num_input_tokens: int | None = None,
++    is_prefilling: torch.Tensor | None = None,
+     model_specific_attn_metadata: ModelSpecificAttnMetadata | None = None,
+     for_cudagraph_capture: bool = False,
+     causal: bool | Mapping[int, bool] = True,
+@@ -234,6 +235,7 @@ def build_attn_metadata(
+             attn_state=attn_state,
+             graph_pad_size=graph_pad_size,
+             num_input_tokens=num_input_tokens,
++            is_prefilling=is_prefilling,
+             max_seq_len=max_seq_len,
+             causal=group_causal,
+             **common_attn_metadata_extra_kwargs,
+diff --git a/vllm_ascend/worker/v2/model_states/default.py b/vllm_ascend/worker/v2/model_states/default.py
+index 0e8879216..816c9f625 100644
+--- a/vllm_ascend/worker/v2/model_states/default.py
++++ b/vllm_ascend/worker/v2/model_states/default.py
+@@ -54,6 +54,7 @@ class AscendModelState(DefaultModelState):
+ 
+         num_actual_tokens = input_batch.num_tokens
+         query_start_loc_cpu = torch.from_numpy(input_batch.query_start_loc_np)
++        is_prefilling = torch.from_numpy(input_batch.is_prefilling_np)
+         max_query_len = input_batch.num_scheduled_tokens.max().item()
+         # attn_metadata is needed when update_full_graph_params, but no way can get it now.
+         # Temporarily store it in model_state.
+@@ -63,6 +64,7 @@ class AscendModelState(DefaultModelState):
+             num_tokens=num_input_tokens,
+             num_actual_tokens=num_actual_tokens,
+             num_input_tokens=num_input_tokens,
++            is_prefilling=is_prefilling,
+             query_start_loc_gpu=input_batch.query_start_loc,
+             query_start_loc_cpu=query_start_loc_cpu,
+             max_query_len=max_query_len,
+diff --git a/vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py b/vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py
+index bbe55a3d2..32b561da5 100644
+--- a/vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py
++++ b/vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py
+@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
+ 
+ 
+ @contextmanager
+-def build_draft_attn_metadata_factory(positions, pad):
++def build_draft_attn_metadata_factory(positions, pad, is_prefilling):
+     """Wrap build_attn_metadata to forward MLA rotary positions for the block.
+ 
+     MLA reads positions inside build_decode_metadata for cos/sin; the flat
+@@ -56,6 +56,7 @@ def build_draft_attn_metadata_factory(positions, pad):
+ 
+     def build_attn_metadata(*args, **kwargs):
+         kwargs["positions"] = positions[:pad]
++        kwargs["is_prefilling"] = is_prefilling
+         return raw(*args, **kwargs)
+ 
+     try:
+@@ -335,7 +336,12 @@ class AscendAutoRegressiveSpeculator(AutoRegressiveSpeculator):
+         num_query_per_req: int = 1,
+         causal: bool = True,
+     ) -> dict[str, Any] | None:
+-        with build_draft_attn_metadata_factory(self.input_buffers.positions, num_tokens_padded):
++        assert self.input_batch is not None
++        with build_draft_attn_metadata_factory(
++            self.input_buffers.positions,
++            num_tokens_padded,
++            torch.from_numpy(self.input_batch.is_prefilling_np),
++        ):
+             attn_metadata = super()._build_draft_attn_metadata(
+                 num_reqs,
+                 num_reqs_padded,
+@@ -371,6 +377,8 @@ class AscendAutoRegressiveSpeculator(AutoRegressiveSpeculator):
+         return draft_attn_metadatas
+ 
+     def _ascend_update_seq_lens(self, attn_metadata: dict[str, Any] | None) -> None:
++        if self.attn_architecture == "DSA":
++            return
+         if attn_metadata is not None:
+             for attn_meta in attn_metadata.values():
+                 attn_meta.seq_lens = attn_meta.seq_lens + 1

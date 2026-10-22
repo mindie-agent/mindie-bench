@@ -29,6 +29,7 @@ class Group(StrEnum):
     G1 = "G1"
     G2 = "G2"
     G3 = "G3"
+    G4 = "G4"
 
 
 class TerminalStatus(StrEnum):

@@ -452,6 +452,45 @@ def _validation_tail(trajectory):
 
 
 
+def _rsi_exploration_observations(knowledge_calls: list[ToolCall]) -> dict:
+    modes = []
+    explore_calls = []
+    seen_reuse = False
+    transitioned = False
+    for call in knowledge_calls:
+        if tool_name(call.name) not in {"knowledge_query", "query"}:
+            continue
+        args = call.arguments if isinstance(call.arguments, dict) else {}
+        mode = str(args.get("mode") or "reuse")
+        modes.append(mode)
+        if mode == "reuse":
+            seen_reuse = True
+        elif mode == "explore":
+            if seen_reuse:
+                transitioned = True
+            ledger = args.get("ledger_entries")
+            bottleneck = args.get("bottleneck_summary")
+            explore_calls.append(
+                dict(
+                    call_id=call.id,
+                    tool=tool_name(call.name),
+                    turn=call.turn,
+                    goal=args.get("goal") or None,
+                    has_bottleneck_summary=isinstance(bottleneck, dict) and bool(bottleneck),
+                    ledger_entries_count=len(ledger) if isinstance(ledger, list) else 0,
+                    native_subcontext=bool(args.get("native_subcontext", False)),
+                )
+            )
+    return dict(
+        reuse_calls_count=sum(m == "reuse" for m in modes),
+        diagnose_calls_count=sum(m == "diagnose" for m in modes),
+        explore_calls_count=sum(m == "explore" for m in modes),
+        mode_sequence=modes,
+        transitioned_reuse_to_explore=transitioned,
+        explore_calls=explore_calls,
+    )
+
+
 def trajectory_metrics(
     trajectory: Trajectory,
     task: TaskSpec,
@@ -602,6 +641,7 @@ def trajectory_metrics(
         knowledge_explains_count=sum(
             tool_name(c.name) in {"knowledge_explain", "explain"} for c in knowledge
         ),
+        rsi_exploration=_rsi_exploration_observations(knowledge),
         knowledge_measurement=(
             dict(
                 basis=BROKER_KNOWLEDGE_BASIS,

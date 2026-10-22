@@ -28,7 +28,7 @@ def cell_key(cell: dict) -> tuple[str, str, str, int]:
         not isinstance(identity, str)
         or not identity
         or tier not in {"l1", "l2", "l3"}
-        or group not in {"G0", "G1", "G2", "G3"}
+        or group not in {"G0", "G1", "G2", "G3", "G4"}
         or type(repetition) is not int
         or repetition < 1
     ):

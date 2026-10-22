@@ -1,0 +1,26 @@
+schema_version = "1.0"
+[task]
+instance_id = "sfa-mtp-seq-lens-seed-zh-vague"
+domain_category = "operator_correctness"
+difficulty = "medium"
+evidence = "verified"
+cluster = "sfa-mtp-draft-seq-lens"
+role = "seed"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "035b8d40718dc097e159e3590975d712535e4245"
+issue = "14236"
+validation_scope = "multi-file historical vllm-ascend regression check without workspace test spoilers"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "no_hit"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/attention/sfa_v1.py"]
+[budget]
+max_turns = 80
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "b9c58e8d7073bdda448c49bc6239778c0e6a6960"

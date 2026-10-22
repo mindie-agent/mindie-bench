@@ -1,0 +1,24 @@
+schema_version = "1.0"
+[task]
+instance_id = "k3-idle-dp-gdn-state-zh-vague"
+domain_category = "distributed_correctness"
+difficulty = "hard"
+evidence = "verified"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "d8c9e3a673af918c94a7794ef6f1f69c024d9c62"
+issue = "15655"
+validation_scope = "multi-file historical vllm-ascend regression check without workspace test spoilers"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/worker/model_runner_v1.py", "vllm_ascend/_310p/model_runner_310p.py"]
+[budget]
+max_turns = 60
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "c3394206bdd00b132580ae439555b4f1a70d5bf6"

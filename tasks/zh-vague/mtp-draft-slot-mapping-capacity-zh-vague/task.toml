@@ -1,0 +1,24 @@
+schema_version = "1.0"
+[task]
+instance_id = "mtp-draft-slot-mapping-capacity-zh-vague"
+domain_category = "runtime_schedule"
+difficulty = "medium"
+evidence = "verified"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "0aa1b486c0e6d3fb457822da2b9b49ede2578562"
+issue = "14024"
+validation_scope = "multi-file historical vllm-ascend regression check without workspace test spoilers"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/worker/block_table.py", "vllm_ascend/spec_decode/llm_base_proposer.py"]
+[budget]
+max_turns = 60
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "63bd2c418c8914201981f1150fc0e0ae5724896e"

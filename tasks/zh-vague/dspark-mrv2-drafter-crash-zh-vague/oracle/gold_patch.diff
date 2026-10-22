@@ -1,0 +1,36 @@
+diff --git a/vllm_ascend/attention/dsa_v1.py b/vllm_ascend/attention/dsa_v1.py
+index 1109d6171..5b119b0b3 100644
+--- a/vllm_ascend/attention/dsa_v1.py
++++ b/vllm_ascend/attention/dsa_v1.py
+@@ -704,7 +704,7 @@ class AscendDSAMetadataBuilder(AttentionMetadataBuilder[AscendDSAMetadata]):
+                 self.block_table[: self.num_decodes],
+                 self.speculative_config.num_speculative_tokens,
+                 self.model_config.hf_config.sliding_window,
+-                self.block_size,
++                self.storage_block_size,
+                 query_start_loc[: self.num_decodes + 1],
+                 self.seq_lens[: self.num_decodes],
+                 self.num_decode_tokens,
+diff --git a/vllm_ascend/models/deepseek_v4/model.py b/vllm_ascend/models/deepseek_v4/model.py
+index a5e45171f..1556b74ab 100644
+--- a/vllm_ascend/models/deepseek_v4/model.py
++++ b/vllm_ascend/models/deepseek_v4/model.py
+@@ -814,6 +814,9 @@ class DeepseekV4Model(nn.Module, EagleModelMixin):
+         # when speculative decoding is enabled; allocating it unconditionally
+         # would permanently cost max_num_batched_tokens * hc_dim per rank.
+         spec_config = vllm_config.speculative_config
++        needs_mtp_hidden_states = spec_config is not None and (
++            spec_config.use_eagle() or spec_config.uses_draft_model()
++        )
+         self._mtp_hidden_buffer = (
+             torch.empty(
+                 vllm_config.scheduler_config.max_num_batched_tokens,
+@@ -821,7 +824,7 @@ class DeepseekV4Model(nn.Module, EagleModelMixin):
+                 dtype=vllm_config.model_config.dtype,
+                 device=self.device,
+             )
+-            if spec_config is not None and spec_config.method == "mtp"
++            if get_pp_group().is_last_rank and needs_mtp_hidden_states
+             else None
+         )
+ 

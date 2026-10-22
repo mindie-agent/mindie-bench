@@ -327,3 +327,39 @@ def test_extended_expression_flags_do_not_turn_patterns_into_paths(command):
     found, unresolved = target_access_observations(Trajectory(calls=[call("read", command)]), [TARGET])
     assert [row["kind"] for row in found] == ["read"]
     assert unresolved == []
+
+
+def test_rsi_reuse_to_explore_observations_and_g4_group(case):
+    from mindie_bench.models import Group
+
+    assert Group.G4.value == "G4"
+    reuse_call = call(
+        "k1",
+        name="knowledge_query",
+        turn=1,
+        start=1,
+        end=2,
+        query="SparseMLA QLI-v2",
+        mode="reuse",
+    )
+    explore_call = call(
+        "k2",
+        name="knowledge_query",
+        turn=2,
+        start=3,
+        end=4,
+        query="SparseMLA QLI-v2 mutator",
+        mode="explore",
+        bottleneck_summary={"layer": "SparseMLA", "tensor_moves": 3},
+        goal="reduce TPOT below 18 ms",
+    )
+    _primary, auxiliary = metrics(case, [reuse_call, explore_call])
+    obs = auxiliary["rsi_exploration"]
+    assert obs["transitioned_reuse_to_explore"] is True
+    assert obs["reuse_calls_count"] == 1
+    assert obs["explore_calls_count"] == 1
+    assert obs["mode_sequence"] == ["reuse", "explore"]
+    assert obs["explore_calls"][0]["has_bottleneck_summary"] is True
+    assert obs["explore_calls"][0]["goal"] == "reduce TPOT below 18 ms"
+
+

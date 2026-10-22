@@ -1,0 +1,29 @@
+schema_version = "1.0"
+[task]
+instance_id = "cpu-rope-rotary-dim-64-zh-vague"
+domain_category = "operator_correctness"
+difficulty = "easy"
+evidence = "verified"
+cluster = "cpu-partial-rope-rotary-dim"
+role = "seed"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "80e5812b39bd3b19efa8a6af65658f599bd6cae0"
+issue = "6581"
+validation_scope = "focused historical Python functions; real CPU torch tensors, no NPU, HCCL or full-model claim"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/ops/rotary_embedding.py"]
+[mindie_knowledge.conditions]
+[budget]
+max_turns = 50
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 120
+[environment.l2]
+repo_path = "/Users/maoxx241/code/mindie-bench/repositories/vllm-ascend-rope"
+base_commit = "d060c797ed8fd22a1ecdf86c5e26f6eeaf7531f2"
+npu_count = 0
+replay_commands = []

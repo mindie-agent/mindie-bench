@@ -1,0 +1,26 @@
+schema_version = "1.0"
+[task]
+instance_id = "l3-mrv2-dsa-prefill-metadata-zh-vague"
+domain_category = "operator_correctness"
+difficulty = "hard"
+evidence = "verified"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "dd6805d846bdac9474f3a4d59fdadb99beda8aca"
+issue = "14211"
+validation_scope = "multi-file historical vllm-ascend regression check without workspace test spoilers"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "compositional"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/attention/dsa_v1.py", "vllm_ascend/worker/v2/attn_utils.py", "vllm_ascend/worker/v2/model_states/default.py", "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py"]
+[budget]
+max_turns = 120
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l3]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "9a276026c6e68faa6ea35f85a538f719bb508767"
+npu_model = "Ascend910"
+npu_count = 1

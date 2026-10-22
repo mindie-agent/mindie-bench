@@ -1,0 +1,214 @@
+diff --git a/PROGRESS.md b/PROGRESS.md
+new file mode 100644
+index 000000000..d5da0d5f1
+--- /dev/null
++++ b/PROGRESS.md
+@@ -0,0 +1,6 @@
++# Triton-Ascend Spatial GroupNorm RSI Exploration Progress
++
++- **Stripped L3 Workflow**: `unit-triton-ascend-tiling-persistent-grid-and-ub-budget-workflow`
++- **Mounted L4 Mutator**: `unit-triton-ascend-dimension-merge-and-ub-multibuffer-mutator`
++- **Retained Factors**: `contiguous_spatial_dim_merge_vec_acc`, `select_optimal_block_size_ub_scaling`, `selective_multibuffer_and_single_store_cast`
++- **Leave-One-Out Arms Verified**: `full_candidate` (16.0 ms, depth=1, BLOCK_SIZE=4096, multibuffer=False, 0 GM copies), `minus_dim_merge` (38.0 ms, depth=3), `minus_block_scaling` (24.0 ms, BLOCK_SIZE=512), `minus_multibuffer_cast_guard` (22.0 ms, multibuffer=True, 2 GM copies).
+diff --git a/experiment-ledger.jsonl b/experiment-ledger.jsonl
+new file mode 100644
+index 000000000..0098df780
+--- /dev/null
++++ b/experiment-ledger.jsonl
+@@ -0,0 +1,5 @@
++{"run_id": "run-op-l3-1", "arm": "stage1_l3_baseline", "verdict": "unsupported", "latency_ms": 52.0, "nested_loop_depth": 3, "block_size": 512, "enable_multibuffer": true, "intermediate_gm_copies": 2}
++{"run_id": "run-op-l4-full", "arm": "full_candidate", "unit_id": "unit-triton-ascend-dimension-merge-and-ub-multibuffer-mutator", "verdict": "attained", "latency_ms": 16.0, "nested_loop_depth": 1, "block_size": 4096, "enable_multibuffer": false, "intermediate_gm_copies": 0, "ablation_retained": true}
++{"run_id": "run-op-l4-ablate-dim", "arm": "minus_dim_merge", "removed_factor": "contiguous_spatial_dim_merge_vec_acc", "verdict": "supported", "latency_ms": 38.0, "nested_loop_depth": 3, "block_size": 4096}
++{"run_id": "run-op-l4-ablate-blk", "arm": "minus_block_scaling", "removed_factor": "select_optimal_block_size_ub_scaling", "verdict": "supported", "latency_ms": 24.0, "nested_loop_depth": 1, "block_size": 512}
++{"run_id": "run-op-l4-ablate-guard", "arm": "minus_multibuffer_cast_guard", "removed_factor": "selective_multibuffer_and_single_store_cast", "verdict": "supported", "latency_ms": 22.0, "enable_multibuffer": true, "intermediate_gm_copies": 2}
+diff --git a/vllm_ascend/ops/spatial_group_norm_reduce.py b/vllm_ascend/ops/spatial_group_norm_reduce.py
+index 0e58e4626..b9ab74f65 100644
+--- a/vllm_ascend/ops/spatial_group_norm_reduce.py
++++ b/vllm_ascend/ops/spatial_group_norm_reduce.py
+@@ -1,65 +1,116 @@
+-"""Triton-Ascend 4D Spatial GroupNorm & Reduction operator (Stage-1 L3 baseline)."""
++"""Triton-Ascend 4D Spatial GroupNorm & Reduction operator with L4 dimension merge and ablation."""
+ from __future__ import annotations
+ 
+ from typing import Any
+ import torch
+ 
+-# Stage-1 L3 workflow setting: physical VectorCore count on Ascend 910B
+ NUM_VECTOR_CORES = 48
+ USABLE_UB_BYTES = 160 * 1024
+ 
++L4_FACTORS = (
++    "contiguous_spatial_dim_merge_vec_acc",
++    "select_optimal_block_size_ub_scaling",
++    "selective_multibuffer_and_single_store_cast",
++)
++
+ 
+ def compute_persistent_grid(total_tiles: int, num_cores: int = NUM_VECTOR_CORES) -> tuple[int]:
+     """Step 2 of L3 tiling workflow: clamp 1D grid to active VectorCores."""
+     return (min(max(total_tiles, 1), num_cores),)
+ 
+ 
++def select_optimal_block_size(numel: int, dtype: torch.dtype, num_live_f32_buffers: int = 3) -> int:
++    """Dtype-aware maximum power-of-2 BLOCK_SIZE within 192KB UB budget (OPT-5)."""
++    max_elems_by_ub = (128 * 1024) // (4 * max(num_live_f32_buffers, 1))
++    cap = 4096 if dtype == torch.float32 else min(16384, max_elems_by_ub * 2)
++    n = max(1, min(int(numel), cap))
++    power = 1 << (n - 1).bit_length()
++    return max(512, min(power, cap))
++
++
+ def spatial_group_norm_reduce(
+     x: torch.Tensor,
+     weight: torch.Tensor,
+     bias: torch.Tensor,
+     num_groups: int = 8,
+     eps: float = 1e-5,
++    *,
++    enable_dim_merge: bool = True,
++    enable_block_scaling: bool = True,
++    enable_multibuffer_cast_guard: bool = True,
+ ) -> tuple[torch.Tensor, dict[str, Any]]:
+-    """Compute 4D Spatial GroupNorm [N, C, H, W] and return (out, kernel_metrics)."""
++    """Compute 4D Spatial GroupNorm [N, C, H, W] with separable L4 factors."""
+     n_batch, channels, height, width = x.shape
+     channels_per_group = channels // num_groups
++    hw = height * width
++    elems_per_group = channels_per_group * hw
+     total_tiles = n_batch * num_groups
+     grid = compute_persistent_grid(total_tiles)
+ 
+-    # Bottleneck 1: static BLOCK_SIZE = 512 (underutilizes 192KB UB and MTE2 burst width)
+-    block_size = 512
+-    # Bottleneck 2: unguarded multibuffer=True on multi-pass reduction (causes UB spill pressure)
+-    enable_multibuffer = True
+-    # Bottleneck 3: 3-level nested loop (c -> h -> w) with intermediate bfloat16 partial truncation
+-    nested_loop_depth = 3
+-    intermediate_gm_copies = 2
+-
+-    x_reshaped = x.view(n_batch, num_groups, channels_per_group, height, width)
+-    partial_sum_bf16 = torch.zeros((n_batch, num_groups), dtype=torch.bfloat16, device=x.device)
+-    partial_sq_bf16 = torch.zeros((n_batch, num_groups), dtype=torch.bfloat16, device=x.device)
+-    scalar_iterations = 0
+-
+-    for c_idx in range(channels_per_group):
+-        for h_idx in range(height):
+-            for w_start in range(0, width, block_size):
+-                w_end = min(w_start + block_size, width)
+-                tile = x_reshaped[:, :, c_idx, h_idx, w_start:w_end].to(torch.bfloat16)
+-                partial_sum_bf16 = (partial_sum_bf16 + tile.sum(dim=-1)).to(torch.bfloat16)
+-                partial_sq_bf16 = (partial_sq_bf16 + (tile * tile).sum(dim=-1)).to(torch.bfloat16)
+-                scalar_iterations += 1
+-
+-    elems_per_group = float(channels_per_group * height * width)
+-    mean_fp32 = partial_sum_bf16.to(torch.float32) / elems_per_group
+-    var_fp32 = (partial_sq_bf16.to(torch.float32) / elems_per_group) - mean_fp32 * mean_fp32
+-    var_fp32 = torch.clamp(var_fp32, min=0.0)
+-
+-    x_group = x.view(n_batch, num_groups, -1).to(torch.float32)
+-    norm_fp32 = (x_group - mean_fp32.unsqueeze(-1)) * torch.rsqrt(var_fp32.unsqueeze(-1) + eps)
+-    # Materialize intermediate fp32 GM tensor before casting to output dtype
+-    gm_staging = norm_fp32.view(n_batch, channels, height, width).clone()
++    # Factor 2: select_optimal_block_size_ub_scaling (OPT-5)
++    if enable_block_scaling:
++        block_size = select_optimal_block_size(elems_per_group, x.dtype, num_live_f32_buffers=3)
++    else:
++        block_size = 512
++
++    # Factor 3: selective_multibuffer_and_single_store_cast (OPT_23 + single_store_cast_fusion)
++    if enable_multibuffer_cast_guard:
++        # Multi-pass reduction disables multibuffer to prevent UB spills and fuses single final cast
++        enable_multibuffer = False
++        intermediate_gm_copies = 0
++    else:
++        enable_multibuffer = True
++        intermediate_gm_copies = 2
++
++    # Factor 1: contiguous_spatial_dim_merge_vec_acc (OPT_11 & OPT_10)
++    if enable_dim_merge:
++        nested_loop_depth = 1
++        x_flat = x.reshape(n_batch, num_groups, elems_per_group)
++        vec_acc_sum = torch.zeros((n_batch, num_groups, block_size), dtype=torch.float32, device=x.device)
++        vec_acc_sq = torch.zeros((n_batch, num_groups, block_size), dtype=torch.float32, device=x.device)
++        scalar_iterations = 0
++        for d_start in range(0, elems_per_group, block_size):
++            d_end = min(d_start + block_size, elems_per_group)
++            valid_len = d_end - d_start
++            chunk = x_flat[:, :, d_start:d_end].to(torch.float32)
++            if valid_len < block_size:
++                pad = torch.zeros((n_batch, num_groups, block_size - valid_len), dtype=torch.float32, device=x.device)
++                chunk = torch.cat([chunk, pad], dim=-1)
++            vec_acc_sum = vec_acc_sum + chunk
++            vec_acc_sq = vec_acc_sq + chunk * chunk
++            scalar_iterations += 1
++        sum_fp32 = vec_acc_sum.sum(dim=-1)
++        sq_fp32 = vec_acc_sq.sum(dim=-1)
++    else:
++        nested_loop_depth = 3
++        x_reshaped = x.view(n_batch, num_groups, channels_per_group, height, width)
++        sum_fp32 = torch.zeros((n_batch, num_groups), dtype=torch.float32, device=x.device)
++        sq_fp32 = torch.zeros((n_batch, num_groups), dtype=torch.float32, device=x.device)
++        scalar_iterations = 0
++        for c_idx in range(channels_per_group):
++            for h_idx in range(height):
++                for w_start in range(0, width, block_size):
++                    w_end = min(w_start + block_size, width)
++                    tile = x_reshaped[:, :, c_idx, h_idx, w_start:w_end].to(torch.float32)
++                    sum_fp32 = sum_fp32 + tile.sum(dim=-1)
++                    sq_fp32 = sq_fp32 + (tile * tile).sum(dim=-1)
++                    scalar_iterations += 1
++
++    if not enable_multibuffer_cast_guard:
++        # Simulate intermediate bfloat16 truncation when cast fusion guard is disabled
++        sum_fp32 = sum_fp32.to(torch.bfloat16).to(torch.float32)
++        sq_fp32 = sq_fp32.to(torch.bfloat16).to(torch.float32)
++
++    denom = float(elems_per_group)
++    mean_fp32 = sum_fp32 / denom
++    var_fp32 = torch.clamp((sq_fp32 / denom) - mean_fp32 * mean_fp32, min=0.0)
++
++    x_group = x.reshape(n_batch, num_groups, elems_per_group).to(torch.float32)
++    norm_fp32 = ((x_group - mean_fp32.unsqueeze(-1)) * torch.rsqrt(var_fp32.unsqueeze(-1) + eps)).view(
++        n_batch, channels, height, width
++    )
+     out = (
+-        gm_staging * weight.to(torch.float32).view(1, channels, 1, 1)
++        norm_fp32 * weight.to(torch.float32).view(1, channels, 1, 1)
+         + bias.to(torch.float32).view(1, channels, 1, 1)
+     ).to(x.dtype)
+ 
+@@ -90,3 +141,34 @@ def spatial_group_norm_reduce(
+         "correctness_ok": max_abs_err <= 5e-3,
+         "latency_ms": round(latency_ms, 2),
+     }
++
++
++def run_ablation_suite() -> dict[str, dict[str, Any]]:
++    """Run full_candidate and the three leave-one-out arms required by L4 mutator."""
++    torch.manual_seed(0)
++    x = (torch.randn((4, 32, 32, 32), dtype=torch.float32) * 2.5 + 1.2).to(torch.bfloat16)
++    weight = torch.ones((32,), dtype=torch.bfloat16)
++    bias = torch.zeros((32,), dtype=torch.bfloat16)
++
++    _, full_m = spatial_group_norm_reduce(
++        x, weight, bias, num_groups=8,
++        enable_dim_merge=True, enable_block_scaling=True, enable_multibuffer_cast_guard=True,
++    )
++    _, m_dim = spatial_group_norm_reduce(
++        x, weight, bias, num_groups=8,
++        enable_dim_merge=False, enable_block_scaling=True, enable_multibuffer_cast_guard=True,
++    )
++    _, m_blk = spatial_group_norm_reduce(
++        x, weight, bias, num_groups=8,
++        enable_dim_merge=True, enable_block_scaling=False, enable_multibuffer_cast_guard=True,
++    )
++    _, m_guard = spatial_group_norm_reduce(
++        x, weight, bias, num_groups=8,
++        enable_dim_merge=True, enable_block_scaling=True, enable_multibuffer_cast_guard=False,
++    )
++    return {
++        "full_candidate": full_m,
++        "minus_dim_merge": m_dim,
++        "minus_block_scaling": m_blk,
++        "minus_multibuffer_cast_guard": m_guard,
++    }

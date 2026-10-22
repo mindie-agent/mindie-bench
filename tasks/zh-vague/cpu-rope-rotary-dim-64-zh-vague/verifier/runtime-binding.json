@@ -1,0 +1,9 @@
+{
+  "schema": "mindie-bench-cpu-task-runtime-binding/1",
+  "interpreter": "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python",
+  "runtime_manifest_sha256": "306d6e5e81aca9eb372336bab18f0f3503cb181fed4fed6d98b9301a42f468aa",
+  "uv_lock_sha256": "45820416797328668f0a760f436f389b6c9d805577f2b9b3bf55028529f709a9",
+  "torch": "2.10.0",
+  "device": "cpu",
+  "replay": false
+}

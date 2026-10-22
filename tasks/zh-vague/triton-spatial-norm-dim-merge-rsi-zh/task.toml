@@ -1,0 +1,26 @@
+schema_version = "1.0"
+[task]
+instance_id = "triton-spatial-norm-dim-merge-rsi-zh"
+domain_category = "native_operator_numerical_correctness"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "2a423c6b31873692ea3cba2704d09cd45e3e7d22"
+issue = "rsi-g4"
+validation_scope = "RSI mode=reuse to mode=explore transition with L4 mutator 3-factor code transformation and leave-one-out ablation"
+[mindie_knowledge]
+corpus_id = "operators"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = ["unit-triton-ascend-dimension-merge-and-ub-multibuffer-mutator", "unit-vectorized-bf16-fp32-accumulation-cast-fusion-mutator"]
+analogical_task_hashes = ["unit-triton-ascend-tiling-persistent-grid-and-ub-budget-workflow", "unit-triton-ascend-hardware-and-compiler-constraints-contract", "unit-ascend-910b-a3-memory-alignment-and-tiling-axioms"]
+target_files = ["vllm_ascend/ops/spatial_group_norm_reduce.py"]
+[budget]
+max_turns = 60
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "264445c1379b7e5c00df06752bf6a9c604c2c3cb"

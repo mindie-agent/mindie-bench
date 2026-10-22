@@ -175,7 +175,7 @@ def build_profile(
     )
     group_config = config.groups.get(group)
     native_plugin = group_config.native_dsh_plugin if group_config else None
-    if native_plugin and (config.harness.name != "dsh" or group not in {Group.G2, Group.G3}):
+    if native_plugin and (config.harness.name != "dsh" or group not in {Group.G2, Group.G3, Group.G4}):
         raise ValueError("the full native DSH product requires a knowledge-enabled DSH profile")
     knowledge_mode = group_config.knowledge_mode if group_config else "advisory"
     servers = group_config.mcp_servers if group_config else {}
@@ -211,14 +211,14 @@ def build_profile(
         raise ValueError("explicit and oracle knowledge conditions require G2 or G3")
     if knowledge_mode == "explicit" and not (group_config.skills_path or native_plugin):
         raise ValueError("explicit knowledge condition requires the installed domain skill")
-    if group in {Group.G2, Group.G3} and "knowledge" not in components:
+    if group in {Group.G2, Group.G3, Group.G4} and "knowledge" not in components:
         raise ValueError(f"{group} requires the real knowledge MCP component")
     excluded = set()
     corpus = None
     corpus_fingerprint = None
     corpus_commit = None
     retained_analogies = []
-    if group in {Group.G2, Group.G3}:
+    if group in {Group.G2, Group.G3, Group.G4}:
         corpus_id = task.mindie_knowledge.corpus_id
         if corpus_id not in config.corpora:
             raise ValueError(f"missing explicitly selected corpus: {corpus_id}")
@@ -290,7 +290,7 @@ def build_profile(
         private_env["MINDIE_BENCH_CORPUS"] = str(corpus)
     runtime_paths = []
     git_runtime = None
-    if group == Group.G3:
+    if group in {Group.G3, Group.G4}:
         git_runtime = capture_git_runtime(env)
         private_env.update(
             MINDIE_BENCH_GIT=git_runtime["executable"], GIT_EXEC_PATH=git_runtime["exec_path"]
@@ -400,7 +400,11 @@ def build_profile(
                 domain_corpora_paths[dom_name] = dom_dest
             active_domain = (
                 "operators"
-                if task.task.domain_category == "native_operator_performance" and "operators" in domain_corpora_paths
+                if (
+                    task.task.domain_category == "native_operator_performance"
+                    or task.mindie_knowledge.corpus_id == "operators"
+                )
+                and ("operators" in domain_corpora_paths or native_plugin.domain == "operators")
                 else native_plugin.domain
             )
             native_product = prepare(
