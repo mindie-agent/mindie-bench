@@ -160,12 +160,11 @@ def build_profile(
     }
     for directory in directories.values():
         directory.mkdir(exist_ok=True)
-    (root / "bin").mkdir(exist_ok=True)
     # Do not inherit proxy credentials, GitHub tokens, SSH agents, Python import
     # paths, plugin state, cloud credentials, or the caller's native session ID.
     env = {name: str(path) for name, path in directories.items()}
     env.update(
-        PATH=f"{root / 'bin'}{os.pathsep}/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin",
+        PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin",
         LANG="en_US.UTF-8",
         GIT_CONFIG_NOSYSTEM="1",
         GIT_CONFIG_GLOBAL=os.devnull,
@@ -315,8 +314,6 @@ def build_profile(
             "args": [expand(arg) for arg in server.args],
             "env": {key: expand(value) for key, value in server.env.items()},
         }
-        if server.component == "remote-dev":
-            configured["env"].setdefault("MINDIE_BENCH_SSH_STREAM", "1")
         if server.component == "knowledge":
             knowledge_servers[name] = configured
             mcp[name] = {
@@ -562,7 +559,7 @@ def build_dsh_profile(
                 f"        command: {json.dumps(str(server['command']))}",
                 "        args: " + json.dumps([str(a) for a in server.get("args", [])]),
                 "        env:",
-                f"          PATH: {json.dumps(env['PATH'])}",
+                f"          PATH: {json.dumps(str(root / 'bin') + os.pathsep + env['PATH'])}",
                 "          MINDIE_BENCH_GATEWAY: !!js process.env.MINDIE_BENCH_GATEWAY",
             ]
             for key, value in (server.get("env") or {}).items():
@@ -627,26 +624,14 @@ def knowledge_prompt(profile: Profile) -> str:
         if conditions
         else ""
     )
-    if native := profile.fingerprint.get("native_product"):
-        graded_hint = (
-            " When querying graded knowledge before all unit condition keys are known, pass "
-            "include_unknown=true, navigation_only=true, and token_budget=3000 to inspect all "
-            "bounded cards first, then call knowledge_explain with the returned ref or "
-            "refs=[...] (omitting conditions unless all missing_conditions keys are supplied, "
-            "and setting token_budget=12000) to load the selected unit bodies and their L1 prerequisites."
-            if (native.get("initialization") or {}).get("corpus_format") == "graded"
-            else ""
-        )
+    if profile.fingerprint.get("native_product"):
         premises = (
-            "/mindie-agent Use the installed MindIE Agent for this task. Initialize its current session with "
-            'mindie_entry(op="init") before using its knowledge tools.'
-            + graded_hint
-            + " Contribution is disabled in this isolated experiment; retain that setting.\n\n"
-            + premises
+            "Use the installed MindIE Agent for this task. Initialize its current session with "
+            'mindie_entry(op="init") before using its knowledge tools. Contribution is disabled '
+            "in this isolated experiment; retain that setting.\n\n" + premises
         )
     if mode == "explicit":
-        prefix = "" if native else "/mindie-agent "
-        return premises + prefix + (
+        return premises + (
             "Use the mindie-agent skill for this task. First use knowledge_query to find "
             "historical engineering experience relevant to this request, then use "
             "knowledge_explain to inspect relevant hits before diagnosing it. If the selected "
