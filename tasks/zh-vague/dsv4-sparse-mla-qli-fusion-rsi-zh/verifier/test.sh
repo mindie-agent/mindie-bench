@@ -9,7 +9,7 @@ elif [ -x "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python" ]; then
 else
     PYTHON_BIN="python3"
 fi
-exec "${PYTHON_BIN}" -I -B -c 'import ast, importlib.util, inspect, json, os, sys, torch
+exec "${PYTHON_BIN}" -I -B -c 'import ast, importlib.util, inspect, json, os, sys
 from pathlib import Path
 
 def _arm(d):
@@ -39,7 +39,11 @@ try:
     tree = ast.parse(src)
     unp = ast.unparse(tree)
     assert "fused_q_dequant_rmsnorm_rope_split" in unp, "Missing L4 Factor 1 fused_q_dequant_rmsnorm_rope_split op call"
+    fn_names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    for req_fn in ("sparse_mla_decode_step", "run_ablation_suite"):
+        assert req_fn in fn_names, f"Missing {req_fn}() definition in sparse_mla_decode.py"
 
+    import torch
     rt_spec = importlib.util.spec_from_file_location("_ascend_qli_runtime_ref", rt_path)
     rt_mod = importlib.util.module_from_spec(rt_spec)
     rt_spec.loader.exec_module(rt_mod)

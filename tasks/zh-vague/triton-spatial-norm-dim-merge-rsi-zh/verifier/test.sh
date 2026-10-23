@@ -9,8 +9,7 @@ elif [ -x "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python" ]; then
 else
     PYTHON_BIN="python3"
 fi
-exec "${PYTHON_BIN}" -I -B -c 'import ast, importlib.util, inspect, json, os, sys, types, torch
-import torch.nn.functional as F
+exec "${PYTHON_BIN}" -I -B -c 'import ast, importlib.util, inspect, json, os, sys, types
 from pathlib import Path
 
 if importlib.util.find_spec("triton") is None:
@@ -70,7 +69,12 @@ try:
     tree = ast.parse(src)
     unp = ast.unparse(tree)
     assert "select_optimal_block_size" in unp, "Missing L4 Factor 2 select_optimal_block_size helper"
+    fn_names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    for req_fn in ("select_optimal_block_size", "compute_persistent_grid", "spatial_group_norm_reduce", "run_ablation_suite"):
+        assert req_fn in fn_names, f"Missing {req_fn}() definition in spatial_group_norm_reduce.py"
 
+    import torch
+    import torch.nn.functional as F
     spec = importlib.util.spec_from_file_location("spatial_group_norm_reduce", target)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod
