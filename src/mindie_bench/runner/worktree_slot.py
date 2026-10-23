@@ -129,7 +129,7 @@ class WorktreeSlot:
                 except FileNotFoundError:
                     # Other Git processes do not participate in this runner's lock.
                     continue
-                if target == str(self.destination / ".git"):
+                if Path(target).resolve() == (self.destination / ".git").resolve():
                     matches.append(entry)
             if len(matches) != 1:
                 raise RuntimeError("cannot identify owned worktree metadata for cleanup")

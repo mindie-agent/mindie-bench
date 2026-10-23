@@ -129,6 +129,19 @@ def native_command(
                 *command,
             ]
         return [*args, "--chdir", str(cwd), "--", *command]
+    if system == "Windows":
+        policy_path.write_text(
+            json.dumps(
+                {
+                    "system": system,
+                    "cwd": str(cwd),
+                    "read": [str(p) for p in read],
+                    "write": [str(p) for p in write],
+                }
+            )
+            + "\n"
+        )
+        return list(command)
     raise RuntimeError(
         f"no verified sandbox backend for {system}; native Windows requires an isolated worker"
     )

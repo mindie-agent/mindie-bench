@@ -30,6 +30,101 @@ from mindie_bench.models import UnknownExternalEffects
 
 def select_transcript(native, scripts):
     """Read only the exact, finished owned artifact through its installed adapter."""
+    if native.get("harness") == "codex":
+        path = Path(native["transcript_path"]).resolve(strict=True)
+        before = hashlib.sha256(path.read_bytes()).hexdigest()
+        sys.path.insert(0, str(scripts))
+        import codex_transcript
+
+        source = codex_transcript.capture_source(path, native["session_id"])
+        if Path(source["project_root"]).resolve(strict=True) != Path(native["cwd"]).resolve(strict=True):
+            raise ValueError("native artifact project_root differs from the completed foreground")
+        turn_id = native.get("turn_id") or native["session_id"]
+        stop_file = Path(native.get("stop_event_path") or "")
+        if stop_file.is_file() and not stop_file.is_symlink():
+            import bridge
+
+            event = bridge.hook_event(stop_file.read_bytes())
+            if (
+                event["session_id"] != native["session_id"]
+                or Path(event["transcript_path"]).resolve(strict=True) != path
+                or Path(event["cwd"]).resolve(strict=True) != Path(native["cwd"]).resolve(strict=True)
+            ):
+                raise ValueError("native Stop event and completed foreground task differ")
+            turn_id = event.get("turn_id") or turn_id
+        selected = codex_transcript.read_material(
+            path, 0, session_id=native["session_id"], max_text_bytes=224 * 1024, max_seconds=5
+        )
+        after = hashlib.sha256(path.read_bytes()).hexdigest()
+        if before != after:
+            raise ValueError("native artifact changed during completed-task capture")
+        if (
+            selected["status"] != "ok"
+            or selected["partial"]
+            or selected["more"]
+            or not selected["text"].strip()
+        ):
+            raise ValueError("native public transcript is incomplete; select a smaller verified task scope")
+        return selected["text"], dict(
+            artifact_sha256=before,
+            extracted_public_sha256=selected["digest"],
+            session_id=native["session_id"],
+            turn_id=turn_id,
+            public_records=selected["records"],
+            artifact_unchanged=True,
+            private_reasoning_selected=False,
+            tool_results_selected=False,
+        )
+    if native.get("harness") == "kimi":
+        import importlib.util
+
+        kimi_home = Path(os.environ.get("KIMI_CODE_HOME", "")).resolve(strict=True)
+        sessions = (kimi_home / "sessions").resolve(strict=True)
+        path = Path(native["transcript_path"]).resolve(strict=True)
+        if (
+            not path.is_file()
+            or path.is_symlink()
+            or not path.is_relative_to(sessions)
+            or path.parents[2].name != native["session_id"]
+        ):
+            raise ValueError("Kimi transcript is outside the owned native profile")
+        state_path = path.parents[2] / "state.json"
+        if not state_path.is_file() or state_path.is_symlink():
+            raise ValueError("Kimi session state.json is missing or invalid")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(state, dict) or (
+            state.get("cwd") is not None
+            and Path(str(state["cwd"])).resolve(strict=True) != Path(native["cwd"]).resolve(strict=True)
+        ):
+            raise ValueError("native artifact state.json differs from the completed foreground")
+        before = hashlib.sha256(path.read_bytes()).hexdigest()
+        spec = importlib.util.spec_from_file_location("kimi_transcript", Path(scripts) / "transcript.py")
+        adapter = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = adapter
+        spec.loader.exec_module(adapter)
+        selected = adapter.read_material(
+            path, 0, session_id=native["session_id"], max_text_bytes=224 * 1024, max_seconds=5
+        )
+        after = hashlib.sha256(path.read_bytes()).hexdigest()
+        if before != after:
+            raise ValueError("native artifact changed during completed-task capture")
+        if (
+            selected["status"] != "ok"
+            or selected["partial"]
+            or selected["more"]
+            or not selected["text"].strip()
+        ):
+            raise ValueError("native public transcript is incomplete; select a smaller verified task scope")
+        return selected["text"], dict(
+            artifact_sha256=before,
+            extracted_public_sha256=selected["digest"],
+            session_id=native["session_id"],
+            turn_id=native.get("turn_id") or native["session_id"],
+            public_records=selected["records"],
+            artifact_unchanged=True,
+            private_reasoning_selected=False,
+            tool_results_selected=False,
+        )
     import zstandard
 
     if native.get("harness") != "dsh" or native.get("event_source") != "observed_headless_turn_end":
@@ -260,7 +355,22 @@ def capture(args, payload):
     producer = consumer = engine = None
     primary = None
     try:
-        scripts = Path(args.dsh_scripts).resolve(strict=True)
+        harness_name = payload["native"].get("harness", "dsh")
+        if harness_name == "kimi":
+            scripts = Path(getattr(args, "kimi_scripts", None) or args.dsh_scripts).resolve(strict=True)
+            if getattr(args, "kimi_bin", None):
+                os.environ["MINDIE_KIMI_BIN"] = str(Path(args.kimi_bin).resolve(strict=True))
+            summary_worker = scripts / "organizer.py"
+        elif harness_name == "codex":
+            scripts = Path(getattr(args, "codex_scripts", None) or args.dsh_scripts).resolve(strict=True)
+            if getattr(args, "codex_bin", None):
+                os.environ["MINDIE_CODEX_BIN"] = str(Path(args.codex_bin).resolve(strict=True))
+            if getattr(args, "summary_model", None):
+                os.environ["MINDIE_SUMMARY_MODEL"] = str(args.summary_model)
+            summary_worker = scripts / "agent_worker.py"
+        else:
+            scripts = Path(args.dsh_scripts).resolve(strict=True)
+            summary_worker = scripts / "dsh_organizer.py"
         with timing.measure("native_artifact_selection"):
             text, binding = select_transcript(payload["native"], scripts)
             report["native_artifact"] = binding
@@ -306,7 +416,7 @@ def capture(args, payload):
             settings_path=config,
             state_dir=output / "producer-state",
             redactor_executable=args.gitleaks,
-            summary_command=[sys.executable, "-I", str(scripts / "dsh_organizer.py")],
+            summary_command=[sys.executable, "-I", str(summary_worker)],
         )
         locator = "benchmark/native-task@" + binding["artifact_sha256"]
         manifest = payload["task_manifest"]
@@ -400,7 +510,7 @@ def capture(args, payload):
         ):
             report.update(
                 status="completed",
-                native_harness="dsh",
+                native_harness=harness_name,
                 native_session_id=binding["session_id"],
                 native_turn_id=binding["turn_id"],
                 publication=dict(
@@ -471,7 +581,7 @@ def capture(args, payload):
             report["publication"] = dict(kind="local-git", revision=revision, units=sorted(admitted))
         report.update(
             status="completed",
-            native_harness="dsh",
+            native_harness=harness_name,
             native_session_id=binding["session_id"],
             native_turn_id=binding["turn_id"],
             corpus_lint=dict(
@@ -522,10 +632,17 @@ def capture(args, payload):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dsh-scripts", required=True)
+    parser.add_argument("--dsh-scripts")
+    parser.add_argument("--kimi-scripts")
+    parser.add_argument("--kimi-bin")
+    parser.add_argument("--codex-scripts")
+    parser.add_argument("--codex-bin")
+    parser.add_argument("--summary-model")
     parser.add_argument("--gitleaks", required=True)
     parser.add_argument("--query", default="")
     args = parser.parse_args()
+    if not (args.dsh_scripts or args.kimi_scripts or args.codex_scripts):
+        parser.error("one of --dsh-scripts, --kimi-scripts, or --codex-scripts is required")
     payload = json.load(sys.stdin)
     try:
         with contextlib.redirect_stdout(sys.stderr):

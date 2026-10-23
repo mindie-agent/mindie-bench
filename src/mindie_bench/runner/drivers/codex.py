@@ -66,7 +66,7 @@ class CodexDriver:
                 lines.append(f"[mcp_servers.{json.dumps(name)}.env]")
                 lines += [f"{json.dumps(k)} = {json.dumps(v)}" for k, v in server["env"].items()]
         (Path(profile.env["CODEX_HOME"]) / "config.toml").write_text("\n".join(lines) + "\n")
-        capture_hook = profile.fingerprint.get("group") == "G3"
+        capture_hook = profile.fingerprint.get("group") in {"G3", "G4"}
         if capture_hook:
             hook = [
                 sys.executable,

@@ -37,7 +37,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
@@ -124,9 +126,17 @@ class ArtifactReader(Protocol):
 def run_local_command(command: GateCommand) -> CommandReceipt:
     """Run one bounded command in its own process group."""
     environment = {**os.environ, **command.env}
+    argv = list(command.argv)
+    if os.name == "nt" and argv:
+        if argv[0] in {"python3", "python"}:
+            resolved_py = shutil.which(argv[0], path=environment.get("PATH"))
+            if not resolved_py or "WindowsApps" in resolved_py:
+                argv[0] = sys.executable
+        elif argv == ["true"] and not shutil.which("true", path=environment.get("PATH")):
+            argv = [sys.executable, "-c", "pass"]
     try:
         process = subprocess.Popen(
-            list(command.argv),
+            argv,
             cwd=command.cwd,
             env=environment,
             stdin=subprocess.DEVNULL,
@@ -757,6 +767,21 @@ def _resolve(base: Path, path: str) -> str:
 
 
 def _pid_alive(pid: int) -> bool | None:
+    if os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, int(pid))
+        if not handle:
+            err = kernel32.GetLastError()
+            return True if err == 5 else False
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return None
+            return code.value == 259
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

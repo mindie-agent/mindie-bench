@@ -517,7 +517,7 @@ def grouped_summaries(receipts, *, expected_cells=None, blocked_cells=None):
         for key, rows in groups.items()
     }
     for key, rows in groups.items():
-        if len(key) == 3 and key[2] == "G3" and key + ("seed",) in groups:
+        if len(key) == 3 and key[2] in {"G3", "G4"} and key + ("seed",) in groups:
             seed = summarize(groups[key + ("seed",)])
             evaluation = result["/".join(key)]
             evaluation["seed_setup_attempts"] = seed["attempts"]

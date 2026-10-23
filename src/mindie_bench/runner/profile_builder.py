@@ -163,8 +163,25 @@ def build_profile(
     # Do not inherit proxy credentials, GitHub tokens, SSH agents, Python import
     # paths, plugin state, cloud credentials, or the caller's native session ID.
     env = {name: str(path) for name, path in directories.items()}
+    base_path = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
+    if os.name == "nt":
+        win_dirs = []
+        git_bin = shutil.which("git")
+        if git_bin:
+            git_dir = Path(git_bin).resolve().parent
+            win_dirs.append(str(git_dir))
+            for sub in (("usr", "bin"), ("bin",)):
+                candidate = git_dir.parent.joinpath(*sub)
+                if candidate.is_dir():
+                    win_dirs.append(str(candidate))
+        sys_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or r"C:\Windows"
+        win_dirs.extend([str(Path(sys_root) / "System32"), sys_root])
+        base_path = os.pathsep.join(win_dirs)
+        for win_key in ("SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP"):
+            if win_key in os.environ:
+                env[win_key] = os.environ[win_key]
     env.update(
-        PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin",
+        PATH=base_path,
         LANG="en_US.UTF-8",
         GIT_CONFIG_NOSYSTEM="1",
         GIT_CONFIG_GLOBAL=os.devnull,
@@ -319,9 +336,13 @@ def build_profile(
         # Python discovers its virtual environment from the invoked executable
         # path. Resolving that symlink here silently selects the base runtime.
         command = Path(server.command).absolute()
-        command.resolve(strict=True)
+        resolved_cmd = command.resolve(strict=True)
         if server.component != "knowledge":
             runtime_paths.append(command)
+            if (command.parent / "mindie-profiler").is_file():
+                runtime_paths.extend([command.parent.parent, resolved_cmd.parent.parent])
+                if str(command.parent) not in env["PATH"].split(os.pathsep):
+                    env["PATH"] = f"{command.parent}{os.pathsep}{env['PATH']}"
         replacements = {
             "{corpus}": str(corpus or ""),
             "{profile}": str(private_root if server.component == "knowledge" else root),
@@ -419,13 +440,8 @@ def build_profile(
                 ]
             )
         dsh_profile = build_dsh_profile(
-            root,
-            env,
-            config,
-            mcp,
-            servers,
-            native_product=native_product,
-            catalog_checkpoint=product_experiment,
+            root, env, config, mcp, servers,
+            native_product=native_product, catalog_checkpoint=product_experiment,
         )
         runtime_root = Path(config.harness.executable).resolve(strict=True)
         node = shutil.which("node", path=env["PATH"])

@@ -98,6 +98,24 @@ class KimiDriver:
             lines.append(f"default_effort = {json.dumps(entry['default_effort'])}")
         lines += [
             "",
+            '[providers."managed:kimi-code"]',
+            'type = "kimi"',
+            f"base_url = {json.dumps(profile.env['MINDIE_BENCH_GATEWAY'] + '/v1')}",
+            'api_key_env = "MINDIE_BENCH_DUMMY_KEY"',
+            "",
+            '[models."kimi-code/k3"]',
+            'provider = "managed:kimi-code"',
+            f"model = {json.dumps(config.model)}",
+            f"max_context_size = {context}",
+        ]
+        if isinstance(entry.get("capabilities"), list) and entry["capabilities"]:
+            lines.append(f"capabilities = {json.dumps(entry['capabilities'])}")
+        if isinstance(supported, list) and supported:
+            lines.append(f"support_efforts = {json.dumps(supported)}")
+        if isinstance(entry.get("default_effort"), str):
+            lines.append(f"default_effort = {json.dumps(entry['default_effort'])}")
+        lines += [
+            "",
             "[loop_control]",
             "max_attempts_per_step = 1",
             "",

@@ -158,6 +158,51 @@ def native_capture_payload(harness, trajectory, profile, workspace, *, native_de
         projects = (Path(profile.env["CLAUDE_CONFIG_DIR"]) / "projects").resolve(strict=True)
         if not transcript.is_relative_to(projects) or not transcript.is_file():
             raise ValueError("G3 Claude transcript is outside the owned native profile")
+    elif harness == "kimi":
+        if Path(identity).name != identity or identity in {".", ".."}:
+            raise ValueError("G3 Kimi session identity is invalid")
+        kimi_home = Path(profile.env["KIMI_CODE_HOME"]).resolve(strict=True)
+        if kimi_home != (profile.root / "kimi").resolve(strict=True):
+            raise ValueError("G3 Kimi home is outside the owned native profile")
+        sessions = (kimi_home / "sessions").resolve(strict=True)
+        matches = [
+            p.resolve(strict=True)
+            for p in sessions.glob(f"*/{identity}/agents/main/wire.jsonl")
+            if p.is_file() and not p.is_symlink()
+        ]
+        if stop_path.exists():
+            if stop_path.is_symlink():
+                raise ValueError("G3 Kimi stop receipt must not be a symlink")
+            stop = read_json(stop_path)
+            if not isinstance(stop, dict) or stop.get("session_id") != identity:
+                raise ValueError("G3 Kimi Stop differs from the foreground session identity")
+            if Path(str(stop.get("cwd", ""))).resolve(strict=True) != workspace.resolve(strict=True):
+                raise ValueError("G3 Kimi Stop differs from the foreground workspace")
+            if Path(str(stop.get("transcript_path", ""))).resolve(strict=True) not in matches:
+                raise ValueError("G3 Kimi Stop transcript is outside the owned native session")
+        if len(matches) != 1:
+            raise ValueError("G3 cannot identify exactly one native Kimi task transcript")
+        transcript = matches[0]
+        if not transcript.is_relative_to(sessions):
+            raise ValueError("G3 Kimi transcript is outside the owned native profile")
+        state_path = transcript.parents[2] / "state.json"
+        if not state_path.is_file() or state_path.is_symlink():
+            raise ValueError("G3 Kimi session state.json is missing or invalid")
+        state = read_json(state_path)
+        if not isinstance(state, dict):
+            raise ValueError("G3 Kimi session state.json must be a JSON object")
+        if state.get("cwd") is not None and (
+            Path(str(state["cwd"])).resolve(strict=True) != workspace.resolve(strict=True)
+        ):
+            raise ValueError("G3 Kimi session state.json differs from the foreground workspace")
+        return {
+            "harness": harness,
+            "session_id": identity,
+            "turn_id": getattr(trajectory, "native_turn_id", None) or identity,
+            "transcript_path": str(transcript),
+            "cwd": str(workspace),
+            "stop_event_path": str(stop_path),
+        }
     else:
         raise ValueError(f"G3 capture is unsupported for harness {harness!r}")
     return {
@@ -324,6 +369,10 @@ def _install_shims(profile, commands: list[str], *, remote: bool):
             f"#!{sys.executable} -I\nfrom {module} import main\nraise SystemExit(main())\n"
         )
         script.chmod(0o700)
+        if os.name == "nt":
+            (directory / f"{command}.cmd").write_text(
+                f'@"{sys.executable}" -I "{script}" %*\n'
+            )
     prefix = str(directory) + os.pathsep
     if not profile.env["PATH"].startswith(prefix):
         profile.env["PATH"] = prefix + profile.env["PATH"]

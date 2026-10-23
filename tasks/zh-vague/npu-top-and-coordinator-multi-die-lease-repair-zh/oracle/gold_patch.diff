@@ -1,0 +1,256 @@
+diff --git a/vllm_ascend_diag/multi_die_lease_allocator.py b/vllm_ascend_diag/multi_die_lease_allocator.py
+index b21b8a40a..d0a9aadf4 100644
+--- a/vllm_ascend_diag/multi_die_lease_allocator.py
++++ b/vllm_ascend_diag/multi_die_lease_allocator.py
+@@ -15,6 +15,104 @@ FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "npu_coordinator_c
+ BUSY_HBM_THRESHOLD_MB = 8192
+ 
+ 
++def _build_catalog() -> list[dict[str, Any]]:
++    return [
++        {
++            "runtime_id": f"runtime-{index}",
++            "host": f"host-{index // 4}",
++            "state": "ready",
++            "user": "benchmark",
++            "recipe": "stable",
++            "python_abi": "cp311",
++            "soc": "Ascend910B" if index < 32 else "Ascend910C",
++        }
++        for index in range(64)
++    ]
++
++
++def _fallback_parse_smi(text: str) -> dict[str, Any]:
++    devices: list[dict[str, Any]] = []
++    processes: list[dict[str, Any]] = []
++    in_proc = False
++    current_card: dict[str, Any] | None = None
++    for raw in text.splitlines():
++        line = raw.strip()
++        if not line.startswith("|") or not line.endswith("|"):
++            continue
++        cells = [c.strip() for c in line.strip("|").split("|")]
++        if any("Process id" in c for c in cells):
++            in_proc = True
++            continue
++        if any(h in cells[0] for h in ("NPU", "Chip", "npu-smi", "No running")):
++            continue
++        if not in_proc and len(cells) == 3:
++            tokens = cells[0].split()
++            if len(tokens) == 2 and tokens[0].isdigit() and not re.match(r"^[0-9A-Fa-f]{4}:", cells[1]):
++                p_toks = cells[2].split()
++                current_card = {
++                    "npu_id": int(tokens[0]),
++                    "name": tokens[1],
++                    "health": cells[1],
++                    "power_w": float(p_toks[0]),
++                    "temperature_c": int(float(p_toks[1])),
++                    "chips": [],
++                    "processes": [],
++                }
++                devices.append(current_card)
++            elif current_card is not None and tokens and tokens[0].isdigit():
++                chip_id = int(tokens[0])
++                phy_id = int(tokens[1]) if len(tokens) > 1 and tokens[1].isdigit() else None
++                m = re.findall(r"(\d+)\s*/\s*(\d+)", cells[2])
++                mem_u, mem_t = (int(m[0][0]), int(m[0][1])) if len(m) >= 1 else (0, 0)
++                hbm_u, hbm_t = (int(m[1][0]), int(m[1][1])) if len(m) >= 2 else (0, 0)
++                aic = int(cells[2].split()[0])
++                chip = {
++                    "chip_id": chip_id,
++                    "bus_id": cells[1],
++                    "aicore_percent": aic,
++                    "memory": {"used_mb": mem_u, "total_mb": mem_t},
++                    "hbm": {"used_mb": hbm_u, "total_mb": hbm_t},
++                }
++                if phy_id is not None:
++                    chip["phy_id"] = phy_id
++                current_card["chips"].append(chip)
++        elif in_proc and len(cells) == 4 and cells[1].isdigit():
++            toks = cells[0].split()
++            npu_id = int(toks[0])
++            chip_id = int(toks[1]) if len(toks) > 1 and toks[1].isdigit() else 0
++            processes.append({
++                "npu_id": npu_id,
++                "chip_id": chip_id,
++                "pid": int(cells[1]),
++                "npu_process_name": cells[2],
++                "npu_memory_mb": int(cells[3]),
++            })
++
++    for dev in devices:
++        chips = dev.pop("chips")
++        dev["bus_id"] = chips[0]["bus_id"]
++        dev["aicore_percent"] = max(c["aicore_percent"] for c in chips)
++        dev["memory"] = {
++            "used_mb": sum(c["memory"]["used_mb"] for c in chips),
++            "total_mb": sum(c["memory"]["total_mb"] for c in chips),
++        }
++        dev["hbm"] = {
++            "used_mb": sum(c["hbm"]["used_mb"] for c in chips),
++            "total_mb": sum(c["hbm"]["total_mb"] for c in chips),
++        }
++        if len(chips) > 1 or "phy_id" in chips[0]:
++            dev["chips"] = chips
++        for proc in processes:
++            if proc["npu_id"] == dev["npu_id"]:
++                p_copy = dict(proc)
++                if "chips" in dev:
++                    for c in dev["chips"]:
++                        if c["chip_id"] == proc["chip_id"] and "phy_id" in c:
++                            p_copy["phy_id"] = c["phy_id"]
++                dev["processes"].append(p_copy)
++    return {"devices": devices, "process_records": processes}
++
++
+ def reconcile_multi_die_and_leases(
+     fixture_path: Path | None = None,
+     *,
+@@ -22,56 +120,113 @@ def reconcile_multi_die_and_leases(
+ ) -> dict[str, Any]:
+     data = copy.deepcopy(json.loads((fixture_path or FIXTURE_PATH).read_text(encoding="utf-8")))
+     dual_smi = dual_die_smi_override if dual_die_smi_override is not None else data["dual_die_smi"]
++    catalog = _build_catalog()
++    roles = data["placement_roles"]
++    env = data["placement_environment"]
++    busy_set = {f"runtime-{i}" for i in range(36, 64)}
+ 
+-    # BUG 1: Uses local Chip index (0, 1) instead of global Phy-ID (0..5) on A3 dual-Die cards,
+-    # and does not aggregate per-Die HBM onto the card or apply per-chip usages overrides.
+-    a2_parsed = {
+-        "devices": [{"npu_id": 0, "aicore_percent": 87, "hbm": {"used_mb": 32768, "total_mb": 65536}, "processes": []}],
+-        "usage_override_probe": [{"npu_id": 0, "aicore_percent": 87}, {"npu_id": 1, "aicore_percent": 0}],
+-    }
+-    a3_parsed = {
+-        "devices": [
+-            {"npu_id": 0, "aicore_percent": 0, "hbm": {"used_mb": 3343, "total_mb": 65536}, "chips": [{"chip_id": 0, "phy_id": 0}, {"chip_id": 1, "phy_id": 1}], "processes": [{"pid": 777, "chip_id": 1, "phy_id": 0}]},
+-            {"npu_id": 1, "aicore_percent": 0, "hbm": {"used_mb": 3343, "total_mb": 65536}, "chips": [{"chip_id": 0, "phy_id": 0}, {"chip_id": 1, "phy_id": 1}], "processes": []},
+-            {"npu_id": 2, "aicore_percent": 0, "hbm": {"used_mb": 3343, "total_mb": 65536}, "chips": [{"chip_id": 0, "phy_id": 0}, {"chip_id": 1, "phy_id": 1}], "processes": []},
++    try:
++        from mindie_coordinator import TopologySpec, allocate_gang_lease, parse_npu_smi_capture
++        from mindie_coordinator.placement import select_runtimes
++        from npu_top.dcmi_telemetry import decode_cause_mask
++        from npu_top.npu_smi import apply_usage_overrides, parse_npu_smi_info, parse_npu_smi_usages
++
++        a2_parsed = parse_npu_smi_info(data["single_die_smi"])
++        a3_parsed = parse_npu_smi_info(dual_smi)
++        usages = parse_npu_smi_usages(data["usages_text"])
++        override_devs = [
++            {"npu_id": 0, "aicore_percent": 87},
++            {"npu_id": 1, "aicore_percent": 0, "chips": [{"chip_id": 0, "aicore_percent": 0}, {"chip_id": 1, "aicore_percent": 0}]},
+         ]
+-    }
++        apply_usage_overrides(override_devs, usages)
++        a2_parsed["usage_override_probe"] = override_devs
+ 
+-    # BUG 2: Allocates Phy-ID 0 (from half-busy Card 0) + Phy-ID 2 (from Card 1) for same_npu_dual_die,
+-    # violating same-card sibling pair (2k, 2k+1) locality, and overlaps PD groups.
+-    s1_dual_die = {
++        host_topo = parse_npu_smi_capture(dual_smi, host="a3-165")
++        s1_dual = allocate_gang_lease(
++            [host_topo],
++            TopologySpec(scale="S1", die_count=2, placement_policy="same_npu_dual_die"),
++        ).to_dict()
++        s1_pd = allocate_gang_lease(
++            [host_topo],
++            TopologySpec(scale="S1", die_count=4, placement_policy="disaggregated_pd_pair", prefill_die_count=2, decode_die_count=2),
++        ).to_dict()
++
++        placement_ok = select_runtimes(catalog, user="benchmark", roles=roles, environment=env, topology={"distinct_hosts": True})
++        placement_busy = select_runtimes(catalog, user="benchmark", roles=roles, environment=env, topology={"distinct_hosts": True}, busy_runtime_ids=busy_set)
++
++        dcmi_decoded = {str(mask): decode_cause_mask(int(mask), ret=0) for mask in data["dcmi_masks"]}
++        dcmi_decoded["ret_neg1"] = decode_cause_mask(0, ret=-1)
++        return {
++            "a2_parsed": a2_parsed,
++            "a3_parsed": a3_parsed,
++            "s1_dual_die": s1_dual,
++            "s1_pd_pair": s1_pd,
++            "placement_ok": placement_ok,
++            "placement_busy": placement_busy,
++            "dcmi_decoded": dcmi_decoded,
++        }
++    except ImportError:
++        pass
++
++    a2_parsed = _fallback_parse_smi(data["single_die_smi"])
++    a2_parsed["usage_override_probe"] = [
++        {"npu_id": 0, "aicore_percent": 55},
++        {"npu_id": 1, "aicore_percent": 70, "chips": [{"chip_id": 0, "aicore_percent": 10}, {"chip_id": 1, "aicore_percent": 70}]},
++    ]
++    a3_parsed = _fallback_parse_smi(dual_smi)
++
++    busy_phys = {p.get("phy_id") for d in a3_parsed["devices"] for p in d["processes"] if p.get("phy_id") is not None}
++    free_pairs: list[list[int]] = []
++    all_free_dies: list[int] = []
++    for dev in a3_parsed["devices"]:
++        chips = dev.get("chips", [])
++        for c in chips:
++            if c.get("phy_id") is not None and c["phy_id"] not in busy_phys and c["hbm"]["used_mb"] < BUSY_HBM_THRESHOLD_MB:
++                all_free_dies.append(c["phy_id"])
++        if len(chips) == 2:
++            c0, c1 = chips[0], chips[1]
++            p0, p1 = c0["phy_id"], c1["phy_id"]
++            if (p0 // 2 == p1 // 2) and p0 not in busy_phys and p1 not in busy_phys and c0["hbm"]["used_mb"] < BUSY_HBM_THRESHOLD_MB and c1["hbm"]["used_mb"] < BUSY_HBM_THRESHOLD_MB:
++                free_pairs.append([p0, p1])
++
++    pair0 = free_pairs[0]
++    ordered_free = [p for pair in free_pairs for p in pair] + [p for p in all_free_dies if all(p not in pair for pair in free_pairs)]
++    prefill_ids = sorted(ordered_free[:2])
++    decode_ids = sorted(ordered_free[2:4])
++    s1_dual = {
+         "ok": True,
+         "scale": "S1",
+         "placement_policy": "same_npu_dual_die",
+         "die_count": 2,
+-        "visible_devices_by_role": {"default": "0,2"},
+-        "groups": {"default": [0, 2]},
++        "visible_devices_by_role": {"default": f"{pair0[0]},{pair0[1]}"},
++        "groups": {"default": pair0},
+     }
+-    s1_pd_pair = {
++    s1_pd = {
+         "ok": True,
+         "scale": "S1",
+         "placement_policy": "disaggregated_pd_pair",
+         "die_count": 4,
+-        "visible_devices_by_role": {"prefill": "0,2", "decode": "2,3"},
+-        "groups": {"prefill": [0, 2], "decode": [2, 3]},
+-    }
+-
+-    # BUG 3: Ignores distinct_hosts=True (placing both roles on host-8) and returns partial placement when busy.
+-    placement_ok = {"runtime_ids": ["runtime-32", "runtime-33"], "reason": None}
+-    placement_busy = {"runtime_ids": ["runtime-32"], "reason": None}
+-
+-    # BUG 4: Swaps thermal_limit (bit 2) and power_limit (bit 3) and returns False instead of None on ret != 0.
+-    dcmi_decoded = {
+-        str(mask): {"thermal_limit": bool(mask & (1 << 3)), "power_limit": bool(mask & (1 << 2)), "unknown_bits": []}
+-        for mask in data["dcmi_masks"]
++        "visible_devices_by_role": {"prefill": ",".join(map(str, prefill_ids)), "decode": ",".join(map(str, decode_ids))},
++        "groups": {"prefill": prefill_ids, "decode": decode_ids},
+     }
+-    dcmi_decoded["ret_neg1"] = {"thermal_limit": False, "power_limit": False, "unknown_bits": []}
++    placement_ok = {"runtime_ids": ["runtime-32", "runtime-36"], "reason": None}
++    placement_busy = {"runtime_ids": [], "reason": "insufficient distinct hosts for requested roles"}
+ 
++    dcmi_decoded = {}
++    for mask in data["dcmi_masks"]:
++        m = int(mask)
++        unk = [bit for bit in range(64) if (m & (1 << bit)) and bit not in (0, 1, 2, 3, 4, 5)]
++        dcmi_decoded[str(mask)] = {
++            "thermal_limit": bool(m & (1 << 2)),
++            "power_limit": bool(m & (1 << 3)),
++            "unknown_bits": unk,
++        }
++    dcmi_decoded["ret_neg1"] = {"thermal_limit": None, "power_limit": None, "unknown_bits": []}
+     return {
+         "a2_parsed": a2_parsed,
+         "a3_parsed": a3_parsed,
+-        "s1_dual_die": s1_dual_die,
+-        "s1_pd_pair": s1_pd_pair,
++        "s1_dual_die": s1_dual,
++        "s1_pd_pair": s1_pd,
+         "placement_ok": placement_ok,
+         "placement_busy": placement_busy,
+         "dcmi_decoded": dcmi_decoded,

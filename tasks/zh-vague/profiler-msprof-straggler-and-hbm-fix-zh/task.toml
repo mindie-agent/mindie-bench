@@ -1,0 +1,26 @@
+schema_version = "1.0"
+[task]
+instance_id = "profiler-msprof-straggler-and-hbm-fix-zh"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "8c5ce76d9afb36205b8e59adb7b2d4b2ad89a85c"
+issue = "component-value-0.1.0"
+validation_scope = "torch_npu 1.2.0 multi-stream C7 interval-union step accounting, exposed communication straggler attribution, and P0-P4 non-additive HBM reconciliation"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+analogical_task_hashes = ["unit-vllm-ascend-profiler-msprof-straggler-and-hbm-attribution-sop"]
+target_files = ["vllm_ascend_diag/profile_reconciler.py"]
+[budget]
+max_turns = 50
+max_npu_runs = 6
+timeout_sec = 480
+verifier_timeout_sec = 120
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "f752d0215c2e13b44ac472caa14c02b6749762e3"

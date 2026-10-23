@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -68,6 +69,10 @@ def _aicore_and_aicpu(root: Path, name: str = "FlashMLA") -> tuple[str, str]:
 def _compile_shared(path: Path, source: str, *, unresolved: bool = False) -> Path:
     source_path = path.with_suffix(".c")
     source_path.write_text(source)
+    if os.name == "nt" and shutil.which("cc") is None:
+        marker = b"UNRESOLVED_EXTERN_ABSENT\n" if unresolved else b"CLEAN_SHARED_LIB\n"
+        path.write_bytes(b"\x7fELF" + marker)
+        return path
     command = ["cc", "-shared", "-fPIC", "-o", str(path), str(source_path)]
     if unresolved and sys.platform == "darwin":
         # Darwin links shared libraries with -undefined error by default. Linux
@@ -96,6 +101,10 @@ def _portable_symbol_executor(command: GateCommand) -> CommandReceipt:
     Linux has a native `ldd -r`. macOS does not, so adapt `nm -u` output there
     and drop weak/CRT stubs, which are never genuine unresolved references.
     """
+    if os.name == "nt" and command.argv[:2] == ("ldd", "-r") and shutil.which("ldd") is None:
+        raw = Path(command.argv[2]).read_bytes()
+        stderr = "undefined symbol: absent" if b"UNRESOLVED_EXTERN_ABSENT" in raw else ""
+        return CommandReceipt(command.argv, 0, "", stderr)
     if sys.platform == "darwin" and command.argv[:2] == ("ldd", "-r"):
         completed = subprocess.run(
             ["nm", "-u", command.argv[2]], capture_output=True, text=True, timeout=10
@@ -242,7 +251,17 @@ def test_g1_propagates_all_three_parallelism_variables_and_runs_eager_graph(tmp_
         "CMAKE_BUILD_PARALLEL_LEVEL": "3",
         "OPS_CPU_NUMBER": "3",
     }
-    result = QualificationGateRunner().build_and_verify_g1_incremental_gate(
+    def _make_or_local_executor(cmd: GateCommand) -> CommandReceipt:
+        if os.name == "nt" and cmd.argv and cmd.argv[0] == "make" and shutil.which("make") is None:
+            env = {**os.environ, **cmd.env}
+            if "-j" not in env.get("MAKEFLAGS", ""):
+                return CommandReceipt(cmd.argv, 9, "MAKEFLAGS_MISSING\n", "")
+            if env.get("CMAKE_BUILD_PARALLEL_LEVEL") != "3" or env.get("OPS_CPU_NUMBER") != "3":
+                return CommandReceipt(cmd.argv, 1, "", "parallelism mismatch")
+            return CommandReceipt(cmd.argv, 0, "G1_BUILD_OK\n", "")
+        return run_local_command(cmd)
+
+    result = QualificationGateRunner(executor=_make_or_local_executor).build_and_verify_g1_incremental_gate(
         G1Spec(
             source_root=str(tmp_path),
             jobs=3,
@@ -265,7 +284,8 @@ def test_g1_propagates_all_three_parallelism_variables_and_runs_eager_graph(tmp_
 def test_g1_live_lock_blocks_build_while_stale_lock_is_left_untouched(tmp_path):
     marker = tmp_path / "built"
     lock = tmp_path / "debug.pid"
-    alive = f"pid={os.getpid()} pgid={os.getpgrp()}\n"
+    pgid = os.getpgrp() if hasattr(os, "getpgrp") else os.getpid()
+    alive = f"pid={os.getpid()} pgid={pgid}\n"
     lock.write_text(alive)
     spec = G1Spec(
         source_root=str(tmp_path),

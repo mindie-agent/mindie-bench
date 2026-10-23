@@ -32,7 +32,7 @@ class ClaudeCodeDriver:
         native_tmp = profile.root / "tmp"
         native_tmp.mkdir(exist_ok=True)
         profile.env["CLAUDE_CODE_TMPDIR"] = str(native_tmp)
-        capture_hook = profile.fingerprint.get("group") == "G3"
+        capture_hook = profile.fingerprint.get("group") in {"G3", "G4"}
         settings = json.loads((profile.root / "settings.json").read_text())
         if capture_hook:
             hook = [

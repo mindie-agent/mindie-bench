@@ -53,8 +53,18 @@ def run_matrix(
         raise ValueError("matrix task paths must be nonempty and unique")
     if len({spec.task.instance_id for spec in specs.values()}) != len(specs):
         raise ValueError("matrix task instance IDs must be unique")
+    lineage_groups = [
+        g
+        for g in groups
+        if g == Group.G3
+        or (
+            g == Group.G4
+            and bool(config.groups.get(g) and config.groups[g].capture_command)
+            and any(spec.task.role == "seed" for spec in specs.values())
+        )
+    ]
     lineages = {}
-    if Group.G3 in groups:
+    if lineage_groups:
         if not any(spec.task.role == "seed" for spec in specs.values()):
             raise ValueError(
                 "G3 requires seed tasks followed by eval tasks, not an unproven warm snapshot"
@@ -156,13 +166,14 @@ def run_matrix(
                 available_devices.update(devices)
                 device_condition.notify_all()
 
-    def execute_lineage(key, paths, repetition):
+    def execute_lineage(group, key, paths, repetition):
         cluster, corpus_id = key
-        warm = output / "warm-initial" / str(repetition) / cluster / corpus_id
+        prefix = "warm-initial" if group == Group.G3 else f"warm-initial-{group.value.lower()}"
+        warm = output / prefix / str(repetition) / cluster / corpus_id
         warm.parent.mkdir(parents=True, exist_ok=True)
         filtered_corpus(Path(config.corpora[corpus_id].path), warm, excluded)
         for index, path in enumerate(paths):
-            receipt = execute_cell(path, Group.G3, repetition, corpus_override=warm)
+            receipt = execute_cell(path, group, repetition, corpus_override=warm)
             if specs[path].task.role == "seed":
                 if (
                     receipt.terminal_status not in {TerminalStatus.PASS, TerminalStatus.FAIL}
@@ -178,7 +189,7 @@ def run_matrix(
                             prerequisite_status=receipt.terminal_status.value,
                         )
                         for cell in cells
-                        if cell["group"] == "G3"
+                        if cell["group"] == group.value
                         and cell["repetition"] == repetition
                         and cell["instance_id"]
                         in {specs[remaining].task.instance_id for remaining in paths[index + 1 :]}
@@ -202,10 +213,11 @@ def run_matrix(
         for path in task_roots
         for group in groups
         for repetition in range(1, repetitions + 1)
-        if group != Group.G3
+        if group not in lineage_groups
     ]
     lineage_jobs = [
-        (key, paths, repetition)
+        (group, key, paths, repetition)
+        for group in lineage_groups
         for repetition in range(1, repetitions + 1)
         for key, paths in lineages.items()
     ]

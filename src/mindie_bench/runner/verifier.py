@@ -32,6 +32,7 @@ import json
 import os
 import secrets
 import shlex
+import shutil
 import signal
 import subprocess
 import time
@@ -62,6 +63,8 @@ from mindie_bench.runner.sandbox import native_command
 
 def _local_group_running(group: int) -> bool:
     """Inspect the owned POSIX group; zombies cannot perform further writes."""
+    if os.name != "posix":
+        return False
     result = subprocess.run(
         ["ps", "-e", "-o", "pgid=,stat="], capture_output=True, text=True, check=True, timeout=1,
     )
@@ -73,6 +76,12 @@ def _local_group_running(group: int) -> bool:
 
 def _drain_local_judge(process: subprocess.Popen) -> tuple[bytes, bytes]:
     """TERM, then KILL the owned group, and prove it has no running members."""
+    if os.name != "posix":
+        try:
+            process.kill()
+        except OSError:
+            pass
+        return process.communicate(timeout=2)
     running = True
     try:
         try:
@@ -280,7 +289,12 @@ def local_verifier(
             probe_record = {"name": probe.name, "returncode": result.returncode}
             oracle_record["probes"].append(probe_record)
             probe_record.update(check_probe(probe.name, result.returncode, result.stdout, probe))
-        result = execute(["/bin/bash", str(task_root / "verifier/test.sh")], "verifier")
+        bash_bin = (
+            "/bin/bash"
+            if Path("/bin/bash").exists()
+            else (shutil.which("bash", path=env.get("PATH")) or shutil.which("bash") or "/bin/bash")
+        )
+        result = execute([bash_bin, str(task_root / "verifier/test.sh")], "verifier")
         record["returncode"] = result.returncode
         value = parse_verifier(
             result.returncode,

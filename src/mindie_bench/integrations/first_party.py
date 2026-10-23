@@ -322,8 +322,86 @@ def native_capture_inputs(args, native, root):
         event = {**actual, "turn_id": actual["prompt_id"]}
         adapter = transcript
         worker = "organizer.py"
+    elif harness == "kimi":
+        if not getattr(args, "kimi_scripts", None) or not getattr(args, "kimi_bin", None):
+            raise ValueError("Kimi capture requires explicit native scripts and executable")
+        profile = Path(os.environ["KIMI_CODE_HOME"]).resolve(strict=True)
+        if profile != root / "kimi":
+            raise ValueError("Kimi capture requires this trial's owned native profile")
+        scripts = Path(args.kimi_scripts).resolve(strict=True)
+        os.environ["MINDIE_KIMI_BIN"] = str(Path(args.kimi_bin).resolve(strict=True))
+        sys.path.insert(0, str(scripts))
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("kimi_transcript", scripts / "transcript.py")
+        adapter = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = adapter
+        spec.loader.exec_module(adapter)
+        selected = Path(native["transcript_path"]).resolve(strict=True)
+        sessions = (profile / "sessions").resolve(strict=True)
+        if (
+            not selected.is_file()
+            or selected.is_symlink()
+            or not selected.is_relative_to(sessions)
+            or selected.parents[2].name != native["session_id"]
+        ):
+            raise ValueError("Kimi transcript is outside the owned native profile")
+        state_path = selected.parents[2] / "state.json"
+        if not state_path.is_file() or state_path.is_symlink():
+            raise ValueError("Kimi session state.json is missing or invalid")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            raise ValueError("Kimi session state.json must be a JSON object")
+        scope = Path(str(state.get("cwd") or native["cwd"])).resolve(strict=True)
+        if scope != Path(native["cwd"]).resolve(strict=True):
+            raise ValueError("native transcript project scope differs from the completed foreground")
+        stop_file = Path(native.get("stop_event_path") or (root / "native-stop.json"))
+        if stop_file.is_file() and not stop_file.is_symlink():
+            event = json.loads(stop_file.read_text(encoding="utf-8"))
+            event.setdefault("turn_id", native.get("turn_id"))
+        else:
+            event = {
+                "session_id": native["session_id"],
+                "turn_id": native.get("turn_id"),
+                "transcript_path": str(selected),
+                "cwd": str(scope),
+            }
+        created_at = adapter.to_seconds(state.get("createdAt") or state.get("created_at"))
+        for raw_line in selected.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not raw_line.strip():
+                continue
+            try:
+                rec = json.loads(raw_line)
+            except ValueError:
+                continue
+            ts = adapter.to_seconds(
+                rec.get("time") or rec.get("created_at") or rec.get("timestamp")
+            )
+            if ts is not None and (created_at is None or ts < created_at):
+                created_at = ts
+                break
+        if created_at is None:
+            created_at = int(selected.stat().st_mtime)
+        source = {
+            "session_id": native["session_id"],
+            "project_root": str(scope),
+            "created_at": created_at,
+            "transcript_path": str(selected),
+        }
+        worker = "organizer.py"
+        if (
+            event["session_id"] != native["session_id"]
+            or Path(event["transcript_path"]).resolve() != Path(native["transcript_path"]).resolve()
+            or Path(event["cwd"]).resolve() != Path(native["cwd"]).resolve()
+        ):
+            raise ValueError("native Stop event and completed foreground task differ")
+        if not (scripts / worker).is_file():
+            raise ValueError("selected native summary worker is unavailable")
+        return event, source, adapter, scripts, worker
     else:
-        raise ValueError("capture requires an actual Codex or Claude Code transcript and Stop event")
+        raise ValueError(
+            "capture requires an actual Codex or Claude Code or Kimi transcript and Stop event"
+        )
     if (
         event["session_id"] != native["session_id"]
         or Path(event["transcript_path"]).resolve() != Path(native["transcript_path"]).resolve()
@@ -418,7 +496,11 @@ def capture(args):
                 turn_id=event["turn_id"],
                 transcript_path=event["transcript_path"],
                 cwd=event["cwd"],
-                harness="claude" if native["harness"] == "claude-code" else "codex",
+                harness=(
+                    "claude"
+                    if native["harness"] == "claude-code"
+                    else ("kimi" if native["harness"] == "kimi" else "codex")
+                ),
             )
         if "id" not in receipt:
             raise RuntimeError("native capture was not admitted: " + json.dumps(receipt))
@@ -574,6 +656,8 @@ def main():
     cap.add_argument("--codex-bin")
     cap.add_argument("--claude-scripts")
     cap.add_argument("--claude-bin")
+    cap.add_argument("--kimi-scripts")
+    cap.add_argument("--kimi-bin")
     cap.add_argument("--summary-model", required=True)
     cap.add_argument("--gitleaks", required=True)
     cap.add_argument("--query", required=True)

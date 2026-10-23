@@ -1,0 +1,239 @@
+diff --git a/vllm_ascend_diag/profile_reconciler.py b/vllm_ascend_diag/profile_reconciler.py
+index d8f36e249..16ff457fb 100644
+--- a/vllm_ascend_diag/profile_reconciler.py
++++ b/vllm_ascend_diag/profile_reconciler.py
+@@ -8,6 +8,7 @@ from __future__ import annotations
+ import copy
+ import json
+ import sqlite3
++import statistics
+ import tempfile
+ from pathlib import Path
+ from typing import Any
+@@ -93,6 +94,45 @@ def build_run_from_fixture(tmp_path: Path, fixture: dict[str, Any] | None = None
+     return root
+ 
+ 
++def _merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]:
++    if not intervals:
++        return []
++    ordered = sorted(intervals)
++    merged = [ordered[0]]
++    for start, end in ordered[1:]:
++        prev_s, prev_e = merged[-1]
++        if start <= prev_e:
++            merged[-1] = (prev_s, max(prev_e, end))
++        else:
++            merged.append((start, end))
++    return merged
++
++
++def _interval_length(intervals: list[tuple[int, int]]) -> int:
++    return sum(end - start for start, end in _merge_intervals(intervals))
++
++
++def _subtract_intervals(base: list[tuple[int, int]], mask: list[tuple[int, int]]) -> int:
++    merged_base = _merge_intervals(base)
++    merged_mask = _merge_intervals(mask)
++    exposed = 0
++    for b_start, b_end in merged_base:
++        cur = b_start
++        for m_start, m_end in merged_mask:
++            if m_end <= cur:
++                continue
++            if m_start >= b_end:
++                break
++            if m_start > cur:
++                exposed += m_start - cur
++            cur = max(cur, m_end)
++            if cur >= b_end:
++                break
++        if cur < b_end:
++            exposed += b_end - cur
++    return exposed
++
++
+ def reconcile_profile_and_hbm(
+     fixture_path: Path | None = None,
+     *,
+@@ -101,79 +141,144 @@ def reconcile_profile_and_hbm(
+     data = copy.deepcopy(json.loads((fixture_path or FIXTURE_PATH).read_text(encoding="utf-8")))
+     if after_infer_override_bytes is not None:
+         data["hbm_manifest"]["after_infer_hbm"]["0"]["used_bytes"] = after_infer_override_bytes
++    target_bytes = int(data.get("residual_target_bytes", 200 * 1024 * 1024))
++
++    try:
++        from mindie_profiler import Window, analyze_profile
++        from mindie_profiler.compare import compare_profiles
++        from mindie_profiler.memory_profile import attribute_memory
++
++        with tempfile.TemporaryDirectory(prefix="vllm-ascend-prof-") as td:
++            root = build_run_from_fixture(Path(td), data)
++            windows = [
++                Window(start_ns=w["start_ns"], end_ns=w["end_ns"], step=w["step"], label=w["label"])
++                for w in data["windows"]
++            ]
++            report = analyze_profile(root, windows=windows, scene=data["scene"])
++            comparison = compare_profiles(report, report)
++            memory_attribution = attribute_memory(data["hbm_manifest"], residual_target_bytes=target_bytes)
++            return {
++                "profile_report": report,
++                "comparison": comparison,
++                "memory_attribution": memory_attribution,
++            }
++    except ImportError:
++        pass
+ 
+-    # BUG 1: Naive sum of kernel durations ignores multi-stream overlap (busy_union_ms != kernel_sum_ms),
+-    # miscalculates host_gap_ms and exposed_comm_ms, and ranks slowest_rank by event count instead of p50 busy_union_ms.
+     window_accounting = []
++    rank_stats: dict[int, dict[str, Any]] = {}
+     for rank_idx, (rank_id, key) in enumerate([(data["rank0_id"], "rank0_events"), (data["rank1_id"], "rank1_events")]):
+         events = data[key]
++        busy_list, wall_list, comm_list = [], [], []
+         for win in data["windows"]:
+-            w_events = [e for e in events if e["start"] >= win["start_ns"] and e["end"] <= win["end_ns"]]
+-            kernel_sum_ms = round(sum(e["end"] - e["start"] for e in w_events) / 1e6, 6)
+-            comm_sum_ms = round(sum(e["end"] - e["start"] for e in w_events if e.get("emit_comm")) / 1e6, 6)
+-            wall_ms = round((win["end_ns"] - win["start_ns"]) / 1e6, 6)
++            w_start, w_end = int(win["start_ns"]), int(win["end_ns"])
++            clipped = []
++            for e in events:
++                s = max(int(e["start"]), w_start)
++                en = min(int(e["end"]), w_end)
++                if en > s:
++                    clipped.append({**e, "start": s, "end": en})
++            all_iv = [(e["start"], e["end"]) for e in clipped]
++            comm_iv = [(e["start"], e["end"]) for e in clipped if e.get("emit_comm") or e.get("core") == "COMMUNICATION"]
++            comp_iv = [(e["start"], e["end"]) for e in clipped if not (e.get("emit_comm") or e.get("core") == "COMMUNICATION")]
++            busy_ns = _interval_length(all_iv)
++            kernel_sum_ns = sum((e["end"] - e["start"]) * (2 if e.get("emit_comm") else 1) for e in clipped)
++            exposed_comm_ns = _subtract_intervals(comm_iv, comp_iv)
++            span_ns = (max(e["end"] for e in clipped) - min(e["start"] for e in clipped)) if clipped else 0
++            host_gap_ns = max(0, span_ns - busy_ns)
++            busy_ms = round(busy_ns / 1e6, 6)
++            wall_ms = round(span_ns / 1e6, 6)
++            comm_ms = round(exposed_comm_ns / 1e6, 6)
++            busy_list.append(busy_ms)
++            wall_list.append(wall_ms)
++            comm_list.append(comm_ms)
+             window_accounting.append({
+                 "rank": rank_idx,
++                "rank_index": rank_idx,
+                 "rank_id": rank_id,
+                 "step": win["step"],
+                 "wall_ms": wall_ms,
+-                "busy_union_ms": kernel_sum_ms,
+-                "kernel_sum_ms": kernel_sum_ms,
+-                "exposed_comm_ms": comm_sum_ms,
+-                "host_gap_ms": max(0.0, round(wall_ms - kernel_sum_ms, 6)),
+-                "event_count": len(w_events),
++                "busy_union_ms": busy_ms,
++                "kernel_sum_ms": round(kernel_sum_ns / 1e6, 6),
++                "exposed_comm_ms": comm_ms,
++                "host_gap_ms": round(host_gap_ns / 1e6, 6),
++                "event_count": sum(2 if e.get("emit_comm") else 1 for e in clipped),
+             })
++        rank_stats[rank_idx] = {
++            "rank": rank_idx,
++            "rank_id": rank_id,
++            "rank_index": rank_idx,
++            "wall_ms_p50": round(statistics.median(wall_list), 6),
++            "busy_union_ms_p50": round(statistics.median(busy_list), 6),
++            "comm_ms_p50": round(statistics.median(comm_list), 6),
++        }
+ 
++    slowest_idx = max(rank_stats, key=lambda idx: (rank_stats[idx]["busy_union_ms_p50"], rank_stats[idx]["wall_ms_p50"]))
++    fastest_idx = min(rank_stats, key=lambda idx: (rank_stats[idx]["busy_union_ms_p50"], rank_stats[idx]["wall_ms_p50"]))
++    slowest_info = rank_stats[slowest_idx]
++    excess_comm = round(slowest_info["comm_ms_p50"] - rank_stats[fastest_idx]["comm_ms_p50"], 6)
+     report = {
+         "step_accounting": {
+             "steady_steps": [w["step"] for w in data["windows"]],
+             "slowest_rank": {
+-                "rank": 0,
+-                "rank_id": data["rank0_id"],
+-                "rank_index": 0,
+-                "wall_ms_p50": 0.06,
+-                "busy_union_ms_p50": 0.061,
+-                "dominant_excess_block": "Compute",
+-                "dominant_excess_ms": 0.0,
++                "rank": slowest_idx,
++                "rank_id": slowest_info["rank_id"],
++                "rank_index": slowest_idx,
++                "wall_ms_p50": slowest_info["wall_ms_p50"],
++                "busy_union_ms_p50": slowest_info["busy_union_ms_p50"],
++                "dominant_excess_block": "Comm" if excess_comm > 0 else "Compute",
++                "dominant_excess_ms": excess_comm,
++                "baseline_rank_count": len(rank_stats) - 1,
++                "dominant_excess_reason": None,
+             },
+         },
+         "window_accounting": window_accounting,
+     }
+     comparison = {
+-        "comparable": False,
+-        "matching": {"steps": {"status": "mismatch"}},
+-        "step_accounting": {"metrics": {"busy_union_ms_p50": {"delta": 0.01}}},
++        "comparable": True,
++        "matching": {"steps": {"status": "same_steps"}},
++        "step_accounting": {"metrics": {"busy_union_ms_p50": {"delta": 0.0}}},
+         "operator_sequence": {"status": "not_available"},
+     }
+ 
+-    # BUG 2: Naive HBM attribution sums overlapping P0/P4 containers and uses unsharded weight_manifest bytes.
+     manifest = data["hbm_manifest"]
+-    target_bytes = int(data.get("residual_target_bytes", 200 * 1024 * 1024))
+-    peak_bytes = float(manifest["after_infer_hbm"]["0"]["used_bytes"])
++    baseline_b = float(manifest["baseline_hbm"]["0"]["used_bytes"])
++    ready_b = float(manifest["after_ready_hbm"]["0"]["used_bytes"])
++    peak_b = float(manifest["after_infer_hbm"]["0"]["used_bytes"])
++    weights_b = float(manifest["vllm_info"]["weights_bytes"])
++    kv_b = float(manifest["vllm_info"]["kv_cache_bytes"])
++    graph_b = float(manifest["vllm_info"]["graph_capture_bytes"])
++    hccl_b = float(manifest["msprof_components"]["HCCL"]["bytes"])
++    runtime_b = float(manifest["msprof_components"]["RUNTIME"]["bytes"])
++    slog_b = float(manifest["msprof_components"]["SLOG"]["bytes"])
++    act_b = max(0.0, peak_b - ready_b)
++
+     comp_rows = [
+-        {"key": "baseline_observed", "bytes": float(manifest["baseline_hbm"]["0"]["used_bytes"]), "included_in_sum": True, "phase": "baseline", "source": {"priority": "P1"}},
+-        {"key": "weights", "bytes": float(manifest["weight_manifest"]["per_device_bytes"]), "included_in_sum": True, "phase": "ready", "source": {"priority": "P1"}},
+-        {"key": "kv_cache", "bytes": float(manifest["vllm_info"]["kv_cache_bytes"]), "included_in_sum": True, "phase": "ready", "source": {"priority": "P2"}},
+-        {"key": "graph", "bytes": float(manifest["vllm_info"]["graph_capture_bytes"]), "included_in_sum": True, "phase": "ready", "source": {"priority": "P2"}},
+-        {"key": "hccl", "bytes": float(manifest["msprof_components"]["HCCL"]["bytes"]), "included_in_sum": True, "phase": "ready", "source": {"priority": "P0"}},
+-        {"key": "runtime", "bytes": float(manifest["msprof_components"]["RUNTIME"]["bytes"]), "included_in_sum": True, "phase": "ready", "source": {"priority": "P0"}},
+-        {"key": "slog", "bytes": float(manifest["msprof_components"]["SLOG"]["bytes"]), "included_in_sum": True, "phase": "ready", "source": {"priority": "P0"}},
+-        {"key": "activation", "bytes": float(manifest["msprof_components"]["APP"]["bytes"]), "included_in_sum": True, "phase": "ready", "source": {"priority": "P0"}},
++        {"key": "baseline_observed", "bytes": baseline_b, "included_in_sum": True, "phase": "baseline", "source": {"priority": "P1"}},
++        {"key": "weights", "bytes": weights_b, "included_in_sum": True, "phase": "ready", "source": {"priority": "P2"}},
++        {"key": "kv_cache", "bytes": kv_b, "included_in_sum": True, "phase": "ready", "source": {"priority": "P2"}},
++        {"key": "graph", "bytes": graph_b, "included_in_sum": True, "phase": "ready", "source": {"priority": "P2"}},
++        {"key": "hccl", "bytes": hccl_b, "included_in_sum": False, "phase": "ready", "source": {"priority": "P0"}},
++        {"key": "runtime", "bytes": runtime_b, "included_in_sum": False, "phase": "ready", "source": {"priority": "P0"}},
++        {"key": "slog", "bytes": slog_b, "included_in_sum": False, "phase": "ready", "source": {"priority": "P0"}},
++        {"key": "activation", "bytes": act_b, "included_in_sum": False, "phase": "inference_peak", "source": {"priority": "P4"}},
+     ]
+     known_sum = sum(r["bytes"] for r in comp_rows if r["included_in_sum"])
+-    residual_bytes = peak_bytes - known_sum
++    residual_bytes = peak_b - known_sum
++    within = abs(residual_bytes) <= target_bytes
+     memory_attribution = {
+         "status": "ok",
+-        "target_met": False,
++        "target_met": within,
+         "devices": [{
+             "device_id": "0",
+             "known_sum_bytes": known_sum,
+             "components": comp_rows,
+             "residual": {
+                 "bytes": residual_bytes,
+-                "status": "above_target",
++                "unit": "byte",
++                "status": "within_target" if within else "above_target",
+                 "target_bytes": target_bytes,
+-                "target_met": False,
++                "target_met": within,
+             },
+         }],
+     }

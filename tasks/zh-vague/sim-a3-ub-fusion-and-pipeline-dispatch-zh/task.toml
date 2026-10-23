@@ -1,0 +1,26 @@
+schema_version = "1.0"
+[task]
+instance_id = "sim-a3-ub-fusion-and-pipeline-dispatch-zh"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "8c5ce76d9afb36205b8e59adb7b2d4b2ad89a85c"
+issue = "component-value-0.1.0"
+validation_scope = "Ascend A3 (Ascend910_9362) four-layer roofline/pipeline/UB-fusion solver, Qwen2.5-7B PhysicalCalibration TTFT/TPOT, and finite Vector/Cube operator DAG estimation"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+analogical_task_hashes = ["unit-vllm-ascend-sim-a3-roofline-ub-fusion-and-pipeline-sop"]
+target_files = ["vllm_ascend_diag/a3_sim_planner.py"]
+[budget]
+max_turns = 50
+max_npu_runs = 6
+timeout_sec = 480
+verifier_timeout_sec = 120
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "f752d0215c2e13b44ac472caa14c02b6749762e3"

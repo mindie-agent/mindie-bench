@@ -1,3 +1,7 @@
+# Enforce Unix LF (\n) line endings across native Windows, WSL, macOS, and Linux.
+# Windows CRLF (\r\n) is strictly prohibited in all text files; retain Git's binary-file detection.
+* text=auto eol=lf
+
 # Preserve upstream patch context prefixes, including blank context lines.
 tasks/**/oracle/*.diff -whitespace
 # Keep the captured NPU stderr byte-for-byte, including its final blank line.

@@ -269,7 +269,9 @@ def case(tmp_path, _case_source_template):
         )
     )
     (task_root / "verifier/test.sh").write_text(
-        '#!/bin/bash\nif /usr/bin/grep -qx "VALUE = 2" module.py; then\n'
+        '#!/bin/bash\n'
+        'if [ -x /usr/bin/grep ]; then GREP=/usr/bin/grep; else GREP=grep; fi\n'
+        'if "$GREP" -qx "VALUE = 2" module.py; then\n'
         'echo \'{"reward":1.0,"speedup_ratio":1.2}\'\nexit 0\n'
         "else\necho '{\"reward\":0.0}'\nexit 1\nfi\n"
     )
@@ -293,9 +295,15 @@ base_commit = "{commit}"
 replay_commands = ["pytest"]
 '''
     (task_root / "task.toml").write_text(task)
-    executable = tmp_path / "fixture-agent"
-    executable.write_text(AGENT.format(python=sys.executable))
-    executable.chmod(0o700)
+    if os.name == "nt":
+        agent_py = tmp_path / "fixture-agent.py"
+        agent_py.write_text(AGENT.format(python=sys.executable))
+        executable = tmp_path / "fixture-agent.cmd"
+        executable.write_text(f'@"{sys.executable}" -I "{agent_py}" %*\n')
+    else:
+        executable = tmp_path / "fixture-agent"
+        executable.write_text(AGENT.format(python=sys.executable))
+        executable.chmod(0o700)
     config = ExperimentConfig.model_validate(
         {
             "schema_version": "1.0",

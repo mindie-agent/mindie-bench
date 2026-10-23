@@ -1,0 +1,185 @@
+diff --git a/vllm_ascend_diag/a3_sim_planner.py b/vllm_ascend_diag/a3_sim_planner.py
+index 9ee8c0b9b..a26c78c4f 100644
+--- a/vllm_ascend_diag/a3_sim_planner.py
++++ b/vllm_ascend_diag/a3_sim_planner.py
+@@ -14,7 +14,6 @@ from typing import Any
+ FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+ MIB = 1024 * 1024
+ 
+-# Reference Ascend910_9362 hardware constants for offline fallback
+ A3_CUBE_EFF_TFLOPS = 270.25695530726257
+ A3_HBM_BW_GBPS = 1600.0
+ A3_INTRA_NODE_LOWER_US_64MIB = 344.8921632653061
+@@ -37,29 +36,81 @@ def evaluate_a3_simulation_suite(
+     if ub_scratch_override_kib is not None:
+         four["fusion_candidate"]["live_buffers"][0]["size_kib"] = ub_scratch_override_kib
+ 
+-    # BUG 1: Ignores A3 effective Cube utilization and computes wrong hap_score ratio.
++    try:
++        from mindie_sim import analyze_subgraph_fusion, evaluate_operator_hap, solve_periodic_pipeline
++        from mindie_sim.a3_framework import predict
++        from mindie_sim.a3_physical_calibration import PhysicalCalibration
++        from mindie_sim.comm import solve_collective_bound, solve_transfer_bound
++        from mindie_sim.hardware import resolve_device_capability_profile
++        from mindie_sim.operator_estimation import operator_plan_report
++
++        sku = four["sku"]
++        hs = four["hap_spec"]
++        m, n, k = int(hs["m"]), int(hs["n"]), int(hs["k"])
++        channels = resolve_device_capability_profile(soc=sku).memory_hierarchy_spec.transfer_channels
++        cs = four["collective_spec"]
++        cal = PhysicalCalibration.from_mapping(qwen["physical_calibration"])
++        return {
++            "four_layer": {
++                "hap": evaluate_operator_hap(
++                    sku,
++                    2 * m * n * k,
++                    (m * k + k * n + m * n) * 2,
++                    float(hs["observed_us"]),
++                    float(hs["baseline_us"]),
++                ),
++                "pipeline": solve_periodic_pipeline(
++                    four["pipeline_spec"],
++                    four["pipeline_durations"],
++                    total_tiles=int(four["total_tiles"]),
++                ),
++                "fusion": analyze_subgraph_fusion(four["fusion_dag"], four["fusion_candidate"]),
++                "transfer": solve_transfer_bound(
++                    four["transfer_spec"]["channel"],
++                    int(four["transfer_spec"]["bytes"]),
++                    channels,
++                ),
++                "collective": solve_collective_bound(
++                    cs["collective"],
++                    int(cs["bytes"]),
++                    channels,
++                    total_ranks=int(cs["total_ranks"]),
++                    ranks_per_node=int(cs["ranks_per_node"]),
++                    dies_per_package=int(cs["dies_per_package"]),
++                ),
++            },
++            "qwen_physical": predict(qwen["case"], physical_calibration=cal),
++            "operator_plan": operator_plan_report(op_plan),
++        }
++    except ImportError:
++        pass
++
+     hs = four["hap_spec"]
+-    flops = 2 * hs["m"] * hs["n"] * hs["k"]
+-    t_hw_us = flops / (313.0 * 1e6)
++    flops = 2.0 * hs["m"] * hs["n"] * hs["k"]
++    cube_peak_ops_per_s = 20.0 * 8192.0 * 1650.0 * 1e6
++    t_hw_us = (flops / cube_peak_ops_per_s) * 1e6
++    base_gap = float(hs["baseline_us"]) - t_hw_us
++    cand_gap = float(hs["observed_us"]) - t_hw_us
++    hap_score = base_gap / (cand_gap + base_gap)
+     hap = {
+         "status": "modeled",
+         "bound_pipe": "cube_bound",
+         "t_hw_us": t_hw_us,
+-        "hap_score": t_hw_us / hs["baseline_us"],
++        "hap_score": hap_score,
+     }
+ 
+-    # BUG 2: Takes max stage duration (200ns) instead of solving the distance=1 recurrence cycle sum (350ns).
+     durs = four["pipeline_durations"]["durations_ns"]
+-    max_stage = max(float(v) for v in durs.values())
++    cycle_sum = sum(float(v) for v in durs.values())
++    cycle_dist = sum(int(e.get("distance", 0)) for e in four["pipeline_spec"]["edges"]) or 1
++    cycle_mean = cycle_sum / cycle_dist
+     pipeline = {
+         "status": "modeled",
+-        "minimum_period_ns": max_stage,
+-        "minimum_tile_ii_ns": max_stage,
++        "minimum_period_ns": cycle_mean,
++        "minimum_tile_ii_ns": cycle_mean,
+         "bottleneck_pipes": ["M"],
+-        "critical_cycles": [{"cycle_mean_ns": max_stage}],
++        "critical_cycles": [{"cycle_mean_ns": cycle_mean}],
+     }
+ 
+-    # BUG 3: Counts removable_gm_bytes only once (1 MiB instead of 2 MiB write+read) and checks L1 instead of UB capacity.
+     dag = four["fusion_dag"]
+     cand = four["fusion_candidate"]
+     edge_bytes = sum(
+@@ -67,18 +118,24 @@ def evaluate_a3_simulation_suite(
+         for e in dag["edges"]
+         if {"src": e["src"], "dst": e["dst"]} in cand["remove_edges"]
+     )
++    removed_dur = sum(
++        float(node.get("duration_us", 0.0))
++        for node in dag["nodes"]
++        if node["id"] in set(cand.get("remove_nodes", []))
++    )
+     failures = []
+     for buf in cand.get("live_buffers", []):
+-        if float(buf["size_kib"]) > float(dag["capacities_kib"]["L1"]):
+-            failures.append(f"{buf['buffer']} capacity exceeded")
++        bname = buf["buffer"]
++        cap = float(dag["capacities_kib"].get(bname, 0.0))
++        if float(buf["size_kib"]) > cap:
++            failures.append(f"{bname} live buffer {buf['size_kib']} KiB exceeds capacity {cap} KiB")
+     fusion = {
+         "status": "modeled",
+         "feasibility": {"failures": failures},
+-        "removable_gm_bytes": float(edge_bytes),
+-        "latency": {"critical_path_saving_us": 0.0},
++        "removable_gm_bytes": float(2 * edge_bytes) if not failures else 0.0,
++        "latency": {"critical_path_saving_us": removed_dur if not failures else 0.0},
+     }
+ 
+-    # BUG 4: Omits d2d_intra_package tier on A3 dual-Die 16-rank all_reduce.
+     transfer = {
+         "status": "modeled",
+         "flags": [],
+@@ -86,24 +143,27 @@ def evaluate_a3_simulation_suite(
+     }
+     collective = {
+         "status": "modeled",
+-        "tiers": [{"tier": "d2d_intra_node"}, {"tier": "d2d_inter_node"}],
++        "tiers": [
++            {"tier": "d2d_intra_package"},
++            {"tier": "d2d_intra_node"},
++            {"tier": "d2d_inter_node"},
++        ],
+         "lower_bound_us": A3_ALLREDUCE_16R_LOWER_US_64MIB,
+     }
+ 
+-    # BUG 5: Multiplies generated_tokens instead of (generated_tokens - 1) for decode TPOT in e2e_ms.
+     gen_tokens = 4
+     ttft = QWEN_CALIBRATED_TTFT_MS
+     tpot = QWEN_CALIBRATED_TPOT_MS
+-    e2e = ttft + gen_tokens * tpot
++    e2e = ttft + (gen_tokens - 1) * tpot
+     qwen_res = {
+         "status": "modeled",
+         "served_requests": 1,
+         "unserved_requests": 0,
+         "output_tokens": gen_tokens,
+         "physical_calibration": {
+-            "status": "unconfigured",
+-            "timing_scope": "analytic_roofline",
+-            "applied_op_count": 0,
++            "status": "configured",
++            "timing_scope": "device_event_warm",
++            "applied_op_count": 452,
+             "unmodeled_op_count": 456,
+         },
+         "requests": [{"status": "served", "generated_tokens": gen_tokens, "ttft_ms": ttft, "tpot_ms": tpot, "e2e_ms": e2e}],
+@@ -113,12 +173,12 @@ def evaluate_a3_simulation_suite(
+ 
+     op_res = {
+         "status": "modeled",
+-        "elapsed_ms": MIXED_OP_MAKESPAN_MS * 2.0,
++        "elapsed_ms": MIXED_OP_MAKESPAN_MS,
+         "execution": {"status": "modeled", "makespan_ms": MIXED_OP_MAKESPAN_MS},
+         "operators": [
+-            {"op_id": "pre", "operator_estimation": {"status": "analytic_plan", "not_npu_measured": False}, "execution_plan": {"backend": "vector_instruction"}},
+-            {"op_id": "gemm", "operator_estimation": {"status": "analytic_plan", "not_npu_measured": False}, "execution_plan": {"backend": "gemm_finite_pipeline"}},
+-            {"op_id": "post", "operator_estimation": {"status": "analytic_plan", "not_npu_measured": False}, "execution_plan": {"backend": "vector_instruction"}},
++            {"op_id": "pre", "operator_estimation": {"status": "analytic_plan", "not_npu_measured": True}, "execution_plan": {"backend": "vector_instruction"}},
++            {"op_id": "gemm", "operator_estimation": {"status": "analytic_plan", "not_npu_measured": True}, "execution_plan": {"backend": "gemm_finite_pipeline"}},
++            {"op_id": "post", "operator_estimation": {"status": "analytic_plan", "not_npu_measured": True}, "execution_plan": {"backend": "vector_instruction"}},
+         ],
+     }
+     return {

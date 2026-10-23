@@ -201,7 +201,11 @@ def run_trial(
         )
         harness_probe = probe_harness_version(config, profile, paths, trial_dir)
         fingerprint["harness_binary_sha256"] = harness_probe["binary_sha256"]
-        if group == Group.G3 and config.harness.name == "dsh":
+        capture_enabled = group == Group.G3 or (
+            group == Group.G4
+            and bool(config.groups.get(group) and config.groups[group].capture_command)
+        )
+        if capture_enabled and config.harness.name == "dsh":
             from mindie_bench.runner import dsh_summary, graded_view
 
             capture_config = config.groups[group]
@@ -226,9 +230,7 @@ def run_trial(
             profile.env["MINDIE_BENCH_GATEWAY"] = "http://127.0.0.1:9"
             with SummaryHost(profile, read_paths=paths) as summary:
                 fingerprint["capture_sdk_preflight"] = summary.receipt
-        if group == Group.G3 and config.harness.name == "kimi":
-            raise ValueError(f"G3 native capture is not supported for the {config.harness.name} harness")
-        if group == Group.G3:
+        if capture_enabled:
             fingerprint["capture_git_preflight"] = probe_capture_git(profile, paths, trial_dir)
         if tier == "l3":
             if config.remote is None or not devices or len(devices) != environment.npu_count:
@@ -474,7 +476,7 @@ def run_trial(
                 primary_verdict = status
         phase = "postflight"
         if (
-            group == Group.G3
+            capture_enabled
             and status in {TerminalStatus.PASS, TerminalStatus.FAIL}
             and primary.get("performance_metrics", {}).get("oracle_status") != "oracle_tampered"
         ):

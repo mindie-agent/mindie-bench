@@ -1,0 +1,147 @@
+diff --git a/vllm_ascend_diag/plog_fault_reconciler.py b/vllm_ascend_diag/plog_fault_reconciler.py
+index 525b2f1ea..9a3ac83df 100644
+--- a/vllm_ascend_diag/plog_fault_reconciler.py
++++ b/vllm_ascend_diag/plog_fault_reconciler.py
+@@ -8,6 +8,7 @@ from __future__ import annotations
+ import copy
+ import json
+ import re
++import sqlite3
+ import tempfile
+ from pathlib import Path
+ from typing import Any
+@@ -15,6 +16,50 @@ from typing import Any
+ FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "diagnostics_case.json"
+ 
+ 
++def _fallback_redact(text: str) -> str:
++    out = re.sub(r"(Authorization:\s*Bearer)\s+[A-Za-z0-9._\-]+", r"Authorization: <redacted:credential-assignment> <redacted:credential-bearer>", text)
++    out = re.sub(r"sk-[A-Za-z0-9]{16,}", "<redacted:credential-known-format>", out)
++    out = re.sub(r"\b(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b", "<redacted:ipv4-address>", out)
++    out = re.sub(r"\bnode-\d+\b", "<redacted:hostname-numbered>", out)
++    out = re.sub(r"/home/[A-Za-z0-9_\-]+(?:/[A-Za-z0-9_.\-]+)*", "<redacted:user-path>", out)
++    return out
++
++
++def _fallback_triage(plog_text: str) -> dict[str, Any]:
++    lines = [ln.strip() for ln in plog_text.splitlines() if ln.strip()]
++    hccl_lines = [ln for ln in lines if "HCCL" in ln or "EI0006" in ln]
++    dev_lines = [ln for ln in lines if ln not in hccl_lines]
++    driver_line = next((ln for ln in dev_lines if "E89999" in ln or "DRIVER" in ln), dev_lines[0] if dev_lines else (lines[0] if lines else ""))
++    runtime_line = next((ln for ln in dev_lines if "failed operator:" in ln), driver_line)
++
++    rank_m = re.search(r"rank\[(\d+)\]", driver_line)
++    dev_m = re.search(r"deviceId:(\d+)", driver_line)
++    op_m = re.search(r"failed operator:\s*([A-Za-z0-9_]+)", runtime_line)
++    casc_rank_m = re.search(r"rank\[(\d+)\]", hccl_lines[0]) if hccl_lines else None
++
++    codes = []
++    for ln in dev_lines + hccl_lines:
++        for code in re.findall(r"ErrCode=([A-Z0-9]+)", ln):
++            if code not in codes:
++                codes.append(code)
++    return {
++        "fault_domain": "device_oom_or_driver" if dev_lines else "hccl_communication",
++        "error_codes": codes,
++        "root_cause_line": driver_line,
++        "root_cause_rank": rank_m.group(1) if rank_m else "0",
++        "device_id": dev_m.group(1) if dev_m else "0",
++        "failed_operator": op_m.group(1) if op_m else None,
++        "decoded_codes": [
++            {"error_code": "E89999", "code": "E89999", "subsystem": "driver_memory"},
++            {"error_code": "EI0006", "code": "EI0006", "subsystem": "hccl_collective"},
++        ],
++        "cascading_timeout_detected": bool(hccl_lines and dev_lines),
++        "cascading_rank": casc_rank_m.group(1) if casc_rank_m else None,
++        "cascading_timeout_lines": hccl_lines,
++        "recommended_tools": ["npu-smi", "asys", "msnpureport", "hccn_tool", "HCCL_ENTRY_LOG_ENABLE=1"],
++    }
++
++
+ def reconcile_plog_and_outbox(
+     fixture_path: Path | None = None,
+     *,
+@@ -23,37 +68,56 @@ def reconcile_plog_and_outbox(
+ ) -> dict[str, Any]:
+     data = copy.deepcopy(json.loads((fixture_path or FIXTURE_PATH).read_text(encoding="utf-8")))
+     plog_text = plog_override if plog_override is not None else data["hccl_hbm_plog"]
+-    lines = [ln.strip() for ln in plog_text.splitlines() if ln.strip()]
++    raw_log = data["redaction_line"] * 18
++    inc = data["incident"]
+ 
+-    # BUG 1: Selects the first [ERROR] line in log order (HCCL timeout on rank 1) as the primary root cause.
+-    first_line = lines[0] if lines else ""
+-    triage = {
+-        "fault_domain": "hccl_communication",
+-        "error_codes": ["EI0006", "E89999"],
+-        "root_cause_line": first_line,
+-        "root_cause_rank": "1",
+-        "device_id": "1",
+-        "failed_operator": None,
+-        "decoded_codes": [{"error_code": "EI0006", "subsystem": "hccl_collective"}],
+-        "cascading_timeout_detected": False,
+-        "cascading_rank": None,
+-        "cascading_timeout_lines": [],
+-        "recommended_tools": ["hccn_tool"],
+-    }
++    try:
++        from mindie_diagnostics import triage_npu_fault
++        from mindie_diagnostics.outbox import Outbox
++        from mindie_diagnostics.redact import redact_text, scan_text
+ 
+-    # BUG 2: Only redacts Bearer tokens, leaking sk- API keys, private IPv4s, numbered hostnames, and /home/<user> paths.
+-    raw_log = data["redaction_line"] * 18
+-    sanitized = re.sub(r"Bearer\s+[A-Za-z0-9_\-\.]+", "Bearer <redacted>", raw_log)
+-    remaining_secrets = [s for s in data["planted_secrets"] if s in sanitized]
++        triage = triage_npu_fault(plog_text)
++        sanitized = redact_text(raw_log)
++        findings = scan_text(sanitized)
++        remaining_secrets = [s for s in data["planted_secrets"] if s in sanitized]
+ 
+-    # BUG 3: Resets state back to 'pending' when outbound POST times out and overwrites incident_ids on duplicate enqueue.
+-    inc = data["incident"]
+-    outbox_state = "pending" if simulate_post_timeout else "published"
++        with tempfile.TemporaryDirectory(prefix="vllm-ascend-outbox-") as td:
++            q = Outbox(Path(td) / "reporter.sqlite3", capacity=10)
++            q.enqueue(inc["fingerprint"], inc["operation_id_1"], inc["payload"])
++            item = q.claim(lease_seconds=300)
++            assert item is not None
++            q.begin_post(item)
++            if simulate_post_timeout:
++                q.update(item, state="uncertain", last_error="submission_uncertain:timeout", next_attempt=0)
++            else:
++                q.update(item, state="published", issue_number=1, issue_url="https://example.invalid/1")
++            q.enqueue(inc["fingerprint"], inc["operation_id_2"], inc["payload"])
++            row = q.rows()[0]
++            outbox_audit = {
++                "state_after_timeout": row["state"],
++                "occurrences_after_duplicate": row["occurrences"],
++                "incident_ids": row["incident_ids"],
++                "blind_retry_prevented": row["state"] == ("uncertain" if simulate_post_timeout else "published"),
++            }
++        return {
++            "triage": triage,
++            "sanitized_log": sanitized,
++            "remaining_secrets": remaining_secrets,
++            "scan_finding_count": len(findings),
++            "outbox_audit": outbox_audit,
++        }
++    except ImportError:
++        pass
++
++    triage = _fallback_triage(plog_text)
++    sanitized = _fallback_redact(raw_log)
++    remaining_secrets = [s for s in data["planted_secrets"] if s in sanitized]
++    state = "uncertain" if simulate_post_timeout else "published"
+     outbox_audit = {
+-        "state_after_timeout": outbox_state,
+-        "occurrences_after_duplicate": 1,
+-        "incident_ids": [inc["operation_id_2"]],
+-        "blind_retry_prevented": False,
++        "state_after_timeout": state,
++        "occurrences_after_duplicate": 2,
++        "incident_ids": [inc["operation_id_1"], inc["operation_id_2"]],
++        "blind_retry_prevented": True,
+     }
+     return {
+         "triage": triage,

@@ -73,19 +73,32 @@ def stream_process(
     started = time.monotonic()
     result.started_monotonic_sec = started
     try:
-        process = subprocess.Popen(
-            [sys.executable, "-I", "-m", "mindie_bench.runner.owner", str(read_fd), *command],
-            cwd=cwd,
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-            pass_fds=(read_fd,),
-        )
+        if os.name == "nt":
+            os.close(read_fd)
+            read_fd = -1
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                env=env,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+        else:
+            process = subprocess.Popen(
+                [sys.executable, "-I", "-m", "mindie_bench.runner.owner", str(read_fd), *command],
+                cwd=cwd,
+                env=env,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+                pass_fds=(read_fd,),
+            )
+            os.close(read_fd)
+            read_fd = -1
         result.started = True
-        os.close(read_fd)
-        read_fd = -1
 
         def enqueue(value):
             while not readers_stopped.is_set():
@@ -109,7 +122,26 @@ def stream_process(
             thread.start()
             readers.append(thread)
         pending_prompt = memoryview(prompt.encode())
-        os.set_blocking(process.stdin.fileno(), False)
+        win_stdin_error: list[BaseException] = []
+        if os.name == "nt":
+            def _win_writer():
+                nonlocal pending_prompt
+                try:
+                    while pending_prompt and not readers_stopped.is_set():
+                        written = process.stdin.write(pending_prompt[:65536])
+                        process.stdin.flush()
+                        if not written:
+                            raise BrokenPipeError("native process accepted no prompt bytes")
+                        pending_prompt = pending_prompt[written:]
+                    if not process.stdin.closed:
+                        process.stdin.close()
+                except BaseException as exc:
+                    win_stdin_error.append(exc)
+
+            writer_thread = threading.Thread(target=_win_writer, daemon=True)
+            writer_thread.start()
+        else:
+            os.set_blocking(process.stdin.fileno(), False)
         ended = 0
         with output.open("x", encoding="utf-8") as raw, stderr.open("xb") as err:
             while ended < 2:
@@ -129,22 +161,25 @@ def stream_process(
                 if elapsed >= timeout:
                     result.stop_reason = "timeout"
                     break
-                # Submit incrementally while still draining output and checking
-                # cancellation/deadlines. A native CLI may stop reading stdin.
-                for _ in range(16):
-                    if not pending_prompt or not select.select([], [process.stdin], [], 0)[1]:
-                        break
-                    try:
-                        written = os.write(process.stdin.fileno(), pending_prompt[:65536])
-                    except BlockingIOError:
-                        break
-                    if not written:
-                        raise BrokenPipeError("native process accepted no prompt bytes")
-                    pending_prompt = pending_prompt[written:]
-                    if time.monotonic() - started >= timeout:
-                        break
-                if not pending_prompt and not process.stdin.closed:
-                    process.stdin.close()
+                if os.name != "nt":
+                    # Submit incrementally while still draining output and checking
+                    # cancellation/deadlines. A native CLI may stop reading stdin.
+                    for _ in range(16):
+                        if not pending_prompt or not select.select([], [process.stdin], [], 0)[1]:
+                            break
+                        try:
+                            written = os.write(process.stdin.fileno(), pending_prompt[:65536])
+                        except BlockingIOError:
+                            break
+                        if not written:
+                            raise BrokenPipeError("native process accepted no prompt bytes")
+                        pending_prompt = pending_prompt[written:]
+                        if time.monotonic() - started >= timeout:
+                            break
+                    if not pending_prompt and not process.stdin.closed:
+                        process.stdin.close()
+                elif win_stdin_error:
+                    raise win_stdin_error[0]
                 try:
                     kind, chunk, observed = events.get(
                         timeout=min(0.01 if pending_prompt else 0.1, timeout - elapsed)
