@@ -1,9 +1,15 @@
 #!/bin/bash
 set -eu
-if command -v mindie-profiler >/dev/null 2>&1; then
+if [ -n "${MINDIE_BENCH_PYTHON:-}" ] && [ -x "${MINDIE_BENCH_PYTHON}" ]; then
+  PY="${MINDIE_BENCH_PYTHON}"
+elif [ -n "${MINDIE_BENCH_CPU_PYTHON:-}" ] && [ -x "${MINDIE_BENCH_CPU_PYTHON}" ]; then
+  PY="${MINDIE_BENCH_CPU_PYTHON}"
+elif command -v mindie-profiler >/dev/null 2>&1; then
   PY="$(command -v python3)"
-else
+elif [ -x "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python" ]; then
   PY="/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python"
+else
+  PY="python3"
 fi
 exec "$PY" -I -B -c '
 import importlib.util, json, math, os, sys

@@ -225,7 +225,7 @@ class TaskSpec(StrictModel):
         return self
 
     @classmethod
-    def load(cls, root: Path) -> TaskSpec:
+    def load(cls, root: Path, *, require_soundness_receipt: bool = True) -> TaskSpec:
         spec = cls.model_validate(tomllib.loads((root / "task.toml").read_text()))
         for environment in spec.environment.values():
             if not Path(environment.repo_path).is_absolute():
@@ -234,7 +234,7 @@ class TaskSpec(StrictModel):
             raise ValueError("task is missing instruction.md")
         if not (root / "verifier/test.sh").is_file():
             raise ValueError("task is missing external verifier/test.sh")
-        if spec.task.evidence == "verified":
+        if spec.task.evidence == "verified" and require_soundness_receipt:
             if not (root / "soundness_receipt.json").is_file():
                 raise ValueError("verified task has no soundness receipt")
             proof = read_json(root / "soundness_receipt.json")

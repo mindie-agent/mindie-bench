@@ -31,7 +31,7 @@ def parser():
     validate = commands.add_parser(
         "validate", help="validate task and experiment contracts without a model call"
     )
-    validate.add_argument("--tasks", type=Path, required=True)
+    validate.add_argument("--tasks", type=Path, action="append", required=True)
     validate.add_argument("--config", type=Path)
     for name, description in (
         ("ablation-evaluate", "evaluate measured C4 conditional ablations and sequential pruning"),
@@ -43,7 +43,7 @@ def parser():
     coverage = commands.add_parser(
         "coverage", help="check whether a study can answer its declared metric questions"
     )
-    coverage.add_argument("--tasks", type=Path, required=True)
+    coverage.add_argument("--tasks", type=Path, action="append", required=True)
     coverage.add_argument("--groups", default="G0,G1,G2,G3")
     coverage.add_argument("--repetitions", type=int, default=3)
     audit = commands.add_parser(
@@ -70,8 +70,12 @@ def parser():
         "demo", help="run a fully synthetic end-to-end example with zero model calls"
     )
     demo.add_argument("--output", type=Path, required=True)
-    run = commands.add_parser("run", help="run a finite matrix once; never resume unknown attempts")
-    run.add_argument("--tasks", type=Path, required=True)
+    run = commands.add_parser(
+        "run",
+        aliases=["matrix"],
+        help="run a finite matrix once; never resume unknown attempts",
+    )
+    run.add_argument("--tasks", type=Path, action="append", required=True)
     run.add_argument("--config", type=Path, required=True)
     run.add_argument("--tier", choices=["l1", "l2", "l3"], required=True)
     run.add_argument("--groups", default="G0")
@@ -311,12 +315,14 @@ def main(argv=None):
                 repetitions=args.repetitions,
                 k=args.k,
             )
-        elif args.command in {"run", "validate", "coverage"}:
-            paths = (
-                [args.tasks]
-                if (args.tasks / "task.toml").is_file()
-                else sorted(path.parent for path in args.tasks.rglob("task.toml"))
-            )
+        elif args.command in {"run", "matrix", "validate", "coverage"}:
+            task_args = args.tasks if isinstance(args.tasks, list) else [args.tasks]
+            paths = []
+            for task_arg in task_args:
+                if (task_arg / "task.toml").is_file():
+                    paths.append(task_arg)
+                else:
+                    paths.extend(sorted(path.parent for path in task_arg.rglob("task.toml")))
             if not paths:
                 raise ValueError("no tasks found")
             specs = [TaskSpec.load(path) for path in paths]

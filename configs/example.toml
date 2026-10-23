@@ -1,0 +1,12 @@
+schema_version = "1.0"
+backend = "native"
+runtime_read_paths = []
+
+[harness]
+name = "codex"
+executable = "/bin/echo"
+expected_version = "local-soundness-check"
+model = "deepseek-v3.2"
+provider_url = "https://api.deepseek.com/v1"
+api_key_env = "MINDIE_BENCH_OPENAI_KEY"
+reasoning_effort = "medium"

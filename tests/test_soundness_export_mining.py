@@ -282,3 +282,100 @@ def test_export_hf_includes_public_tasks_and_optional_upload(
     readme = (output / "README.md").read_text()
     assert "tasks.parquet" in readme
     assert "Leaderboard Summary" in readme
+
+
+def test_cli_matrix_alias_supports_multiple_tasks_flags(case, tmp_path, monkeypatch):
+    import shutil
+
+    from mindie_bench import cli
+    from mindie_bench.io import write_json
+
+    task_a = tmp_path / "task-a"
+    task_b = tmp_path / "task-b"
+    shutil.copytree(case["task"], task_a)
+    shutil.copytree(case["task"], task_b)
+    (task_b / "task.toml").write_text(
+        (task_b / "task.toml").read_text().replace('instance_id = "synthetic-dtype"', 'instance_id = "synthetic-dtype-b"')
+    )
+    captured = {}
+
+    def fake_run_matrix(paths, config, **kwargs):
+        captured["paths"] = paths
+        captured["kwargs"] = kwargs
+        write_json(kwargs["output"] / "summary.json", {"cells": len(paths)})
+        return []
+
+    monkeypatch.setattr("mindie_bench.runner.orchestrator.run_matrix", fake_run_matrix)
+    out_dir = tmp_path / "matrix-out"
+    config_file = Path(__file__).resolve().parents[1] / "configs/example.toml"
+    rc = cli.main(
+        [
+            "matrix",
+            "--config",
+            str(config_file),
+            "--tasks",
+            str(task_a),
+            "--tasks",
+            str(task_b),
+            "--tier",
+            "l2",
+            "--groups",
+            "G0,G2",
+            "--repetitions",
+            "1",
+            "--output",
+            str(out_dir),
+        ]
+    )
+    assert rc == 0
+    assert captured["paths"] == [task_a, task_b]
+
+
+def test_hardened_g4_rsi_verifiers_reject_constant_returning_dummy_modules(tmp_path):
+    import os
+    import subprocess
+
+    repo_root = Path(__file__).resolve().parents[1]
+    for task_id, rel_mod, arms in (
+        (
+            "dsv4-sparse-mla-qli-fusion-rsi-zh",
+            "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py",
+            ("full_candidate", "minus_q_fusion", "minus_view_alias", "minus_device_guard"),
+        ),
+        (
+            "triton-spatial-norm-dim-merge-rsi-zh",
+            "vllm_ascend/ops/spatial_group_norm_reduce.py",
+            ("full_candidate", "minus_dim_merge", "minus_block_scaling", "minus_multibuffer_cast_guard"),
+        ),
+    ):
+        ws = tmp_path / task_id
+        ws.mkdir()
+        (ws / "experiment-ledger.jsonl").write_text(" ".join(arms) + "\n")
+        (ws / "PROGRESS.md").write_text("# Progress summary with at least forty characters here.\n")
+        mod_path = ws / rel_mod
+        mod_path.parent.mkdir(parents=True, exist_ok=True)
+        mod_path.write_text(
+            '_ = "fused_q_dequant_rmsnorm_rope_split"\n'
+            "def select_optimal_block_size(n, d, b=3): return 4096\n"
+            "def run_ablation_suite():\n"
+            "    return {\n"
+            '        "full_candidate": {"tensor_move_count": 0, "host_d2h_sync_count": 0, "tpot_ms": 1.0, "nested_loop_depth": 1, "block_size": 4096, "enable_multibuffer": False, "intermediate_gm_copies": 0, "correctness_ok": True, "latency_ms": 1.0},\n'
+            '        "minus_q_fusion": {"tensor_move_count": 3, "tpot_ms": 2.0},\n'
+            '        "minus_view_alias": {"tensor_move_count": 2, "tpot_ms": 2.0},\n'
+            '        "minus_device_guard": {"host_d2h_sync_count": 1, "invalid_gm_triggered": True},\n'
+            '        "minus_dim_merge": {"nested_loop_depth": 3, "latency_ms": 2.0},\n'
+            '        "minus_block_scaling": {"block_size": 512, "latency_ms": 2.0},\n'
+            '        "minus_multibuffer_cast_guard": {"enable_multibuffer": True, "intermediate_gm_copies": 1, "latency_ms": 2.0},\n'
+            "    }\n"
+        )
+        verifier_sh = repo_root / "tasks/zh-vague" / task_id / "verifier/test.sh"
+        proc = subprocess.run(
+            ["/bin/bash", str(verifier_sh)],
+            cwd=ws,
+            env=dict(os.environ, MINDIE_BENCH_WORKSPACE=str(ws)),
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode != 0
+        payload = json.loads([line for line in proc.stdout.splitlines() if line.strip()][-1])
+        assert payload["reward"] == 0.0

@@ -68,6 +68,7 @@ from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profil
 from mindie_bench.runner.profile_builder import filtered_corpus as filtered_corpus  # noqa: F401
 from mindie_bench.runner.remote_slot import RemoteSlot
 from mindie_bench.runner.sandbox import native_command
+from mindie_bench.runner.soundness import check_soundness as check_soundness  # noqa: F401
 from mindie_bench.runner.source_projection import (
     HARNESS_CONFIG_PATHS as HARNESS_CONFIG_PATHS,  # noqa: F401
 )

@@ -16,9 +16,9 @@ from pathlib import Path
 from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.io import task_hash, write_json
 from mindie_bench.models import Group, TaskSpec
-from mindie_bench.runner.orchestrator import runtime_paths
 from mindie_bench.runner.profile_builder import build_profile
 from mindie_bench.runner.remote_slot import RemoteSlot
+from mindie_bench.runner.trial_preflight import runtime_paths
 from mindie_bench.runner.verifier import local_verifier, remote_verifier
 from mindie_bench.runner.worktree_slot import WorktreeSlot
 
@@ -26,7 +26,7 @@ from mindie_bench.runner.worktree_slot import WorktreeSlot
 def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote: bool = False):
     task_root = task_root.resolve(strict=True)
     output = output.resolve()
-    task = TaskSpec.load(task_root)
+    task = TaskSpec.load(task_root, require_soundness_receipt=False)
     environment = task.environment[tier]
     patch = task_root / "oracle/gold_patch.diff"
     if not patch.is_file():

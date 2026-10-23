@@ -250,6 +250,17 @@ def local_verifier(
         MINDIE_BENCH_ORACLE_ROOT=str(task_root.resolve()),
         PYTHONDONTWRITEBYTECODE="1",
     )
+    extra_verifier_reads = []
+    for env_key in ("MINDIE_BENCH_PYTHON", "MINDIE_BENCH_CPU_PYTHON"):
+        candidate = os.environ.get(env_key, "").strip()
+        if candidate:
+            env[env_key] = candidate
+            py_path = Path(candidate).expanduser()
+            if py_path.is_file():
+                extra_verifier_reads.append(py_path.resolve(strict=True).parent.parent)
+    default_cpu_rt = Path("/tmp/mindie-bench-cpu-runtime-20261022")
+    if default_cpu_rt.is_dir():
+        extra_verifier_reads.append(default_cpu_rt.resolve(strict=True))
     deadline = time.monotonic() + timeout
 
     def execute(arguments: list[str], name: str):
@@ -259,6 +270,7 @@ def local_verifier(
                 workspace,
                 *(task_root / relative for relative in manifest.protected_paths),
                 *read_paths,
+                *extra_verifier_reads,
                 *judge_reads,
             ],
             write=[profile.root / "tmp"],
