@@ -20,9 +20,9 @@ contain zero Windows CRLF (`\\r\\n`) or mixed line endings.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 GIT_TIMEOUT_SECONDS = 15.0
 STREAM_CHUNK_BYTES = 65536

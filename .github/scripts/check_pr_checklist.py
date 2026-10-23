@@ -22,9 +22,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
 REQUIRED_CHECKBOX_PREFIXES = (
     "1–8.",

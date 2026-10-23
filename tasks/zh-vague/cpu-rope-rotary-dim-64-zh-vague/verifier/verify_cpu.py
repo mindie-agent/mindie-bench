@@ -2,7 +2,6 @@ import ast
 import json
 import pathlib
 import types
-from collections.abc import Mapping
 
 import torch
 

@@ -46,8 +46,8 @@ from mindie_bench.models import (
     ToolCall,
     Trajectory,
 )
-from mindie_bench.runner.drivers import driver_for
 from mindie_bench.runner import orchestrator, verifier
+from mindie_bench.runner.drivers import driver_for
 from mindie_bench.runner.orchestrator import native_capture_payload, run_matrix
 from mindie_bench.runner.profile_builder import build_profile
 from mindie_bench.runner.qualification_gate import (
