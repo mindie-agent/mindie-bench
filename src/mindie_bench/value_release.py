@@ -643,7 +643,10 @@ def markdown(report: dict) -> str:
             "> **Resource Accounting Note**: Per-condition totals below include failed/historical "
             "attempts and, for `knowledge-transfer`, the seed task and background capture. "
             "Incomplete token or timing totals (`Metering complete = False`) are lower bounds; "
-            "token categories stay separate and absent prices do not imply zero cost.",
+            "token categories stay separate and absent prices do not imply zero cost. "
+            "Delivery time is the whole controller-side attempt, including workspace preparation, "
+            "MCP probing, verification and capture; those measured segments are published per "
+            "attempt and may overlap, so they qualify the paired ratio rather than partition it.",
         ]
     for study in report["studies"]:
         lines += ["", f"## {study['id']}", "", study["scope"], ""]
