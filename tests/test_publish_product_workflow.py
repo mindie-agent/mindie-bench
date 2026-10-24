@@ -5,6 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,3 +112,37 @@ def test_workflow_passes_the_selected_suite_via_env_not_shell_interpolation():
     assert "$VALUE_SUITE" in attach["run"]
     assert verify["env"]["VALUE_SUITE"] == "${{ steps.public-suite.outputs.value_suite }}"
     assert attach["env"]["VALUE_SUITE"] == "${{ steps.public-suite.outputs.value_suite }}"
+
+
+@pytest.mark.parametrize(("tag", "accepted"), [("v0.1.1", True), ("v0.2.0", False)])
+def test_patch_publication_keeps_milestone_value_acceptance_mandatory(tmp_path, tag, accepted):
+    """Run the actual source/tag gate; patch mode cannot bypass a milestone."""
+    version = tag[1:]
+    docs = tmp_path / "docs/releases"
+    (docs / version).mkdir(parents=True)
+    (docs / (version + ".md")).write_text("Release fixture\n")
+    (docs / version / "benchmark-manifest.json").write_text("{}\n")
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(tmp_path), *args], text=True, timeout=5).strip()
+    git("init", "-q")
+    git("config", "user.email", "test@example.invalid")
+    git("config", "user.name", "Release test")
+    git("add", "docs")
+    git("commit", "-qm", "release inputs")
+    git("tag", tag)
+    revision = git("rev-parse", "HEAD")
+    steps = workflow()["jobs"]["publish"]["steps"]
+    gate = next(step for step in steps if step.get("id") == "product")
+    output = tmp_path.parent / (tag + "-outputs")
+    result = subprocess.run(["bash", "-c", gate["run"]], cwd=tmp_path,
+        env={**os.environ, "GITHUB_REF_NAME": tag, "GITHUB_REF_TYPE": "tag",
+             "GITHUB_SHA": revision, "BENCHMARK_REF": revision,
+             "RELEASE_KIND": "patch", "VALUE_SUITE_PATH": "",
+             "GITHUB_OUTPUT": str(output)},
+        text=True, capture_output=True, timeout=10)
+    assert (result.returncode == 0) is accepted, result.stderr
+    if accepted:
+        assert output.read_text().strip() == "version=" + version
+        assert not list(tmp_path.rglob("*value-evidence*"))
+    else:
+        assert "milestones require product value acceptance" in result.stderr

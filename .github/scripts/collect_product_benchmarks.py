@@ -98,10 +98,33 @@ def download_release(target, directory, fetch=github):
                 release_url=release["html_url"], assets=assets)
 
 
-def collect_product(*, repository, version, revision, manifest, output, fetch=github):
+def validate_channel(channel, contract):
+    """The update channel and public release must name the same component set."""
+    raw = channel.read_bytes()
+    document = json.loads(raw)
+    if document.get("schema") != "mindie-release-channel/1":
+        raise ValueError("unsupported product channel schema")
+    if document.get("current_patch_version") != contract.product_version:
+        raise ValueError("channel patch version differs from product release")
+    components = list(document["components"].values())
+    by_repository = {item["repository"]: item for item in components}
+    if (len(by_repository) != len(components)
+            or set(by_repository) != {target.repository for target in contract.repositories}):
+        raise ValueError("channel and benchmark manifest component sets differ")
+    for target in contract.repositories:
+        item = by_repository[target.repository]
+        if (item["version"] != target.version or item["tag"] != f"v{target.version}"
+                or item["commit"] != target.revision
+                or item.get("revision", target.revision) != target.revision):
+            raise ValueError(f"{target.repository}: channel identity differs from release manifest")
+    return raw
+
+
+def collect_product(*, repository, version, revision, manifest, output, fetch=github, channel=None):
     contract = ReleaseManifest.model_validate_json(manifest.read_text(encoding="utf-8"))
     if contract.product_version != version:
         raise ValueError("product tag and benchmark manifest versions differ")
+    channel_raw = validate_channel(channel, contract) if channel is not None else None
     if tag_revision(repository, version, fetch) != revision:
         raise ValueError("product tag differs from the checked-out source")
     output.mkdir(parents=True, exist_ok=False)
@@ -121,6 +144,9 @@ def collect_product(*, repository, version, revision, manifest, output, fetch=gi
         repository=repository, version=version, revision=revision, tag=f"v{version}",
         manifest_sha256=collection["manifest_sha256"], releases=sources,
     )
+    if channel_raw is not None:
+        (output / "release-channel.json").write_bytes(channel_raw)
+        provenance["channel_sha256"] = hashlib.sha256(channel_raw).hexdigest()
     (output / "product-release-provenance.json").write_text(
         json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8",
     )
@@ -140,6 +166,7 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--channel", type=Path)
     args = parser.parse_args()
     collect_product(**vars(args))
 
