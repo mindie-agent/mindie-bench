@@ -311,6 +311,65 @@ def test_settlement_deadline_aborts_owned_read_without_reclassifying_unknown(cas
         assert len(attempts) == 1
 
 
+def test_chunked_settlement_keeps_live_response_close_with_its_reader(case, monkeypatch):
+    release = threading.Event()
+    reading, resume_reader = threading.Event(), threading.Event()
+    live_close_threads = []
+    caller = threading.get_ident()
+    original = http.client.HTTPResponse
+
+    class ObservedResponse(original):
+        def read1(self, *args):
+            if self.chunked and PARTIAL in getattr(self, "observed", b""):
+                reading.set()
+                assert resume_reader.wait(5)
+            chunk = super().read1(*args)
+            self.observed = getattr(self, "observed", b"") + chunk
+            return chunk
+
+        def close(self):
+            if self.fp is not None:
+                live_close_threads.append(threading.get_ident())
+            super().close()
+
+    monkeypatch.setattr(http.client.HTTPConnection, "response_class", ObservedResponse)
+
+    def serve(handler):
+        handler.protocol_version = "HTTP/1.1"
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/event-stream")
+        handler.send_header("Transfer-Encoding", "chunked")
+        handler.end_headers()
+        handler.wfile.write(f"{len(PARTIAL):x}\r\n".encode() + PARTIAL + b"\r\n")
+        handler.wfile.flush()
+        assert release.wait(5)
+
+    with provider(serve) as (url, attempts):
+        try:
+            with gateway_for(case, monkeypatch, url) as gateway:
+                settled = observe(gateway, "model_usage")
+                connection = client(gateway)
+                try:
+                    assert reading.wait(2)
+                    gateway.finish_inference(timeout=0.05)
+                    resume_reader.set()
+                    assert settled.wait(2), gateway.journal.read_text()
+                    with gateway.model_idle:
+                        assert gateway.model_idle.wait_for(lambda: gateway.active == 0, timeout=1)
+                    assert gateway.unknown
+                    assert not gateway.metered_tokens().complete
+                    assert caller not in live_close_threads
+                    records = [json.loads(line) for line in gateway.journal.read_text().splitlines()]
+                    errors = [row for row in records if row["kind"] == "model_error"]
+                    assert errors and errors[-1]["transport_stage"] == "response_body"
+                finally:
+                    resume_reader.set()
+                    connection.close()
+        finally:
+            release.set()
+        assert len(attempts) == 1
+
+
 def test_sealing_inference_admits_no_new_paid_request_while_draining(case, monkeypatch):
     send_final = threading.Event()
 

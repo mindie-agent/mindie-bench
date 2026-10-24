@@ -1,36 +1,26 @@
 # ruff: noqa: I001
 """Parent-side model, remote-SSH, and knowledge RPC broker with deny-by-default egress.
 
-[Role]
-Mediates all agent egress (LLM inference, L2 deterministic replay, L3 remote SSH/stream
-commands, and parent-hosted `knowledge` stdio RPC) over a local HTTP/Unix-socket gateway,
-enforcing turn/NPU-test budgets and recording an append-only `broker.jsonl` ledger.
+[Role] Meter LLM, deterministic replay, remote SSH and parent knowledge RPC
+through the owned HTTP/Unix gateway and append-only broker journal.
 
 [Invariants]
-- Zero automatic retries on model or remote mutations: duplicate paid model requests (`seen` SHA-256)
-  or requests after `unknown=True` are rejected with HTTP 409.
-- NPU test-run budget (`max_npu_runs`) is checked and incremented under `self.lock` before any
-  `/bench/ssh` or `/bench/ssh-stream` command is admitted to the remote worker; patch stdin and
-  uploaded Python worker source are never miscounted as test runs.
-- One-shot `/bench/ssh` results are persisted to `remote-results/<id>.json` before socket write so a
-  broken client pipe records `external_effects="completed"` rather than polluting `unknown`.
-- `model_error` transport metadata is measured from the live connection (stage durations, TLS
-  identity, immediate socket peer, bytes handed to the socket, observed alert reason). Alert
-  direction is only inferred from the OpenSSL reason, and the socket peer may be a local
-  proxy/TUN fake-IP, not the provider edge. It never records bodies or credentials; `null` means
-  unavailable/not observed, never inferred.
+- No model/remote retries: duplicate paid requests and unknown effects reject
+  admission. NPU test budgets are charged before remote execution, not uploads.
+- One-shot remote results are durable before delivery; a broken client pipe
+  preserves `external_effects="completed"` for a confirmed completed result.
+- Model handlers alone close HTTP connection/response state; settlement shuts down
+  their sockets to interrupt reads without concurrently mutating response buffers.
+- TLS/peer/write observations exclude bodies and credentials. The socket peer
+  may be a proxy; alert direction is inferred and unavailable values stay null.
 
 [Timeouts & Locks]
-- `self.lock` (`RLock`) serializes budget accounting, journal writes, and connection tracking.
-- `finish_inference()` and `finish_remote()` seal new admissions and wait up to
-  `MODEL_SETTLEMENT_GRACE_SEC` (`30.0s`) for in-flight model/remote handlers to drain before
-  the verifier runs.
+- `RLock` serializes budgets, journal writes and connection tracking. Model and
+  remote settlement seal admissions and allow 30s for handlers before judging.
 
 [Side-Effect Policy]
-- Writes append-only event records to `journal` (`broker.jsonl`) and one-shot remote receipts to
-  `remote-results/`; owns a short private temporary directory for Unix sockets.
-- `__exit__` drains model/remote channels, closes the parent `knowledge` broker,
-  shuts down the HTTP/Unix server, and removes its temporary socket directory.
+- Owns broker events, remote receipts and a private Unix socket directory;
+  exit settles channels, closes knowledge/server resources and removes sockets.
 """
 
 from __future__ import annotations
@@ -330,7 +320,9 @@ class Gateway(AbstractContextManager):
                     raise
                 except OSError:
                     pass
-            connection.close()
+            # The handler owns HTTPConnection/HTTPResponse.close(). Closing it
+            # here races read1() over its mutable fp/chunk state; socket shutdown
+            # interrupts that read so the handler can close and settle itself.
         return bool(connections)
 
     def finish_inference(self, timeout=MODEL_SETTLEMENT_GRACE_SEC):
