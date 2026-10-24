@@ -577,23 +577,24 @@ def summarize_arm_pareto_and_cop(
         pass_rate = pr_info.get("value")
         passed = int(pr_info.get("numerator") or 0)
         valid_cells = int(summary.get("valid_cells") or 0)
-        wall_sec = float(summary.get("total_wall_clock_sec") or 0.0)
-        calls = int(summary.get("total_model_calls") or 0)
-        die_hours = float(summary.get("total_npu_die_hours") or 0.0)
-        cop_wall = round(wall_sec / passed, 4) if passed > 0 else None
-        cop_calls = round(calls / passed, 4) if passed > 0 else None
-        cop_die_hours = round(die_hours / passed, 6) if passed > 0 else None
+        wall_sec = summary.get("total_wall_clock_sec")
+
+        def per_pass(total, digits):
+            # Unmeasured totals stay unknown; they never become a zero-cost pass.
+            return round(float(total) / passed, digits) if passed > 0 and total is not None else None
+
         cop_by_arm[arm] = {
-            "wall_clock_sec_per_pass": cop_wall,
-            "model_calls_per_pass": cop_calls,
-            "npu_die_hours_per_pass": cop_die_hours,
+            "wall_clock_sec_per_pass": per_pass(wall_sec, 4),
+            "model_calls_per_pass": per_pass(summary.get("total_model_calls"), 4),
+            "npu_die_hours_per_pass": per_pass(summary.get("total_npu_die_hours"), 6),
         }
+        measured = pass_rate is not None and valid_cells > 0 and wall_sec is not None
         candidates.append({
             "id": arm,
             "label": summary.get("label", arm),
-            "status": "ok" if pass_rate is not None and valid_cells > 0 else "inconclusive",
+            "status": "ok" if measured else "inconclusive",
             "pass_rate": float(pass_rate or 0.0),
-            "cost": round(wall_sec / max(1, valid_cells), 4),
+            "cost": round(float(wall_sec) / valid_cells, 4) if measured else None,
             "pass_count": passed,
             "total_cost": wall_sec,
         })

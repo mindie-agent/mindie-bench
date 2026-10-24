@@ -117,8 +117,10 @@ def markdown_product(report: dict) -> str:
         f"Version: {report['product_version']}. Suite: `{report['suite']}`. "
         f"Evidence: {_status(report)}.",
         "",
-        "Product arms are **P0** bare host, **P1** formal v0.0.2 baseline, **P2** final "
-        "v0.0.3 release and **P3** conditional flywheel. They are never translated into "
+        f"Product arms are **P0** bare host, **P1** formal "
+        f"v{report['formal_baseline']['product_version']} baseline, **P2** final "
+        f"v{report['final_release']['product_version']} release and **P3** conditional flywheel. "
+        "They are never translated into "
         "legacy G0..G3 component-increment labels. A receipt's internal G capability mode "
         "is an execution setting, not its product identity.",
         "",
@@ -287,14 +289,16 @@ def homepage_markdown_product(report: dict, language: str = "zh") -> str:
             f"{denominator.get('mutually_solved', 0)} | "
             f"{_number(comparison.get('wall_clock_speedup_on_mutual_success'), digits=3)} | {overruns} |"
         )
+    baseline_version = _text(report["formal_baseline"]["product_version"])
+    final_version = _text(report["final_release"]["product_version"])
     lines += [
         "",
         (
-            "**条件**：P0 原生宿主；P1 正式 v0.0.2 基线；P2 最终 v0.0.3 完整发布；"
+            f"**条件**：P0 原生宿主；P1 正式 v{baseline_version} 基线；P2 最终 v{final_version} 完整发布；"
             "P3 条件性经验复用（Seed/C6/评审成本单独计账，下游预算相同仅支持条件复用）。"
             if zh else
-            "**Conditions**: P0 bare host; P1 formal v0.0.2 baseline; P2 final v0.0.3 "
-            "complete release; P3 conditional experience reuse (Seed/C6/review cost is "
+            f"**Conditions**: P0 bare host; P1 formal v{baseline_version} baseline; P2 final "
+            f"v{final_version} complete release; P3 conditional experience reuse (Seed/C6/review cost is "
             "separately accounted; equal downstream budgets support conditional reuse only)."
         ),
         "",

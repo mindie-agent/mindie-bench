@@ -499,6 +499,26 @@ def _strip_revision(ref: Any) -> str:
     return text.split("@", 1)[0]
 
 
+def evaluate_strategy_selection(case: str | StrategyCase, selected_strategy_ref: Any) -> dict[str, Any]:
+    """Blind private-judge verdict on a selector decision before any continuation runs."""
+    selected_case = resolve_strategy_case(case)
+    judge = selected_case.private_judge
+    acceptable = {_strip_revision(item) for item in judge.get("acceptable_strategies", ())}
+    forbidden = {_strip_revision(item) for item in judge.get("forbidden_strategies", ())}
+    selected = _strip_revision(selected_strategy_ref)
+    return {
+        "case_id": selected_case.case_id,
+        "case_kind": selected_case.case_kind,
+        "selected_strategy_ref": selected,
+        "selection_acceptable": selected in acceptable,
+        "false_adoption": selected in forbidden or (
+            selected_case.case_kind == "boundary_or_mismatch"
+            and selected != "default"
+            and selected not in acceptable
+        ),
+    }
+
+
 def evaluate_strategy_continuation(
     case: str | StrategyCase,
     payload: Mapping[str, Any],
@@ -635,6 +655,7 @@ def claude_cli_strategy_selector(
     in_tok = usage_block.get("input_tokens")
     out_tok = usage_block.get("output_tokens")
     decision["usage"] = {
+        "model_calls": 1,
         "prompt_tokens": int(in_tok) if in_tok is not None else None,
         "completion_tokens": int(out_tok) if out_tok is not None else None,
         "wall_clock_sec": elapsed_sec,

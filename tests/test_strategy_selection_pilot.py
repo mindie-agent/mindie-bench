@@ -1,6 +1,6 @@
 """Section 4.7 & Section 16 conditional strategy selection pilot tests.
 
-Exercises real domain corpora (`knowledge-vllm-ascend` + `knowledge-operators`),
+Exercises committed public corpus units (`knowledge-vllm-ascend` + `knowledge-operators`),
 strict B vs C context isolation, shared-budget accounting, primary-verdict
 preservation under selector failure, and 36-cell A/B/C pilot comparisons.
 """
@@ -23,6 +23,7 @@ from mindie_bench.evaluation.strategy_selection import (
     DEV_CASES,
     PILOT_CASES,
     StrategySelectionBudget,
+    condition_aware_selector,
     evaluate_strategy_continuation,
     load_combined_routing_index,
     plan_strategy_selection_cells,
@@ -41,14 +42,8 @@ if _strategy_cards is None:
 
 
 def _corpus_roots() -> list[Path]:
-    worktree_root = Path(__file__).resolve().parents[2]
-    vllm_root = worktree_root / "knowledge-vllm-ascend"
-    ops_root = worktree_root / "knowledge-operators"
-    if not vllm_root.is_dir():
-        vllm_root = Path("/Volumes/data/code/knowledge-vllm-ascend")
-    if not ops_root.is_dir():
-        ops_root = Path("/Volumes/data/code/knowledge-operators")
-    return [vllm_root, ops_root]
+    root = Path(__file__).parent / "fixtures" / "strategy-corpora"
+    return [root / "knowledge-vllm-ascend", root / "knowledge-operators"]
 
 
 @pytest.fixture(scope="module")
@@ -110,8 +105,18 @@ def test_dev_and_pilot_lineage_separation_and_private_judge_soundness():
     assert res_a == res_c
 
 
+class StepClock:
+    """perf_counter stand-in advanced only by the injected selector and executor."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
 @pytest.mark.tier0
-def test_shared_budget_timeout_arithmetic_and_selector_failure_preserves_primary_pass(routing_index):
+def test_cell_accounting_uses_reported_spend_and_measured_time(routing_index):
     with pytest.raises(ValueError, match="outer_timeout_sec"):
         StrategySelectionBudget(
             business_window_sec=600.0,
@@ -121,49 +126,70 @@ def test_shared_budget_timeout_arithmetic_and_selector_failure_preserves_primary
         )
 
     case = PILOT_CASES["S1-F1-boundary"]
-    cells, _ = plan_strategy_selection_cells([case], repetitions=1)
-    cell_c = next(c for c in cells if c.arm == "C")
-    budget = StrategySelectionBudget()
-    seen_remaining_calls = []
+    cell_c = next(c for c in plan_strategy_selection_cells([case], repetitions=1)[0] if c.arm == "C")
+    clock, granted = StepClock(), []
+    # A continuation that independently reaches the reference outcome in 20 s.
+    continuation_outcome = dict(case.reference_solution)
 
-    def timeout_selector(_view):
-        raise TimeoutError("selector gateway timed out after 30s")
-
-    def succeeding_default_executor(
-        *,
-        case,
-        arm,
-        selector_decision,
-        routing_index,
-        remaining_model_calls,
-        remaining_window_sec,
-    ):
-        seen_remaining_calls.append((remaining_model_calls, remaining_window_sec, selector_decision))
+    def executor(*, case, arm, selector_decision, routing_index, remaining_model_calls, remaining_window_sec):
+        granted.append((remaining_model_calls, remaining_window_sec))
+        clock.now += 20
         return {
-            **case.reference_solution,
-            "model_calls": 3,
-            "prompt_tokens": None,
-            "completion_tokens": None,
-            "wall_clock_sec": 25.0,
-            "npu_runs": 1,
+            **continuation_outcome,
+            "model_calls": 3, "prompt_tokens": 100, "completion_tokens": 10, "npu_runs": 1,
         }
 
-    outcome = run_strategy_selection_cell(
-        cell_c,
-        case,
-        routing_index=routing_index,
-        budget=budget,
-        selector_fn=timeout_selector,
-        executor_fn=succeeding_default_executor,
-    )
-    assert outcome["selector_status"] == "unknown"
-    assert outcome["terminal_status"] == "pass"
-    assert outcome["selector_model_calls"] == 1
-    assert outcome["total_model_calls"] == 4
-    assert seen_remaining_calls == [(11, 570.0, None)]
-    assert outcome["usage_status"] == "unavailable"
-    assert outcome["prompt_tokens"] is None
-    assert outcome["completion_tokens"] is None
+    def selector(seconds, *, usage=None, error=None):
+        def run(view):
+            clock.now += seconds
+            if error is not None:
+                raise error
+            return {"selected_strategy_ref": "default", "applicability_basis": "mismatch", "usage": usage}
+        return run
+
+    def cell(selector_fn, executor_fn=executor):
+        return run_strategy_selection_cell(
+            cell_c, case, routing_index=routing_index, selector_fn=selector_fn,
+            executor_fn=executor_fn, clock=clock,
+        )
+
+    # The rule selector makes no model call, so it spends and reserves none of the budget.
+    rule = cell(condition_aware_selector)
+    assert granted.pop() == (12, 600.0)
+    assert rule["selector_model_calls"] == 0 and rule["total_model_calls"] == 3
+    assert rule["usage_status"] == "native" and rule["prompt_tokens"] == 100
+    assert rule["budget_compliant"] is True
+
+    # A decision returned after its 30 s budget is kept; the overrun is stated separately.
+    native = {"model_calls": 1, "prompt_tokens": 300, "completion_tokens": 40}
+    late = cell(selector(45, usage=native))
+    assert granted.pop() == (11, 555.0)
+    assert late["selector_status"] == "completed" and late["selection"]["selection_acceptable"] is True
+    assert late["selector_wall_clock_sec"] == 45.0 and late["selector_budget_exceeded"] is True
+    assert late["terminal_status"] == "pass" and late["budget_compliant"] is False
+    assert late["total_model_calls"] == 4 and late["prompt_tokens"] == 400
+
+    # A genuine timeout returns nothing: spend stays unknown and time is the measured 31 s.
+    timed_out = cell(selector(31, error=TimeoutError("selector gateway timed out")))
+    assert granted.pop() == (11, 569.0)
+    assert timed_out["selector_status"] == "unknown" and timed_out["selector_wall_clock_sec"] == 31.0
+    assert timed_out["selector_model_calls"] is None and timed_out["total_model_calls"] is None
+    assert timed_out["executor_model_calls"] == 3 and timed_out["executor_prompt_tokens"] == 100
+    assert timed_out["usage_status"] == "unavailable" and timed_out["prompt_tokens"] is None
+    assert timed_out["terminal_status"] == "pass" and timed_out["budget_compliant"] is False
+    # One reported NPU run without measured occupancy is not converted into card time.
+    assert timed_out["npu_runs"] == 1
+    assert timed_out["npu_card_hours"] is None and timed_out["npu_die_hours"] is None
+
+    # A dispatched continuation that times out leaves the cell total unknown.
+    def lost_executor(**kwargs):
+        clock.now += 50
+        raise TimeoutError("continuation receipt lost")
+
+    lost = cell(selector(2, usage=native), lost_executor)
+    assert lost["terminal_status"] == "unknown" and lost["executor_error"] == "continuation receipt lost"
+    assert lost["selector_model_calls"] == 1 and lost["total_model_calls"] is None
+    assert lost["wall_clock_sec"] == 52.0 and lost["budget_compliant"] is None
 
     # Verify static mechanism replay also preserves None usage rather than defaulting to 0.
     static_replay = run_host_mechanism_replay(
@@ -175,15 +201,67 @@ def test_shared_budget_timeout_arithmetic_and_selector_failure_preserves_primary
     assert static_replay["execution_metrics"]["completion_tokens"] is None
 
 
+@pytest.mark.tier0
+def test_executor_never_receives_judge_answers_and_card_time_needs_measured_occupancy(routing_index):
+    case = PILOT_CASES["S1-F1-trigger"]
+    cells, _ = plan_strategy_selection_cells([case], repetitions=1)
+    received = []
+
+    def executor(*, case, arm, selector_decision, routing_index, remaining_model_calls, remaining_window_sec):
+        received.append((case.private_judge, case.reference_solution, case.known_bad_solution))
+        ref = (selector_decision or {}).get("selected_strategy_ref", "default")
+        outcome = {
+            "selected_strategy_ref": ref, "declared_adoption": ref != "default",
+            "applied_strategy_ref": ref, "next_action": "measured_probe", "verifier_passed": False,
+            "model_calls": 2, "prompt_tokens": 100, "completion_tokens": 10, "npu_runs": 1,
+        }
+        return outcome if arm == "A" else {**outcome, "npu_occupancy_sec": 1800.0}
+
+    rows = {
+        cell.arm: run_strategy_selection_cell(
+            cell, case, routing_index=routing_index, executor_fn=executor,
+        )
+        for cell in cells
+    }
+    assert received == [({}, {}, {})] * 3
+    assert case.private_judge["acceptable_strategies"]
+    # The rule selector reports zero model calls, so only the continuation spends tokens.
+    assert rows["B"]["selector_model_calls"] == 0 and rows["B"]["total_model_calls"] == 2
+    assert rows["B"]["usage_status"] == "native" and rows["B"]["prompt_tokens"] == 100
+    assert rows["A"]["usage_status"] == "native" and rows["A"]["prompt_tokens"] == 100
+    assert rows["A"]["npu_runs"] == 1 and rows["A"]["npu_card_hours"] is None
+    assert rows["C"]["npu_card_hours"] == 0.5 * case.npu_cards
+    assert rows["C"]["npu_die_hours"] == 0.5 * case.npu_dies
+
+
 @pytest.mark.tier1
-def test_full_36_cell_abc_pilot_and_cli_report_evidence_gain_and_cost_ledgers(tmp_path):
+def test_unreported_continuation_spend_stays_unknown_through_cost_of_pass():
+    def executor(*, case, arm, selector_decision, routing_index, remaining_model_calls, remaining_window_sec):
+        ref = (selector_decision or {}).get("selected_strategy_ref", "default")
+        return {
+            "selected_strategy_ref": ref, "declared_adoption": ref != "default", "applied_strategy_ref": ref,
+            "next_action": "measured_probe", "verifier_passed": True, "npu_runs": 0,
+        }
+
+    report = run_strategy_selection_pilot(corpus_roots=_corpus_roots(), repetitions=1, executor_fn=executor)
+    assert report["continuation"] == "executed"
+    for ledger in report["cost_ledgers"]["continuation_cost_by_arm"].values():
+        assert ledger["model_calls"] is None and ledger["npu_card_hours"] is None
+        assert ledger["cost_of_pass"]["model_calls_per_pass"] is None
+        assert ledger["cost_of_pass"]["npu_die_hours_per_pass"] is None
+        assert ledger["cost_of_pass"]["wall_clock_sec_per_pass"] is not None
+
+
+@pytest.mark.tier1
+def test_cli_pilot_without_executor_reports_only_judged_selector_decisions(tmp_path):
     roots = _corpus_roots()
     dev_report = run_strategy_selection_pilot(
         corpus_roots=roots,
         cases=tuple(DEV_CASES.values()),
         repetitions=1,
     )
-    assert dev_report["arms"]["C"]["pass_rate"]["value"] == 1.0
+    assert dev_report["continuation"] == "not_executed"
+    assert {row["terminal_status"] for row in dev_report["cells"]} == {"not_executed"}
 
     pilot_out = tmp_path / "strategy_selection_pilot.json"
     rc = cli_main(
@@ -221,27 +299,19 @@ def test_full_36_cell_abc_pilot_and_cli_report_evidence_gain_and_cost_ledgers(tm
     ]
     assert f1_rep1 == list(reversed(f1_rep2))
 
-    # C (task + execution evidence) outperforms B (task-only) on selection reasonableness,
-    # avoids false adoptions on boundary cases, and outperforms A (default) with 0 negative transfer.
-    c_vs_b = report["comparisons"]["C_vs_B"]
-    c_vs_a = report["comparisons"]["C_vs_A"]
-    assert c_vs_b["selection_reasonable_delta"] > 0
-    assert c_vs_b["false_adoption_delta"] < 0
-    assert c_vs_b["pass_rate_delta"] > 0
-    assert c_vs_a["pass_rate_delta"] > 0
-    assert c_vs_a["negative_transfer_count"] == 0
-    assert report["decision_gate"] == "continue_expanding_families"
+    # Without a continuation executor nothing beyond the selector decision is reported.
+    assert report["continuation"] == "not_executed"
+    assert report["decision_gate"] == "continuation_not_executed"
+    assert "comparisons" not in report and "cost_ledgers" not in report and "arms" not in report
+    for row in report["cells"]:
+        assert row["terminal_status"] == "not_executed" and row["judgment"] is None
+        assert row["npu_runs"] is None and row["npu_card_hours"] is None
+        assert row["executor_model_calls"] is None
+        assert (row["selection"] is None) == (row["cell"]["arm"] == "A")
 
-    # Verify A3 Die-hours vs Card-hours separation (2 Dies per Card on A3 S1 cases).
-    cont_a = report["cost_ledgers"]["continuation_cost_by_arm"]["A"]
-    cont_c = report["cost_ledgers"]["continuation_cost_by_arm"]["C"]
-    assert cont_c["npu_die_hours"] > cont_c["npu_card_hours"] > 0
-    assert cont_c["cost_of_pass"]["wall_clock_sec_per_pass"] < cont_a["cost_of_pass"]["wall_clock_sec_per_pass"]
-    assert cont_c["cost_of_pass"]["npu_die_hours_per_pass"] < cont_a["cost_of_pass"]["npu_die_hours_per_pass"]
-    pareto = report["comparisons"]["pareto_and_cost_of_pass"]["pareto_selection"]
-    assert pareto["frontier_ids"] == ["C"]
-    assert "A" in pareto["dominated_ids"]
-    assert pareto["representatives"]["lite"]["id"] == "C"
-    assert pareto["representatives"]["medium"]["id"] == "C"
-    assert pareto["representatives"]["heavy"]["id"] == "C"
+    # The private judge scores the real B/C selector decisions on isolated views.
+    selection = report["selection"]
+    assert selection["arms"]["B"]["judged_cells"] == selection["arms"]["C"]["judged_cells"] == 12
+    assert selection["C_vs_B"]["selection_acceptable_delta"] > 0
+    assert selection["C_vs_B"]["false_adoption_delta"] < 0
     assert CANDIDATE_UNIT_IDS[0] in json.dumps(report)

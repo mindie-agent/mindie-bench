@@ -578,9 +578,10 @@ def test_live_a2_and_a3_strategy_selection_navigation_and_abc_cells(live_targets
 
         report = run_strategy_selection_pilot(corpus_roots=(vllm_root, operators_root), repetitions=2)
         assert report["readiness"]["ready"] is True
-        assert report["comparisons"]["C_vs_B"]["selection_reasonable_delta"] > 0
-        assert report["comparisons"]["C_vs_B"]["false_adoption_delta"] < 0
-        assert report["comparisons"]["C_vs_A"]["pass_rate_delta"] > 0
+        # The device probes above run no continuation; only selector decisions are judged.
+        assert report["continuation"] == "not_executed"
+        assert report["selection"]["C_vs_B"]["selection_acceptable_delta"] > 0
+        assert report["selection"]["C_vs_B"]["false_adoption_delta"] < 0
     finally:
         _remote_sh(a2_target, f"rm -rf -- {shlex.quote(a2_root)}", timeout=15)
         _remote_sh(a3_target, f"rm -rf -- {shlex.quote(a3_root)}", timeout=15)
