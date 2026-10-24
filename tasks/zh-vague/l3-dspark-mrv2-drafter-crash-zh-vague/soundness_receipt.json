@@ -11,12 +11,12 @@
       "model": "Ascend950DT",
       "physical_id": 5,
       "pids": [],
-      "used_mb": 4768
+      "used_mb": 4800
     },
     "_environment": {
       "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
       "driver": "25.1.rc3.1",
-      "image_digest": "sha256:c3d00a196905159dbf0b97588d34f085086c2708712fa0d1c8fedd807f0e48a4",
+      "image_digest": "sha256:2754601232edf86a4b7dc6e2aca87cf86648e14491e173458ebbf3d5cbd6d2f8",
       "kernel": "6.6.0-145.3.33.164.oe2403sp3.aarch64",
       "python": "3.12.13 (main, Oct  3 2026, 09:40:56) [GCC 11.4.0]",
       "torch_npu": "2.10.0.post7"
@@ -30,12 +30,12 @@
       "model": "Ascend950DT",
       "physical_id": 5,
       "pids": [],
-      "used_mb": 4768
+      "used_mb": 4800
     },
     "_environment": {
       "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
       "driver": "25.1.rc3.1",
-      "image_digest": "sha256:c3d00a196905159dbf0b97588d34f085086c2708712fa0d1c8fedd807f0e48a4",
+      "image_digest": "sha256:2754601232edf86a4b7dc6e2aca87cf86648e14491e173458ebbf3d5cbd6d2f8",
       "kernel": "6.6.0-145.3.33.164.oe2403sp3.aarch64",
       "python": "3.12.13 (main, Oct  3 2026, 09:40:56) [GCC 11.4.0]",
       "torch_npu": "2.10.0.post7"
@@ -44,6 +44,6 @@
   "schema_version": "1.0",
   "source_commit": "d8268faea90dd9b999a0a82f6d133751d57b5770",
   "status": "completed",
-  "task_sha256": "da917964b0d04f07118024afd810e4787a2210ecd0262c2303e81108d0b4fec6",
+  "task_sha256": "0a9bf1bf23db579de008d40f37efe8b3b976e94a3eb0e32e78ccc4d79922040f",
   "tier": "l3"
 }

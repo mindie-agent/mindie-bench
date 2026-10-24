@@ -379,3 +379,61 @@ def test_hardened_g4_rsi_verifiers_reject_constant_returning_dummy_modules(tmp_p
         assert proc.returncode != 0
         payload = json.loads([line for line in proc.stdout.splitlines() if line.strip()][-1])
         assert payload["reward"] == 0.0
+
+
+# Marker strings and stubs from the 2026-10-23 audit that the former grep/AST judges scored 1.0.
+STRING_ONLY_ARTIFACTS = {
+    "vllm_ascend/models/deepseek_v4/model.py":
+        'required_names = "use_eagle() uses_draft_model() is_last_rank _mtp_hidden_buffer"\n',
+    "vllm_ascend/attention/dsa_v1.py": 'def build_for_drafting(self):\n    return "self.storage_block_size"\n',
+    "vllm_ascend/worker/model_runner_v1.py": (
+        "def execute_model(self):\n    self._dummy_run(1, skip_gdn_state_update=True)\n"
+        "def _dummy_run(self, skip_gdn_state_update=False):\n    pass\n"
+        "def _build_attention_metadata(self, skip_gdn_state_update=False):\n    pass\n"
+        'required_names = "num_actual_tokens=0 max_query_len=0 zeros_like ones_like"\n'
+    ),
+    "vllm_ascend/_310p/model_runner_310p.py": (
+        "def _dummy_run(self, skip_gdn_state_update=False):\n"
+        "    missing(skip_gdn_state_update=skip_gdn_state_update)\n"
+    ),
+    "vllm_ascend/worker/block_table.py": 'required_names = "num_speculative_tokens - 1 self.max_num_reqs"\n',
+    "vllm_ascend/spec_decode/llm_base_proposer.py":
+        'required_names = "num_speculative_tokens - 1 2 * self.runner.max_num_reqs"\n',
+    "vllm_ascend/attention/sfa_v1.py": (
+        "def _build():\n    return \"draft_index spec_actual_seq_lengths_query[draft_index - 1] "
+        'spec_actual_seq_lengths_key[draft_index - 1]"\n'
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "task_id",
+    [
+        "dspark-mrv2-drafter-crash-zh-vague",
+        "l3-dspark-mrv2-drafter-crash-zh-vague",
+        "k3-idle-dp-gdn-state-zh-vague",
+        "mtp-draft-slot-mapping-capacity-zh-vague",
+        "sfa-mtp-seq-lens-eval-zh-vague",
+        "sfa-mtp-seq-lens-seed-zh-vague",
+    ],
+)
+def test_behavior_verifiers_reject_string_only_artifacts(tmp_path, task_id):
+    import os
+    import subprocess
+
+    task = Path(__file__).resolve().parents[1] / "tasks/zh-vague" / task_id
+    for relative in tomllib.loads((task / "task.toml").read_text())["mindie_knowledge"]["target_files"]:
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text(STRING_ONLY_ARTIFACTS[relative])
+    proc = subprocess.run(
+        ["/bin/bash", str(task / "verifier/test.sh")],
+        cwd=tmp_path,
+        env=dict(os.environ, MINDIE_BENCH_WORKSPACE=str(tmp_path)),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 1, proc.stderr
+    payload = json.loads([line for line in proc.stdout.splitlines() if line.strip()][-1])
+    assert payload["reward"] == 0.0
+    assert "is not defined at module level" in payload["failure_reason"]
