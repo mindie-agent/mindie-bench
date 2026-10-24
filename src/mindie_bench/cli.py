@@ -162,7 +162,7 @@ def parser():
     qual_gate.add_argument("--output", type=Path, required=True)
     strategy_pilot = commands.add_parser(
         "strategy-selection-pilot",
-        help="run the Section 4.7 A/B/C conditional strategy selection continuation pilot",
+        help="judge Section 4.7 B/C strategy-selector decisions; no continuation is executed",
     )
     strategy_pilot.add_argument("--corpus", type=Path, action="append", required=True)
     strategy_pilot.add_argument("--repetitions", type=int, default=2)

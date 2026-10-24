@@ -3,34 +3,26 @@
 """Conditional strategy selection pilot (Section 4.7 & Section 16).
 
 [Role]
-Project strictly isolated task-only (Arm B) and task-plus-evidence (Arm C)
-strategy selector views from a shared decision-point prefix, orchestrate
-three-arm (A/B/C) continuation cells under a shared total budget, and compute
-blind private-judge, negative-transfer, and three-ledger cost comparisons.
+Project isolated task-only (Arm B) and task-plus-evidence (Arm C) selector views
+from a shared decision point, judge the real selector decisions, and only with a
+caller-supplied continuation executor run A/B/C continuation cells and cost ledgers.
 
 [Invariants]
-- Arm B (`task_only`) selector views expose only the task statement, declared
-  task conditions, and body-free candidate navigation cards; any pre-decision
-  execution observation or private judge leak marker in Arm B is rejected.
-- Arm C (`task_plus_evidence`) selector views use the identical candidate order,
-  instructions, and output schema as Arm B, adding only pre-decision execution
-  observations up to the shared decision point; post-decision explanations and
-  leak markers remain strictly excluded.
-- All three arms (A/B/C) share the same total budget per cell (`model_call_budget`,
-  `npu_run_budget`, `business_window_sec`, `verifier_timeout_sec`, `cleanup_grace_sec`).
-  B/C selector calls consume from that shared budget and never receive bonus calls.
-- A selector failure or timeout stays visible (`selector_status="failed"` or
-  `"unknown"`), charges its consumed call/time, and falls back to `"default"`
-  continuation without overwriting a verified primary task pass (`completed_pass`).
-- Native token usage is never defaulted to zero when missing; absent usage stays
-  `None` (`usage_status="unavailable"`). Ascend A3 Die hours and physical card
-  hours are reported separately (`2 Dies = 1 Card` on A3).
+- Arm B views expose only the task, declared conditions and body-free navigation
+  cards; Arm C adds only pre-decision observations. Post-decision explanations,
+  leak markers and private judge fields never reach a selector.
+- The private judge stays in the evaluator; executors receive a judge-free case.
+  Without an executor, cells stay `not_executed`: no task outcome, continuation
+  usage, NPU run or device occupancy is reported.
+- Selector spend is the selector's own `usage.model_calls`; unknown spend stays `None`
+  but reserves `selector_call_budget`. Elapsed time is measured; a late decision is
+  kept and flagged over budget. Verified passes stay separate from budget compliance.
+- Missing usage stays `None`. NPU card/Die hours (A3: 2 Dies = 1 Card) come only
+  from executor-measured occupancy seconds, never from wall clock or run counts.
 
 [Timeouts & Locks]
-- Enforces `outer_timeout_sec >= business_window_sec + verifier_timeout_sec + cleanup_grace_sec`
-  (default `725s >= 600s + 120s + 5s`) and `selector_timeout_sec <= 30s`.
-- Pure in-memory planning/evaluation; caller-supplied selector/executor callables
-  own subprocess or network I/O.
+- `outer_timeout_sec >= business_window_sec + verifier_timeout_sec + cleanup_grace_sec`
+  (default `725s >= 600s + 120s + 5s`); `selector_timeout_sec <= 30s`. Callables own I/O.
 
 [Side-Effect Policy]
 - Never mutates source corpora or fabricates hardware/model receipts.
@@ -41,7 +33,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -63,6 +55,7 @@ from mindie_bench.evaluation.strategy_selection_cases import (  # noqa: F401
     _strip_revision,
     claude_cli_strategy_selector,
     evaluate_strategy_continuation,
+    evaluate_strategy_selection,
     resolve_strategy_case,
     verify_pilot_lineage_and_soundness,
 )
@@ -250,9 +243,13 @@ def prepare_strategy_selector_view(
         )
     return view
 
-# ------------------------------------ Reference Selector & Executor Policies
+# ------------------------------------ Reference Selector & Executor Boundary
 def condition_aware_selector(view: Mapping[str, Any]) -> dict[str, Any]:
-    """Deterministic baseline selector operating strictly on the visible view."""
+    """Deterministic rule selector on the visible view; it makes no model call."""
+    return {**_condition_aware_decision(view), "usage": {"model_calls": 0}}
+
+
+def _condition_aware_decision(view: Mapping[str, Any]) -> dict[str, Any]:
     cards = list(view.get("candidate_navigation_cards") or ())
     arm = view.get("selector_arm")
     problem_lower = str(view.get("problem_statement", "")).casefold()
@@ -266,14 +263,12 @@ def condition_aware_selector(view: Mapping[str, Any]) -> dict[str, Any]:
                 "selected_strategy_ref": "default",
                 "rationale": "Eager mode already reproduces the failure; graph capture is not the root cause.",
                 "applicability_basis": "mismatch", "missing_conditions_to_probe": [],
-                "usage": {"prompt_tokens": 310, "completion_tokens": 48, "wall_clock_sec": 1.2},
             }
         if "507035" in obs_text and "uninstrumented baseline" in obs_text:
             return {
                 "selected_strategy_ref": "default",
                 "rationale": "Uninstrumented baseline crashes with 507035 and AlltoAll dominates; fix correctness before fusion.",
                 "applicability_basis": "mismatch", "missing_conditions_to_probe": [],
-                "usage": {"prompt_tokens": 325, "completion_tokens": 52, "wall_clock_sec": 1.3},
             }
 
     matched_cards = [card for card in cards if card.get("match_status") == "matched"]
@@ -283,7 +278,6 @@ def condition_aware_selector(view: Mapping[str, Any]) -> dict[str, Any]:
             "selected_strategy_ref": chosen["ref"],
             "rationale": f"All declared/observed conditions matched for {chosen['id']}.",
             "applicability_basis": "matched", "missing_conditions_to_probe": [],
-            "usage": {"prompt_tokens": 280 if arm == "B" else 340, "completion_tokens": 45, "wall_clock_sec": 1.1},
         }
 
     for card in cards:
@@ -294,99 +288,26 @@ def condition_aware_selector(view: Mapping[str, Any]) -> dict[str, Any]:
                 "rationale": f"Surface task keywords matched {card['id']} with missing conditions {card.get('missing_conditions')}.",
                 "applicability_basis": card.get("match_status", "condition_unknown"),
                 "missing_conditions_to_probe": list(card.get("missing_conditions") or ()),
-                "usage": {"prompt_tokens": 270, "completion_tokens": 44, "wall_clock_sec": 1.0},
             }
 
     return {
         "selected_strategy_ref": "default", "rationale": "No candidate matched visible conditions.",
         "applicability_basis": "mismatch", "missing_conditions_to_probe": [],
-        "usage": {"prompt_tokens": 260, "completion_tokens": 40, "wall_clock_sec": 0.9},
     }
 
-def shared_prefix_executor(
-    case: StrategyCase,
-    *,
-    arm: Literal["A", "B", "C"],
-    selector_decision: Mapping[str, Any] | None,
-    routing_index: RoutingIndex,
-    remaining_model_calls: int,
-    remaining_window_sec: float,
-) -> dict[str, Any]:
-    """Execute continuation from the shared decision point with real `explain_closure`."""
-    if remaining_model_calls < 1 or remaining_window_sec <= 0:
-        raise TimeoutError("continuation budget exhausted before executor step")
 
-    if arm == "A" or selector_decision is None:
-        query_res = routing_index.query(
-            case.problem_statement,
-            conditions=dict(case.declared_conditions),
-            limit=3,
-            token_budget=1200,
-            include_unknown=True,
-            mode="diagnose",
-        )
-        top_cards = query_res.get("cards") or ()
-        top_id = top_cards[0]["id"] if top_cards else "default"
-        if top_id != "default" and top_cards[0].get("match_status") == "matched":
-            selected_ref = top_id
-        else:
-            selected_ref = "default"
-    else:
-        selected_ref = _strip_revision(selector_decision.get("selected_strategy_ref", "default"))
+def _executor_case(case: StrategyCase) -> StrategyCase:
+    """Continuations see the task and decision point, never the judge or its answers."""
+    return replace(case, private_judge={}, reference_solution={}, known_bad_solution={})
 
-    knowledge_tokens = 0
-    if selected_ref != "default":
-        closure = routing_index.explain_closure(
-            [selected_ref],
-            conditions={**dict(case.declared_conditions), **dict(case.observed_conditions)},
-            token_budget=4096,
-            mode="diagnose",
-        )
-        knowledge_tokens = int(closure["usage"]["body_token_estimate"])
 
-    acceptable = {_strip_revision(item) for item in case.private_judge.get("acceptable_strategies", ())}
-    required_actions = list(case.private_judge.get("required_next_actions", ()))
+def _total(rows: Sequence[Mapping[str, Any]], key: str, digits: int | None = None):
+    values = [row.get(key) for row in rows]
+    if any(value is None for value in values):
+        return None
+    total = sum(values)
+    return round(total, digits) if digits is not None else total
 
-    if selected_ref in acceptable:
-        applied_ref = selected_ref
-        next_action = required_actions[0]
-        verifier_passed = True
-        model_calls = 3
-        prompt_tokens = 920 + knowledge_tokens
-        completion_tokens = 210
-        wall_clock_sec = 28.0
-        npu_runs = 1
-        uninformative_probes = 0
-    elif arm == "A" and case.case_kind == "boundary_or_mismatch" and selected_ref == "default":
-        applied_ref = "default"
-        next_action = required_actions[0]
-        verifier_passed = True
-        model_calls = 4
-        prompt_tokens = 1150
-        completion_tokens = 260
-        wall_clock_sec = 36.0
-        npu_runs = 1
-        uninformative_probes = 0
-    else:
-        applied_ref = selected_ref
-        next_action = "untargeted_probe_or_mismatched_workflow"
-        verifier_passed = False
-        model_calls = min(remaining_model_calls, 6)
-        prompt_tokens = 1680 + knowledge_tokens
-        completion_tokens = 390
-        wall_clock_sec = 54.0
-        npu_runs = 2
-        uninformative_probes = 2
-
-    return {
-        "selected_strategy_ref": selected_ref, "declared_adoption": selected_ref != "default",
-        "applied_strategy_ref": applied_ref, "next_action": next_action,
-        "verifier_passed": verifier_passed, "model_calls": model_calls,
-        "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
-        "knowledge_tokens": knowledge_tokens, "wall_clock_sec": wall_clock_sec,
-        "npu_runs": npu_runs, "uninformative_probes": uninformative_probes,
-        "human_interventions": 0,
-    }
 
 # ------------------------------------ Balanced Triplet Planning & Execution
 @dataclass(frozen=True)
@@ -460,6 +381,11 @@ def plan_strategy_selection_cells(
     return tuple(cells), controls_by_task
 
 
+def _reported(usage: Mapping[str, Any], key: str) -> int | None:
+    value = usage.get(key)
+    return None if value is None else int(value)
+
+
 def run_strategy_selection_cell(
     cell: StrategyCellPlan,
     case: StrategyCase,
@@ -467,111 +393,162 @@ def run_strategy_selection_cell(
     routing_index: RoutingIndex,
     budget: StrategySelectionBudget = StrategySelectionBudget(),
     selector_fn: Callable[[Mapping[str, Any]], Mapping[str, Any]] = condition_aware_selector,
-    executor_fn: Callable[..., Mapping[str, Any]] = shared_prefix_executor,
+    executor_fn: Callable[..., Mapping[str, Any]] | None = None,
+    clock: Callable[[], float] = time.perf_counter,
 ) -> dict[str, Any]:
     """Run one (case, repetition, arm) cell with strict budget & error-visibility semantics."""
     selector_status: Literal["not_applicable", "completed", "failed", "unknown"] = "not_applicable"
     selector_error: str | None = None
     selector_decision: Mapping[str, Any] | None = None
+    # Arm A runs no selector, so its selector spend is an observed zero.
+    selector_model_calls: int | None = 0 if cell.arm == "A" else None
     selector_prompt_tokens: int | None = 0 if cell.arm == "A" else None
     selector_completion_tokens: int | None = 0 if cell.arm == "A" else None
-    selector_wall_sec = 0.0
-    selector_calls = 0
+    selector_wall_sec, selector_over_budget = 0.0, None
 
     if cell.arm in ("B", "C"):
         view = prepare_strategy_selector_view(case, arm=cell.arm, routing_index=routing_index)
-        selector_calls = 1
-        started = time.perf_counter()
+        started = clock()
         try:
             raw_sel = dict(selector_fn(view))
-            usage = raw_sel.get("usage") if isinstance(raw_sel.get("usage"), Mapping) else {}
-            selector_wall_sec = float(usage.get("wall_clock_sec", round(time.perf_counter() - started, 4)))
-            if selector_wall_sec > budget.selector_timeout_sec:
-                raise TimeoutError(f"selector exceeded {budget.selector_timeout_sec}s budget")
-            if usage.get("prompt_tokens") is not None:
-                selector_prompt_tokens = int(usage["prompt_tokens"])
-            if usage.get("completion_tokens") is not None:
-                selector_completion_tokens = int(usage["completion_tokens"])
-            selector_decision = raw_sel
-            selector_status = "completed"
         except TimeoutError as exc:
-            selector_wall_sec = max(selector_wall_sec, budget.selector_timeout_sec)
-            selector_status = "unknown"
-            selector_error = str(exc)
-            selector_decision = None
+            selector_status, selector_error = "unknown", str(exc)
         except Exception as exc:  # noqa: BLE001 — preserve error and fall back to default continuation
-            selector_wall_sec = float(round(time.perf_counter() - started, 4))
-            selector_status = "failed"
-            selector_error = str(exc)
-            selector_decision = None
+            selector_status, selector_error = "failed", str(exc)
+        else:
+            # A late decision is still the observed decision; lateness is a budget fact.
+            usage = raw_sel.get("usage") if isinstance(raw_sel.get("usage"), Mapping) else {}
+            selector_model_calls = _reported(usage, "model_calls")
+            selector_prompt_tokens = _reported(usage, "prompt_tokens")
+            selector_completion_tokens = _reported(usage, "completion_tokens")
+            if selector_model_calls == 0:
+                # Tokens are spent per model call; a selector that made none spent none.
+                selector_prompt_tokens = selector_prompt_tokens or 0
+                selector_completion_tokens = selector_completion_tokens or 0
+            selector_decision, selector_status = raw_sel, "completed"
+        selector_wall_sec = round(clock() - started, 4)
+        selector_over_budget = selector_wall_sec > budget.selector_timeout_sec
 
-    remaining_calls = budget.model_call_budget - selector_calls
-    remaining_window = budget.business_window_sec - selector_wall_sec
+    selector_usage = selector_prompt_tokens is not None and selector_completion_tokens is not None
+    row = {
+        "cell": cell.__dict__, "controls_digest": cell.controls_digest,
+        "selector_status": selector_status, "selector_error": selector_error,
+        "selector_decision": dict(selector_decision) if selector_decision is not None else None,
+        "selection": (
+            evaluate_strategy_selection(case, selector_decision.get("selected_strategy_ref"))
+            if selector_decision is not None else None
+        ),
+        "selector_model_calls": selector_model_calls,
+        "selector_prompt_tokens": selector_prompt_tokens,
+        "selector_completion_tokens": selector_completion_tokens,
+        "selector_wall_clock_sec": selector_wall_sec,
+        "selector_budget_exceeded": selector_over_budget,
+        "npu_cards": case.npu_cards, "npu_dies": case.npu_dies,
+    }
+    unexecuted = {
+        "judgment": None, "budget_compliant": False if selector_over_budget else None,
+        "usage_status": "unavailable", "executor_model_calls": None, "total_model_calls": None,
+        "executor_prompt_tokens": None, "executor_completion_tokens": None,
+        "prompt_tokens": None, "completion_tokens": None, "knowledge_tokens": None,
+        "wall_clock_sec": selector_wall_sec, "npu_runs": None,
+        "npu_occupancy_sec": None, "npu_card_hours": None, "npu_die_hours": None,
+        "uninformative_probes": None, "human_interventions": None,
+    }
+    if executor_fn is None:
+        # No continuation ran, so the selector stage is the whole cell.
+        return {
+            **row, **unexecuted, "terminal_status": "not_executed",
+            "usage_status": "native" if selector_usage else "unavailable",
+            "total_model_calls": selector_model_calls,
+            "prompt_tokens": selector_prompt_tokens, "completion_tokens": selector_completion_tokens,
+        }
 
+    # Unknown selector spend keeps its declared reservation in the shared budget.
+    reserved = budget.selector_call_budget if selector_model_calls is None else selector_model_calls
+    started = clock()
     try:
         exec_out = dict(
             executor_fn(
-                case=case,
+                case=_executor_case(case),
                 arm=cell.arm,
                 selector_decision=selector_decision,
                 routing_index=routing_index,
-                remaining_model_calls=remaining_calls,
-                remaining_window_sec=remaining_window,
+                remaining_model_calls=budget.model_call_budget - reserved,
+                remaining_window_sec=budget.business_window_sec - selector_wall_sec,
             )
         )
     except TimeoutError as exc:
+        # The dispatched continuation may have spent calls; its totals stay unknown.
         return {
-            "cell": cell.__dict__, "terminal_status": "unknown", "selector_status": selector_status,
-            "selector_error": selector_error or str(exc), "controls_digest": cell.controls_digest,
-            "usage_status": "unavailable", "total_model_calls": selector_calls,
-            "prompt_tokens": None, "completion_tokens": None, "knowledge_tokens": None,
-            "wall_clock_sec": round(selector_wall_sec, 4), "npu_runs": None,
-            "npu_card_hours": None, "npu_die_hours": None,
+            **row, **unexecuted, "terminal_status": "unknown", "executor_error": str(exc),
+            "wall_clock_sec": round(selector_wall_sec + clock() - started, 4),
         }
+    exec_wall = clock() - started
 
     judged = evaluate_strategy_continuation(case, exec_out)
-    exec_calls = int(exec_out.get("model_calls", 1))
-    total_calls = selector_calls + exec_calls
-    exec_wall = float(exec_out.get("wall_clock_sec", 0.0))
-    total_wall = round(selector_wall_sec + exec_wall, 4)
-    npu_runs = int(exec_out.get("npu_runs", 0))
-    budget_compliant = (
-        total_calls <= budget.model_call_budget
-        and npu_runs <= budget.npu_run_budget
-        and total_wall <= budget.business_window_sec
+    exec_calls = exec_out.get("model_calls")
+    total_calls = (
+        None if exec_calls is None or selector_model_calls is None
+        else selector_model_calls + int(exec_calls)
     )
-
+    total_wall = round(selector_wall_sec + exec_wall, 4)
+    npu_runs = exec_out.get("npu_runs")
     exec_prompt = exec_out.get("prompt_tokens")
     exec_completion = exec_out.get("completion_tokens")
-    if (
-        exec_prompt is not None
-        and exec_completion is not None
-        and (cell.arm == "A" or (selector_prompt_tokens is not None and selector_completion_tokens is not None))
-    ):
-        total_prompt = int(exec_prompt) + int(selector_prompt_tokens or 0)
-        total_completion = int(exec_completion) + int(selector_completion_tokens or 0)
-        usage_status = "native"
-    else:
-        total_prompt = None
-        total_completion = None
-        usage_status = "unavailable"
-
-    terminal_status = "pass" if judged["task_succeeded"] else "fail"
-    device_hours = (exec_wall / 3600.0) * max(1, npu_runs)
+    native = selector_usage and exec_prompt is not None and exec_completion is not None
+    occupancy = exec_out.get("npu_occupancy_sec")
+    checks = [
+        selector_over_budget is not True,
+        total_wall <= budget.business_window_sec,
+        None if total_calls is None else total_calls <= budget.model_call_budget,
+        None if npu_runs is None else npu_runs <= budget.npu_run_budget,
+    ]
     return {
-        "cell": cell.__dict__, "terminal_status": terminal_status, "budget_compliant": budget_compliant,
-        "selector_status": selector_status, "selector_error": selector_error,
-        "selector_decision": dict(selector_decision) if selector_decision is not None else None,
-        "judgment": judged, "controls_digest": cell.controls_digest, "usage_status": usage_status,
-        "selector_model_calls": selector_calls, "executor_model_calls": exec_calls,
-        "total_model_calls": total_calls, "selector_prompt_tokens": selector_prompt_tokens,
-        "selector_completion_tokens": selector_completion_tokens, "prompt_tokens": total_prompt,
-        "completion_tokens": total_completion, "knowledge_tokens": int(exec_out.get("knowledge_tokens", 0)),
-        "wall_clock_sec": total_wall, "npu_runs": npu_runs, "npu_cards": case.npu_cards,
-        "npu_dies": case.npu_dies, "npu_card_hours": round(device_hours * case.npu_cards, 6),
-        "npu_die_hours": round(device_hours * case.npu_dies, 6),
-        "uninformative_probes": int(exec_out.get("uninformative_probes", 0)),
-        "human_interventions": int(exec_out.get("human_interventions", 0)),
+        **row,
+        "terminal_status": "pass" if judged["task_succeeded"] else "fail",
+        "judgment": judged,
+        "budget_compliant": False if False in checks else None if None in checks else True,
+        "usage_status": "native" if native else "unavailable",
+        "executor_model_calls": exec_calls, "total_model_calls": total_calls,
+        "executor_prompt_tokens": exec_prompt, "executor_completion_tokens": exec_completion,
+        "prompt_tokens": int(exec_prompt) + int(selector_prompt_tokens) if native else None,
+        "completion_tokens": int(exec_completion) + int(selector_completion_tokens) if native else None,
+        "knowledge_tokens": exec_out.get("knowledge_tokens"),
+        "wall_clock_sec": total_wall, "npu_runs": npu_runs, "npu_occupancy_sec": occupancy,
+        "npu_card_hours": None if occupancy is None else round(occupancy / 3600.0 * case.npu_cards, 6),
+        "npu_die_hours": None if occupancy is None else round(occupancy / 3600.0 * case.npu_dies, 6),
+        "uninformative_probes": exec_out.get("uninformative_probes"),
+        "human_interventions": exec_out.get("human_interventions"),
+    }
+
+
+def _selection_summary(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    arms: dict[str, Any] = {}
+    for arm in ("B", "C"):
+        rows = [row for row in results if row["cell"]["arm"] == arm]
+        judged = [row["selection"] for row in rows if row["selection"] is not None]
+        missing = len(rows) - len(judged)
+        arms[arm] = {
+            "planned_cells": len(rows), "judged_cells": len(judged),
+            "selector_budget_exceeded_cells": sum(row["selector_budget_exceeded"] is True for row in rows),
+            "selection_acceptable_rate": _ratio(
+                sum(item["selection_acceptable"] for item in judged), len(judged), missing=missing
+            ),
+            "false_adoption_rate": _ratio(
+                sum(item["false_adoption"] for item in judged), len(judged), missing=missing
+            ),
+        }
+
+    def delta(key: str) -> float | None:
+        b, c = arms["B"][key]["value"], arms["C"][key]["value"]
+        return None if b is None or c is None else round(c - b, 6)
+
+    return {
+        "arms": arms,
+        "C_vs_B": {
+            "selection_acceptable_delta": delta("selection_acceptable_rate"),
+            "false_adoption_delta": delta("false_adoption_rate"),
+        },
     }
 
 
@@ -582,10 +559,10 @@ def run_strategy_selection_pilot(
     repetitions: int = 2,
     budget: StrategySelectionBudget = StrategySelectionBudget(),
     selector_fn: Callable[[Mapping[str, Any]], Mapping[str, Any]] = condition_aware_selector,
-    executor_fn: Callable[..., Mapping[str, Any]] = shared_prefix_executor,
+    executor_fn: Callable[..., Mapping[str, Any]] | None = None,
     offline_prep_cost: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute the full Section 4.7 A/B/C pilot and produce paired mechanism & cost reports."""
+    """Judge B/C selector decisions; with a real executor, also compare A/B/C continuations."""
     routing_index = load_combined_routing_index(corpus_roots)
     readiness = verify_pilot_lineage_and_soundness(cases)
     cells, controls_by_task = plan_strategy_selection_cells(
@@ -606,6 +583,31 @@ def run_strategy_selection_pilot(
         )
         for cell in cells
     ]
+    report = {
+        "schema_version": SCHEMA_VERSION,
+        "readiness": readiness, "budget": budget.__dict__,
+        "upper_bounds": {
+            "total_cells": len(cells), "selector_calls": sum(1 for c in cells if c.arm in ("B", "C")),
+            "max_model_calls": len(cells) * budget.model_call_budget,
+            "max_npu_runs": len(cells) * budget.npu_run_budget,
+            "max_outer_wall_clock_sec": len(cells) * budget.outer_timeout_sec,
+        },
+        "continuation": "not_executed" if executor_fn is None else "executed",
+        "selection": _selection_summary(results),
+    }
+    if executor_fn is None:
+        return {
+            **report,
+            "scope_note": (
+                "Selector stage only: selector decisions on isolated B/C views judged by the private "
+                "judge. No continuation executor was supplied, so no task outcome, continuation "
+                "usage, NPU run or device occupancy is reported."
+            ),
+            "decision_gate": (
+                "continuation_not_executed" if readiness["ready"] else "return_to_implementation_fix"
+            ),
+            "cells": results,
+        }
 
     base_cfg = ArmConfig(
         roles="single_agent", ledger="two_layer", retrieval="graded_conditions",
@@ -648,7 +650,7 @@ def run_strategy_selection_pilot(
             repetition=abl_cell.repetition, status=AblationOutcome(row["terminal_status"]),
             completion_tokens=row["completion_tokens"], wall_clock_sec=row["wall_clock_sec"],
             npu_runs=row["npu_runs"], knowledge_tokens=row["knowledge_tokens"],
-            first_effective_action=row.get("judgment", {}).get("next_action"),
+            first_effective_action=(row["judgment"] or {}).get("next_action"),
             controls_digest=row["controls_digest"],
         ))
     c_vs_b_report = analyze_mechanism_ablations(c_vs_b_plan, c_vs_b_obs, min_independent_families=3)
@@ -658,26 +660,28 @@ def run_strategy_selection_pilot(
         arm_rows = [row for row in results if row["cell"]["arm"] == arm]
         valid_rows = [row for row in arm_rows if row["terminal_status"] in {"pass", "fail"}]
         passed = sum(row["terminal_status"] == "pass" for row in valid_rows)
-        reasonable = sum(row.get("judgment", {}).get("selection_reasonable") is True for row in valid_rows)
-        false_adoptions = sum(row.get("judgment", {}).get("false_adoption") is True for row in valid_rows)
+        reasonable = sum(row["judgment"]["selection_reasonable"] is True for row in valid_rows)
+        false_adoptions = sum(row["judgment"]["false_adoption"] is True for row in valid_rows)
         trigger_rows = [row for row in valid_rows if row["cell"]["case_kind"] == "trigger_matched"]
         boundary_rows = [row for row in valid_rows if row["cell"]["case_kind"] == "boundary_or_mismatch"]
         arm_summaries[arm] = {
             "arm": arm, "label": ARM_LABELS[arm],
             "planned_cells": len(arm_rows), "valid_cells": len(valid_rows),
+            "budget_noncompliant_cells": sum(r["budget_compliant"] is False for r in arm_rows),
+            "selector_budget_exceeded_cells": sum(r["selector_budget_exceeded"] is True for r in arm_rows),
             "pass_rate": _ratio(passed, len(valid_rows), missing=len(arm_rows) - len(valid_rows)),
             "selection_reasonable_rate": _ratio(reasonable, len(valid_rows)),
             "false_adoption_rate": _ratio(false_adoptions, len(valid_rows)),
             "trigger_matched_pass_rate": _ratio(sum(r["terminal_status"] == "pass" for r in trigger_rows), len(trigger_rows)),
-            "boundary_safe_handling_rate": _ratio(sum(not r.get("judgment", {}).get("false_adoption", True) for r in boundary_rows), len(boundary_rows)),
-            "total_model_calls": sum(int(r.get("total_model_calls") or 0) for r in arm_rows),
-            "selector_model_calls": sum(int(r.get("selector_model_calls") or 0) for r in arm_rows),
-            "total_prompt_tokens": (sum(int(r["prompt_tokens"]) for r in arm_rows) if all(r.get("prompt_tokens") is not None for r in arm_rows) else None),
-            "total_completion_tokens": (sum(int(r["completion_tokens"]) for r in arm_rows) if all(r.get("completion_tokens") is not None for r in arm_rows) else None),
-            "total_wall_clock_sec": round(sum(float(r.get("wall_clock_sec") or 0.0) for r in arm_rows), 3),
-            "total_npu_runs": sum(int(r.get("npu_runs") or 0) for r in arm_rows),
-            "total_npu_card_hours": round(sum(float(r.get("npu_card_hours") or 0.0) for r in arm_rows), 6),
-            "total_npu_die_hours": round(sum(float(r.get("npu_die_hours") or 0.0) for r in arm_rows), 6),
+            "boundary_safe_handling_rate": _ratio(sum(not r["judgment"]["false_adoption"] for r in boundary_rows), len(boundary_rows)),
+            "total_model_calls": _total(arm_rows, "total_model_calls"),
+            "selector_model_calls": _total(arm_rows, "selector_model_calls"),
+            "total_prompt_tokens": _total(arm_rows, "prompt_tokens"),
+            "total_completion_tokens": _total(arm_rows, "completion_tokens"),
+            "total_wall_clock_sec": _total(arm_rows, "wall_clock_sec", 3),
+            "total_npu_runs": _total(arm_rows, "npu_runs"),
+            "total_npu_card_hours": _total(arm_rows, "npu_card_hours", 6),
+            "total_npu_die_hours": _total(arm_rows, "npu_die_hours", 6),
         }
 
     negative_transfer_c_vs_a = 0
@@ -698,8 +702,8 @@ def run_strategy_selection_pilot(
             ):
                 cost_regression_on_both_pass_c_vs_a += 1
             if (
-                row_c.get("judgment", {}).get("selection_reasonable") is True
-                and row_b.get("judgment", {}).get("selection_reasonable") is False
+                (row_c["judgment"] or {}).get("selection_reasonable") is True
+                and (row_b["judgment"] or {}).get("selection_reasonable") is False
             ):
                 c_beats_b_selection += 1
             if row_c["terminal_status"] == "pass" and row_a["terminal_status"] == "fail":
@@ -708,11 +712,6 @@ def run_strategy_selection_pilot(
     shared_prefix_wall = sum(float(case.shared_prefix_cost.get("wall_clock_sec", 0.0)) for case in cases)
     shared_prefix_prompt = sum(int(case.shared_prefix_cost.get("prompt_tokens", 0)) for case in cases)
     shared_prefix_completion = sum(int(case.shared_prefix_cost.get("completion_tokens", 0)) for case in cases)
-    prep = dict(offline_prep_cost or {
-        "corpus_revision_wall_clock_sec": 45.0,
-        "dev_calibration_wall_clock_sec": 120.0,
-        "organizer_model_calls": 0,
-    })
 
     c_reasonable = arm_summaries["C"]["selection_reasonable_rate"]["value"] or 0.0
     b_reasonable = arm_summaries["B"]["selection_reasonable_rate"]["value"] or 0.0
@@ -727,20 +726,15 @@ def run_strategy_selection_pilot(
     else:
         decision_gate = "stop_default_rollout"
 
+    walls = [arm_summaries[arm]["total_wall_clock_sec"] for arm in ARMS]
     return {
-        "schema_version": SCHEMA_VERSION,
+        **report,
         "scope_note": (
-            "Continuation pilot from a shared decision point across 6 cases (3 independent "
-            "problem families x 2 repetitions = 36 host continuations + 24 isolated selector calls). "
-            "Does not claim full-session product cohort superiority without end-to-end prefix replay."
+            f"Continuation pilot from a shared decision point across {len(cases)} cases "
+            f"({len(cells)} executed continuations + {report['upper_bounds']['selector_calls']} "
+            "isolated selector calls). Does not claim full-session product cohort superiority "
+            "without end-to-end prefix replay."
         ),
-        "readiness": readiness, "budget": budget.__dict__,
-        "upper_bounds": {
-            "total_cells": len(cells), "selector_calls": sum(1 for c in cells if c.arm in ("B", "C")),
-            "max_model_calls": len(cells) * budget.model_call_budget,
-            "max_npu_runs": len(cells) * budget.npu_run_budget,
-            "max_outer_wall_clock_sec": len(cells) * budget.outer_timeout_sec,
-        },
         "arms": arm_summaries,
         "comparisons": {
             "C_vs_B": {
@@ -758,8 +752,8 @@ def run_strategy_selection_pilot(
                 "c_beats_a_pass_cells": c_beats_a_pass,
                 "negative_transfer_count": negative_transfer_c_vs_a,
                 "cost_regression_on_both_pass_count": cost_regression_on_both_pass_c_vs_a,
-                "continuation_wall_clock_delta_sec": round(
-                    arm_summaries["C"]["total_wall_clock_sec"] - arm_summaries["A"]["total_wall_clock_sec"], 3,
+                "continuation_wall_clock_delta_sec": (
+                    None if None in (walls[0], walls[2]) else round(walls[2] - walls[0], 3)
                 ),
             },
             "trigger_vs_boundary": {
@@ -789,12 +783,13 @@ def run_strategy_selection_pilot(
             "shared_prefix_cost_once": {
                 "wall_clock_sec": round(shared_prefix_wall, 3), "prompt_tokens": shared_prefix_prompt,
                 "completion_tokens": shared_prefix_completion,
+                "source": "declared by the case definitions; not measured by this pilot",
                 "accounting_rule": "counted once in physical total; added equally when estimating full-task conditional cost",
             },
             "offline_and_total_experiment_cost": {
-                **prep,
-                "physical_continuation_wall_clock_sec": round(
-                    sum(arm_summaries[arm]["total_wall_clock_sec"] for arm in ARMS), 3
+                "offline_prep_cost": dict(offline_prep_cost) if offline_prep_cost is not None else None,
+                "physical_continuation_wall_clock_sec": (
+                    None if None in walls else round(sum(walls), 3)
                 ),
                 "amortization_cases": len(cases),
             },

@@ -13,7 +13,7 @@ dependencies = ["pydantic>=2.10,<3", "PyYAML>=6,<7"]
 
 [project.optional-dependencies]
 export = ["pyarrow>=19,<24"]
-knowledge = ["mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@10ee85606aa43de7975e3c4542013be4c177730a"]
+knowledge = ["mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@2e5cf79050a6634a53b9c2cff52d98ca87850e50"]
 
 [project.scripts]
 mindie-bench = "mindie_bench.cli:main"

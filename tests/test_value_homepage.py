@@ -1,11 +1,12 @@
 import copy
+import re
 
 import pytest
 from test_value_release import evidence
 
 from mindie_bench.io import digest
 from mindie_bench.value_homepage import BEGIN_MARKER, END_MARKER, homepage_markdown
-from mindie_bench.value_release import evaluate, write_report
+from mindie_bench.value_release import evaluate, markdown, write_report
 
 
 def table_rows(markdown, prefix):
@@ -170,8 +171,16 @@ def test_transfer_preserves_missed_seed_and_counts_capture_and_retest_once(langu
     assert report["studies"][0]["resources"]["historical"]["attempts"] == 1
 
 
-def component_report():
+def test_transfer_miss_note_names_the_observed_misses_from_the_lineages():
+    text = markdown(transfer_report())
+    assert "Missing seed retrieval is retained as an observed result: repetition 3 (`first-eval`)." in text
+    assert "publication-flush-eval" not in text
+
+
+def component_report(*, agent_studies=True):
     suite, observations = evidence()
+    if not agent_studies:
+        suite["studies"], observations["studies"] = [], {}
     observations["component_revisions"]["profiler"] = "4010d72f0b6950caf1425e3b683d495a6c76016a"
     observations["component_revisions"]["sim"] = "b520b1c41b5dcf97ce7a00cbb6578ff9f834907b"
     scenarios = [
@@ -191,18 +200,21 @@ def component_report():
             {"failure_occurrences": 3, "raw_tracebacks": 3},
             {"failure_occurrences": 3, "delivered_reports": 1, "http_posts": 1,
              "useful_fault_fields_retained": True, "private_fixture_removed": True,
-             "withdrawal_prevented_requests": True, "failure_to_delivery_sec": 60.58435137500055},
+             "withdrawal_prevented_requests": True, "failure_to_delivery_sec": 60.58435137500055,
+             "production_retry_wait_sec": 59.9931},
         ),
         (
             "profiler-rank-link-memory-attribution", "profiler", "mindie-profiler",
             {"raw_arithmetic_matches_report": True},
             {"profile_steps_aligned": True, "memory_target_met": True,
+             "slow_link_dominant_block": "Comm", "slow_rank_dominant_block": "Attention",
              "db_mutation": False, "analyze_latency_ms": 5.65},
         ),
         (
             "sim-a3-graph-and-boundary-screening", "sim", "mindie-sim",
             {"graph_ttft_ms": 50.85, "graph_tpot_ms": 15.71},
             {"qwen_case_deterministic": True, "subgraph_overflow_rejected": True,
+             "ttft_error_pct": -65.9016715830875,
              "tpot_error_pct": -4.139485949421207, "subgraph_critical_path_saving_us": 5.0},
         ),
     ]
@@ -212,6 +224,8 @@ def component_report():
         })
         observations["component_cases"].append({
             "id": case_id, "component": component, "status": "pass",
+            "scope": "deterministic local scenario",
+            "limitations": ["Inputs are deterministic fixtures, not new NPU measurements."],
             "measurements": [
                 {"repetition": rep, "status": "pass", "baseline": baseline, "candidate": candidate}
                 for rep in range(1, 4)
@@ -242,9 +256,25 @@ def test_component_numbers_keep_replay_counts_separate_from_unmeasured_human_res
     assert "24" in npu and "16/16" in npu and "3/3" in npu
     assert npu.count("未测" if language == "zh" else "not measured") == 2
     diagnostics = lines["- diagnostics"]
-    assert "9" in diagnostics and "60.58" in diagnostics
+    assert "9" in diagnostics and "60.58" in diagnostics and "59.99" in diagnostics
     assert diagnostics.count("3/3") == 3
     profiler = lines["- profiler"]
-    assert profiler.count("3/3") == 3 and "5.65" in profiler
+    assert profiler.count("3/3") == 4 and "5.65" in profiler
     sim = lines["- sim"]
     assert sim.count("3/3") == 2 and "4.14%" in sim and "5.0" in sim
+    assert "65.90%" in sim
+
+
+def test_component_only_gate_states_its_scope_and_renders_no_agent_task_results():
+    # A component-scenario suite must not carry agent-task ratios or solved counts
+    # that were never part of its input.
+    report = component_report(agent_studies=False)
+    assert report["release_gate"], report["blocking_reasons"]
+    assert report["gate_scope"] == {
+        "agent_studies": 0, "selected_agent_trials": 0, "component_cases": 5, "native_plugins": 0,
+    }
+    full = markdown(report)
+    assert "0 agent studies with 0 selected trials, 5 component scenarios" in full
+    for text in (full, homepage_markdown(report, "zh"), homepage_markdown(report, "en")):
+        assert re.search(r"\d\.\d+x\b", text) is None
+        assert "**G0**" not in text and "| Study" not in text and "| 任务集" not in text

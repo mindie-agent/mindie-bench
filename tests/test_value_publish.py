@@ -88,3 +88,26 @@ def test_attachment_preparation_is_read_only_and_reuses_only_identical_assets(tm
         publisher.attach(**options, publish=True)
     with pytest.raises(ValueError, match="attachment differs"):
         publisher.attach(**options, require_existing=True)
+
+
+def test_component_attachment_states_only_the_scope_it_carries(tmp_path):
+    suite, observations, manifest = prepared(tmp_path)
+    observations["component_revisions"]["coordinator"] = "coordinator-revision"
+    manifest["repositories"].append(
+        {"repository": "mindie-agent/coordinator", "version": "0.0.2", "revision": "coordinator-revision"}
+    )
+    report = evaluate(suite, observations)
+    assert report["gate_scope"]["agent_studies"] == 1
+    write_component_views(report, manifest, tmp_path / "views")
+    views = tmp_path / "views"
+    codex = json.loads((views / "codex/product-0.0.2-value-results.json").read_text())
+    coordinator = json.loads((views / "coordinator/product-0.0.2-value-results.json").read_text())
+    assert codex["gate_scope"] == {
+        "agent_studies": 1, "selected_agent_trials": 2, "component_cases": 0, "native_plugins": 0,
+    }
+    assert coordinator["gate_scope"] == {
+        "agent_studies": 0, "selected_agent_trials": 0, "component_cases": 0, "native_plugins": 0,
+    }
+    text = (views / "coordinator/product-0.0.2-value-results.md").read_text()
+    assert "(0 agent studies with 0 selected trials" in text
+    assert "| Study |" not in text and "**G0**" not in text

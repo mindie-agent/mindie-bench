@@ -98,18 +98,28 @@ def _component_line(case: dict, language: str) -> str:
         privacy = observed(candidate, "private_fixture_removed")
         withdrawal = observed(candidate, "withdrawal_prevented_requests")
         duration = _span((row.get("failure_to_delivery_sec") for row in candidate), language, digits=2)
+        retry = _span((row.get("production_retry_wait_sec") for row in candidate), language, digits=2)
         return (
             f"- diagnostics：{count} 轮本地 HTTP 上报场景中，{failures} 次报错自动去重形成 {reports} 条报告、"
             f"{posts} 次 POST；关键字段保留 {fields}、隐私脱敏 {privacy}、关闭开关后立即停发 {withdrawal}。"
-            f"从报错到送达耗时 {duration} 秒（含约 60 秒生产重试等待；本地测试不代表 GitHub 线上可用性或人工排障耗时）。"
+            f"从报错到送达耗时 {duration} 秒（含生产重试等待 {retry} 秒；本地测试不代表 GitHub 线上可用性或人工排障耗时）。"
             if zh else
             f"- diagnostics: {count} local HTTP reporting runs deduplicated {failures} faults into "
             f"{reports} reports and {posts} POSTs; key fault fields retained {fields}, privacy redaction {privacy}, "
             f"requests stopped after consent withdrawal {withdrawal}. Delivery took {duration} s "
-            "(including the ~60 s production retry wait; local HTTP does not measure GitHub availability or human triage time)."
+            f"(including a {retry} s production retry wait; local HTTP does not measure GitHub availability "
+            "or human triage time)."
         )
     if case["id"] == "profiler-rank-link-memory-attribution":
         aligned = observed(candidate, "profile_steps_aligned")
+        blocks = [
+            (row.get("slow_rank_dominant_block"), row.get("slow_link_dominant_block"))
+            for row in candidate
+        ]
+        separated = observed(
+            [{"separated": None if None in pair else pair == ("Attention", "Comm")} for pair in blocks],
+            "separated",
+        )
         memory_met = observed(candidate, "memory_target_met")
         mutations = [row.get("db_mutation") for row in candidate]
         immutable = (
@@ -120,24 +130,27 @@ def _component_line(case: dict, language: str) -> str:
         analyze_ms = _span((row.get("analyze_latency_ms") for row in candidate), language, digits=2)
         return (
             f"- profiler：{count} 轮确定性 SQLite 采集归因回放，Step 窗口对齐 {aligned}，"
-            f"慢卡（Attention）与慢链路（Comm）归因分离，显存归因达标 {memory_met}，"
+            f"慢卡（Attention）与慢链路（Comm）归因分离 {separated}，显存归因达标 {memory_met}，"
             f"只读零库文件变更 {immutable}，分析耗时 {analyze_ms} ms（夹具回放验证归因准确性，不等同于新增实机采样）。"
             if zh else
             f"- profiler: {count} deterministic SQLite attribution runs; step alignment {aligned}, "
-            f"slow-rank (Attention) vs slow-link (Comm) separated, memory attribution target met {memory_met}, "
+            f"slow-rank (Attention) vs slow-link (Comm) separated {separated}, memory attribution target met {memory_met}, "
             f"read-only DB immutability {immutable}, analyze latency {analyze_ms} ms "
             "(fixture replay verifies attribution accuracy rather than new hardware captures)."
         )
     if case["id"] == "sim-a3-graph-and-boundary-screening":
         deterministic = observed(candidate, "qwen_case_deterministic")
         overflow_rejected = observed(candidate, "subgraph_overflow_rejected")
-        tpot_err = _span(
-            (
-                abs(row["tpot_error_pct"]) if isinstance(row.get("tpot_error_pct"), (int, float)) else None
-                for row in candidate
-            ),
-            language,
-            digits=2,
+        ttft_err, tpot_err = (
+            _span(
+                (
+                    abs(row[key]) if isinstance(row.get(key), (int, float)) else None
+                    for row in candidate
+                ),
+                language,
+                digits=2,
+            )
+            for key in ("ttft_error_pct", "tpot_error_pct")
         )
         saving_us = _span(
             (row.get("subgraph_critical_path_saving_us") for row in candidate),
@@ -146,11 +159,12 @@ def _component_line(case: dict, language: str) -> str:
         )
         return (
             f"- sim：{count} 轮 A3 物理标定图预测与算子/子图边界筛查，Qwen2.5-7B 图预测确定性 {deterministic}"
-            f"（TPOT 相对误差 {tpot_err}%），UB 溢出融合拦截 {overflow_rejected}，"
+            f"（TTFT 相对误差 {ttft_err}%，TPOT 相对误差 {tpot_err}%），UB 溢出融合拦截 {overflow_rejected}，"
             f"可行融合关键路径收益 {saving_us} us（基于公开标定锚点与算术夹具，不含客户端固定调度底噪）。"
             if zh else
             f"- sim: {count} A3 physical-calibration graph prediction and operator/subgraph screening runs; "
-            f"Qwen2.5-7B graph prediction determinism {deterministic} (TPOT relative error {tpot_err}%), "
+            f"Qwen2.5-7B graph prediction determinism {deterministic} (TTFT relative error {ttft_err}%, "
+            f"TPOT relative error {tpot_err}%), "
             f"UB overflow fusion rejected {overflow_rejected}, feasible fusion critical-path saving {saving_us} us "
             "(anchored on published calibration fixtures without client scheduler floor)."
         )
@@ -178,11 +192,11 @@ def _transfer_lines(study: dict, language: str) -> list[str]:
         ),
         (
             f"后续任务中检索（`query`）命中前置经验 {queries}/{len(entries)} 次、展开读取（`explain`）{explains}/{len(entries)} 次"
-            "（未命中轮次原样保留）。下表为包含前置任务与经验沉淀在内的全流程总耗时；知识检索与全流程耗时预计在 `0.0.3` 优化："
+            "（未命中轮次原样保留）。下表为包含前置任务与经验沉淀在内的全流程总耗时："
             if zh else
             f"Later eval tasks hit the captured seed via `query` in {queries}/{len(entries)} runs and read it via "
             f"`explain` in {explains}/{len(entries)} runs (misses are retained). Workflow totals below include the "
-            "seed task and capture cost; retrieval overhead and end-to-end workflow latency are scheduled for optimization in `0.0.3`:"
+            "seed task and capture cost:"
         ),
         "",
         (
@@ -213,20 +227,36 @@ def homepage_markdown(report: dict, language: str = "zh") -> str:
     zh = language == "zh"
     version = _text(report["product_version"])
     link = f"docs/releases/{report['product_version']}/value-results.md"
+    lines = [BEGIN_MARKER, f"### {version} " + ("实测结果" if zh else "measured results")]
+    if report["studies"]:
+        lines += _study_lines(report, language)
+    if report["component_cases"]:
+        lines += ["", "**组件实测场景**" if zh else "**Component scenarios**", ""]
+        lines.extend(_component_line(case, language) for case in report["component_cases"])
+    lines += [
+        "",
+        (
+            f"[完整评测报告、条件定义与成本记录]({link})保留全部原始失败、状态未知（`unknown`）记录、历史尝试与单点重测链路；"
+            "环境准备与诊断探针的模型调用单独记账，不混入任务评测。"
+            if zh else
+            f"[Full benchmark report, condition definitions and cost records]({link}) retain original failures, "
+            "unknown outcomes, historical attempts and targeted retests. Setup and diagnostic "
+            "model usage is accounted for separately from task evaluations."
+        ),
+        END_MARKER,
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _study_lines(report: dict, language: str) -> list[str]:
+    zh = language == "zh"
     lines = [
-        BEGIN_MARKER,
-        f"### {version} " + ("实测结果" if zh else "measured results"),
         "",
         (
             "固定任务集上的小样本实测结果（按宿主、模型与对照条件分别列出，不跨模型求平均）："
-            "`remote-dev`（G0 → G1）在 `quarot` 上实现 `3/3` 解出与 `1.025x` 交付提速，在 `dp2` 上与原生基线基本持平（`0.963x`）；"
-            "`coordinator` 在双 Agent 并发抢占下实现零冲突协调；"
-            "`knowledge` + Skills（G2/G3）提升了 `dp2` 与 `dsh` 的解题完成数并跑通跨任务经验复用，检索开销预计在 `0.0.3` 重点优化。"
             if zh else
-            "Small-sample results on the fixed task suite (reported separately by host, model and comparison, never averaged across models): "
-            "`remote-dev` (G0 → G1) solved `3/3` `quarot` runs with a `1.025x` speedup and matched baseline on `dp2` (`0.963x`); "
-            "`coordinator` eliminated port and device conflicts under concurrent contention; "
-            "`knowledge` + Skills (G2/G3) increased solved tasks on `dp2` and `dsh` and validated cross-task reuse, with retrieval latency targeted for optimization in `0.0.3`."
+            "Small-sample results on the fixed task suite (reported separately by host, model and "
+            "comparison, never averaged across models):"
         ),
         "",
         (
@@ -280,19 +310,4 @@ def homepage_markdown(report: dict, language: str = "zh") -> str:
     ]
     for study in report["studies"]:
         lines.extend(_transfer_lines(study, language))
-    if report["component_cases"]:
-        lines += ["", "**组件实测场景**" if zh else "**Component scenarios**", ""]
-        lines.extend(_component_line(case, language) for case in report["component_cases"])
-    lines += [
-        "",
-        (
-            f"[完整评测报告、条件定义与成本记录]({link})保留全部原始失败、状态未知（`unknown`）记录、历史尝试与单点重测链路；"
-            "环境准备与诊断探针的模型调用单独记账，不混入任务评测。"
-            if zh else
-            f"[Full benchmark report, condition definitions and cost records]({link}) retain original failures, "
-            "unknown outcomes, historical attempts and targeted retests. Setup and diagnostic "
-            "model usage is accounted for separately from task evaluations."
-        ),
-        END_MARKER,
-    ]
-    return "\n".join(lines) + "\n"
+    return lines

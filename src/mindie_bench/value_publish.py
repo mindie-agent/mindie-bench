@@ -60,6 +60,11 @@ def component_view(report: dict, target: dict) -> dict:
     setup_reports = [
         row for row in report.get("setup_reports", []) if row["plugin"] in harnesses
     ]
+    cases = [
+        row for row in report["component_cases"]
+        if component == "mindie-bench" or row["component"] == component
+    ]
+    plugins = [row for row in report["native_plugins"] if row["plugin"] == component]
     view = {
         **report,
         "schema_version": "mindie-component-value-report/1",
@@ -71,16 +76,18 @@ def component_view(report: dict, target: dict) -> dict:
         "studies": studies,
         "setup_reports": setup_reports,
         "setup_resources": setup_totals(setup_reports),
-        "component_cases": [
-            row for row in report["component_cases"]
-            if component == "mindie-bench" or row["component"] == component
-        ],
+        "component_cases": cases,
         "excluded_attempts": [
             row for row in report["excluded_attempts"] if row["study_id"] in study_ids
         ],
-        "native_plugins": [
-            row for row in report["native_plugins"] if row["plugin"] == component
-        ],
+        "native_plugins": plugins,
+        # An attachment states the scope of the evidence it carries, not the whole suite's.
+        "gate_scope": {
+            "agent_studies": len(studies),
+            "selected_agent_trials": sum(study["observed_cells"] for study in studies),
+            "component_cases": len(cases),
+            "native_plugins": len(plugins),
+        },
         "limitations": [scope, *report["limitations"]],
     }
     # Product-wide resource totals do not describe an individual component.

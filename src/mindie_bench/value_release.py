@@ -420,6 +420,14 @@ def evaluate(suite: dict, evidence: dict) -> dict:
         "schema_version": "mindie-value-report/1",
         "product_version": evidence["product_version"],
         "suite": suite["id"],
+        # release_gate covers exactly these declared evidence classes; an empty
+        # class is not evaluated, so it cannot back claims about that class.
+        "gate_scope": {
+            "agent_studies": len(suite["studies"]),
+            "selected_agent_trials": len(selected),
+            "component_cases": len(suite["component_cases"]),
+            "native_plugins": len(suite.get("native_plugins", {})),
+        },
         "component_revisions": evidence["component_revisions"],
         "runner_release": evidence.get("runner_release"),
         "collector_source": evidence.get("collector_source"),
@@ -591,30 +599,34 @@ def markdown(report: dict) -> str:
         from mindie_bench.value_product_views import markdown_product
 
         return markdown_product(report)
+    scope = report["gate_scope"]
     lines = [
         "# Product value benchmark",
         "",
         f"Version: {report['product_version']}. Suite: `{report['suite']}`. "
-        f"Evidence: {'complete' if report['release_gate'] else 'incomplete'}.",
-        "",
-        "Each row compares the same tasks and model (different models are never averaged). "
-        "Paired timing ratios (`baseline / candidate`) use only pairs solved by both conditions; "
-        "all failed, incomplete, and historical attempts remain in the inventory and resource totals.",
-        "",
-        "- **Conditions**: **G0** uses the native host; **G1** adds `remote-dev`; **G2** adds "
-        "`knowledge` retrieval, shipped Skills, and explicit retrieval guidance on top of G1; "
-        "**G3** captures an earlier seed task's experience for later evaluation tasks.",
-        "- **Key Takeaways**: `remote-dev` (G0 → G1) solved `3/3` `quarot` runs with a `1.025x` "
-        "delivery speedup and matched baseline on `dp2` (`0.963x`); `coordinator` eliminated port "
-        "and device conflicts (`3 → 0`) and doubled active listeners (`3 → 6`) under concurrent "
-        "contention; `knowledge` + Skills (G2/G3) increased completed tasks on `dp2` and `dsh` "
-        "(`2/3 → 3/3`) and hit captured seed experience in `5/6` transfer tasks, while retrieval "
-        "and context-reading latency is targeted for optimization in `0.0.3`.",
-        "",
-        "| Study | Model | Observed / planned | Pass | Fail | Infrastructure | Unknown |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        f"Evidence: {'complete' if report['release_gate'] else 'incomplete'} for the declared scope "
+        f"({scope['agent_studies']} agent studies with {scope['selected_agent_trials']} selected "
+        f"trials, {scope['component_cases']} component scenarios, {scope['native_plugins']} native "
+        "plugin checks); evidence classes outside this scope are not evaluated by this gate.",
     ]
-    lines[5:5] = [line for limitation in report["limitations"] for line in ("", limitation)]
+    if report["studies"]:
+        lines += [
+            "",
+            "Each row compares the same tasks and model (different models are never averaged). "
+            "Paired timing ratios (`baseline / candidate`) use only pairs solved by both conditions; "
+            "all failed, incomplete, and historical attempts remain in the inventory and resource totals.",
+        ]
+    lines += [line for limitation in report["limitations"] for line in ("", limitation)]
+    if report["studies"]:
+        lines += [
+            "",
+            "- **Conditions**: **G0** uses the native host; **G1** adds `remote-dev`; **G2** adds "
+            "`knowledge` retrieval, shipped Skills, and explicit retrieval guidance on top of G1; "
+            "**G3** captures an earlier seed task's experience for later evaluation tasks.",
+            "",
+            "| Study | Model | Observed / planned | Pass | Fail | Infrastructure | Unknown |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        ]
     for study in report["studies"]:
         counts = study["statuses"]
         lines.append(
@@ -698,6 +710,7 @@ def markdown(report: dict) -> str:
                 "| Repetition | Evaluation | Seed returned by query | Seed read through explain |",
                 "| ---: | --- | --- | --- |",
             ]
+            missed = []
             for lineage in study["transfer_lineages"]:
                 for entry in lineage.get("evals", []):
                     lines.append(
@@ -705,10 +718,14 @@ def markdown(report: dict) -> str:
                         f"{entry['seed_query_hit_observed']} | "
                         f"{entry['seed_explain_read_observed']} |"
                     )
-            lines += [
-                "",
-                "Missing retrieval in repetition 3 (`publication-flush-eval`) is retained as an observed result.",
-            ]
+                    if entry["seed_query_hit_observed"] is not True:
+                        missed.append(f"repetition {lineage['repetition']} (`{entry['task_id']}`)")
+            if missed:
+                lines += [
+                    "",
+                    "Missing seed retrieval is retained as an observed result: "
+                    + ", ".join(missed) + ".",
+                ]
     for case in report["component_cases"]:
         lines += [
             "",
