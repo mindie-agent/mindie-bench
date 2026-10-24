@@ -202,10 +202,14 @@ def test_cell_accounting_uses_reported_spend_and_measured_time(routing_index):
 
 
 @pytest.mark.tier0
-def test_executor_never_receives_judge_answers_and_card_time_needs_measured_occupancy(routing_index):
+def test_executor_never_receives_judge_answers_and_device_time_needs_observed_devices(routing_index):
     case = PILOT_CASES["S1-F1-trigger"]
     cells, _ = plan_strategy_selection_cells([case], repetitions=1)
     received = []
+    # Arm C reports the devices it actually held; Arm B reports occupancy alone.
+    # The case plans 1 card / 2 Dies, so a measured-looking number must not come from it.
+    assert (case.npu_cards, case.npu_dies) == (1, 2)
+    observed = {"B": {}, "C": {"observed_npu_cards": 2, "observed_npu_dies": 4}}
 
     def executor(*, case, arm, selector_decision, routing_index, remaining_model_calls, remaining_window_sec):
         received.append((case.private_judge, case.reference_solution, case.known_bad_solution))
@@ -215,7 +219,9 @@ def test_executor_never_receives_judge_answers_and_card_time_needs_measured_occu
             "applied_strategy_ref": ref, "next_action": "measured_probe", "verifier_passed": False,
             "model_calls": 2, "prompt_tokens": 100, "completion_tokens": 10, "npu_runs": 1,
         }
-        return outcome if arm == "A" else {**outcome, "npu_occupancy_sec": 1800.0}
+        if arm == "A":
+            return outcome
+        return {**outcome, "npu_occupancy_sec": 1800.0, **observed[arm]}
 
     rows = {
         cell.arm: run_strategy_selection_cell(
@@ -229,9 +235,121 @@ def test_executor_never_receives_judge_answers_and_card_time_needs_measured_occu
     assert rows["B"]["selector_model_calls"] == 0 and rows["B"]["total_model_calls"] == 2
     assert rows["B"]["usage_status"] == "native" and rows["B"]["prompt_tokens"] == 100
     assert rows["A"]["usage_status"] == "native" and rows["A"]["prompt_tokens"] == 100
-    assert rows["A"]["npu_runs"] == 1 and rows["A"]["npu_card_hours"] is None
-    assert rows["C"]["npu_card_hours"] == 0.5 * case.npu_cards
-    assert rows["C"]["npu_die_hours"] == 0.5 * case.npu_dies
+
+    # No occupancy at all: no device time, and the basis says so.
+    assert rows["A"]["npu_runs"] == 1 and rows["A"]["npu_occupancy_sec"] is None
+    assert rows["A"]["npu_card_hours"] is None and rows["A"]["npu_die_hours"] is None
+    assert rows["A"]["npu_accounting_basis"] == "no_occupancy_measurement"
+
+    # Measured occupancy without an observed device dimension stays dimensionless.
+    assert rows["B"]["npu_occupancy_sec"] == 1800.0
+    assert rows["B"]["npu_card_hours"] is None and rows["B"]["npu_die_hours"] is None
+    assert rows["B"]["observed_npu_cards"] is None and rows["B"]["observed_npu_dies"] is None
+    assert rows["B"]["npu_accounting_basis"] == "occupancy_without_observed_device_dimension"
+
+    # Device time follows the observed devices, not the planned ones.
+    assert rows["C"]["npu_card_hours"] == 0.5 * 2 and rows["C"]["npu_die_hours"] == 0.5 * 4
+    assert rows["C"]["npu_accounting_basis"] == "executor_measured_occupancy_and_devices"
+    # The planned allocation stays on the row under its existing name, unchanged.
+    for row in rows.values():
+        assert (row["npu_cards"], row["npu_dies"]) == (1, 2)
+
+
+@pytest.mark.tier0
+def test_cpu_only_continuation_reports_observed_zero_device_time(routing_index):
+    """A continuation that genuinely held no NPU reports zero, not an unknown."""
+    case = PILOT_CASES["S1-F1-trigger"]
+    cells, _ = plan_strategy_selection_cells([case], repetitions=1)
+    cell_c = next(cell for cell in cells if cell.arm == "C")
+
+    def cpu_only(*, case, arm, selector_decision, routing_index, remaining_model_calls, remaining_window_sec):
+        return {
+            "selected_strategy_ref": "default", "declared_adoption": False,
+            "applied_strategy_ref": "default", "next_action": "measured_probe",
+            "verifier_passed": False, "model_calls": 1, "prompt_tokens": 10,
+            "completion_tokens": 2, "npu_runs": 0,
+            "npu_occupancy_sec": 0.0, "observed_npu_cards": 0, "observed_npu_dies": 0,
+        }
+
+    row = run_strategy_selection_cell(
+        cell_c, case, routing_index=routing_index, executor_fn=cpu_only,
+    )
+    assert row["npu_occupancy_sec"] == 0.0
+    assert row["observed_npu_cards"] == 0 and row["observed_npu_dies"] == 0
+    assert row["npu_card_hours"] == 0.0 and row["npu_die_hours"] == 0.0
+    assert row["npu_accounting_basis"] == "executor_measured_occupancy_and_devices"
+    # The planned allocation is unchanged and did not become the measurement.
+    assert (row["npu_cards"], row["npu_dies"]) == (1, 2)
+
+
+@pytest.mark.tier1
+def test_continuation_infrastructure_fault_is_isolated_to_its_own_cell():
+    """One harness fault must not void the cells that already produced outcomes."""
+    attempts = []
+
+    def executor(*, case, arm, selector_decision, routing_index, remaining_model_calls, remaining_window_sec):
+        attempts.append((case.case_id, arm))
+        if len(attempts) == 2:
+            raise RuntimeError("ssh: remote container exited during continuation")
+        ref = (selector_decision or {}).get("selected_strategy_ref", "default")
+        return {
+            "selected_strategy_ref": ref, "declared_adoption": ref != "default",
+            "applied_strategy_ref": ref, "next_action": "measured_probe", "verifier_passed": False,
+            "model_calls": 2, "prompt_tokens": 60, "completion_tokens": 8,
+            "npu_runs": 1, "knowledge_tokens": 0,
+        }
+
+    cases = list(PILOT_CASES.values())[:2]
+    report = run_strategy_selection_pilot(
+        corpus_roots=_corpus_roots(), cases=cases, repetitions=1, executor_fn=executor,
+    )
+    # Every planned cell is still reported and every cell was still attempted.
+    assert len(report["cells"]) == len(cases) * 3 == len(attempts)
+    broken = [row for row in report["cells"] if row["terminal_status"] == "infra"]
+    assert len(broken) == 1
+    failed = broken[0]
+    assert "ssh: remote container exited" in failed["executor_error"]
+    assert failed["executor_error"].startswith("RuntimeError:")
+
+    # The selector decision and its own measured spend survive the continuation fault.
+    assert failed["selector_status"] in {"completed", "not_applicable"}
+    assert failed["selector_model_calls"] == 0
+    assert failed["selector_wall_clock_sec"] is not None
+    # Genuinely unobserved continuation totals stay unknown, never zero.
+    assert failed["total_model_calls"] is None and failed["npu_runs"] is None
+    assert failed["judgment"] is None and failed["npu_card_hours"] is None
+
+    # The surviving cells keep their outcomes and the arm denominators show the gap.
+    settled = [row for row in report["cells"] if row["terminal_status"] in {"pass", "fail"}]
+    assert len(settled) == len(cases) * 3 - 1
+    broken_arm = failed["cell"]["arm"]
+    assert report["arms"][broken_arm]["pass_rate"]["missing"] == 1
+    assert report["comparisons"]["C_vs_B"]["paired_ablation"]["overall"]["infra"] == 1
+    # The arm that lost a cell can no longer claim a complete spend total.
+    assert report["cost_ledgers"]["continuation_cost_by_arm"][broken_arm]["model_calls"] is None
+
+
+@pytest.mark.tier1
+def test_elapsed_budget_overrun_survives_a_lost_continuation():
+    """A measured window overrun is an observation even when the verdict is lost."""
+    budget = StrategySelectionBudget()
+    case = PILOT_CASES["S1-F1-trigger"]
+    cells, _ = plan_strategy_selection_cells([case], repetitions=1, budget=budget)
+    cell_c = next(cell for cell in cells if cell.arm == "C")
+    ticks = iter([0.0, 0.5, 0.5, budget.business_window_sec + 120.0])
+
+    def lost(**kwargs):
+        raise TimeoutError("continuation receipt lost")
+
+    row = run_strategy_selection_cell(
+        cell_c, case, routing_index=load_combined_routing_index(_corpus_roots()),
+        budget=budget, executor_fn=lost, clock=lambda: next(ticks),
+    )
+    assert row["terminal_status"] == "unknown"
+    assert row["wall_clock_sec"] == budget.business_window_sec + 120.0
+    # Before this fix the measured overrun was reported as unknown compliance.
+    assert row["budget_compliant"] is False
+    assert row["selector_model_calls"] == 0 and row["total_model_calls"] is None
 
 
 @pytest.mark.tier1
@@ -245,6 +363,10 @@ def test_unreported_continuation_spend_stays_unknown_through_cost_of_pass():
 
     report = run_strategy_selection_pilot(corpus_roots=_corpus_roots(), repetitions=1, executor_fn=executor)
     assert report["continuation"] == "executed"
+    # Self-reported continuation outcomes stay diagnostic and authorize no rollout.
+    assert report["continuation_verdict_basis"] == "executor_self_reported_verifier_passed_unverified"
+    assert report["decision_gate"] == "continuation_unverified"
+    assert report["comparisons"]["C_vs_A"]["negative_transfer_count"] == 0
     for ledger in report["cost_ledgers"]["continuation_cost_by_arm"].values():
         assert ledger["model_calls"] is None and ledger["npu_card_hours"] is None
         assert ledger["cost_of_pass"]["model_calls_per_pass"] is None

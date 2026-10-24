@@ -207,9 +207,6 @@ def comparison(
             for row in seeds
             if row.primary_metrics.get("estimated_cost_usd") is not None
         ]
-        # A zero lower bound from absent prices is not a dollar observation.
-        if not any(row.primary_metrics.get("estimated_cost_usd") is not None for row in selected):
-            summary["observed_cost_usd_lower_bound"] = None
         cost_complete = (
             setup_complete and resources["cost_complete"] and len(costs) == len(selected + seeds)
         )
@@ -536,10 +533,16 @@ def grouped_summaries(receipts, *, expected_cells=None, blocked_cells=None):
             evaluation["delivery_timing_including_seed_complete"] = (
                 evaluation["delivery_timing_complete"] and seed["delivery_timing_complete"]
             )
+            priced = [
+                evaluation["observed_cost_usd_lower_bound"],
+                seed["observed_cost_usd_lower_bound"],
+            ]
             evaluation["cost_per_resolved_task_including_seed"] = (
-                (evaluation["observed_cost_usd_lower_bound"] + seed["observed_cost_usd_lower_bound"])
-                / evaluation["completed_pass"]
-                if evaluation["cost_complete"] and seed["cost_complete"] and evaluation["completed_pass"]
+                sum(priced) / evaluation["completed_pass"]
+                if evaluation["cost_complete"]
+                and seed["cost_complete"]
+                and evaluation["completed_pass"]
+                and all(value is not None for value in priced)
                 else None
             )
     return result

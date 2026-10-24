@@ -42,10 +42,12 @@ PRIMARY_KEYS = {
     "time_to_first_target_edit_sec",
     "foreground_knowledge_queries_count",
     "foreground_knowledge_explains_count",
-    "verifier_wall_clock_sec",
 }
 
 AUXILIARY_KEYS = {
+    # Measured segments of delivery. They may overlap and do not cover cleanup,
+    # so they qualify delivery_wall_clock_sec rather than partition it.
+    "preflight_wall_clock_sec",
     "capture_wall_clock_sec",
     "captured_corpus_sha256",
     "capture_model_calls",

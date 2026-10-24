@@ -17,8 +17,11 @@ caller-supplied continuation executor run A/B/C continuation cells and cost ledg
 - Selector spend is the selector's own `usage.model_calls`; unknown spend stays `None`
   but reserves `selector_call_budget`. Elapsed time is measured; a late decision is
   kept and flagged over budget. Verified passes stay separate from budget compliance.
-- Missing usage stays `None`. NPU card/Die hours (A3: 2 Dies = 1 Card) come only
-  from executor-measured occupancy seconds, never from wall clock or run counts.
+- A continuation timeout is `unknown`, any other continuation fault is `infra`; both keep the
+  selector decision, its spend and the measured elapsed overrun without voiding other cells.
+- Missing usage stays `None`. NPU card/Die hours need measured occupancy *and* observed device
+  counts; planned per-case counts are never a measurement. Task outcomes remain the executor's
+  self-reported `verifier_passed` and stay unverified (`docs/strategy-continuation-v2.md`).
 
 [Timeouts & Locks]
 - `outer_timeout_sec >= business_window_sec + verifier_timeout_sec + cleanup_grace_sec`
@@ -40,8 +43,10 @@ from typing import Any, Literal
 from mindie_bench.evaluation.knowledge_tiered_support import (
     RoutingIndex,
     _ratio,
+    _selection_summary,
     _sha,
     build_strategy_navigation_cards,
+    device_time_accounting,
     read_units,
     summarize_arm_pareto_and_cop,
 )
@@ -443,6 +448,7 @@ def run_strategy_selection_cell(
         "selector_completion_tokens": selector_completion_tokens,
         "selector_wall_clock_sec": selector_wall_sec,
         "selector_budget_exceeded": selector_over_budget,
+        # The case's planned device allocation. `observed_npu_*` carries what was held.
         "npu_cards": case.npu_cards, "npu_dies": case.npu_dies,
     }
     unexecuted = {
@@ -451,9 +457,20 @@ def run_strategy_selection_cell(
         "executor_prompt_tokens": None, "executor_completion_tokens": None,
         "prompt_tokens": None, "completion_tokens": None, "knowledge_tokens": None,
         "wall_clock_sec": selector_wall_sec, "npu_runs": None,
-        "npu_occupancy_sec": None, "npu_card_hours": None, "npu_die_hours": None,
+        **device_time_accounting(None, None, None),
         "uninformative_probes": None, "human_interventions": None,
     }
+
+    def no_outcome(status: str, error: str, elapsed_sec: float) -> dict[str, Any]:
+        """Keep the selector's own decision and spend when no continuation verdict exists.
+
+        An elapsed overrun is already observed; only the unseen spend stays unknown.
+        """
+        over = selector_over_budget or elapsed_sec > budget.business_window_sec
+        return {
+            **row, **unexecuted, "terminal_status": status, "executor_error": error,
+            "wall_clock_sec": elapsed_sec, "budget_compliant": False if over else None,
+        }
     if executor_fn is None:
         # No continuation ran, so the selector stage is the whole cell.
         return {
@@ -478,11 +495,11 @@ def run_strategy_selection_cell(
             )
         )
     except TimeoutError as exc:
-        # The dispatched continuation may have spent calls; its totals stay unknown.
-        return {
-            **row, **unexecuted, "terminal_status": "unknown", "executor_error": str(exc),
-            "wall_clock_sec": round(selector_wall_sec + clock() - started, 4),
-        }
+        # The dispatched continuation may have spent calls and written remotely.
+        return no_outcome("unknown", str(exc), round(selector_wall_sec + clock() - started, 4))
+    except Exception as exc:  # noqa: BLE001 — one cell's harness fault must not void the matrix
+        elapsed = round(selector_wall_sec + clock() - started, 4)
+        return no_outcome("infra", f"{type(exc).__name__}: {exc}", elapsed)
     exec_wall = clock() - started
 
     judged = evaluate_strategy_continuation(case, exec_out)
@@ -496,7 +513,12 @@ def run_strategy_selection_cell(
     exec_prompt = exec_out.get("prompt_tokens")
     exec_completion = exec_out.get("completion_tokens")
     native = selector_usage and exec_prompt is not None and exec_completion is not None
-    occupancy = exec_out.get("npu_occupancy_sec")
+    # Card/Die time needs the devices actually held, which only the executor observes.
+    devices = device_time_accounting(
+        exec_out.get("npu_occupancy_sec"),
+        exec_out.get("observed_npu_cards"),
+        exec_out.get("observed_npu_dies"),
+    )
     checks = [
         selector_over_budget is not True,
         total_wall <= budget.business_window_sec,
@@ -514,41 +536,9 @@ def run_strategy_selection_cell(
         "prompt_tokens": int(exec_prompt) + int(selector_prompt_tokens) if native else None,
         "completion_tokens": int(exec_completion) + int(selector_completion_tokens) if native else None,
         "knowledge_tokens": exec_out.get("knowledge_tokens"),
-        "wall_clock_sec": total_wall, "npu_runs": npu_runs, "npu_occupancy_sec": occupancy,
-        "npu_card_hours": None if occupancy is None else round(occupancy / 3600.0 * case.npu_cards, 6),
-        "npu_die_hours": None if occupancy is None else round(occupancy / 3600.0 * case.npu_dies, 6),
+        "wall_clock_sec": total_wall, "npu_runs": npu_runs, **devices,
         "uninformative_probes": exec_out.get("uninformative_probes"),
         "human_interventions": exec_out.get("human_interventions"),
-    }
-
-
-def _selection_summary(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    arms: dict[str, Any] = {}
-    for arm in ("B", "C"):
-        rows = [row for row in results if row["cell"]["arm"] == arm]
-        judged = [row["selection"] for row in rows if row["selection"] is not None]
-        missing = len(rows) - len(judged)
-        arms[arm] = {
-            "planned_cells": len(rows), "judged_cells": len(judged),
-            "selector_budget_exceeded_cells": sum(row["selector_budget_exceeded"] is True for row in rows),
-            "selection_acceptable_rate": _ratio(
-                sum(item["selection_acceptable"] for item in judged), len(judged), missing=missing
-            ),
-            "false_adoption_rate": _ratio(
-                sum(item["false_adoption"] for item in judged), len(judged), missing=missing
-            ),
-        }
-
-    def delta(key: str) -> float | None:
-        b, c = arms["B"][key]["value"], arms["C"][key]["value"]
-        return None if b is None or c is None else round(c - b, 6)
-
-    return {
-        "arms": arms,
-        "C_vs_B": {
-            "selection_acceptable_delta": delta("selection_acceptable_rate"),
-            "false_adoption_delta": delta("false_adoption_rate"),
-        },
     }
 
 
@@ -593,6 +583,11 @@ def run_strategy_selection_pilot(
             "max_outer_wall_clock_sec": len(cells) * budget.outer_timeout_sec,
         },
         "continuation": "not_executed" if executor_fn is None else "executed",
+        # The legacy dict executor asserts its own outcome, so until a TrialReceipt
+        # owns it these task results stay diagnostic rather than verified.
+        "continuation_verdict_basis": (
+            None if executor_fn is None else "executor_self_reported_verifier_passed_unverified"
+        ),
         "selection": _selection_summary(results),
     }
     if executor_fn is None:
@@ -719,12 +714,12 @@ def run_strategy_selection_pilot(
     a_pass = arm_summaries["A"]["pass_rate"]["value"] or 0.0
 
     pareto_and_cop = summarize_arm_pareto_and_cop(arm_summaries, baseline_arm="A")
-    if not readiness["ready"]:
-        decision_gate = "return_to_implementation_fix"
-    elif c_reasonable > b_reasonable and c_pass >= a_pass and negative_transfer_c_vs_a == 0:
-        decision_gate = "continue_expanding_families"
-    else:
-        decision_gate = "stop_default_rollout"
+    # Every continuation outcome today is the executor's own report, so the arm
+    # comparisons below are diagnostic. A rollout gate returns once a TrialReceipt
+    # owns the verdict (docs/strategy-continuation-v2.md).
+    decision_gate = (
+        "return_to_implementation_fix" if not readiness["ready"] else "continuation_unverified"
+    )
 
     walls = [arm_summaries[arm]["total_wall_clock_sec"] for arm in ARMS]
     return {
@@ -732,8 +727,9 @@ def run_strategy_selection_pilot(
         "scope_note": (
             f"Continuation pilot from a shared decision point across {len(cases)} cases "
             f"({len(cells)} executed continuations + {report['upper_bounds']['selector_calls']} "
-            "isolated selector calls). Does not claim full-session product cohort superiority "
-            "without end-to-end prefix replay."
+            "isolated selector calls). Task outcomes are the executor's self-reported "
+            "verifier result, not an external TrialReceipt verdict. Does not claim "
+            "full-session product cohort superiority without end-to-end prefix replay."
         ),
         "arms": arm_summaries,
         "comparisons": {

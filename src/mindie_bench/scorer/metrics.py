@@ -271,9 +271,14 @@ def summarize(
         if reliable
         else None
     )
-    costs = [r.primary_metrics.get("estimated_cost_usd") for r in receipts]
+    # Absent prices are not a zero-dollar observation; a partial sum stays a lower bound.
+    costs = [
+        value
+        for r in receipts
+        if (value := r.primary_metrics.get("estimated_cost_usd")) is not None
+    ]
     cost_complete = bool(receipts) and all(r.primary_metrics.get("cost_complete") for r in receipts)
-    total_cost = sum(c for c in costs if c is not None)
+    total_cost = sum(costs) if costs else None
     known_times = [
         r.primary_metrics["total_wall_clock_sec"]
         for r in valid
@@ -553,7 +558,9 @@ def summarize(
         ),
         observed_cost_usd_lower_bound=total_cost,
         cost_complete=cost_complete,
-        cost_per_resolved_task=total_cost / passed if passed and cost_complete else None,
+        cost_per_resolved_task=(
+            total_cost / passed if passed and cost_complete and total_cost is not None else None
+        ),
         observed_tokens_lower_bound=observed_tokens,
         token_metering_complete=bool(receipts)
         and all(r.primary_metrics.get("tokens", {}).get("complete") is True for r in receipts),

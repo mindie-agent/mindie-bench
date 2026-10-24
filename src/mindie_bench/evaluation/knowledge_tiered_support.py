@@ -123,6 +123,69 @@ def _ratio(numerator: int, denominator: int, *, missing: int = 0) -> dict:
     }
 
 
+def _selection_summary(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    arms: dict[str, Any] = {}
+    for arm in ("B", "C"):
+        rows = [row for row in results if row["cell"]["arm"] == arm]
+        judged = [row["selection"] for row in rows if row["selection"] is not None]
+        missing = len(rows) - len(judged)
+        arms[arm] = {
+            "planned_cells": len(rows), "judged_cells": len(judged),
+            "selector_budget_exceeded_cells": sum(row["selector_budget_exceeded"] is True for row in rows),
+            "selection_acceptable_rate": _ratio(
+                sum(item["selection_acceptable"] for item in judged), len(judged), missing=missing
+            ),
+            "false_adoption_rate": _ratio(
+                sum(item["false_adoption"] for item in judged), len(judged), missing=missing
+            ),
+        }
+
+    def delta(key: str) -> float | None:
+        b, c = arms["B"][key]["value"], arms["C"][key]["value"]
+        return None if b is None or c is None else round(c - b, 6)
+
+    return {
+        "arms": arms,
+        "C_vs_B": {
+            "selection_acceptable_delta": delta("selection_acceptable_rate"),
+            "false_adoption_delta": delta("false_adoption_rate"),
+        },
+    }
+
+
+def device_time_accounting(occupancy_sec: Any, cards: Any, dies: Any) -> dict:
+    """Derive card/Die hours only from a measured duration and measured device counts.
+
+    A CPU-only continuation genuinely holds zero devices, so an observed 0 is an
+    observation; an absent count is unknown and leaves device time unmeasured.
+    Planned per-case allocations are never substituted for an absent count.
+    """
+
+    def observed(value: Any) -> int | None:
+        return value if type(value) is int and value >= 0 else None
+
+    def hours(units: int | None) -> float | None:
+        if occupancy_sec is None or units is None:
+            return None
+        return round(occupancy_sec / 3600.0 * units, 6)
+
+    cards, dies = observed(cards), observed(dies)
+    return {
+        "npu_occupancy_sec": occupancy_sec,
+        "npu_card_hours": hours(cards),
+        "npu_die_hours": hours(dies),
+        "observed_npu_cards": cards,
+        "observed_npu_dies": dies,
+        "npu_accounting_basis": (
+            "no_occupancy_measurement"
+            if occupancy_sec is None
+            else "executor_measured_occupancy_and_devices"
+            if cards is not None and dies is not None
+            else "occupancy_without_observed_device_dimension"
+        ),
+    }
+
+
 def _status(value: Any) -> str:
     return {
         "unknown": "condition_unknown",

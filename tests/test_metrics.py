@@ -197,6 +197,34 @@ def test_unknown_metering_withholds_resolved_cost():
     assert result["observed_cost_usd_lower_bound"] == pytest.approx(0.2)
 
 
+def test_absent_prices_are_unmeasured_cost_for_every_summary_consumer():
+    """A priceless harness must not report a zero-dollar lower bound anywhere."""
+    from mindie_bench.hf_sync.leaderboard import render
+    from mindie_bench.value_resources import resource_totals
+
+    unpriced = []
+    for index, status in enumerate(("completed_pass", "completed_fail"), start=1):
+        row = receipt(status, identity=f"task{index}")
+        row.primary_metrics["estimated_cost_usd"] = None
+        row.primary_metrics["cost_complete"] = False
+        unpriced.append(row)
+
+    direct = summarize(unpriced)
+    grouped = grouped_summaries(unpriced)["l2/synthetic/G0"]
+    totals = resource_totals(unpriced)
+    for summary in (direct, grouped, totals):
+        assert summary["observed_cost_usd_lower_bound"] is None
+        assert summary["cost_complete"] is False
+    assert direct["cost_per_resolved_task"] is None
+    # The public viewer must say so instead of printing a 0.
+    assert "unmeasured" in render({"l2/synthetic/G0": grouped})
+
+    # One observed price still yields a real partial lower bound, not None.
+    partial = [*unpriced, receipt("completed_pass", identity="priced")]
+    assert summarize(partial)["observed_cost_usd_lower_bound"] == pytest.approx(0.1)
+    assert summarize(partial)["cost_complete"] is False
+
+
 def test_cached_tokens_are_not_double_charged(case):
     trajectory = Trajectory(tokens=Tokens(input_uncached=10, input_cached=20, output=3, complete=True))
     harness = case["config"].harness.model_copy(

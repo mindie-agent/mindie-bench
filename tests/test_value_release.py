@@ -488,3 +488,36 @@ def test_transfer_requires_the_same_captured_seed_and_actual_later_reads():
     evaluation["environment_fingerprint"]["corpus_view_sha256"] = "captured-seed"
     entry["eval_first_model_start_monotonic_sec"] = 50
     assert not evaluate(suite, inputs)["release_gate"]
+
+
+def test_published_receipts_keep_measured_delivery_segments_without_claiming_a_partition():
+    """Delivery is the whole controller attempt; its measured segments qualify it."""
+    from mindie_bench.value_product_public import public_product_receipt
+
+    original = read_json(Path(__file__).parent / "fixtures/value-dp2-g0-receipt.json")
+    row = TrialReceipt.model_validate(original)
+    segments = ("preflight_wall_clock_sec", "verifier_wall_clock_sec", "capture_wall_clock_sec")
+
+    # An unmeasured segment is published as unmeasured, never invented.
+    for projected in (public_receipt(row), public_product_receipt(row)):
+        auxiliary = projected["auxiliary_metrics"]
+        assert auxiliary.get("preflight_wall_clock_sec") is None
+        assert auxiliary.get("verifier_wall_clock_sec") is None
+
+    measured = copy.deepcopy(original)
+    measured["auxiliary_metrics"].update(
+        preflight_wall_clock_sec=41.5, verifier_wall_clock_sec=12.25
+    )
+    row = TrialReceipt.model_validate(measured)
+    delivery = row.primary_metrics["delivery_wall_clock_sec"]
+    for projected in (public_receipt(row), public_product_receipt(row)):
+        auxiliary = projected["auxiliary_metrics"]
+        assert auxiliary["preflight_wall_clock_sec"] == 41.5
+        assert auxiliary["verifier_wall_clock_sec"] == 12.25
+        observed = [auxiliary[name] for name in segments if auxiliary[name] is not None]
+        # The segments may overlap and exclude cleanup, so they never have to add up.
+        assert sum(observed) != pytest.approx(delivery)
+        assert projected["primary_metrics"]["delivery_wall_clock_sec"] == delivery
+
+    # verifier timing lives in auxiliary only; the v2 primary allowlist no longer claims it.
+    assert "verifier_wall_clock_sec" not in public_product_receipt(row)["primary_metrics"]

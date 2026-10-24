@@ -61,6 +61,10 @@ def public_receipt(row: TrialReceipt) -> dict:
             "measured_total_sec": budget["measured_delivery_sec"],
             "overrun_sec": budget["delivery_overrun_sec"],
         },
+        # Measured segments of delivery. They may overlap and do not cover cleanup,
+        # so they qualify delivery_wall_clock_sec rather than partition it.
+        "preflight_wall_clock_sec": row.auxiliary_metrics.get("preflight_wall_clock_sec"),
+        "verifier_wall_clock_sec": row.auxiliary_metrics.get("verifier_wall_clock_sec"),
         "capture_wall_clock_sec": row.auxiliary_metrics.get("capture_wall_clock_sec"),
         "captured_corpus_sha256": row.auxiliary_metrics.get("captured_corpus_sha256"),
         "capture": {

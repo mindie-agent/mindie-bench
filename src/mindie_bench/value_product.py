@@ -517,6 +517,8 @@ def evaluate_product(suite: dict, evidence: dict, *, base: Path | None = None) -
             "Different cohorts keep their own exact task budgets; no global budget is imposed.",
             "Verified completions and delivery ratios retain over-budget outcomes; complete evidence "
             "does not imply budget compliance, and zero known overruns does not imply complete metering.",
+            "Delivery time is the whole controller-side attempt; published preflight, verifier and "
+            "capture segments may overlap and exclude cleanup, so they qualify it, not partition it.",
             "The P2 product release is an immutable candidate, not an already-published main release.",
             "Historical attempts keep their original identities and costs; they are not forced into current pins.",
             "Equal downstream budgets support conditional reuse only; prerequisite Seed/C6/review cost is separate.",
