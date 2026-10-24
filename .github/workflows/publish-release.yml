@@ -27,6 +27,11 @@ on:
         description: Build deliverables into RELEASE_ASSETS_DIR
         type: string
         default: uv build --out-dir "$RELEASE_ASSETS_DIR"
+      release-notes-path:
+        description: Optional repository-relative community release notes
+        type: string
+        required: false
+        default: ""
       node:
         description: Install Node 22 for frontend or npm package builds
         type: boolean
@@ -151,6 +156,7 @@ jobs:
           path: ${{ env.RELEASE_ASSETS_DIR }}
       - name: Verify benchmark provenance and prepare complete checksums
         env:
+          RELEASE_NOTES_PATH: ${{ inputs.release-notes-path }}
           BENCHMARK_REF: ${{ inputs.benchmark-ref }}
         run: |
           (cd "$RELEASE_ASSETS_DIR" && sha256sum -c benchmark-SHA256SUMS)
@@ -171,6 +177,13 @@ jobs:
           assert required and all(case["status"] == "pass" for case in required)
           assert report["suite_sha256"] == hashlib.sha256(pathlib.Path("benchmarks/release.json").read_bytes()).hexdigest()
           assert not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"]), "build changed candidate source"
+          notes = os.environ.get("RELEASE_NOTES_PATH", "")
+          if notes:
+              relative = pathlib.Path(notes)
+              assert not relative.is_absolute() and ".." not in relative.parts, "release notes must belong to the tagged repository"
+              source = relative.resolve()
+              source.relative_to(pathlib.Path.cwd().resolve())
+              (assets / "release-notes.md").write_bytes(source.read_bytes())
           # Match the public upload glob; uv build also creates a private .gitignore.
           files = sorted(path for path in assets.iterdir()
                          if path.is_file() and not path.name.startswith(".") and path.name != "SHA256SUMS")
@@ -182,8 +195,12 @@ jobs:
           test "$(git rev-parse 'refs/release-check/candidate^{commit}')" = "$GITHUB_SHA"
       - name: Create formal release with benchmark evidence
         env:
+          RELEASE_NOTES_PATH: ${{ inputs.release-notes-path }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          notes=(--generate-notes --notes-file "$RELEASE_ASSETS_DIR/benchmark-results.md")
+          if [ -n "$RELEASE_NOTES_PATH" ]; then
+            notes=(--notes-file "$RELEASE_ASSETS_DIR/release-notes.md")
+          fi
           gh release create "$GITHUB_REF_NAME" "$RELEASE_ASSETS_DIR"/* \
-            --verify-tag --target "$GITHUB_SHA" --title "$GITHUB_REF_NAME" \
-            --generate-notes --notes-file "$RELEASE_ASSETS_DIR/benchmark-results.md"
+            --verify-tag --target "$GITHUB_SHA" --title "$GITHUB_REF_NAME" "${notes[@]}"

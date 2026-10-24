@@ -80,6 +80,45 @@ def test_verified_assets_collect_through_the_real_runner(release_evidence):
     assert not list(output.rglob("private"))
 
 
+def product_channel(kwargs):
+    manifest = json.loads(kwargs["manifest"].read_text())
+    path = kwargs["manifest"].parent / "channel.json"
+    path.write_text(json.dumps({
+        "schema": "mindie-release-channel/1",
+        "current_patch_version": kwargs["version"],
+        "components": {str(index): {
+            "repository": item["repository"], "version": item["version"],
+            "tag": "v" + item["version"], "commit": item["revision"],
+            "revision": item["revision"],
+        } for index, item in enumerate(manifest["repositories"])},
+    }))
+    return path
+
+
+def test_channel_release_collects_actual_component_evidence_without_value_claims(release_evidence):
+    kwargs, _ = release_evidence
+    channel = product_channel(kwargs)
+    result = collector.collect_product(**kwargs, channel=channel)
+    assert result["release_gate"]
+    output = kwargs["output"]
+    assert (output / "release-channel.json").read_bytes() == channel.read_bytes()
+    provenance = json.loads((output / "product-release-provenance.json").read_text())
+    assert provenance["channel_sha256"] == hashlib.sha256(channel.read_bytes()).hexdigest()
+    assert provenance["releases"][0]["revision"] == result["reports"][0]["source"]["revision"]
+    assert not list(output.glob("*value*"))
+
+
+def test_stale_update_channel_cannot_publish_with_new_component_reports(release_evidence):
+    kwargs, _ = release_evidence
+    channel = product_channel(kwargs)
+    data = json.loads(channel.read_text())
+    data["components"]["0"]["commit"] = "c" * 40
+    channel.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="channel identity differs"):
+        collector.collect_product(**kwargs, channel=channel)
+    assert not kwargs["output"].exists()
+
+
 @pytest.mark.parametrize("failure", ["draft", "tag", "asset", "checksum", "report", "platform"])
 def test_missing_or_stale_publication_evidence_blocks_collection(release_evidence, failure):
     kwargs, payloads = release_evidence
