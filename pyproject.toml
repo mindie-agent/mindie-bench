@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mindie-bench"
-version = "0.4.2"
+version = "0.4.3"
 description = "Controlled, evidence-preserving benchmarks for MindIE Agent"
 readme = "README.md"
 license = "MIT"
@@ -13,7 +13,7 @@ dependencies = ["pydantic>=2.10,<3", "PyYAML>=6,<7"]
 
 [project.optional-dependencies]
 export = ["pyarrow>=19,<24"]
-knowledge = ["mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@2e5cf79050a6634a53b9c2cff52d98ca87850e50"]
+knowledge = ["mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@38a42f6f778cfa555d8918fdcacd12cee4a181f5"]
 
 [project.scripts]
 mindie-bench = "mindie_bench.cli:main"
