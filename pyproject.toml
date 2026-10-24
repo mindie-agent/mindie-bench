@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mindie-bench"
-version = "0.4.3"
+version = "0.4.4"
 description = "Controlled, evidence-preserving benchmarks for MindIE Agent"
 readme = "README.md"
 license = "MIT"
