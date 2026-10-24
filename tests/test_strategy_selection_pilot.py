@@ -1,6 +1,6 @@
 """Section 4.7 & Section 16 conditional strategy selection pilot tests.
 
-Exercises real domain corpora (`knowledge-vllm-ascend` + `knowledge-operators`),
+Exercises committed public corpus units (`knowledge-vllm-ascend` + `knowledge-operators`),
 strict B vs C context isolation, shared-budget accounting, primary-verdict
 preservation under selector failure, and 36-cell A/B/C pilot comparisons.
 """
@@ -42,14 +42,8 @@ if _strategy_cards is None:
 
 
 def _corpus_roots() -> list[Path]:
-    worktree_root = Path(__file__).resolve().parents[2]
-    vllm_root = worktree_root / "knowledge-vllm-ascend"
-    ops_root = worktree_root / "knowledge-operators"
-    if not vllm_root.is_dir():
-        vllm_root = Path("/Volumes/data/code/knowledge-vllm-ascend")
-    if not ops_root.is_dir():
-        ops_root = Path("/Volumes/data/code/knowledge-operators")
-    return [vllm_root, ops_root]
+    root = Path(__file__).parent / "fixtures" / "strategy-corpora"
+    return [root / "knowledge-vllm-ascend", root / "knowledge-operators"]
 
 
 @pytest.fixture(scope="module")
