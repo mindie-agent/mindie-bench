@@ -1,6 +1,6 @@
 # Strategy continuation v2 — receipt-owned task outcomes
 
-Target design. Nothing below is implemented, and nothing below is model or NPU acceptance.
+Target design only. **Nothing below is implemented yet, and nothing below constitutes model or NPU acceptance.** No new runner and no receipt hash, signature, or attestation chain is introduced.
 
 ## Source status today
 
@@ -15,12 +15,17 @@ no independent owner for the outcome, so its continuation numbers cannot be acce
 
 What the current source therefore does:
 
-- the selector-only default is unchanged and reports no task outcome at all;
+- the selector-only default is unchanged (`continuation = "not_executed"`) and reports no task outcome at all;
 - an executed pilot sets `continuation_verdict_basis =
   executor_self_reported_verifier_passed_unverified`;
 - `decision_gate` returns `continuation_unverified` instead of a rollout verdict, so the A/B/C
   comparisons stay diagnostic and cannot authorize `continue_expanding_families`;
-- device time comes only from executor-observed device counts, never from the case's planned ones.
+- a continuation timeout records `terminal_status = "unknown"` and any other continuation exception
+  records `terminal_status = "infra"`, preserving the selector decision, its spend, and the measured
+  elapsed overrun without voiding other cells;
+- device time (`npu_card_hours`, `npu_die_hours` via `device_time_accounting`) comes only from
+  executor-measured `npu_occupancy_sec` paired with executor-observed `npu_cards` / `npu_dies`
+  (`npu_accounting_basis`), never from the case's planned device counts.
 
 ## Target owner boundary
 
