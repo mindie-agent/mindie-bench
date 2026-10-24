@@ -161,12 +161,16 @@ def test_local_timeout_stops_owned_descendant_and_keeps_partial_output(
 
     root, _workspace, profile, trial = judge
     sentinel = profile.root / "tmp" / "late-write"
+    release = profile.root / "tmp" / "drain-returned"
     child = (
         "import os,pathlib,signal,time\n"
         + ("signal.signal(signal.SIGTERM, signal.SIG_IGN)\n" if ignore_term else "")
         + "print('child='+str(os.getpid()), flush=True)\n"
         + "print('judge-started', file=__import__('sys').stderr, flush=True)\n"
-        + f"time.sleep(0.9); pathlib.Path({str(sentinel)!r}).write_text('late mutation')\n"
+        + f"release = pathlib.Path({str(release)!r})\n"
+        + "deadline = time.monotonic() + 6\n"
+        + "while not release.exists() and time.monotonic() < deadline: time.sleep(0.01)\n"
+        + f"if release.exists(): pathlib.Path({str(sentinel)!r}).write_text('late mutation')\n"
     )
     (root / "verifier/test.sh").write_text(
         f"{shlex.quote(sys.executable)} -I -c {shlex.quote(child)} &\nwait\n"
@@ -207,6 +211,9 @@ def test_local_timeout_stops_owned_descendant_and_keeps_partial_output(
         assert (trial / "verifier.stderr").read_bytes() == timeout.stderr
         assert b"judge-started" in timeout.stderr
     finally:
+        # Only a descendant surviving the completed drain can observe this
+        # marker. A fixed sleep can instead fire inside its lawful cleanup grace.
+        release.write_text("drain returned")
         # A bubblewrap child's printed PID belongs to its PID namespace.
         # Only the observed host Popen is a valid signal target for this test.
         try:
@@ -219,8 +226,8 @@ def test_local_timeout_stops_owned_descendant_and_keeps_partial_output(
                     pass
                 process.wait(timeout=5)
         finally:
-            # Observe beyond the child's whole sleep even if an earlier assertion
-            # fails. An old implementation's surviving child then writes and exits;
+            # Give a surviving child time to observe the marker even if an earlier
+            # assertion fails. An old implementation then writes and exits;
             # cleanup never guesses a host PID from namespace-local output.
             if owners:
                 deadline = time.monotonic() + 1.0
