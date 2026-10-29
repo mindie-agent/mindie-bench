@@ -12,7 +12,7 @@ import re
 import tomllib
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -464,6 +464,8 @@ class ToolResultObservation(StrictModel):
     operation_completed: bool | None = None
     component_duration_ms: float | None = Field(default=None, ge=0)
     result_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    knowledge_loaded_refs: list[Annotated[str, Field(max_length=512)]] | None = Field(default=None, max_length=64)
+    knowledge_refs_complete: bool | None = None
     classification_reason: str = Field(max_length=96)
 
 

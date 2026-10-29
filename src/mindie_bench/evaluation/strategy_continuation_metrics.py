@@ -37,6 +37,20 @@ def rate_delta(left, right):
     return None if left is None or right is None else round(left - right, 6)
 
 
+def verdict_basis_summary(rows):
+    bases = {row["continuation_verdict_basis"] for row in rows if row.get("continuation_verdict_basis")}
+    return next(iter(bases)) if len(bases) == 1 else "mixed" if bases else None
+
+
+def continuation_decision_gate(basis, *, ready):
+    if not ready:
+        return "return_to_implementation_fix"
+    return {
+        "independent_local_verifier": "local_behavior_only",
+        "independent_verifier": "verified_behavior_only",
+    }.get(basis, "continuation_unverified")
+
+
 def continuation_summary(rows):
     by_cell = {
         (row["cell"]["case_id"], row["cell"]["repetition"], row["cell"]["arm"]): row

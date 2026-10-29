@@ -33,6 +33,13 @@ for line in sys.stdin:
     else:
         if request["params"]["arguments"].get("fail"):
             result={"isError":True,"content":[{"type":"text","text":"fixture error remains visible"}]}
+        elif "refs" in request["params"]["arguments"]:
+            result={"structuredContent":{"units":[
+                {"id":"unit-reviewed","revision":1,
+                 "ref":"mindie://operators/units/unit-reviewed@1",
+                 "content":Path(sys.argv[1]).read_text()}],
+                "requires":[],"unresolved":[{"ref":"unit-missing","status":"not_found"}]},
+                "isError":False}
         else:
             result={"structuredContent":{"text":Path(sys.argv[1]).read_text()},"isError":False}
     print(json.dumps({"jsonrpc":"2.0","id":request["id"],"result":result}),flush=True)
@@ -142,6 +149,42 @@ def test_profile_does_not_disclose_or_grant_private_knowledge(case, corpus):
     assert profile.fingerprint["knowledge_backend_config_sha256"]["knowledge"]
     assert profile.fingerprint["retained_analogical_task_hashes"] == ["analogy"]
     assert Path(sys.executable).absolute() not in profile.runtime_paths
+
+
+@pytest.mark.tier1
+def test_real_broker_records_delivered_explain_refs_separately_from_requested(case, corpus):
+    from mindie_bench.evaluation.broker_knowledge import summarize_broker_knowledge
+    from mindie_bench.evaluation.strategy_adoption import observe_strategy_adoption
+
+    config, trial, profile = setup_profile(case, corpus)
+    paths = runtime_paths(config, profile)
+    journal = trial / "broker.jsonl"
+    with Gateway(
+        config.harness, case["spec"], case["task"], case["repo"], journal,
+        use_unix_socket=platform.system() == "Linux",
+    ) as gateway:
+        gateway.attach_knowledge(profile, paths)
+        profile.env["MINDIE_BENCH_GATEWAY"] = gateway.url
+        bind_mcp_transport(profile)
+        front = start_front(profile, paths, trial, gateway)
+        try:
+            request(front, 1, "initialize")
+            response = request(front, 2, "tools/call", {
+                "name": "knowledge_explain", "arguments": {"refs": ["unit-reviewed", "unit-missing"]},
+            })
+            assert response["result"]["structuredContent"]["units"][0]["content"]
+        finally:
+            stop_front(front)
+    summary = summarize_broker_knowledge(journal)
+    call = summary["calls"][0]
+    assert call["requested_refs"] == ["unit-reviewed", "unit-missing"]
+    assert call["loaded_refs"] == ["unit-reviewed@1"]
+    assert call["refs_complete"] is True
+    observed = observe_strategy_adoption(
+        candidate_ids=["unit-reviewed", "unit-missing"], broker_knowledge=summary,
+    )
+    assert observed["loaded_strategy_refs"] == ["unit-reviewed@1"]
+    assert observed["applied_strategy_refs"] is None
 
 
 @pytest.mark.parametrize("field", ["same_origin_task_hashes", "analogical_task_hashes"])

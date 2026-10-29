@@ -154,7 +154,11 @@ def derive_inputs(
             }
         ),
         persistence_permission_digest=digest(
-            {"profile_builder_sha256": sha(runner / "profile_builder.py"), "isolated_trial_state": True}
+            {
+                "profile_builder_sha256": sha(runner / "profile_builder.py"),
+                "dsh_catalog_sha256": sha(runner / "dsh_catalog.py"),
+                "isolated_trial_state": True,
+            }
         ),
     )
     return {

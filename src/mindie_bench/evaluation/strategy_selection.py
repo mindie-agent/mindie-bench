@@ -30,12 +30,15 @@ from mindie_bench.evaluation.knowledge_tiered_support import (
     read_units,
     summarize_arm_pareto_and_cop,
 )
+from mindie_bench.evaluation.strategy_adoption import judge_continuation
 from mindie_bench.evaluation.strategy_continuation_metrics import (
     _reported,
     _total,
+    continuation_decision_gate,
     continuation_summary,
     judgment_rate,
     rate_delta,
+    verdict_basis_summary,
 )
 from mindie_bench.evaluation.strategy_selection_cases import (  # noqa: F401
     ALL_STRATEGY_CASES,
@@ -437,6 +440,8 @@ def run_strategy_selection_cell(
     unexecuted = {
         "continuation_completed": None, "continuation_passed": None,
         "continuation_regressed": None, "continuation_evidence": None,
+        "adoption_observation": None,
+        "continuation_verdict_basis": None,
         "judgment": None, "budget_compliant": False if selector_over_budget else None,
         "usage_status": "unavailable", "executor_model_calls": None, "total_model_calls": None,
         "executor_prompt_tokens": None, "executor_completion_tokens": None,
@@ -497,17 +502,16 @@ def run_strategy_selection_cell(
         "continuation_passed": real_execution.passed if real_execution else None,
         "continuation_regressed": None,
         "continuation_evidence": real_execution.evidence if real_execution else None,
+        "continuation_verdict_basis": (
+            "independent_local_verifier" if isinstance(executor_fn, StrategyContinuationExecutor)
+            else "independent_verifier" if real_execution else "executor_self_reported_verifier_passed_unverified"
+        ),
     }
+    judged = judge_continuation(case, exec_out, execution=real_execution)
+    continuation["adoption_observation"] = judged["adoption_observation"]
     if real_execution and real_execution.passed is None:
         return {**no_outcome(real_execution.terminal_status, real_execution.error,
                             round(selector_wall_sec + exec_wall, 4)), **continuation}
-    judged = evaluate_strategy_continuation(case, exec_out)
-    if real_execution:
-        judged["task_succeeded"] = real_execution.passed
-        for key in ("declared_adoption", "applied_strategy_ref", "applied_in_actions",
-                    "switched_after_observation", "next_action", "selection_reasonable",
-                    "false_adoption"):
-            judged[key] = None
     exec_calls = exec_out.get("model_calls")
     total_calls = (
         None if exec_calls is None or selector_model_calls is None
@@ -526,7 +530,7 @@ def run_strategy_selection_cell(
     )
     checks = [
         selector_over_budget is not True,
-        (total_wall <= budget.outer_timeout_sec and not real_execution.evidence["outer_budget_exceeded"])
+        (total_wall <= budget.outer_timeout_sec and real_execution.evidence.get("outer_budget_exceeded") is not True)
         if real_execution else total_wall <= budget.business_window_sec,
         None if total_calls is None else total_calls <= budget.model_call_budget,
         None if npu_runs is None else npu_runs <= budget.npu_run_budget,
@@ -581,7 +585,6 @@ def run_strategy_selection_pilot(
         for cell in cells
     ]
     continuation_metrics = continuation_summary(results)
-    real_verifier = isinstance(executor_fn, StrategyContinuationExecutor)
     report = {
         "schema_version": SCHEMA_VERSION,
         "readiness": readiness, "budget": budget.__dict__,
@@ -593,10 +596,7 @@ def run_strategy_selection_pilot(
         },
         "continuation": "not_executed" if executor_fn is None else "executed",
         "continuation_metrics": continuation_metrics,
-        "continuation_verdict_basis": (
-            None if executor_fn is None else "independent_local_verifier" if real_verifier
-            else "executor_self_reported_verifier_passed_unverified"
-        ),
+        "continuation_verdict_basis": verdict_basis_summary(results),
         "selection": _selection_summary(results),
     }
     if executor_fn is None:
@@ -722,9 +722,8 @@ def run_strategy_selection_pilot(
     a_pass = arm_summaries["A"]["pass_rate"]["value"]
 
     pareto_and_cop = summarize_arm_pareto_and_cop(arm_summaries, baseline_arm="A")
-    decision_gate = (
-        "return_to_implementation_fix" if not readiness["ready"] else
-        "local_behavior_only" if real_verifier else "continuation_unverified"
+    decision_gate = continuation_decision_gate(
+        report["continuation_verdict_basis"], ready=readiness["ready"],
     )
 
     walls = [arm_summaries[arm]["total_wall_clock_sec"] for arm in ARMS]

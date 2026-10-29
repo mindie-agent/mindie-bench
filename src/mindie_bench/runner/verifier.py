@@ -79,6 +79,8 @@ def _drain_local_judge(process: subprocess.Popen) -> tuple[bytes, bytes]:
     if os.name != "posix":
         try:
             process.kill()
+        except TimeoutError:
+            raise
         except OSError:
             pass
         return process.communicate(timeout=2)

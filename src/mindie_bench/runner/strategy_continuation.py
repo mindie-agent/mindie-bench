@@ -24,7 +24,13 @@ from pathlib import Path
 
 from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.io import write_json
-from mindie_bench.models import OracleContract, SourceEnvironment, TaskSpec, UnknownExternalEffects
+from mindie_bench.models import (
+    OracleContract,
+    SourceEnvironment,
+    TaskSpec,
+    Trajectory,
+    UnknownExternalEffects,
+)
 from mindie_bench.runner.profile_builder import Profile
 from mindie_bench.runner.sandbox import native_command
 from mindie_bench.runner.termination import terminate_process_group
@@ -54,6 +60,8 @@ class ContinuationExecution:
     passed: bool | None
     evidence: dict
     error: str | None = None
+    trajectory: Trajectory | dict | None = None
+    broker_knowledge: dict | None = None
 
 
 class StrategyContinuationExecutor:
