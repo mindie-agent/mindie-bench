@@ -14,6 +14,7 @@ import sys
 import time
 from importlib import metadata, util
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 COMPONENTS = {
     "knowledge": ("mindie-knowledge", "mindie_knowledge"),
@@ -21,19 +22,40 @@ COMPONENTS = {
     "diagnostics": ("mindie-diagnostics", "mindie_diagnostics"),
     "npu-top": ("npu-top", "npu_top"),
     "coordinator": ("mindie-coordinator", "mindie_coordinator"),
+    "profiler": ("mindie-profiler", "mindie_profiler"),
+    "sim": ("mindie-sim", "mindie_sim"),
 }
 
 
 def identities():
     result = {}
     for name, (distribution, module) in COMPONENTS.items():
-        installed = metadata.distribution(distribution)
+        try:
+            installed = metadata.distribution(distribution)
+        except metadata.PackageNotFoundError:
+            if name in {"knowledge", "remote-dev", "diagnostics"}:
+                raise
+            continue
         entry = Path(util.find_spec(module).origin).resolve(strict=True)
+        direct = json.loads(installed.read_text("direct_url.json") or "null")
+        source = hashlib.sha256()
+        for path in sorted(entry.parent.rglob("*.py")):
+            source.update(path.relative_to(entry.parent).as_posix().encode() + b"\0")
+            with path.open("rb") as stream:
+                source.update(hashlib.file_digest(stream, "sha256").digest())
+        artifact_sha = None
+        if direct and urlparse(direct["url"]).scheme == "file":
+            artifact = Path(unquote(urlparse(direct["url"]).path))
+            if artifact.suffix == ".whl" and artifact.is_file():
+                with artifact.open("rb") as stream:
+                    artifact_sha = hashlib.file_digest(stream, "sha256").hexdigest()
         result[name] = {
             "distribution": distribution,
             "version": installed.version,
-            "direct_url": json.loads(installed.read_text("direct_url.json") or "null"),
+            "direct_url": direct,
             "module_file": str(entry),
+            "module_source_sha256": source.hexdigest(),
+            "installed_artifact_sha256": artifact_sha,
         }
     return result
 

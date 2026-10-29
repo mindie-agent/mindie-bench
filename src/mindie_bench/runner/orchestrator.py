@@ -322,7 +322,9 @@ def run_trial(
                 )
 
             phase = "preparation"
-            if experiment_context is not None and config.harness.name == "dsh":
+            if config.harness.name == "dsh" and (
+                experiment_context is not None or profile.fingerprint.get("native_product")
+            ):
                 from mindie_bench.runner.profile_builder import (
                     assert_catalog_policy,
                     probe_dsh_catalog,
@@ -335,8 +337,12 @@ def run_trial(
                 mounted_catalog = probe_dsh_catalog(
                     profile, trial_dir, workspace, probe_command
                 )
-                product_group = (experiment_context.get("cell") or {}).get("group")
+                product_group = ((experiment_context or {}).get("cell") or {}).get("group")
                 assert_catalog_policy(mounted_catalog["identity"], product_group)
+                if profile.fingerprint.get("native_product"):
+                    required = {"mindie_entry", "knowledge_query", "knowledge_explain"}
+                    if not required <= set(mounted_catalog["identity"]["tool_names"]):
+                        raise ValueError("native DSH product did not register its knowledge tools")
                 fingerprint["preflight_catalog"] = mounted_catalog
                 auxiliary["preflight_catalog"] = mounted_catalog
             command = sandboxed(driver.command(profile, config.harness), "agent.sb")

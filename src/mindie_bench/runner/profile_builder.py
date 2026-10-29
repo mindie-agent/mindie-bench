@@ -183,6 +183,8 @@ def build_profile(
     env.update(
         PATH=base_path,
         LANG="en_US.UTF-8",
+        # zsh uses TMPPREFIX, not TMPDIR, for heredoc and here-string files.
+        TMPPREFIX=str(root / "tmp" / "zsh"),
         GIT_CONFIG_NOSYSTEM="1",
         GIT_CONFIG_GLOBAL=os.devnull,
         PYTHONNOUSERSITE="1",
@@ -191,9 +193,16 @@ def build_profile(
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
     )
     group_config = config.groups.get(group)
-    native_plugin = group_config.native_dsh_plugin if group_config else None
-    if native_plugin and (config.harness.name != "dsh" or group not in {Group.G2, Group.G3, Group.G4}):
-        raise ValueError("the full native DSH product requires a knowledge-enabled DSH profile")
+    native_dsh = group_config.native_dsh_plugin if group_config else None
+    native_codex = group_config.native_codex_plugin if group_config else None
+    if native_dsh and native_codex:
+        raise ValueError("one trial can select only its own native host plugin")
+    native_plugin = native_dsh or native_codex
+    native_harness = "dsh" if native_dsh else "codex"
+    if native_plugin and (
+        config.harness.name != native_harness or group not in {Group.G2, Group.G3, Group.G4}
+    ):
+        raise ValueError("the native product requires its matching knowledge-enabled host profile")
     knowledge_mode = group_config.knowledge_mode if group_config else "advisory"
     servers = group_config.mcp_servers if group_config else {}
     components = {server.component for server in servers.values()}
@@ -203,6 +212,8 @@ def build_profile(
                 "the native product host owns knowledge tools; do not register a duplicate MCP"
             )
         components.add("knowledge")
+        if native_dsh:
+            components.add("remote-dev")
     if group == Group.G0 and (servers or (group_config and group_config.skills_path)):
         raise ValueError("G0 must contain no MindIE tools or skills")
     if config.remote and group != Group.G0:
@@ -390,58 +401,62 @@ def build_profile(
     write_json(root / "settings.json", {"disableAllHooks": True, "autoUpdatesChannel": "stable"})
     dsh_profile = None
     native_product = None
-    if config.harness.name == "dsh":
-        if native_plugin:
-            from mindie_bench.runner.native_product import prepare
+    if native_plugin:
+        from mindie_bench.runner.native_product import prepare
 
-            domain_corpora_paths = {}
-            for dom_name, dom_cid in sorted((native_plugin.domain_corpora or {}).items()):
-                if dom_cid not in config.corpora:
-                    raise ValueError(f"missing explicitly selected domain corpus: {dom_cid}")
-                dom_decl = config.corpora[dom_cid]
-                dom_src = Path(dom_decl.path).resolve()
-                dom_head = subprocess.run(
-                    ["git", "-C", str(dom_src), "rev-parse", "HEAD"],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                ).stdout.strip()
-                dom_dirty = subprocess.run(
-                    ["git", "-C", str(dom_src), "status", "--porcelain"],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                ).stdout
-                if dom_head != dom_decl.commit or dom_dirty:
-                    raise ValueError("domain corpus must be clean at its exact declared commit")
-                dom_dest = private_root / f"corpus-{dom_name}"
-                filtered_corpus(dom_src, dom_dest, excluded if dom_cid == task.mindie_knowledge.corpus_id else set())
-                domain_corpora_paths[dom_name] = dom_dest
-            active_domain = (
-                "operators"
-                if (
-                    task.task.domain_category == "native_operator_performance"
-                    or task.mindie_knowledge.corpus_id == "operators"
-                )
-                and ("operators" in domain_corpora_paths or native_plugin.domain == "operators")
-                else native_plugin.domain
+        domain_corpora_paths = {}
+        for dom_name, dom_cid in sorted((native_plugin.domain_corpora or {}).items()):
+            if dom_cid not in config.corpora:
+                raise ValueError(f"missing explicitly selected domain corpus: {dom_cid}")
+            dom_decl = config.corpora[dom_cid]
+            dom_src = Path(dom_decl.path).resolve()
+            dom_head = subprocess.run(
+                ["git", "-C", str(dom_src), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ).stdout.strip()
+            dom_dirty = subprocess.run(
+                ["git", "-C", str(dom_src), "status", "--porcelain"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ).stdout
+            if dom_head != dom_decl.commit or dom_dirty:
+                raise ValueError("domain corpus must be clean at its exact declared commit")
+            dom_dest = private_root / f"corpus-{dom_name}"
+            filtered_corpus(dom_src, dom_dest, excluded if dom_cid == task.mindie_knowledge.corpus_id else set())
+            domain_corpora_paths[dom_name] = dom_dest
+        active_domain = (
+            "operators"
+            if (
+                task.task.domain_category == "native_operator_performance"
+                or task.mindie_knowledge.corpus_id == "operators"
             )
-            native_product = prepare(
-                root, env, native_plugin, corpus, domain_corpora=domain_corpora_paths or None, active_domain=active_domain
-            )
-            runtime_paths.extend(
-                [
-                    Path(native_plugin.package_path),
-                    Path(native_plugin.runtime_python).absolute().parent.parent,
-                    Path(native_product["initialization"]["python_base_prefix"]),
-                    Path(native_plugin.redactor_executable),
-                ]
-            )
+            and ("operators" in domain_corpora_paths or native_plugin.domain == "operators")
+            else native_plugin.domain
+        )
+        native_product = prepare(
+            root, env, native_plugin, corpus, domain_corpora=domain_corpora_paths or None,
+            active_domain=active_domain, harness=native_harness,
+        )
+        runtime_paths.extend(
+            [
+                Path(native_plugin.package_path),
+                Path(native_plugin.runtime_python).absolute().parent.parent,
+                Path(native_product["initialization"]["python_base_prefix"]),
+                Path(native_plugin.redactor_executable),
+            ]
+        )
+        runtime_bin = str(Path(native_plugin.runtime_python).absolute().parent)
+        if runtime_bin not in env["PATH"].split(os.pathsep):
+            env["PATH"] = runtime_bin + os.pathsep + env["PATH"]
+    if config.harness.name == "dsh":
         dsh_profile = build_dsh_profile(
             root, env, config, mcp, servers,
-            native_product=native_product, catalog_checkpoint=product_experiment,
+            native_product=native_product, catalog_checkpoint=product_experiment or bool(native_dsh),
         )
         runtime_root = Path(config.harness.executable).resolve(strict=True)
         node = shutil.which("node", path=env["PATH"])
@@ -480,7 +495,10 @@ def build_profile(
         "excluded_task_hashes": sorted(excluded),
         "retained_analogical_task_hashes": retained_analogies,
         "components": sorted(components),
-        "server_components": {name: server.component for name, server in servers.items()},
+        "server_components": {
+            **({"remote-dev": "remote-dev"} if native_dsh else {}),
+            **{name: server.component for name, server in servers.items()},
+        },
         "publication_policy": "local-only",
         "capture_git_runtime": git_runtime,
         "corpus_projection": "task Markdown and format contract; no feedback, docs, or cached indexes",
@@ -586,6 +604,8 @@ def build_dsh_profile(
         insert_rows += [
             "    - id: mindie-agent-host",
             "      name: " + json.dumps(str(package / "host.mjs")),
+            "      config:",
+            "        mcpPluginUrl: !!js process.getBuiltinModule('node:url').pathToFileURL(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-mcp-client')).href",
             "      inject: [tools, agents, llm]",
             "    - id: mindie-agent-skill",
             "      name: '@deepseek-ai/dsh-skill-filesystem'",
