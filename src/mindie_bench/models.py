@@ -377,6 +377,26 @@ class ExperimentConfig(StrictModel):
 
 class VerifierResult(StrictModel):
     reward: Literal[0.0, 1.0]
+    # Behavioral/fixture observations are retained without promoting them to device evidence.
+    validation_scope: str | None = None
+    verification_status: Literal["completed", "failed", "unsupported", "unmeasured"] | None = None
+    correctness_verified: bool | None = Field(default=None, strict=True)
+    ablation_contract_verified: bool | None = Field(default=None, strict=True)
+    native_kernel_bound: bool | None = Field(default=None, strict=True)
+    native_kernel_status: str | None = None
+    measured_npu_speedup: float | None = Field(default=None, ge=0)
+    performance_status: Literal["unmeasured"] | None = None
+    # These legacy fixture fields carry no trusted timing/occupancy probe. Measurements
+    # belong in performance_evidence, whose samples are independently validated.
+    tpot_ms: None = None
+    latency_ms: None = None
+    npu_card_hours: None = None
+    measurement_source: str | None = None
+    operator_binding: str | None = None
+    observed_cpu_ablation: dict[str, Any] | None = None
+    candidate_suite_type: str | None = None
+    error_type: str | None = None
+    failure_type: str | None = None
     speedup_ratio: float | None = Field(default=None, ge=0)
     max_abs_error: float | None = Field(default=None, ge=0)
     cosine_similarity: float | None = Field(default=None, ge=-1, le=1)

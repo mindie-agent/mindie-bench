@@ -1,12 +1,17 @@
+# [Role] Independent CPU behavior oracle for the historical regression.
+# [Invariants] Only executed tensor/state assertions establish success; helpers remain candidate code.
+# [Timeouts & Locks] Parent verifier bounds the isolated process; no locks or background jobs.
+# [Side-Effect Policy] Reads candidate sources; no NPU initialization or hardware performance claims.
+
 """Behavior oracle for idle-DP GDN state protection (vllm-ascend #15655).
 
 Runs the workspace NPUModelRunner on CPU with minimal collaborators:
 execute_model on an idle external-launcher DP rank, then _dummy_run through
 its real _build_attention_metadata call (stopping at the dummy forward). The
-GDN builder must receive a no-op schedule (zero tokens, zeroed query starts,
-no prefills) while ordinary attention still sees the dummy token, and the 310P
-runner must forward the flag. GDN-internal tensors produced inside vLLM's own
-builder are outside this CPU oracle. Sources without the runner classes fail
+GDN output must contain no writable token/query ranges while ordinary attention
+still sees the dummy token, and the 310P runner must forward the flag. The CPU
+metadata carrier follows public GDN fields and Ascend nested query/index aliases;
+this does not execute vLLM builders or native device kernels. Sources without the runner classes fail
 before any runtime is needed; once they exist, a missing torch runtime exits
 without a reward line and is recorded as infrastructure.
 """
@@ -59,8 +64,72 @@ def define_function(node, namespace, filename):
             namespace[node.name] = previous
 
 
+def candidate_namespace(values):
+    """Give extracted classes real module globals (dataclass/typing resolve here)."""
+    import sys
+    module = types.ModuleType(f"_behavior_candidate_{len(sys.modules)}")
+    module.__dict__.update(values)
+    sys.modules[module.__name__] = module
+    return module.__dict__
+
+
+def load_support(tree, namespace, filename):
+    """Load candidate helpers, including classes, without module imports/initialization.
+
+    Unrelated hardware definitions may need unavailable bases/defaults; leave those
+    deferred. An exercised dependency still raises visibly at the behavior boundary.
+    AST selection is only an execution boundary and never a success criterion.
+    """
+    namespace.setdefault("__name__", "__main__")
+    # CPU-safe imports used by extracted helpers retain their normal aliases.
+    # Imported hardware/runtime collaborators remain the explicitly injected seam.
+    allowed = {"collections", "contextlib", "dataclasses", "enum", "functools", "itertools",
+               "math", "typing", "types", "numpy", "torch", "copy", "operator", "numbers"}
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            aliases = [alias for alias in node.names
+                       if alias.name.split(".")[0] in allowed
+                       and (alias.asname or alias.name.split(".")[0]) not in namespace]
+            selected = ast.Import(names=aliases) if aliases else None
+        elif isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] in allowed:
+            aliases = [alias for alias in node.names if (alias.asname or alias.name) not in namespace]
+            selected = ast.ImportFrom(module=node.module, names=aliases, level=node.level) if aliases else None
+        else:
+            selected = None
+        if selected is not None:
+            module = ast.Module(body=[selected], type_ignores=[])
+            exec(compile(ast.fix_missing_locations(module), filename, "exec"), namespace)
+    pending = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name not in namespace:
+                pending.append(node)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, TypeError):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    namespace.setdefault(target.id, value)
+    future = ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)
+    while pending:
+        deferred = []
+        for node in pending:
+            try:
+                module = ast.Module(body=[future, node], type_ignores=[])
+                exec(compile(ast.fix_missing_locations(module), filename, "exec"), namespace)
+            except (NameError, AttributeError):
+                deferred.append(node)
+        if len(deferred) == len(pending):
+            break
+        pending = deferred
+
+
 def load_class(tree, name, namespace, filename):
     """Rebuild a class from its methods; only methods the oracle calls must be definable."""
+    load_support(tree, namespace, filename)
     cls = type(name, (), {})
     for item in find_class(tree, name).body:
         if not isinstance(item, ast.FunctionDef):
@@ -84,16 +153,112 @@ def stop_before_forward(*args, **kwargs):
     raise StopAfterMetadata()
 
 
+@dataclasses.dataclass
+class GDNAttentionMetadata:
+    """Public schema from vLLM gdn_attn.py at 58d3918; Ascend attaches decode metadata.
+
+    The fixture carries real tensor fields consumed by gdn.py. It neither performs
+    a device calculation nor substitutes a successful verdict for candidate code.
+    """
+    num_prefills: int = 0
+    num_prefill_tokens: int = 0
+    num_decodes: int = 1
+    num_decode_tokens: int = 1
+    num_spec_decodes: int = 0
+    num_spec_decode_tokens: int = 0
+    num_actual_tokens: int = 1
+    has_initial_state: object = None
+    spec_query_start_loc: object = None
+    non_spec_query_start_loc: object = None
+    spec_state_indices_tensor: object = None
+    non_spec_state_indices_tensor: object = None
+    spec_sequence_masks: object = None
+    spec_token_indx: object = None
+    non_spec_token_indx: object = None
+    num_accepted_tokens: object = None
+    chunk_indices: object = None
+    chunk_offsets: object = None
+    prefill_query_start_loc: object = None
+    prefill_state_indices: object = None
+    prefill_has_initial_state: object = None
+    nums_dict: object = None
+    batch_ptr: object = None
+    token_chunk_offset_ptr: object = None
+
+
 class RecordingBuilder:
     def __init__(self):
-        self.calls = []
+        self.calls, self.outputs = [], []
 
     def build(self, common_prefix_len, common_attn_metadata, **kwargs):
         self.calls.append((common_attn_metadata, kwargs))
-        return types.SimpleNamespace(num_prefills=0, num_decodes=1, num_spec_decodes=0)
+        output = types.SimpleNamespace(num_prefills=0, num_decodes=1, num_spec_decodes=0)
+        self.outputs.append(output)
+        return output
 
     def build_for_cudagraph_capture(self, common_attn_metadata):
         return self.build(0, common_attn_metadata)
+
+
+class RecordingGdnBuilder(RecordingBuilder):
+    def build(self, common_prefix_len, common_attn_metadata, **kwargs):
+        import torch
+        self.calls.append((common_attn_metadata, kwargs))
+        starts = common_attn_metadata.query_start_loc.clone()
+        indices = torch.tensor([2], dtype=torch.int32)
+        output = GDNAttentionMetadata(
+            num_actual_tokens=common_attn_metadata.num_actual_tokens,
+            num_decode_tokens=common_attn_metadata.num_actual_tokens,
+            non_spec_query_start_loc=starts, non_spec_state_indices_tensor=indices,
+        )
+        # Ascend's builder attaches a second reference to these tensors. Replacing
+        # only the top-level field must not leave stale writable nested metadata.
+        output.non_spec_decode_metadata = types.SimpleNamespace(
+            causal_conv1d=types.SimpleNamespace(query_start_loc=starts, cache_indices=indices,
+                                               initial_state_mode=None),
+            actual_seq_lengths=torch.diff(starts),
+        )
+        output.spec_decode_metadata = None
+        output.non_spec_prefill_metadata = None
+        self.outputs.append(output)
+        return output
+
+
+def workspace_helpers(tree, namespace):
+    """Resolve exercised helper imports from the candidate archive, retaining runtime seams."""
+    definitions = {node.name: node for node in tree.body
+                   if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+    pending = [find_method(tree, "NPUModelRunner", name)
+               for name in ("execute_model", "_dummy_run", "_build_attention_metadata")]
+    seen, names = set(), set()
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        for ref in ast.walk(node):
+            if isinstance(ref, ast.Name) and isinstance(ref.ctx, ast.Load):
+                names.add(ref.id)
+                if ref.id in definitions and ref.id not in namespace:
+                    pending.append(definitions[ref.id])
+    for node in tree.body:
+        if not (isinstance(node, ast.ImportFrom) and node.module
+                and node.module.startswith("vllm_ascend.")):
+            continue
+        wanted = [alias for alias in node.names if (alias.asname or alias.name) in names
+                  and (alias.asname or alias.name) not in namespace]
+        if not wanted:
+            continue
+        source = ROOT.joinpath(*node.module.split(".")).with_suffix(".py")
+        if not source.is_file():
+            # An absent imported candidate module remains a visible loading failure.
+            continue
+        child_tree = ast.parse(source.read_text(), filename=str(source))
+        child = candidate_namespace(dict(namespace))
+        load_support(child_tree, child, str(source))
+        for alias in wanted:
+            if alias.name in child:
+                namespace[alias.asname or alias.name] = child[alias.name]
 
 
 def common_metadata_class(method):
@@ -111,7 +276,7 @@ def common_metadata_class(method):
 
 
 def runner_namespace(tree, torch, np):
-    namespace = {
+    namespace = candidate_namespace({
         "torch": torch, "np": np, "replace": dataclasses.replace, "copy": copy.copy,
         "deepcopy": copy.deepcopy, "nullcontext": contextlib.nullcontext, "time": __import__("time"),
         "cdiv": lambda a, b: -(-a // b),
@@ -120,7 +285,7 @@ def runner_namespace(tree, torch, np):
             DecodeOnly="DecodeOnly", SpecDecoding="SpecDecoding", ChunkedPrefill="ChunkedPrefill",
         ),
         "AscendCommonAttentionMetadata": common_metadata_class(
-            find_method(tree, "NPUModelRunner", "_build_attention_metadata")
+            tree
         ),
         "vllm_version_is": lambda version: False,
         "get_pp_group": lambda: types.SimpleNamespace(world_size=1, is_last_rank=True, is_first_rank=True),
@@ -128,12 +293,16 @@ def runner_namespace(tree, torch, np):
         "has_ec_transfer": lambda: False,
         "record_function_or_nullcontext": lambda name: contextlib.nullcontext(),
         "EMPTY_MODEL_RUNNER_OUTPUT": "EMPTY_MODEL_RUNNER_OUTPUT",
-    }
+    })
     for name in (
-        "GDNAttentionMetadataBuilder", "AscendDSAMetadataBuilder", "AscendDSACPMetadataBuilder",
+        "AscendDSAMetadataBuilder", "AscendDSACPMetadataBuilder",
         "AscendSFADCPMetadataBuilder", "EncoderOnlyAttentionSpec",
     ):
         namespace[name] = type(name, (RecordingBuilder,) if name.endswith("Builder") else (), {})
+    namespace["GDNAttentionMetadata"] = GDNAttentionMetadata
+    namespace["GDNAttentionMetadataBuilder"] = RecordingGdnBuilder
+    namespace["AscendGDNAttentionMetadataBuilder"] = type("AscendGDNAttentionMetadataBuilder", (RecordingGdnBuilder,), {})
+    workspace_helpers(tree, namespace)
     return namespace
 
 
@@ -215,6 +384,67 @@ def idle_runner(cls, namespace, torch, np):
     return runner, gdn, attention
 
 
+class NativeDispatch(Exception):
+    """The CPU oracle stops immediately before a device operation would execute."""
+
+
+class NativeOpsBoundary:
+    def __getattr__(self, name):
+        return self
+
+    def __call__(self, *args, **kwargs):
+        raise NativeDispatch("active GDN computation reached a device operator")
+
+
+def check_zero_token_consumer(metadata, torch):
+    """Execute the archived consumer's zero-token path; shape alone cannot prove early return."""
+    relative = "vllm_ascend/ops/gdn.py"
+    source = ROOT / relative
+    if not source.is_file():
+        return "no archived GDN consumer is available for an alternate no-op path"
+    tree = ast.parse(source.read_text(), filename=relative)
+    class CpuTorch:
+        ops = NativeOpsBoundary()
+        def __getattr__(self, name):
+            return getattr(torch, name)
+    context = types.SimpleNamespace(attn_metadata={"gdn": metadata})
+    namespace = candidate_namespace({
+        "torch": CpuTorch(), "GDNAttentionMetadata": GDNAttentionMetadata, "PAD_SLOT_ID": -1,
+        "get_forward_context": lambda: context,
+        "wait_for_kv_layer_from_connector": lambda prefix: None,
+        "record_attention_compute_start": lambda: None,
+    })
+    cls = load_class(tree, "AscendGatedDeltaNetAttention", namespace, relative)
+    model = cls.__new__(cls)
+    model.prefix, model.activation = "gdn", "silu"
+    model.kv_cache = [torch.arange(12, dtype=torch.float32).reshape(1, 4, 3),
+                      torch.arange(8, dtype=torch.float32).reshape(1, 2, 4)]
+    model.conv1d = types.SimpleNamespace(weight=torch.ones(4, 1, 3), bias=torch.ones(4))
+    before = [tensor.clone() for tensor in model.kv_cache]
+    output = torch.full((1, 1, 2), 9.0)
+    try:
+        model._forward_core(torch.ones(1, 4), torch.ones(1, 2), torch.ones(1, 2), output)
+    except Exception as exc:
+        return f"zero-token consumer did not return before device computation: {type(exc).__name__}: {exc}"
+    if bool(output.any()) or any(not torch.equal(a, b) for a, b in zip(before, model.kv_cache)):
+        return "zero-token consumer changed persistent state or left nonzero output"
+    # An unconditional return/constant-output consumer is not a functional repair.
+    starts, indices = torch.tensor([0, 1], dtype=torch.int32), torch.tensor([0], dtype=torch.int32)
+    active = GDNAttentionMetadata(non_spec_query_start_loc=starts, non_spec_state_indices_tensor=indices)
+    active.non_spec_decode_metadata = types.SimpleNamespace(
+        causal_conv1d=types.SimpleNamespace(query_start_loc=starts, cache_indices=indices),
+        actual_seq_lengths=torch.tensor([1], dtype=torch.int32),
+    )
+    context.attn_metadata = {"gdn": active}
+    try:
+        model._forward_core(torch.ones(1, 4), torch.ones(1, 2), torch.ones(1, 2), output)
+    except NativeDispatch:
+        return None
+    except Exception as exc:
+        return f"active GDN control failed before its device boundary: {type(exc).__name__}: {exc}"
+    return "active GDN control returned without dispatching computation"
+
+
 def check_dummy_run(trees, torch, np):
     namespace = runner_namespace(trees[RUNNER], torch, np)
     cls = load_class(trees[RUNNER], "NPUModelRunner", namespace, RUNNER)
@@ -230,27 +460,36 @@ def check_dummy_run(trees, torch, np):
         if len(gdn.calls) != 1 or len(attention.calls) != 1:
             failures.append(f"{label}: builders called {len(attention.calls)}/{len(gdn.calls)} times, expected 1/1")
             continue
-        (gdn_metadata, gdn_args), (attn_metadata, _) = gdn.calls[0], attention.calls[0]
+        attn_metadata, _ = attention.calls[0]
         if attn_metadata.num_actual_tokens != 1:
             failures.append(f"{label}: ordinary attention lost the dummy token ({attn_metadata.num_actual_tokens})")
-        starts = gdn_metadata.query_start_loc.tolist()
+        output = gdn.outputs[0]
+        starts = output.non_spec_query_start_loc
+        nested = output.non_spec_decode_metadata
+        nested_starts = nested.causal_conv1d.query_start_loc if nested is not None else None
         if skip:
-            prefilling = gdn_metadata.is_prefilling
-            if (
-                gdn_metadata.num_actual_tokens != 0 or gdn_metadata.max_query_len != 0
-                or starts != [0, 0] or gdn_args
-                or (prefilling is not None and bool(torch.as_tensor(prefilling).any()))
-            ):
-                failures.append(
-                    f"{label}: GDN builder received tokens={gdn_metadata.num_actual_tokens}, "
-                    f"max_query_len={gdn_metadata.max_query_len}, query_start_loc={starts}, "
-                    f"extra={sorted(gdn_args)}, is_prefilling={prefilling}; expected a no-op schedule"
-                )
-        elif gdn_metadata.num_actual_tokens != 1 or starts != [0, 1]:
-            failures.append(
-                f"{label}: GDN builder changed the ordinary dummy schedule "
-                f"(tokens={gdn_metadata.num_actual_tokens}, query_start_loc={starts})"
+            # Both metadata sanitation and an executed zero-token consumer are
+            # valid no-op implementations. Alternate control flow is tested,
+            # never inferred from source strings or AST node presence.
+            safe_metadata = (
+                output.num_actual_tokens == 0 and isinstance(starts, torch.Tensor)
+                and isinstance(nested_starts, torch.Tensor) and not bool(starts.any())
+                and not bool(nested_starts.any()) and output.num_prefills == 0
+                and output.spec_sequence_masks is None
             )
+            if not safe_metadata:
+                alternate_failure = (check_zero_token_consumer(output, torch)
+                                     if output.num_actual_tokens == 0 else "live token count remains nonzero")
+                if alternate_failure is not None:
+                    failures.append(
+                        f"{label}: GDN output retains live work: tokens={output.num_actual_tokens}, "
+                        f"query_start_loc={starts.tolist() if starts is not None else None}, "
+                        f"nested_query_start_loc={nested_starts.tolist() if nested_starts is not None else None}; "
+                        f"{alternate_failure}"
+                    )
+        elif (output.num_actual_tokens != 1 or starts is None or nested_starts is None
+              or starts.tolist() != [0, 1] or nested_starts.tolist() != [0, 1]):
+            failures.append(f"{label}: ordinary GDN dummy schedule changed")
     return failures
 
 
@@ -298,7 +537,8 @@ def check_310p_forwarding(trees, torch, np):
     method.decorator_list = []
     node.bases, node.keywords, node.decorator_list = [ast.Name(id="NPUModelRunner", ctx=ast.Load())], [], []
     node.body = [method]
-    namespace = {"torch": torch, "nullcontext": contextlib.nullcontext, "NPUModelRunner": NPUModelRunner}
+    namespace = candidate_namespace({"torch": torch, "nullcontext": contextlib.nullcontext, "NPUModelRunner": NPUModelRunner})
+    load_support(trees[RUNNER_310P], namespace, RUNNER_310P)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])), RUNNER_310P, "exec"), namespace)
     runner = namespace["NPUModelRunner310"].__new__(namespace["NPUModelRunner310"])
     runner.speculative_config = None
@@ -312,12 +552,14 @@ def check_310p_forwarding(trees, torch, np):
 
 def main():
     failures, trees = [], {}
+    error_types = []
     for relative, class_name in REQUIRED.items():
         try:
             path = ROOT / relative
             trees[relative] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             find_class(trees[relative], class_name)
         except (OSError, SyntaxError, AssertionError) as exc:
+            error_types.append(type(exc).__name__)
             failures.append(f"{relative}: {type(exc).__name__}: {exc}")
     if not failures:
         import numpy as np
@@ -327,11 +569,12 @@ def main():
             try:
                 failures.extend(check(trees, torch, np))
             except Exception as exc:  # noqa: BLE001 - any source defect is a judged failure.
+                error_types.append(type(exc).__name__)
                 failures.append(f"{check.__name__}: {type(exc).__name__}: {exc}")
     if failures:
-        print(json.dumps({"reward": 0.0, "failure_reason": "; ".join(failures)}))
+        print(json.dumps({"reward": 0.0, "error_type": error_types[0] if error_types else "AssertionError", "failure_reason": "; ".join(failures)}))
         raise SystemExit(1)
-    print(json.dumps({"reward": 1.0}))
+    print(json.dumps({"reward": 1.0, "correctness_verified": True, "validation_scope": "cpu_behavior", "native_kernel_bound": None, "measured_npu_speedup": None, "speedup_ratio": None}))
 
 
 if __name__ == "__main__":

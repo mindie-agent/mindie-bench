@@ -5,13 +5,24 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from mindie_bench.models import CorpusConfig, Group, GroupConfig, HarnessConfig, MCPServer, Tokens
+from mindie_bench.models import (
+    CorpusConfig,
+    Group,
+    GroupConfig,
+    HarnessConfig,
+    MCPServer,
+    TerminalStatus,
+    Tokens,
+)
 from mindie_bench.runner import orchestrator
+from mindie_bench.runner.drivers import driver_for
 from mindie_bench.runner.gateway import Gateway
 from mindie_bench.runner.process import ProcessResult
+from mindie_bench.runner.trial_finalize import run_g3_capture
 from mindie_bench.runner.usage import UsageMeter
 
 
@@ -53,6 +64,8 @@ def test_budget_refusal_journals_zero_new_admission_with_settled_first_request(c
             with urllib.request.urlopen(request, timeout=5) as response:
                 assert response.status == 200
                 response.read()
+            # The final admitted request may still complete its native turn.
+            assert gateway.stop_reason is None
             second = json.dumps({"model": "mock", "input": "a distinct second request"}).encode()
             request = urllib.request.Request(
                 gateway.url + "/v1/responses", data=second, headers={"Content-Type": "application/json"}
@@ -177,3 +190,44 @@ def test_corpus_rejection_findings_survive_without_inventing_capture_token_recei
     assert receipt.auxiliary_metrics["capture"]["status"] == "failed"
     assert receipt.auxiliary_metrics["business_terminal_status"] == "completed_pass"
     assert not any(error["stage"] == "scoring" for error in receipt.errors)
+
+
+@pytest.mark.parametrize("harness", ["codex", "claude-code", "kimi", "dsh"])
+def test_oracle_pass_without_native_completion_never_starts_c6(tmp_path, monkeypatch, harness):
+    from mindie_bench.runner import trial_finalize
+
+    driver = driver_for(harness)
+    openings = {
+        "codex": {"type": "thread.started", "thread_id": "unfinished"},
+        "claude-code": {"type": "system", "subtype": "init", "session_id": "unfinished"},
+        "kimi": {"role": "meta", "type": "turn.step.retrying", "step": 1},
+        "dsh": {"type": "session", "sessionId": "unfinished", "cwd": str(tmp_path)},
+    }
+    driver.consume(openings[harness], 0, 0)
+    trajectory = driver.trajectory()
+    (tmp_path / "instruction.md").write_text("Repair the parser.\n")
+    profile = SimpleNamespace(
+        corpus=tmp_path / "corpus",
+        private_env={"MINDIE_BENCH_LOCAL_KNOWLEDGE_REMOTE": str(tmp_path / "local.git")},
+    )
+    task = SimpleNamespace(task=SimpleNamespace(instance_id="repair", role="train", cluster="cpu"))
+    config = SimpleNamespace(harness=SimpleNamespace(name=harness), groups={Group.G3: GroupConfig()})
+    auxiliary = {"agent_budget_exhausted": True, "native_process": {"stop_reason": "max_turns"}}
+    primary = {"resolved": True, "reward": 1.0, "performance_metrics": {"oracle_status": "intact"}}
+    monkeypatch.setattr(trial_finalize, "Gateway", lambda *a, **k: pytest.fail("C6 was started"))
+
+    with pytest.raises(ValueError, match="completed native"):
+        run_g3_capture(
+            task_root=tmp_path, task=task, config=config, group=Group.G3,
+            status=TerminalStatus.PASS, primary=primary, trajectory=trajectory,
+            profile=profile, workspace=tmp_path, driver=driver, trial_dir=tmp_path,
+            fingerprint={"benchmark_source_sha256": "source"}, knowledge_paths=[],
+            auxiliary=auxiliary, errors=[],
+        )
+
+    assert primary["reward"] == 1.0
+    assert auxiliary["business_terminal_status"] == "completed_pass"
+    assert auxiliary["capture"]["stage"] == "native_admission"
+    assert auxiliary["capture"]["native_completed"] is False
+    assert auxiliary["capture_model_calls"] == 0
+    assert not profile.corpus.exists()

@@ -4,7 +4,8 @@
 [Invariants] Worktree metadata edits within one runner serialize per common Git
 directory; task execution and independent repositories remain concurrent.
 [Timeouts & Locks] Git metadata commands have 30 seconds; lock acquisition has
-35 seconds. Process-local locks do not coordinate independent runner processes.
+35 seconds. An optional phase deadline caps every Git and metadata-lock wait.
+Process-local locks do not coordinate independent runner processes.
 [Side-Effect Policy] Remove only owned worktrees; expose Git failures to callers.
 """
 
@@ -15,6 +16,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -27,7 +29,11 @@ _LOCK_REGISTRY = threading.Lock()
 
 
 class WorktreeSlot:
-    def __init__(self, environment: SourceEnvironment, destination: Path, task_root: Path):
+    def __init__(
+        self, environment: SourceEnvironment, destination: Path, task_root: Path,
+        *, deadline: float | None = None,
+    ):
+        self.deadline = deadline
         self.repo = Path(environment.repo_path).resolve(strict=True)
         self.environment = environment
         # Git interprets relative worktree destinations from the source repo,
@@ -41,7 +47,7 @@ class WorktreeSlot:
             check=True,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=self.remaining_timeout(30),
         ).stdout.strip()
         self.admin_path = (self.repo / admin).resolve()
         with _LOCK_REGISTRY:
@@ -49,12 +55,19 @@ class WorktreeSlot:
 
     @contextmanager
     def metadata_edit(self):
-        if not self.metadata_lock.acquire(timeout=35):
+        if not self.metadata_lock.acquire(timeout=self.remaining_timeout(35)):
             raise TimeoutError("timed out waiting for this repository's worktree metadata")
         try:
             yield
         finally:
             self.metadata_lock.release()
+
+    def remaining_timeout(self, limit: float) -> float:
+        """Share one phase deadline across consecutive subprocesses and locks."""
+        remaining = limit if self.deadline is None else min(limit, self.deadline - time.monotonic())
+        if remaining <= 0:
+            raise TimeoutError("worktree phase deadline exhausted")
+        return remaining
 
     def worktree_command(self, *arguments):
         try:
@@ -62,7 +75,7 @@ class WorktreeSlot:
                 ["git", "-C", str(self.repo), "worktree", *arguments],
                 check=True,
                 capture_output=True,
-                timeout=30,
+                timeout=self.remaining_timeout(30),
             )
         except subprocess.CalledProcessError as exc:
             raise RuntimeError(
@@ -75,14 +88,21 @@ class WorktreeSlot:
             check=True,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=self.remaining_timeout(60),
         ).stdout.strip()
         if actual != self.environment.base_commit:
             raise ValueError("base revision did not resolve to exact declared commit")
         # Git scans sibling admin entries while adding/removing worktrees. A
         # concurrent edit can expose an entry before its commondir is present.
-        with self.metadata_edit():
-            self.worktree_command("add", "--detach", str(self.destination), actual)
+        owned_destination = not self.destination.exists()
+        try:
+            with self.metadata_edit():
+                self.worktree_command("add", "--detach", str(self.destination), actual)
+        except (TimeoutError, subprocess.TimeoutExpired):
+            # Git can register and populate the owned tree before its waiter
+            # times out. Retain cleanup ownership even without a return code.
+            self.created = owned_destination and self.destination.exists()
+            raise
         self.created = True
         # Git records the symlink-resolved worktree path in its admin metadata;
         # resolve here too so destinations reached through symlinked prefixes
@@ -95,6 +115,7 @@ class WorktreeSlot:
         public = self.task_root / "environment"
         if public.exists():
             for item in public.iterdir():
+                self.remaining_timeout(30)
                 if is_ignored_cache_path(Path(item.name)):
                     continue
                 target = self.destination / item.name
@@ -124,6 +145,7 @@ class WorktreeSlot:
         with self.metadata_edit():
             matches = []
             for entry in (self.admin_path / "worktrees").iterdir():
+                self.remaining_timeout(30)
                 try:
                     target = (entry / "gitdir").read_text().strip()
                 except FileNotFoundError:
@@ -148,7 +170,7 @@ class WorktreeSlot:
                 [*command, "diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD", *diff_paths()],
                 check=True,
                 capture_output=True,
-                timeout=60,
+                timeout=self.remaining_timeout(60),
             ).stdout
             (output / "final_patch.diff").write_bytes(patch)
             changed = subprocess.run(
@@ -164,13 +186,13 @@ class WorktreeSlot:
                 check=True,
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=self.remaining_timeout(60),
             ).stdout.splitlines()
             untracked = subprocess.run(
                 [*command, "ls-files", "--others", "--exclude-standard", "-z", *diff_paths()],
                 check=True,
                 capture_output=True,
-                timeout=60,
+                timeout=self.remaining_timeout(60),
             ).stdout.split(b"\0")
             modified = set(
                 changed

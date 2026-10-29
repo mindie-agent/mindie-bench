@@ -30,7 +30,7 @@ def claude_profile(tmp_path):
 def test_claude_capture_binds_stop_to_actual_session_and_owned_transcript(tmp_path):
     workspace, profile, _ = claude_profile(tmp_path)
     payload = native_capture_payload(
-        "claude-code", Trajectory(native_session_id="session-1"), profile, workspace
+        "claude-code", Trajectory(native_session_id="session-1", native_completed=True), profile, workspace
     )
     assert payload["harness"] == "claude-code"
     assert payload["transcript_path"].endswith("projects/owned/session-1.jsonl")
@@ -51,5 +51,5 @@ def test_claude_capture_rejects_cross_session_or_external_material(tmp_path, fie
     (profile.root / "native-stop.json").write_text(json.dumps(event))
     with pytest.raises(ValueError):
         native_capture_payload(
-            "claude-code", Trajectory(native_session_id="session-1"), profile, workspace
+            "claude-code", Trajectory(native_session_id="session-1", native_completed=True), profile, workspace
         )

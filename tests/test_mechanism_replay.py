@@ -506,7 +506,9 @@ def test_m6_incomplete_related_body_cannot_merge_past_the_16k_boundary(tmp_path)
     unit = _u1_unit(repeats=85)
     assert len(unit.body.encode()) > RELATED_BODY_BUDGET_BYTES
     store.graded.install([unit])
-    before = store.graded.explain(store.graded.ref(unit.id))["content"]
+    before = store.graded.explain(
+        store.graded.ref(unit.id), conditions=unit.metadata["conditions"], token_budget=16000
+    )["content"]
     evidence_content = (
         "Verified milestone: the large prior body is not fully visible; a merge must be refused "
         "rather than reconstructing unseen counter-evidence."
@@ -531,7 +533,9 @@ def test_m6_incomplete_related_body_cannot_merge_past_the_16k_boundary(tmp_path)
             related_refs=[unit.id],
             proposal=proposal,
         )
-    after = store.graded.explain(store.graded.ref(unit.id))["content"]
+    after = store.graded.explain(
+        store.graded.ref(unit.id), conditions=unit.metadata["conditions"], token_budget=16000
+    )["content"]
     assert after == before
     decision = _m6_decision(unit, before, _u2_body())
     decision["revision"]["related_unit_snapshot"]["body_complete"] = False
@@ -553,7 +557,9 @@ def test_m6_real_graded_repository_u1_to_u2_retains_conditions_and_anti_bloat(tm
     unit = _u1_unit()
     assert len(unit.body.encode()) <= RELATED_BODY_BUDGET_BYTES
     store.graded.install([unit])
-    before_view = store.graded.explain(store.graded.ref(unit.id))
+    before_view = store.graded.explain(
+        store.graded.ref(unit.id), conditions=unit.metadata["conditions"], token_budget=16000
+    )
     before_body = before_view["content"]
     before_active = len(store.graded._load().units)
     after_body = _u2_body()
@@ -582,7 +588,9 @@ def test_m6_real_graded_repository_u1_to_u2_retains_conditions_and_anti_bloat(tm
     )
     assert applied["status"] == "applied", applied
     assert applied["admitted_unit_ids"] == [unit.id]
-    current = store.graded.explain(store.graded.ref(unit.id))
+    current = store.graded.explain(
+        store.graded.ref(unit.id), conditions=unit.metadata["conditions"], token_budget=16000
+    )
     assert current["revision"] == 2
     assert current["content"] == after_body
     assert current["frontmatter"]["conditions"] == unit.metadata["conditions"]

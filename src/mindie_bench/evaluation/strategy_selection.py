@@ -1,34 +1,14 @@
-# [Side-Effect Policy] Writes only explicitly owned trial artifacts; no network or unowned mutation.
-
-"""Conditional strategy selection pilot (Section 4.7 & Section 16).
-
-[Role]
-Project isolated task-only (Arm B) and task-plus-evidence (Arm C) selector views
-from a shared decision point, judge the real selector decisions, and only with a
-caller-supplied continuation executor run A/B/C continuation cells and cost ledgers.
-
-[Invariants]
-- Arm B views expose only the task, declared conditions and body-free navigation
-  cards; Arm C adds only pre-decision observations. Post-decision explanations,
-  leak markers and private judge fields never reach a selector.
-- The private judge stays in the evaluator; executors receive a judge-free case.
-  Without an executor, cells stay `not_executed`: no task outcome, continuation
-  usage, NPU run or device occupancy is reported.
-- Selector spend is the selector's own `usage.model_calls`; unknown spend stays `None`
-  but reserves `selector_call_budget`. Elapsed time is measured; a late decision is
-  kept and flagged over budget. Verified passes stay separate from budget compliance.
-- A continuation timeout is `unknown`, any other continuation fault is `infra`; both keep the
-  selector decision, its spend and the measured elapsed overrun without voiding other cells.
-- Missing usage stays `None`. NPU card/Die hours need measured occupancy *and* observed device
-  counts; planned per-case counts are never a measurement. Task outcomes remain the executor's
-  self-reported `verifier_passed` and stay unverified (`docs/strategy-continuation-v2.md`).
-
-[Timeouts & Locks]
-- `outer_timeout_sec >= business_window_sec + verifier_timeout_sec + cleanup_grace_sec`
-  (default `725s >= 600s + 120s + 5s`); `selector_timeout_sec <= 30s`. Callables own I/O.
-
-[Side-Effect Policy]
-- Never mutates source corpora or fabricates hardware/model receipts.
+"""[Role] Isolate B/C selection and opt-in A/B/C strategy continuations.
+[Invariants] B sees task/navigation; C adds only pre-decision observations.
+Judges stay in the evaluator. No executor means not_executed and missing outcomes.
+Selector spend is reported usage; unknown spend reserves the declared budget.
+Late decisions and verified passes survive budget overruns. Continuation faults
+preserve selection/spend and do not void other cells. Device time requires
+measured occupancy and observed counts. The real executor owns verifier truth;
+legacy dict results remain unverified. Missing usage stays None.
+[Timeouts & Locks] outer >= business window + verifier budget + cleanup grace
+(725s >= 600s + 120s + 5s); selector <= 30s. Callables own bounded I/O.
+[Side-Effect Policy] No source corpus mutation or fabricated model/NPU receipts.
 """
 
 from __future__ import annotations
@@ -49,6 +29,13 @@ from mindie_bench.evaluation.knowledge_tiered_support import (
     device_time_accounting,
     read_units,
     summarize_arm_pareto_and_cop,
+)
+from mindie_bench.evaluation.strategy_continuation_metrics import (
+    _reported,
+    _total,
+    continuation_summary,
+    judgment_rate,
+    rate_delta,
 )
 from mindie_bench.evaluation.strategy_selection_cases import (  # noqa: F401
     ALL_STRATEGY_CASES,
@@ -79,6 +66,15 @@ from mindie_bench.runner.mechanism_contracts import (
     FixedControls,
     Mechanism,
     PairSpec,
+)
+from mindie_bench.runner.strategy_continuation import (
+    ContinuationExecution,
+)
+from mindie_bench.runner.strategy_continuation import (
+    StrategyContinuationExecutor as StrategyContinuationExecutor,
+)
+from mindie_bench.runner.strategy_continuation import (
+    StrategyContinuationTask as StrategyContinuationTask,
 )
 
 SCHEMA_VERSION = "mindie-bench-strategy-selection-pilot/1"
@@ -306,14 +302,6 @@ def _executor_case(case: StrategyCase) -> StrategyCase:
     return replace(case, private_judge={}, reference_solution={}, known_bad_solution={})
 
 
-def _total(rows: Sequence[Mapping[str, Any]], key: str, digits: int | None = None):
-    values = [row.get(key) for row in rows]
-    if any(value is None for value in values):
-        return None
-    total = sum(values)
-    return round(total, digits) if digits is not None else total
-
-
 # ------------------------------------ Balanced Triplet Planning & Execution
 @dataclass(frozen=True)
 class StrategyCellPlan:
@@ -386,11 +374,6 @@ def plan_strategy_selection_cells(
     return tuple(cells), controls_by_task
 
 
-def _reported(usage: Mapping[str, Any], key: str) -> int | None:
-    value = usage.get(key)
-    return None if value is None else int(value)
-
-
 def run_strategy_selection_cell(
     cell: StrategyCellPlan,
     case: StrategyCase,
@@ -398,7 +381,7 @@ def run_strategy_selection_cell(
     routing_index: RoutingIndex,
     budget: StrategySelectionBudget = StrategySelectionBudget(),
     selector_fn: Callable[[Mapping[str, Any]], Mapping[str, Any]] = condition_aware_selector,
-    executor_fn: Callable[..., Mapping[str, Any]] | None = None,
+    executor_fn: Callable[..., Mapping[str, Any] | ContinuationExecution] | None = None,
     clock: Callable[[], float] = time.perf_counter,
 ) -> dict[str, Any]:
     """Run one (case, repetition, arm) cell with strict budget & error-visibility semantics."""
@@ -452,6 +435,8 @@ def run_strategy_selection_cell(
         "npu_cards": case.npu_cards, "npu_dies": case.npu_dies,
     }
     unexecuted = {
+        "continuation_completed": None, "continuation_passed": None,
+        "continuation_regressed": None, "continuation_evidence": None,
         "judgment": None, "budget_compliant": False if selector_over_budget else None,
         "usage_status": "unavailable", "executor_model_calls": None, "total_model_calls": None,
         "executor_prompt_tokens": None, "executor_completion_tokens": None,
@@ -466,7 +451,8 @@ def run_strategy_selection_cell(
 
         An elapsed overrun is already observed; only the unseen spend stays unknown.
         """
-        over = selector_over_budget or elapsed_sec > budget.business_window_sec
+        limit = budget.outer_timeout_sec if isinstance(executor_fn, StrategyContinuationExecutor) else budget.business_window_sec
+        over = selector_over_budget or elapsed_sec > limit
         return {
             **row, **unexecuted, "terminal_status": status, "executor_error": error,
             "wall_clock_sec": elapsed_sec, "budget_compliant": False if over else None,
@@ -484,25 +470,44 @@ def run_strategy_selection_cell(
     reserved = budget.selector_call_budget if selector_model_calls is None else selector_model_calls
     started = clock()
     try:
-        exec_out = dict(
-            executor_fn(
-                case=_executor_case(case),
-                arm=cell.arm,
-                selector_decision=selector_decision,
-                routing_index=routing_index,
-                remaining_model_calls=budget.model_call_budget - reserved,
-                remaining_window_sec=budget.business_window_sec - selector_wall_sec,
-            )
+        if isinstance(executor_fn, StrategyContinuationExecutor):
+            if not 0 < executor_fn.verifier_timeout_sec <= budget.verifier_timeout_sec:
+                raise ValueError("continuation verifier exceeds the pilot verifier budget")
+            if not 0 < executor_fn.knowledge_token_budget <= budget.knowledge_token_budget:
+                raise ValueError("continuation context exceeds the pilot knowledge budget")
+        execution = executor_fn(
+            case=_executor_case(case), arm=cell.arm, selector_decision=selector_decision,
+            routing_index=routing_index,
+            remaining_model_calls=budget.model_call_budget - reserved,
+            remaining_window_sec=budget.business_window_sec - selector_wall_sec,
+            **({"cleanup_grace_sec": budget.cleanup_grace_sec}
+               if isinstance(executor_fn, StrategyContinuationExecutor) else {}),
         )
+        real_execution = execution if isinstance(execution, ContinuationExecution) else None
+        exec_out = real_execution.payload if real_execution else dict(execution)
     except TimeoutError as exc:
-        # The dispatched continuation may have spent calls and written remotely.
-        return no_outcome("unknown", str(exc), round(selector_wall_sec + clock() - started, 4))
+        status = "infra" if isinstance(executor_fn, StrategyContinuationExecutor) else "unknown"
+        return no_outcome(status, str(exc), round(selector_wall_sec + clock() - started, 4))
     except Exception as exc:  # noqa: BLE001 — one cell's harness fault must not void the matrix
         elapsed = round(selector_wall_sec + clock() - started, 4)
         return no_outcome("infra", f"{type(exc).__name__}: {exc}", elapsed)
     exec_wall = clock() - started
-
+    continuation = {
+        "continuation_completed": real_execution.completed if real_execution else None,
+        "continuation_passed": real_execution.passed if real_execution else None,
+        "continuation_regressed": None,
+        "continuation_evidence": real_execution.evidence if real_execution else None,
+    }
+    if real_execution and real_execution.passed is None:
+        return {**no_outcome(real_execution.terminal_status, real_execution.error,
+                            round(selector_wall_sec + exec_wall, 4)), **continuation}
     judged = evaluate_strategy_continuation(case, exec_out)
+    if real_execution:
+        judged["task_succeeded"] = real_execution.passed
+        for key in ("declared_adoption", "applied_strategy_ref", "applied_in_actions",
+                    "switched_after_observation", "next_action", "selection_reasonable",
+                    "false_adoption"):
+            judged[key] = None
     exec_calls = exec_out.get("model_calls")
     total_calls = (
         None if exec_calls is None or selector_model_calls is None
@@ -521,12 +526,14 @@ def run_strategy_selection_cell(
     )
     checks = [
         selector_over_budget is not True,
-        total_wall <= budget.business_window_sec,
+        (total_wall <= budget.outer_timeout_sec and not real_execution.evidence["outer_budget_exceeded"])
+        if real_execution else total_wall <= budget.business_window_sec,
         None if total_calls is None else total_calls <= budget.model_call_budget,
         None if npu_runs is None else npu_runs <= budget.npu_run_budget,
     ]
     return {
         **row,
+        **continuation,
         "terminal_status": "pass" if judged["task_succeeded"] else "fail",
         "judgment": judged,
         "budget_compliant": False if False in checks else None if None in checks else True,
@@ -549,7 +556,7 @@ def run_strategy_selection_pilot(
     repetitions: int = 2,
     budget: StrategySelectionBudget = StrategySelectionBudget(),
     selector_fn: Callable[[Mapping[str, Any]], Mapping[str, Any]] = condition_aware_selector,
-    executor_fn: Callable[..., Mapping[str, Any]] | None = None,
+    executor_fn: Callable[..., Mapping[str, Any] | ContinuationExecution] | None = None,
     offline_prep_cost: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Judge B/C selector decisions; with a real executor, also compare A/B/C continuations."""
@@ -573,6 +580,8 @@ def run_strategy_selection_pilot(
         )
         for cell in cells
     ]
+    continuation_metrics = continuation_summary(results)
+    real_verifier = isinstance(executor_fn, StrategyContinuationExecutor)
     report = {
         "schema_version": SCHEMA_VERSION,
         "readiness": readiness, "budget": budget.__dict__,
@@ -583,10 +592,10 @@ def run_strategy_selection_pilot(
             "max_outer_wall_clock_sec": len(cells) * budget.outer_timeout_sec,
         },
         "continuation": "not_executed" if executor_fn is None else "executed",
-        # The legacy dict executor asserts its own outcome, so until a TrialReceipt
-        # owns it these task results stay diagnostic rather than verified.
+        "continuation_metrics": continuation_metrics,
         "continuation_verdict_basis": (
-            None if executor_fn is None else "executor_self_reported_verifier_passed_unverified"
+            None if executor_fn is None else "independent_local_verifier" if real_verifier
+            else "executor_self_reported_verifier_passed_unverified"
         ),
         "selection": _selection_summary(results),
     }
@@ -655,20 +664,19 @@ def run_strategy_selection_pilot(
         arm_rows = [row for row in results if row["cell"]["arm"] == arm]
         valid_rows = [row for row in arm_rows if row["terminal_status"] in {"pass", "fail"}]
         passed = sum(row["terminal_status"] == "pass" for row in valid_rows)
-        reasonable = sum(row["judgment"]["selection_reasonable"] is True for row in valid_rows)
-        false_adoptions = sum(row["judgment"]["false_adoption"] is True for row in valid_rows)
         trigger_rows = [row for row in valid_rows if row["cell"]["case_kind"] == "trigger_matched"]
         boundary_rows = [row for row in valid_rows if row["cell"]["case_kind"] == "boundary_or_mismatch"]
         arm_summaries[arm] = {
             "arm": arm, "label": ARM_LABELS[arm],
+            **continuation_metrics[arm],
             "planned_cells": len(arm_rows), "valid_cells": len(valid_rows),
             "budget_noncompliant_cells": sum(r["budget_compliant"] is False for r in arm_rows),
             "selector_budget_exceeded_cells": sum(r["selector_budget_exceeded"] is True for r in arm_rows),
             "pass_rate": _ratio(passed, len(valid_rows), missing=len(arm_rows) - len(valid_rows)),
-            "selection_reasonable_rate": _ratio(reasonable, len(valid_rows)),
-            "false_adoption_rate": _ratio(false_adoptions, len(valid_rows)),
+            "selection_reasonable_rate": judgment_rate(valid_rows, "selection_reasonable"),
+            "false_adoption_rate": judgment_rate(valid_rows, "false_adoption"),
             "trigger_matched_pass_rate": _ratio(sum(r["terminal_status"] == "pass" for r in trigger_rows), len(trigger_rows)),
-            "boundary_safe_handling_rate": _ratio(sum(not r["judgment"]["false_adoption"] for r in boundary_rows), len(boundary_rows)),
+            "boundary_safe_handling_rate": judgment_rate(boundary_rows, "false_adoption", inverted=True),
             "total_model_calls": _total(arm_rows, "total_model_calls"),
             "selector_model_calls": _total(arm_rows, "selector_model_calls"),
             "total_prompt_tokens": _total(arm_rows, "prompt_tokens"),
@@ -708,17 +716,15 @@ def run_strategy_selection_pilot(
     shared_prefix_prompt = sum(int(case.shared_prefix_cost.get("prompt_tokens", 0)) for case in cases)
     shared_prefix_completion = sum(int(case.shared_prefix_cost.get("completion_tokens", 0)) for case in cases)
 
-    c_reasonable = arm_summaries["C"]["selection_reasonable_rate"]["value"] or 0.0
-    b_reasonable = arm_summaries["B"]["selection_reasonable_rate"]["value"] or 0.0
-    c_pass = arm_summaries["C"]["pass_rate"]["value"] or 0.0
-    a_pass = arm_summaries["A"]["pass_rate"]["value"] or 0.0
+    c_reasonable = arm_summaries["C"]["selection_reasonable_rate"]["value"]
+    b_reasonable = arm_summaries["B"]["selection_reasonable_rate"]["value"]
+    c_pass = arm_summaries["C"]["pass_rate"]["value"]
+    a_pass = arm_summaries["A"]["pass_rate"]["value"]
 
     pareto_and_cop = summarize_arm_pareto_and_cop(arm_summaries, baseline_arm="A")
-    # Every continuation outcome today is the executor's own report, so the arm
-    # comparisons below are diagnostic. A rollout gate returns once a TrialReceipt
-    # owns the verdict (docs/strategy-continuation-v2.md).
     decision_gate = (
-        "return_to_implementation_fix" if not readiness["ready"] else "continuation_unverified"
+        "return_to_implementation_fix" if not readiness["ready"] else
+        "local_behavior_only" if real_verifier else "continuation_unverified"
     )
 
     walls = [arm_summaries[arm]["total_wall_clock_sec"] for arm in ARMS]
@@ -726,25 +732,24 @@ def run_strategy_selection_pilot(
         **report,
         "scope_note": (
             f"Continuation pilot from a shared decision point across {len(cases)} cases "
-            f"({len(cells)} executed continuations + {report['upper_bounds']['selector_calls']} "
-            "isolated selector calls). Task outcomes are the executor's self-reported "
-            "verifier result, not an external TrialReceipt verdict. Does not claim "
-            "full-session product cohort superiority without end-to-end prefix replay."
+            f"({len(cells)} planned continuation cells + {report['upper_bounds']['selector_calls']} "
+            "isolated selector calls). Verdict ownership is reported in continuation_verdict_basis. "
+            "Local behavior does not establish model/NPU benefit or full-session superiority."
         ),
         "arms": arm_summaries,
         "comparisons": {
             "C_vs_B": {
-                "selection_reasonable_delta": round(c_reasonable - b_reasonable, 6),
-                "false_adoption_delta": round(
-                    (arm_summaries["C"]["false_adoption_rate"]["value"] or 0.0)
-                    - (arm_summaries["B"]["false_adoption_rate"]["value"] or 0.0), 6,
+                "selection_reasonable_delta": rate_delta(c_reasonable, b_reasonable),
+                "false_adoption_delta": rate_delta(
+                    arm_summaries["C"]["false_adoption_rate"]["value"],
+                    arm_summaries["B"]["false_adoption_rate"]["value"],
                 ),
-                "pass_rate_delta": round(c_pass - (arm_summaries["B"]["pass_rate"]["value"] or 0.0), 6),
+                "pass_rate_delta": rate_delta(c_pass, arm_summaries["B"]["pass_rate"]["value"]),
                 "c_beats_b_selection_cells": c_beats_b_selection,
                 "paired_ablation": c_vs_b_report.to_dict(),
             },
             "C_vs_A": {
-                "pass_rate_delta": round(c_pass - a_pass, 6),
+                "pass_rate_delta": rate_delta(c_pass, a_pass),
                 "c_beats_a_pass_cells": c_beats_a_pass,
                 "negative_transfer_count": negative_transfer_c_vs_a,
                 "cost_regression_on_both_pass_count": cost_regression_on_both_pass_c_vs_a,

@@ -1,9 +1,10 @@
-"""Measure physical A3 graph prediction, operator planning and fusion screening.
+"""Exercise the public operator, graph and serving boundaries of mindie-sim.
 
-[Role] Drive installed ``mindie_sim`` on the checked-in Qwen2.5-7B-Instruct/A3 workload.
-[Invariants] Modeled durations stay separate from measured anchors; no uncalibrated value is relabeled as device time.
-[Timeouts & Locks] Pure finite CPU work; each invocation is measured locally with no background service.
-[Side-Effect Policy] Owned output files only; no device, network, subprocess or source-checkout mutation.
+[Role] Run a finite neutral model through the installed causal engine.
+[Invariants] Synthetic resource inputs test behavior, never measured accuracy.
+  Isolated sums, device graphs and token-commit metrics keep separate meanings.
+[Timeouts & Locks] Bounded CPU-only model calls; no services, waits or locks.
+[Side-Effect Policy] Writes caller-owned evidence only; no device or network use.
 """
 
 from __future__ import annotations
@@ -16,325 +17,46 @@ from pathlib import Path
 
 from .value_common import source_revisions, write_json
 
-A3_SKU = "Ascend910_9362"
-MIB = 1024 * 1024
-MEASURED_ANCHORS = {
-    "source": "mindie-sim/docs/large-operator-calibration.md measured A3 910C c=1 graph 128/32",
-    "prompt_tokens": 128,
-    "output_tokens": 32,
-    "graph_ttft_ms": 50.85,
-    "graph_tpot_ms": 15.71,
-}
-
-QWEN_CASE = {
-    "name": "qwen2.5-7b-instruct-a3-tp1-graph",
+CASE = {
     "machine": {
-        "name": "a3-ascend910-9362-one-die",
-        "hardware_key": A3_SKU,
-        "arch_family": "A3",
-        "dies_per_package": 2,
+        "name": "synthetic-component-control",
+        "architecture": "declared",
         "num_devices": 1,
         "device": {
-            "hbm_gib": 64,
-            "cube_flops_per_s": 2.70336e14,
-            "vector_ops_per_s": 1.6896e13,
-            "hbm_bw_bytes_per_s": 1.2e12,
-            "mte_bw_bytes_per_s": 2.4e12,
-            "launch_us": 20.0,
-            "l2_bytes": 201326592,
-            "aic_count": 20,
-            "aiv_count": 40,
+            "memory_bytes": 1024**3,
+            "compute_units": 4,
+            "compute_peaks": {"bf16": 16e9, "fp32": 8e9},
+            "rates": {"memory": 8e9, "vector": 4e9},
+            "launch_us": 2,
         },
-        "compute_peaks": {"bf16": 2.70336e14, "fp16": 2.70336e14},
-        "links": [{
-            "name": "d2d",
-            "channel": "d2d_intra_node",
-            "capacity_gbps": 196,
-            "latency_us": 2.5,
-            "members": [0],
-        }],
+        "assumptions": {
+            "parameters": "Synthetic arithmetic control; no hardware calibration or SKU claim."
+        },
     },
     "model": {
-        "name": "Qwen2.5-7B-Instruct",
-        "architecture": "gqa",
-        "layers": 28,
-        "hidden_size": 3584,
-        "num_heads": 28,
-        "num_kv_heads": 4,
-        "head_dim": 128,
-        "intermediate_size": 18944,
-        "vocab_size": 152064,
+        "name": "component-gqa-control",
+        "layers": 2,
+        "hidden_size": 64,
+        "num_heads": 4,
+        "num_kv_heads": 2,
+        "head_dim": 16,
+        "intermediate_size": 128,
+        "vocab_size": 256,
         "activation_dtype": "bf16",
         "weight_dtype": "bf16",
         "kv_dtype": "bf16",
         "compute_dtype": "bf16",
     },
     "workload": {
-        "requests": [{"id": "qwen25-7b-one", "prompt_tokens": 128, "output_tokens": 4}],
+        "requests": [{"id": "control", "prompt_tokens": 8, "output_tokens": 3}],
     },
     "runtime": {
-        "max_num_batched_tokens": 8192,
-        "max_num_seqs": 16,
-        "max_model_len": 8192,
-        "enable_chunked_prefill": True,
-        "kv_block_size": 128,
-        "gpu_memory_utilization": 0.9,
-        "tp": 1,
-        "ep": 1,
-        "dp": 1,
-        "pp": 1,
-        "graph_buckets": [1, 2, 4, 8, 16],
-        "graph_mode": "force",
-        "moe_recipe": "auto",
+        "max_num_batched_tokens": 16,
+        "max_num_seqs": 1,
+        "max_model_len": 128,
+        "kv_block_size": 16,
+        "graph_mode": "none",
     },
-    "slo": {"ttft_ms": 60000, "tpot_ms": 6000, "e2e_ms": 180000},
-}
-
-QWEN_CALIBRATION = {
-    "schema_version": "mindie-sim.physical-calibration/1",
-    "hardware_key": A3_SKU,
-    "arch_family": "A3",
-    "machine": {
-        "hardware_key": A3_SKU,
-        "arch_family": "A3",
-        "aic_count": 20,
-        "aiv_count": 40,
-        "clock_mhz": 1650.0,
-        "ops_per_cycle": 8192.0,
-        "peak_bw_bytes_per_s": 1.2e12,
-        "l2_bytes": 67108864,
-        "vec_elements_per_cycle_per_aiv": 128.0,
-    },
-    "fit_config": {"fit_policy": "qwen2.5-7b-instruct-public-benchmark-fixture"},
-    "families": {
-        "gemm/device_event_warm": {
-            "family": "gemm",
-            "recipe": "torch_npu_managed_runner",
-            "protocol_signature": "",
-            "timing_scope": "device_event_warm",
-            "model_kind": "gemm",
-            "model_form": "wave_max",
-            "fit_level": "family_protocol",
-            "block_m": 32,
-            "block_n": 256,
-            "launch_ms": 0.0177,
-            "eta_compute": 0.837,
-            "eta_memory": 0.814,
-            "vec_ops_per_s": None,
-            "memory_model": "hbm",
-            "l2_usable_bytes": 0,
-            "l2_bw_bytes_per_s": None,
-            "compute_dtype": "bf16",
-            "samples": 367,
-            "raw_event_count": 2202,
-            "train_wape_pct": 16.6,
-            "cv_wape_pct": 17.65,
-            "median_ape_pct": 20.3,
-            "p90_ape_pct": 51.8,
-            "max_ape_pct": 85.2,
-            "binding_share": {"compute": 0.5, "memory": 0.5},
-            "binding_counts": {"compute": 180, "memory": 187},
-            "identified": {"launch": True, "tile_geometry": True, "eta_compute": True},
-            "pinned_parameters": [],
-            "intervals": {},
-            "breakdown": {},
-            "model_selection": {},
-            "memory_model_selection": {},
-            "quality": "trusted",
-            "warnings": [],
-        },
-    },
-    "provenance": {
-        "generator": "benchmarks/fixtures/qwen2.5-7b-instruct.json",
-        "condition_count": 367,
-        "raw_event_count": 2202,
-        "fitted_utc": "2026-10-21T00:00:00+00:00",
-        "training_hash": "sha256:qwen2.5-7b-instruct-public-benchmark-fixture",
-        "heldout_guard": {"status": "clean"},
-    },
-    "unmodeled": [],
-}
-
-OPERATOR_PLAN = {
-    "name": "synthetic-vector-gemm-vector",
-    "source": "synthetic_fixture: arithmetic demonstration; no Ascend SKU or measured latency claim",
-    "machine": {
-        "name": "synthetic-two-core-device",
-        "arch_family": "A5",
-        "num_devices": 1,
-        "dies_per_package": 1,
-        "device": {
-            "hbm_gib": 1,
-            "cube_flops_per_s": 10000000000,
-            "vector_ops_per_s": 1000000000,
-            "hbm_bw_bytes_per_s": 4000000000,
-            "mte_bw_bytes_per_s": 2000000000,
-            "mte1_bw_bytes_per_s": 2000000000,
-            "launch_us": 1,
-            "aic_count": 2,
-            "aiv_count": 2,
-            "ub_bytes": 8192,
-            "l1_bytes": 8192,
-            "l0a_bytes": 2048,
-            "l0b_bytes": 2048,
-            "l0c_bytes": 2048,
-        },
-        "compute_peaks": {"bf16": 10000000000},
-        "metadata": {"source": "synthetic_fixture; not hardware calibration"},
-    },
-    "estimators": {
-        "strict": True,
-        "vector_profile": {
-            "name": "synthetic-two-core-vector",
-            "source": "synthetic_fixture: independent arithmetic rates, not an ISA calibration",
-            "architectures": ["A5"],
-            "frequency_hz": 1000000000,
-            "simd_bytes": 16,
-            "vector_cores": 2,
-            "ub_bytes_per_core": 8192,
-            "tile_elements": 128,
-            "buffers": 2,
-            "instructions": [
-                {"name": "Cast", "dtypes": ["bf16", "fp32"]},
-                {"name": "Mul", "dtypes": ["fp32"]},
-                {"name": "Neg", "dtypes": ["fp32"]},
-                {"name": "Add", "dtypes": ["fp32"]},
-                {"name": "Exp", "pipe": "sfu", "throughput_cycles": 4,
-                 "latency_cycles": 4, "dtypes": ["fp32"]},
-                {"name": "Div", "pipe": "sfu", "throughput_cycles": 4,
-                 "latency_cycles": 4, "dtypes": ["fp32"]},
-            ],
-        },
-        "gemm_profile": {
-            "source": "synthetic_fixture: BF16 arithmetic rates, not measured kernel parameters",
-            "core_count": 2,
-            "tile_m": 16,
-            "tile_n": 16,
-            "tile_k": 32,
-            "l1_k": 64,
-            "l1_bytes": 8192,
-            "l0a_bytes": 2048,
-            "l0b_bytes": 2048,
-            "l0c_bytes": 2048,
-            "l2_bytes_per_s_per_core": 1000000000,
-            "mte2_bytes_per_s_per_core": 1000000000,
-            "mte1_a_bytes_per_s_per_core": 1000000000,
-            "mte1_b_bytes_per_s_per_core": 1000000000,
-            "mte3_bytes_per_s_per_core": 1000000000,
-            "fix_bytes_per_s_per_core": 1000000000,
-        },
-    },
-    "operators": [
-        {
-            "op_id": "pre",
-            "family": "vector_chain",
-            "phase": "prefill",
-            "stage": 0,
-            "layer": 0,
-            "requests": ["synthetic"],
-            "semantic_shape": [2560],
-            "local_shape": [2560],
-            "padded_shape": [2560],
-            "launch_shape": [2560],
-            "dtype": "bf16",
-            "hbm_bytes": 10240,
-            "mte2_bytes": 5120,
-            "mte3_bytes": 5120,
-            "vector_ops": 10240,
-            "metadata": {"vector_flow": {
-                "elements": 2560,
-                "input_bytes_per_element": 2,
-                "output_bytes_per_element": 2,
-                "ub_bytes_per_element": 20,
-                "instructions": [
-                    {"name": "cast_in", "op": "Cast", "src_dtype": "bf16", "dst_dtype": "fp32"},
-                    {"name": "multiply", "op": "Mul", "dtype": "fp32", "deps": ["cast_in"]},
-                    {"name": "negate", "op": "Neg", "dtype": "fp32", "deps": ["multiply"]},
-                    {"name": "cast_out", "op": "Cast", "src_dtype": "fp32",
-                     "dst_dtype": "bf16", "deps": ["negate"]},
-                ],
-            }},
-        },
-        {
-            "op_id": "gemm",
-            "family": "gemm",
-            "phase": "prefill",
-            "stage": 0,
-            "layer": 0,
-            "requests": ["synthetic"],
-            "semantic_shape": [32, 48, 80],
-            "local_shape": [32, 48, 80],
-            "padded_shape": [32, 48, 80],
-            "launch_shape": [32, 48, 80],
-            "dtype": "bf16",
-            "flops": 245760,
-            "hbm_bytes": 15872,
-            "mte2_bytes": 12800,
-            "mte3_bytes": 3072,
-            "deps": ["pre"],
-        },
-        {
-            "op_id": "post",
-            "family": "vector_chain",
-            "phase": "prefill",
-            "stage": 0,
-            "layer": 0,
-            "requests": ["synthetic"],
-            "semantic_shape": [1536],
-            "local_shape": [1536],
-            "padded_shape": [1536],
-            "launch_shape": [1536],
-            "dtype": "bf16",
-            "hbm_bytes": 6144,
-            "mte2_bytes": 3072,
-            "mte3_bytes": 3072,
-            "vector_ops": 4608,
-            "deps": ["gemm"],
-            "metadata": {"vector_flow": {
-                "elements": 1536,
-                "input_bytes_per_element": 2,
-                "output_bytes_per_element": 2,
-                "ub_bytes_per_element": 16,
-                "instructions": [
-                    {"name": "cast_in", "op": "Cast", "src_dtype": "bf16", "dst_dtype": "fp32"},
-                    {"name": "negate", "op": "Neg", "dtype": "fp32", "deps": ["cast_in"]},
-                    {"name": "cast_out", "op": "Cast", "src_dtype": "fp32",
-                     "dst_dtype": "bf16", "deps": ["negate"]},
-                ],
-            }},
-        },
-    ],
-}
-
-FUSION_DAG = {
-    "name": "value-producer-consumer-cast",
-    "nodes": [
-        {"id": "producer", "kind": "matmul", "duration_us": 10.0},
-        {"id": "consumer", "kind": "aiv_cast", "duration_us": 5.0},
-        {"id": "tail", "kind": "attention", "duration_us": 20.0},
-    ],
-    "edges": [
-        {
-            "src": "producer",
-            "dst": "consumer",
-            "tensor": {"bytes": 1 * MIB, "dtype": "float32", "layout": "ND"},
-        },
-        {"src": "consumer", "dst": "tail"},
-    ],
-    "capacities_kib": {"L1": 512, "L0A": 64, "L0B": 64, "L0C": 256, "UB": 248},
-}
-FUSION_CANDIDATE = {
-    "name": "elide-cast",
-    "producer": "producer",
-    "consumer": "consumer",
-    "remove_nodes": ["consumer"],
-    "remove_edges": [{"src": "producer", "dst": "consumer"}],
-    "live_buffers": [{"name": "UB scratch", "buffer": "UB", "size_kib": 128}],
-}
-FUSION_OVERFLOW = {
-    **FUSION_CANDIDATE,
-    "name": "elide-cast-overflow",
-    "live_buffers": [{"name": "UB scratch", "buffer": "UB", "size_kib": 512}],
 }
 
 
@@ -345,55 +67,7 @@ def _digest(value) -> str:
 
 
 def _close(left: float, right: float) -> bool:
-    return math.isclose(float(left), float(right), rel_tol=1e-9, abs_tol=1e-12)
-
-
-def _validate_qwen(payload: dict) -> None:
-    assert payload["status"] == "modeled"
-    assert payload["served_requests"] == 1 and payload["unserved_requests"] == 0
-    assert payload["output_tokens"] == 4
-    calibration = payload["physical_calibration"]
-    assert calibration["status"] == "configured"
-    assert calibration["timing_scope"] == "device_event_warm"
-    assert calibration["applied_op_count"] > 0
-    assert calibration["unmodeled_op_count"] > 0
-    request = payload["requests"][0]
-    assert request["status"] == "served" and request["generated_tokens"] == 4
-    ttft, tpot = float(request["ttft_ms"]), float(request["tpot_ms"])
-    assert math.isfinite(ttft) and ttft > 0
-    assert math.isfinite(tpot) and tpot > 0
-    assert _close(request["e2e_ms"], ttft + (request["generated_tokens"] - 1) * tpot)
-    assert _close(payload["metrics"]["ttft_ms"]["mean"], ttft)
-    assert _close(payload["metrics"]["tpot_ms"]["mean"], tpot)
-    assert len(payload["traces"]) == request["generated_tokens"]
-
-
-def _validate_operator_plan(payload: dict) -> None:
-    assert payload["status"] == "modeled"
-    assert payload["execution"]["status"] == "modeled"
-    assert _close(payload["elapsed_ms"], payload["execution"]["makespan_ms"])
-    assert [op["op_id"] for op in payload["operators"]] == ["pre", "gemm", "post"]
-    assert all(op["operator_estimation"]["status"] == "analytic_plan"
-               for op in payload["operators"])
-    assert {op["execution_plan"]["backend"] for op in payload["operators"]} == {
-        "vector_instruction", "gemm_finite_pipeline",
-    }
-    assert all(op["operator_estimation"]["not_npu_measured"] for op in payload["operators"])
-
-
-def _validate_fusion(payload: dict, *, feasible: bool) -> None:
-    assert payload["status"] == ("modeled" if feasible else "infeasible")
-    assert payload["feasibility"]["feasible"] is feasible
-    assert _close(payload["removable_gm_bytes"], 2 * MIB)
-    assert _close(payload["latency"]["critical_path_saving_us"], 5.0)
-    if feasible:
-        assert payload["feasibility"]["failures"] == []
-        assert payload["buffer_capacities_kib"]["UB"] == 248
-    else:
-        assert payload["feasibility"]["failures"] == ["live_buffer_limit"]
-        gate = next(item for item in payload["feasibility"]["gates"]
-                    if item["code"] == "live_buffer_limit")
-        assert gate["detail"]["diagnostics"][0]["code"] == "buffer_overflow"
+    return math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-12)
 
 
 def _timed(call):
@@ -402,68 +76,121 @@ def _timed(call):
     return value, (time.perf_counter() - started) * 1000
 
 
-def run(output: Path, repetitions: int):
-    from mindie_sim import analyze_subgraph_fusion
-    from mindie_sim.a3_framework import predict
-    from mindie_sim.a3_physical_calibration import PhysicalCalibration
-    from mindie_sim.operator_estimation import operator_plan_report
+def _released(payload):
+    execution = payload["execution"]
+    return (
+        execution["live_tasks"] == execution["live_programs"] == 0
+        and not any(execution["live_allocated"].values())
+    )
 
-    calibration = PhysicalCalibration.from_mapping(QWEN_CALIBRATION)
+
+def _check_model(operators, graph, serving, tokens):
+    model = CASE["model"]
+    qkv = sum(op.flops for op in operators if op.family == "qkv_projection")
+    attention = sum(op.flops for op in operators if op.family == "attention")
+    expected_qkv = (
+        model["layers"] * 2 * tokens * model["hidden_size"]
+        * (model["num_heads"] + 2 * model["num_kv_heads"]) * model["head_dim"]
+    )
+    expected_attention = (
+        model["layers"] * 4 * (tokens * (tokens + 1) // 2)
+        * model["num_heads"] * model["head_dim"]
+    )
+    assert qkv == expected_qkv and attention == expected_attention
+    assert graph["boundary"] == "device_graph"
+    assert graph["duration_ms"] + 1e-9 >= graph["bounds"]["combined_ms"]
+    assert not any(row["family"] in {"sampling", "token_commit"}
+                   for row in graph["timeline"])
+    assert serving["status"] == "modeled"
+    assert serving["metric_boundary"] == "device_token_commit"
+    assert serving["metrics"]["served_requests"] == 1
+    assert serving["metrics"]["unserved_requests"] == 0
+    request = serving["requests"][0]
+    generated = CASE["workload"]["requests"][0]["output_tokens"]
+    assert request["status"] == "served" and request["generated_tokens"] == generated
+    assert _close(request["e2e_ms"],
+                  request["ttft_ms"] + (generated - 1) * request["tpot_ms"])
+    assert serving["parameters"]["calibration"] == "none"
+    assert serving["parameters"]["operator_occurrences"]["measured_primitive"] == 0
+    assert _released(graph) and _released(serving)
+    return expected_qkv, expected_attention
+
+
+def run(output: Path, repetitions: int):
+    from mindie_sim import (
+        graph_costs,
+        operator_costs,
+        predict,
+        target_graphs,
+        target_operators,
+    )
+
+    tokens = CASE["workload"]["requests"][0]["prompt_tokens"]
+    case_digest = _digest(CASE)
     measurements = []
     for repetition in range(1, repetitions + 1):
         root = output / f"sim-{repetition}"
         root.mkdir(parents=True)
-        payload, qwen_ms = _timed(lambda: predict(QWEN_CASE, physical_calibration=calibration))
-        _validate_qwen(payload)
-        repeat_payload, _ = _timed(
-            lambda: predict(QWEN_CASE, physical_calibration=calibration)
+        operators = target_operators(CASE, phase="prefill", tokens=tokens, scope="model")
+        isolated, operator_ms = _timed(lambda: operator_costs(CASE, operators))
+        graphs = target_graphs(CASE, phase="prefill", tokens=tokens, scope="model")
+        graph, graph_ms = _timed(lambda: graph_costs(CASE, graphs))
+        submitted = graph_costs(CASE, graphs, include_submission=True, isolated=False)
+        serving, prediction_ms = _timed(
+            lambda: predict(CASE, trace_limit=0, event_limit=0))
+        repeated = predict(CASE, trace_limit=0, event_limit=0)
+        expected_qkv, expected_attention = _check_model(operators, graph, serving, tokens)
+        assert serving == repeated and _digest(CASE) == case_digest
+        assert isolated["boundary"] == "sum_of_isolated_device_programs"
+        assert _close(isolated["operator_sum_ms"], graph["isolated"]["operator_sum_ms"])
+        assert isolated["operator_occurrences"] == graph["operator_occurrences"]
+        assert submitted["boundary"] == "submitted_device_graph"
+        assert submitted["duration_ms"] > graph["duration_ms"]
+        assert _released(submitted)
+
+        # A cut body graph needs an actual input arrival; a missing producer
+        # cannot disappear merely because isolated operator costs are available.
+        body = target_graphs(CASE, phase="prefill", tokens=tokens, scope="body")
+        try:
+            graph_costs(CASE, body, isolated=False)
+        except ValueError as error:
+            if not str(error).startswith("graph_dependency_unavailable:"):
+                raise
+            rejection = {"type": type(error).__name__, "error": str(error)}
+        else:
+            raise AssertionError("cut graph accepted an undeclared external input")
+        ready = graph_costs(CASE, body, external_inputs={"analysis_input": 0}, isolated=False)
+        delayed = graph_costs(CASE, body, external_inputs={"analysis_input": 5}, isolated=False)
+        input_shift = delayed["complete_ms"] - ready["complete_ms"]
+        assert _close(input_shift, 5)
+        assert all(row["ready_ms"] >= 5 for row in delayed["timeline"])
+        assert _released(ready) and _released(delayed)
+
+        larger = target_operators(CASE, phase="prefill", tokens=2 * tokens, scope="model")
+        larger_qkv = sum(op.flops for op in larger if op.family == "qkv_projection")
+        larger_attention = sum(op.flops for op in larger if op.family == "attention")
+        assert larger_qkv == 2 * expected_qkv
+        assert larger_attention == (
+            CASE["model"]["layers"] * 4 * (2 * tokens * (2 * tokens + 1) // 2)
+            * CASE["model"]["num_heads"] * CASE["model"]["head_dim"]
         )
-        assert json.dumps(payload, sort_keys=True) == json.dumps(repeat_payload, sort_keys=True)
-        request = payload["requests"][0]
-        ttft = float(request["ttft_ms"])
-        tpot = float(request["tpot_ms"])
-        ttft_error = ttft - MEASURED_ANCHORS["graph_ttft_ms"]
-        tpot_error = tpot - MEASURED_ANCHORS["graph_tpot_ms"]
-        operator, operator_ms = _timed(lambda: operator_plan_report(OPERATOR_PLAN))
-        _validate_operator_plan(operator)
-        fusion, fusion_ms = _timed(lambda: analyze_subgraph_fusion(FUSION_DAG, FUSION_CANDIDATE))
-        _validate_fusion(fusion, feasible=True)
-        overflow, overflow_ms = _timed(
-            lambda: analyze_subgraph_fusion(FUSION_DAG, FUSION_OVERFLOW)
-        )
-        _validate_fusion(overflow, feasible=False)
+        request = serving["requests"][0]
         raw = {
-            "qwen_case_sha256": _digest(QWEN_CASE),
-            "physical_calibration_sha256": _digest(QWEN_CALIBRATION),
-            "operator_plan_sha256": _digest(OPERATOR_PLAN),
-            "qwen_prediction": {
-                "status": payload["status"],
-                "timing_scope": payload["timing_scope"],
-                "ttft_ms": ttft,
-                "tpot_ms": tpot,
-                "e2e_ms": request["e2e_ms"],
-                "traces": len(payload["traces"]),
-                "physical_calibration": payload["physical_calibration"],
-                "metrics": payload["metrics"],
-            },
-            "measured_anchor": MEASURED_ANCHORS,
+            "case": CASE,
+            "case_sha256": case_digest,
+            "operators": isolated,
+            "device_graph": graph,
+            "submitted_graph": submitted,
+            "serving": serving,
+            "cut_graph": {"ready": ready, "delayed": delayed, "missing_input": rejection},
             "accuracy": {
-                "ttft_absolute_error_ms": ttft_error,
-                "ttft_error_pct": ttft_error / MEASURED_ANCHORS["graph_ttft_ms"] * 100,
-                "tpot_absolute_error_ms": tpot_error,
-                "tpot_error_pct": tpot_error / MEASURED_ANCHORS["graph_tpot_ms"] * 100,
-                "scope": "published A3 c=1 graph anchors; the fixed client/scheduler floor is not modeled",
-            },
-            "operator_plan": operator,
-            "subgraph_screening": {
-                "feasible": fusion,
-                "overflow": overflow,
+                "status": "not_assessed",
+                "reason": "synthetic resource control has no paired heldout timing observations",
             },
             "latency_ms": {
-                "qwen_prediction": qwen_ms,
-                "operator_plan": operator_ms,
-                "subgraph_feasible": fusion_ms,
-                "subgraph_overflow": overflow_ms,
+                "operator_analysis": operator_ms,
+                "graph_analysis": graph_ms,
+                "prediction": prediction_ms,
             },
         }
         write_json(root / "raw.json", raw)
@@ -472,47 +199,48 @@ def run(output: Path, repetitions: int):
             "status": "pass",
             "raw": str(root / "raw.json"),
             "baseline": {
-                "source": "published A3 Qwen2.5-7B-Instruct c=1 graph measurement",
-                "prompt_tokens": MEASURED_ANCHORS["prompt_tokens"],
-                "output_tokens": MEASURED_ANCHORS["output_tokens"],
-                "graph_ttft_ms": MEASURED_ANCHORS["graph_ttft_ms"],
-                "graph_tpot_ms": MEASURED_ANCHORS["graph_tpot_ms"],
+                "prefill_tokens": tokens,
+                "expected_qkv_flops": expected_qkv,
+                "expected_attention_flops": expected_attention,
+                "external_input_ready_ms": 5,
             },
             "candidate": {
-                "qwen_case_deterministic": True,
-                "a3_graph_ttft_ms": ttft,
-                "a3_graph_tpot_ms": tpot,
-                "ttft_absolute_error_ms": ttft_error,
-                "ttft_error_pct": ttft_error / MEASURED_ANCHORS["graph_ttft_ms"] * 100,
-                "tpot_absolute_error_ms": tpot_error,
-                "tpot_error_pct": tpot_error / MEASURED_ANCHORS["graph_tpot_ms"] * 100,
-                "operator_plan_elapsed_ms": operator["elapsed_ms"],
-                "operator_plan_backends": sorted(
-                    {op["execution_plan"]["backend"] for op in operator["operators"]}
-                ),
-                "subgraph_removable_gm_bytes": fusion["removable_gm_bytes"],
-                "subgraph_critical_path_saving_us": fusion["latency"]["critical_path_saving_us"],
-                "subgraph_overflow_rejected": True,
-                "qwen_prediction_latency_ms": qwen_ms,
-                "operator_plan_latency_ms": operator_ms,
-                "subgraph_screen_latency_ms": fusion_ms,
-                "subgraph_overflow_latency_ms": overflow_ms,
+                "model_deterministic": serving == repeated,
+                "analytic_without_calibration": True,
+                "qkv_flops": sum(op.flops for op in operators if op.family == "qkv_projection"),
+                "attention_flops": sum(op.flops for op in operators if op.family == "attention"),
+                "larger_qkv_flops": larger_qkv,
+                "larger_attention_flops": larger_attention,
+                "operator_occurrences": isolated["operator_occurrences"],
+                "operator_sum_ms": isolated["operator_sum_ms"],
+                "device_graph_ms": graph["duration_ms"],
+                "submitted_graph_ms": submitted["duration_ms"],
+                "serving_ttft_ms": request["ttft_ms"],
+                "serving_tpot_ms": request["tpot_ms"],
+                "generated_tokens": request["generated_tokens"],
+                "external_input_shift_ms": input_shift,
+                "missing_dependency_rejected": True,
+                "resources_released": True,
+                "operator_analysis_latency_ms": operator_ms,
+                "graph_analysis_latency_ms": graph_ms,
+                "prediction_latency_ms": prediction_ms,
             },
         })
     return {
-        "id": "sim-a3-graph-and-boundary-screening",
+        "id": "sim-causal-modeling-boundaries",
         "component": "sim",
         "status": "pass",
-        "scope": "real A3 physical-calibration predict, finite operator planning and subgraph boundary gates",
-        "baseline": "Published A3 c=1 Qwen2.5-7B-Instruct graph TTFT/TPOT anchors plus a raw producer-consumer DAG.",
-        "candidate": "Production sim models graph latency, plans Vector/GEMM operators and rejects an overflowing UB fusion.",
+        "scope": "public operator, pure-graph and serving contracts on a synthetic resource control",
+        "baseline": "Independent GQA work arithmetic and a declared external-input arrival.",
+        "candidate": "Installed causal engine composes model work and preserves graph/serving boundaries.",
         "repetitions": repetitions,
         "measurements": measurements,
         "limitations": [
-            "Predicted TTFT includes no client/scheduler floor; its absolute error is recorded, not hidden.",
-            "The Qwen physical calibration artifact is a checked-in public fixture, not a new NPU measurement.",
-            "Operator-plan and subgraph inputs are synthetic arithmetic fixtures.",
-            "Latency is CPU wall-clock for these pure-Python calls, not device throughput.",
+            "Pass means structural consumer checks succeeded, not measured timing accuracy.",
+            "Resource rates are synthetic; no A3/GPU specification or old fitted parameters are used.",
+            "Independent operator sums, device/submitted graph spans and token-commit metrics differ.",
+            "No fusion feasibility or optimization saving is inferred from graph lower bounds.",
+            "Latency fields measure local CPU analysis time; no device execution or calibration occurs.",
         ],
         "source_revisions": source_revisions(("mindie-sim",)),
     }

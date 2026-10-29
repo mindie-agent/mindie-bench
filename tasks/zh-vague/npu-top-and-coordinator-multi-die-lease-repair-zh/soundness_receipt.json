@@ -1,11 +1,118 @@
 {
   "after_reward": 1.0,
   "before_reward": 0.0,
+  "controls": {
+    "base": {
+      "duration_sec": 0.025531416991725564,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "passed": true,
+      "reward": 0.0,
+      "source_sha256": "8f678f68d250686608bb08815ac7df97dc925f80dcd8f3b9043bb5686d81292d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "e4d3ca8ea22d177853b221a7a6e1a5f78ee3eb65a03e945f5b9b597faa6190a9",
+      "verdict": {
+        "failure_reason": "",
+        "failure_type": "AssertionError",
+        "reward": 0.0
+      },
+      "workspace_sha256": "54afb3879d1e1ec312725415655d289715a0075ad0ee1cae60b9280a8900eed5"
+    },
+    "gold": {
+      "duration_sec": 0.027950874995440245,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "465c7c2fd5ffab09a894195214e272ee6094f03f0ed41679a9f5320dc5a4ee25",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "e26f59501d56592c89be4571fdf5a487be0892c07460fbbdfc47c5c4ebb29e95",
+      "verdict": {
+        "correctness_verified": true,
+        "measured_npu_speedup": null,
+        "native_kernel_bound": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_offline_fixture"
+      },
+      "workspace_sha256": "14cd24a55d661a2d04af3251eebd77477cd810823ce92a1615f35309ceb5d190"
+    },
+    "gold_helper_class": {
+      "duration_sec": 0.02699904202017933,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "9672dde9c646cf0ce1e3da6b4be7760242827809d898f800b9b8642c947cd009",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "e26f59501d56592c89be4571fdf5a487be0892c07460fbbdfc47c5c4ebb29e95",
+      "verdict": {
+        "correctness_verified": true,
+        "measured_npu_speedup": null,
+        "native_kernel_bound": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_offline_fixture"
+      },
+      "workspace_sha256": "4d033eb86537a5689abd3188a5f95baa409056581ce4099356d03ff19bf64081"
+    },
+    "gold_helper_function": {
+      "duration_sec": 0.026886624982580543,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "a5ad423af67272c5ec07a33c7f4915f52e46fa8fa69c181fd98ba8a6bc0e78eb",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "e26f59501d56592c89be4571fdf5a487be0892c07460fbbdfc47c5c4ebb29e95",
+      "verdict": {
+        "correctness_verified": true,
+        "measured_npu_speedup": null,
+        "native_kernel_bound": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_offline_fixture"
+      },
+      "workspace_sha256": "39accee8c7169d33df703849ac3c3adea6698b3cde88dfd329e58bf9983311ed"
+    },
+    "negative": {
+      "duration_sec": 0.023569125100038946,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "passed": true,
+      "reward": 0.0,
+      "source_sha256": "f5be0a9b42b37b1715bc7ec5dccf3e266ed57d13df024e2074b9b9661311b9dc",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "4f605b898b4dff6d9dc344e9698f53eb1da1bc392d37aa62b8ae55bb486e8f96",
+      "verdict": {
+        "failure_reason": "bad perturbed s1_dual_die: {'ok': True, 'scale': 'S1', 'placement_policy': 'same_npu_dual_die', 'die_count': 2, 'visible_devices_by_role': {'default': '2,3'}, 'groups': {'default': [2, 3]}}",
+        "failure_type": "AssertionError",
+        "reward": 0.0
+      },
+      "workspace_sha256": "bc555b5f9c36d13bc1757d06e039cbfab602dc7584ad4721bdff27bf9d82b527"
+    }
+  },
   "errors": [],
+  "evidence_directory": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/verifier-integrity-20261029/remaining-cpu-final/npu-top-and-coordinator-multi-die-lease-repair-zh",
+  "measured_npu_speedup": null,
   "model_calls": 0,
-  "schema_version": "1.0",
+  "negative_reward": 0.0,
+  "schema_version": "2.0",
+  "scope": "controlled_offline_fixture",
   "source_commit": "f752d0215c2e13b44ac472caa14c02b6749762e3",
+  "speedup_ratio": null,
   "status": "completed",
-  "task_sha256": "47ae2129c1eaef48e85845e278cadc571581a9435dd5aad81b73116d58c93f49",
-  "tier": "l2"
+  "target": "vllm_ascend_diag/multi_die_lease_allocator.py",
+  "task": "npu-top-and-coordinator-multi-die-lease-repair-zh",
+  "task_sha256": "dbd53cd86af206da94a72a1d9c3c4d305f0227cd7482a0189a5ae2cf9b2104ec",
+  "tier": "l2",
+  "tpot_ms": null,
+  "verifier_files": {
+    "test.sh": "e8bd1c5ac87581260847936d4ab54853d8d6675278b36dd48a578bdde7f52f80",
+    "verify.py": "4869a2e78fcc2e3e7f587451da50dabf264e39e0d5c3c12f35c0cd610bc09cbc"
+  },
+  "verifier_sha256": "33df726fd81da8c50a56b71b114dde769569f45f2a63c1ebea14b9d66d3fc841"
 }

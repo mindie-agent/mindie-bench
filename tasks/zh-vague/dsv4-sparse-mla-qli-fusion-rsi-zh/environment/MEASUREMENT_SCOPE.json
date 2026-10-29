@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "scope": "controlled_cpu_tensor_and_ablation_contract",
+  "legacy_baseline_commit": "264445c1379b7e5c00df06752bf6a9c604c2c3cb",
+  "legacy_cost_formulas": "synthetic_unmeasured_not_scored",
+  "native_kernel_bound": null,
+  "measured_npu_speedup": null,
+  "speedup_ratio": null,
+  "tpot_ms": null,
+  "latency_ms": null,
+  "npu_card_hours": null,
+  "performance_status": "unmeasured"
+}

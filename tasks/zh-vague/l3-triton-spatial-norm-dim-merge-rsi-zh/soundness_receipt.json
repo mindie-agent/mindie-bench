@@ -1,49 +1,595 @@
 {
   "after_reward": 1.0,
   "before_reward": 0.0,
+  "cases": {
+    "baseline": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/baseline.candidate.py",
+      "elapsed_seconds": 0.5586596250068396,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "input_files": {
+        "vllm_ascend/ops/spatial_group_norm_reduce.py": "d2aaa8278984532aee6921a0fe4c8886fd83ad49c0bdd622afe30c08cc4d431d"
+      },
+      "input_sha256": "c7058e41fe03b057aa64363eb2017292ad4e3764dcd3605b88f045fa6cd59019",
+      "reward": 0.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/baseline.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/baseline.stdout",
+      "verdict": {
+        "ablation_contract_verified": null,
+        "correctness_verified": null,
+        "error_type": "AssertionError",
+        "failure_reason": "Numerical check failed on shape (2, 16, 16, 16): max_abs_err=0.046875",
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 0.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "failed"
+      }
+    },
+    "constant_return": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/constant_return.candidate.py",
+      "elapsed_seconds": 0.5634539169259369,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "0fe46a8f22ace1880ba9bb8539c40d43a104d97e0e139529e678b018fdc833c4",
+        "vllm_ascend/ops/spatial_group_norm_reduce.py": "c95e780779631aadff03d6b59c677e5545b791e289866ab33273c12e88a561f7"
+      },
+      "input_sha256": "5f46f3b3bf7d68cf01248ef1071fe93839c40bbb5e97fbf2707f6a3df4a0f2f0",
+      "reward": 0.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/constant_return.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/constant_return.stdout",
+      "verdict": {
+        "ablation_contract_verified": null,
+        "correctness_verified": null,
+        "error_type": "AssertionError",
+        "failure_reason": "Numerical check failed on shape (2, 16, 16, 16): max_abs_err=5.96875",
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 0.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "failed"
+      }
+    },
+    "gold": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold.candidate.py",
+      "elapsed_seconds": 0.5634427079930902,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "0fe46a8f22ace1880ba9bb8539c40d43a104d97e0e139529e678b018fdc833c4",
+        "vllm_ascend/ops/spatial_group_norm_reduce.py": "f5b88ba4229de6261405b3d127cd01822e6345007d986bad65938b066ee47240"
+      },
+      "input_sha256": "7ff77d1e929a6e650117378296d1491f5e2719627cc84b19335b1f196dd61d8e",
+      "reward": 1.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold.stdout",
+      "verdict": {
+        "ablation_contract_verified": true,
+        "candidate_suite_type": "dict",
+        "correctness_verified": true,
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "observed_cpu_ablation": {
+          "entrypoint": "spatial_group_norm_reduce",
+          "full_candidate": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                4,
+                1e-05
+              ],
+              "kwargs": {}
+            },
+            "correct": true,
+            "default_path": true,
+            "finite": true,
+            "indexing_operations": 0,
+            "max_abs_err": 0.0,
+            "reductions": 3,
+            "tensor_operations": 56
+          },
+          "minus_block_scaling": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": false,
+                "enable_dim_merge": true,
+                "enable_multibuffer_cast_guard": true
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 8,
+            "max_abs_err": 0.0,
+            "reductions": 3,
+            "tensor_operations": 91
+          },
+          "minus_dim_merge": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": true,
+                "enable_dim_merge": false,
+                "enable_multibuffer_cast_guard": true
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 256,
+            "max_abs_err": 0.0,
+            "reductions": 257,
+            "tensor_operations": 1073
+          },
+          "minus_multibuffer_cast_guard": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 4,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": true,
+                "enable_dim_merge": true,
+                "enable_multibuffer_cast_guard": false
+              }
+            },
+            "correct": false,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 0,
+            "max_abs_err": 0.03125,
+            "reductions": 3,
+            "tensor_operations": 60
+          }
+        },
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "completed"
+      }
+    },
+    "gold_bf16_inplace": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_bf16_inplace.candidate.py",
+      "elapsed_seconds": 0.5769093750277534,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "0fe46a8f22ace1880ba9bb8539c40d43a104d97e0e139529e678b018fdc833c4",
+        "vllm_ascend/ops/spatial_group_norm_reduce.py": "bf5a6b787ee8a036c3df55a6a1f6cad4047fb07b2738ccb5092d2320d935bc09"
+      },
+      "input_sha256": "dd35a3fba2500fe3d18f16cb1afe0664147fb1db5579dd808e6a0f22a13e5610",
+      "reward": 1.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_bf16_inplace.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_bf16_inplace.stdout",
+      "verdict": {
+        "ablation_contract_verified": true,
+        "candidate_suite_type": "dict",
+        "correctness_verified": true,
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "observed_cpu_ablation": {
+          "entrypoint": "spatial_group_norm_reduce",
+          "full_candidate": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                4,
+                1e-05
+              ],
+              "kwargs": {}
+            },
+            "correct": true,
+            "default_path": true,
+            "finite": true,
+            "indexing_operations": 0,
+            "max_abs_err": 0.0,
+            "reductions": 3,
+            "tensor_operations": 56
+          },
+          "minus_block_scaling": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": false,
+                "enable_dim_merge": true,
+                "enable_multibuffer_cast_guard": true
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 8,
+            "max_abs_err": 0.0,
+            "reductions": 3,
+            "tensor_operations": 91
+          },
+          "minus_dim_merge": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": true,
+                "enable_dim_merge": false,
+                "enable_multibuffer_cast_guard": true
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 256,
+            "max_abs_err": 0.0,
+            "reductions": 257,
+            "tensor_operations": 1073
+          },
+          "minus_multibuffer_cast_guard": {
+            "bf16_arithmetic": 2,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": true,
+                "enable_dim_merge": true,
+                "enable_multibuffer_cast_guard": false
+              }
+            },
+            "correct": false,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 0,
+            "max_abs_err": 0.03125,
+            "reductions": 3,
+            "tensor_operations": 62
+          }
+        },
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "completed"
+      }
+    },
+    "gold_helper": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_helper.candidate.py",
+      "elapsed_seconds": 0.5574646670138463,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "0fe46a8f22ace1880ba9bb8539c40d43a104d97e0e139529e678b018fdc833c4",
+        "vllm_ascend/ops/spatial_group_norm_reduce.py": "a37091f9e02650ce63e740955cec6deca26076ac94373386711dcb1ca3406e58"
+      },
+      "input_sha256": "1e98ffae2687197f226428ddb3f0c6652007e92e0a686627b9af7199ccb4955e",
+      "reward": 1.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_helper.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_helper.stdout",
+      "verdict": {
+        "ablation_contract_verified": true,
+        "candidate_suite_type": "dict",
+        "correctness_verified": true,
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "observed_cpu_ablation": {
+          "entrypoint": "_gold_implementation",
+          "full_candidate": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                4,
+                1e-05
+              ],
+              "kwargs": {}
+            },
+            "correct": true,
+            "default_path": true,
+            "finite": true,
+            "indexing_operations": 0,
+            "max_abs_err": 0.0,
+            "reductions": 3,
+            "tensor_operations": 56
+          },
+          "minus_block_scaling": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": false,
+                "enable_dim_merge": true,
+                "enable_multibuffer_cast_guard": true
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 8,
+            "max_abs_err": 0.0,
+            "reductions": 3,
+            "tensor_operations": 91
+          },
+          "minus_dim_merge": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": true,
+                "enable_dim_merge": false,
+                "enable_multibuffer_cast_guard": true
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 256,
+            "max_abs_err": 0.0,
+            "reductions": 257,
+            "tensor_operations": 1073
+          },
+          "minus_multibuffer_cast_guard": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 4,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": true,
+                "enable_dim_merge": true,
+                "enable_multibuffer_cast_guard": false
+              }
+            },
+            "correct": false,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 0,
+            "max_abs_err": 0.03125,
+            "reductions": 3,
+            "tensor_operations": 60
+          }
+        },
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "completed"
+      }
+    },
+    "gold_suite_helper": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_suite_helper.candidate.py",
+      "elapsed_seconds": 0.7900594159727916,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "0fe46a8f22ace1880ba9bb8539c40d43a104d97e0e139529e678b018fdc833c4",
+        "vllm_ascend/ops/spatial_group_norm_reduce.py": "cfa25eaa0456d74997649dcbc4667b0af97a8cae8accdaa9d883b5946d6d492f"
+      },
+      "input_sha256": "b44156de6375f7e71cf2b61799643877b0ebdf87dca73706273961e2d4e8ec22",
+      "reward": 1.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_suite_helper.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_suite_helper.stdout",
+      "verdict": {
+        "ablation_contract_verified": true,
+        "candidate_suite_type": "dict",
+        "correctness_verified": true,
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "observed_cpu_ablation": {
+          "entrypoint": "_controlled_tensor_entry",
+          "full_candidate": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                4,
+                1e-05
+              ],
+              "kwargs": {}
+            },
+            "correct": true,
+            "default_path": true,
+            "finite": true,
+            "indexing_operations": 0,
+            "max_abs_err": 0.0,
+            "reductions": 3,
+            "tensor_operations": 56
+          },
+          "minus_block_scaling": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": false,
+                "enable_dim_merge": true,
+                "enable_multibuffer_cast_guard": true
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 8,
+            "max_abs_err": 0.0,
+            "reductions": 3,
+            "tensor_operations": 91
+          },
+          "minus_dim_merge": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 2,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": true,
+                "enable_dim_merge": false,
+                "enable_multibuffer_cast_guard": true
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 256,
+            "max_abs_err": 0.0,
+            "reductions": 257,
+            "tensor_operations": 1073
+          },
+          "minus_multibuffer_cast_guard": {
+            "bf16_arithmetic": 0,
+            "bf16_casts": 4,
+            "control": {
+              "args": [
+                8
+              ],
+              "kwargs": {
+                "enable_block_scaling": true,
+                "enable_dim_merge": true,
+                "enable_multibuffer_cast_guard": false
+              }
+            },
+            "correct": false,
+            "default_path": false,
+            "finite": true,
+            "indexing_operations": 0,
+            "max_abs_err": 0.03125,
+            "reductions": 3,
+            "tensor_operations": 60
+          }
+        },
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "completed"
+      }
+    },
+    "negative_control": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/negative_control.candidate.py",
+      "elapsed_seconds": 0.5534632080234587,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "0fe46a8f22ace1880ba9bb8539c40d43a104d97e0e139529e678b018fdc833c4",
+        "vllm_ascend/ops/spatial_group_norm_reduce.py": "5dc210de86b90b409a727a1acb4c5e83c7c413435f1e5f2236cfdcd0920f4943"
+      },
+      "input_sha256": "fe367a61e7c20b5b406a30bca1942b5cdce4d9d2b9d89dbee505752cced05ad6",
+      "reward": 0.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/negative_control.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/negative_control.stdout",
+      "verdict": {
+        "ablation_contract_verified": null,
+        "correctness_verified": null,
+        "error_type": "AssertionError",
+        "failure_reason": "Numerical check failed on shape (2, 16, 16, 16): max_abs_err=5.96875",
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 0.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "failed"
+      }
+    }
+  },
   "errors": [],
+  "execution_scope": "controlled_cpu_tensor_and_ablation_contract",
+  "helper_reward": 1.0,
+  "measured_npu_speedup": null,
   "model_calls": 0,
-  "remote_postflight": {
-    "4": {
-      "capacity_mb": 98304,
-      "card_id": 4,
-      "chip_id": 0,
-      "model": "Ascend950DT",
-      "physical_id": 4,
-      "pids": [],
-      "used_mb": 4739
-    },
-    "_environment": {
-      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
-      "driver": "25.1.rc3.1",
-      "image_digest": "sha256:c3d00a196905159dbf0b97588d34f085086c2708712fa0d1c8fedd807f0e48a4",
-      "kernel": "6.6.0-145.3.33.164.oe2403sp3.aarch64",
-      "python": "3.12.13 (main, Oct  3 2026, 09:40:56) [GCC 11.4.0]",
-      "torch_npu": "2.10.0.post7"
-    }
-  },
-  "remote_preflight": {
-    "4": {
-      "capacity_mb": 98304,
-      "card_id": 4,
-      "chip_id": 0,
-      "model": "Ascend950DT",
-      "physical_id": 4,
-      "pids": [],
-      "used_mb": 4739
-    },
-    "_environment": {
-      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
-      "driver": "25.1.rc3.1",
-      "image_digest": "sha256:c3d00a196905159dbf0b97588d34f085086c2708712fa0d1c8fedd807f0e48a4",
-      "kernel": "6.6.0-145.3.33.164.oe2403sp3.aarch64",
-      "python": "3.12.13 (main, Oct  3 2026, 09:40:56) [GCC 11.4.0]",
-      "torch_npu": "2.10.0.post7"
-    }
-  },
-  "schema_version": "1.0",
+  "native_kernel_bound": null,
+  "negative_control_reward": 0.0,
+  "performance_status": "unmeasured",
+  "python": "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python",
+  "schema_version": "2.0",
   "source_commit": "264445c1379b7e5c00df06752bf6a9c604c2c3cb",
+  "speedup_ratio": null,
   "status": "completed",
-  "task_sha256": "a9cea96a24bb5df3748b7f2db6a576e2704bc87d78a89e9cf7afaff6180b6382",
-  "tier": "l3"
+  "task_sha256": "5dc00c176be7f6fc0bb86fb2d6e8a9375ddbbcf488410a8941f0e9d9a7a1730a",
+  "tier": "l3",
+  "verifier_files": {
+    "runtime_controls.py": "d181cd55111a8cb8cf3945d2e62f2e56c2e10e96b16cf9c6369b867dac388eae",
+    "test.sh": "e2e6d259669b20436fe1d564b5df5218b98ba9ae991cedd56f9d6f8a4c7ed641",
+    "verify.py": "f8727e07884ea77d247508e22aa54dbdaaf1e3a58dc86c5ac5b3d5c52edeadb7"
+  },
+  "verifier_sha256": "5cfb17ec697d46b1c60582c781911526ee662a13da91ca6f6da313db4bf3d540"
 }

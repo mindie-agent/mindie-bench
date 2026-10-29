@@ -21,7 +21,7 @@ from .value_common import environment, write_json
 BASE_SCENARIOS = ("coordinator", "npu-top", "diagnostics")
 OPTIONAL_SCENARIOS = (
     ("profiler", "mindie_profiler", ("analyze", "compare", "memory_profile")),
-    ("sim", "mindie_sim", ("a3_physical_calibration", "operator_estimation")),
+    ("sim", "mindie_sim", ("prediction.operator_analysis", "prediction.graph_analysis")),
 )
 
 

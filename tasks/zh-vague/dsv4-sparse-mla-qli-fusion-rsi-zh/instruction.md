@@ -1,3 +1,9 @@
+## 验证与计量边界
+
+本题是受控 CPU 张量与留一法消融修复夹具。历史环境中 `tpot_ms` / `latency_ms` 的算术公式、预置第一阶段日志以及 Python 算子 shim 均不是设备实测；文中的 A2/VectorCore/UB 描述只是任务背景。不得把 shim 名称或合成延时解释为原生算子绑定、真实故障或 NPU 性能结果。
+
+请删除候选实现中的合成延时公式，将未独立测量的 TPOT、延时、speedup 和卡时保持为 `null` / `unmeasured`。四组消融必须实际执行张量分支；裁判只验证 CPU 数值、状态、视图和分支契约，不要求“优化后更快”的自报数字。`correctness_verified`、`ablation_contract_verified`、`native_kernel_bound`、`measured_npu_speedup` 分别报告；本题通过不表示后两项已验证。L3 名称及工作槽位同样不扩大此边界。
+
 我们在昇腾 910B (A2) 上调优 `DeepSeek-V4` (`Flash`/`Pro`, W8A8) 的 `SparseMLA` 解码路径（`vllm_ascend/models/deepseek_v4/sparse_mla_decode.py`）。
 
 前期的第一阶段调优记录在 `logs/dsv4_stage1_l3_attempt.json`：我们已经按照常规 `L3` 工作流配置了 `DSV4_BLOCK_SIZES = 128` 与 `ENABLE_INDEXER_OVERLAP = True`，但连续两轮尝试均未收敛（`verdict: "unsupported"`）：

@@ -375,6 +375,22 @@ def test_unreported_continuation_spend_stays_unknown_through_cost_of_pass():
 
 
 @pytest.mark.tier1
+def test_entire_missing_arm_does_not_invent_pass_rate_differences():
+    def executor(**kwargs):
+        if kwargs["arm"] == "C":
+            raise RuntimeError("continuation unavailable")
+        return {"verifier_passed": False}
+
+    report = run_strategy_selection_pilot(
+        corpus_roots=_corpus_roots(), cases=[PILOT_CASES["S1-F1-trigger"]],
+        repetitions=1, executor_fn=executor,
+    )
+    assert report["arms"]["C"]["pass_rate"]["value"] is None
+    assert report["comparisons"]["C_vs_B"]["pass_rate_delta"] is None
+    assert report["comparisons"]["C_vs_A"]["pass_rate_delta"] is None
+
+
+@pytest.mark.tier1
 def test_cli_pilot_without_executor_reports_only_judged_selector_decisions(tmp_path):
     roots = _corpus_roots()
     dev_report = run_strategy_selection_pilot(

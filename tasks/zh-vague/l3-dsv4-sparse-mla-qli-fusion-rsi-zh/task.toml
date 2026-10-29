@@ -9,7 +9,7 @@ role = "eval"
 repository = "vllm-project/vllm-ascend"
 fix_commit = "4de92fdfa7b35302693b7f87782226aff7922a39"
 issue = "rsi-g4"
-validation_scope = "RSI mode=reuse to mode=explore transition with L4 mutator 3-factor code transformation and leave-one-out ablation"
+validation_scope = "Controlled CPU tensor correctness and leave-one-out ablation contracts; native kernel binding and NPU speedup unmeasured"
 [mindie_knowledge]
 corpus_id = "ascend"
 knowledge_gradient = "near_exact"

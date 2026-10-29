@@ -9,6 +9,8 @@ terminal failures, and builds native capture payloads before a trial starts.
   admission; protected and private read grants must never overlap.
 - Failure classification preserves the truthful stage: only agent uncertainty or
   unknown external effects become `UNKNOWN`.
+- Native capture requires observed host completion independently of the oracle
+  verdict; a budget-stopped repair may pass without becoming a C6 input.
 
 [Timeouts & Locks]
 - Runtime import probe: `20s`; capture Git probe: `30s`; no locks are held.
@@ -124,6 +126,8 @@ RUNTIME_HELPER_MODULES = (
 
 
 def native_capture_payload(harness, trajectory, profile, workspace, *, native_descriptor=None):
+    if not trajectory.native_completed:
+        raise ValueError(f"{harness} capture requires an observed completed native turn")
     identity = trajectory.native_session_id
     if not identity:
         raise ValueError("G3 capture requires the actual native session identity")

@@ -159,6 +159,18 @@ def parse_verifier(
                 raise ValueError("verifier reward contradicts exit status")
             if value.oracle_status == "oracle_tampered":
                 return value
+            cpu_scope = value.validation_scope in {
+                "cpu_behavior", "cpu_tensor_correctness", "controlled_offline_fixture",
+                "controlled_cpu_tensor_and_ablation_contract",
+            }
+            if cpu_scope and (value.native_kernel_bound is True
+                              or value.measured_npu_speedup is not None
+                              or value.speedup_ratio is not None):
+                raise ValueError("CPU behavior/fixture evidence cannot establish native binding or NPU speedup")
+            if value.performance_status == "unmeasured" and (
+                value.measured_npu_speedup is not None or value.speedup_ratio is not None
+            ):
+                raise ValueError("unmeasured performance cannot carry a speedup")
             if inference_contract is not None:
                 inferred = validate_inference(
                     inference_contract, value.inference_evidence,
@@ -177,6 +189,7 @@ def parse_verifier(
                     value.memory_workspace_delta_mb,
                     value.e2e_warm_server_speedup,
                     value.performance_evidence,
+                    value.measured_npu_speedup,
                 ]
             )
             if performance_claim and performance_contract is None:
@@ -184,12 +197,15 @@ def parse_verifier(
             if performance_contract is not None:
                 if not performance_nonce or not oracle_manifest_sha256:
                     raise ValueError("performance requires a trusted run nonce and oracle identity")
-                validate_performance(
+                measured = validate_performance(
                     value,
                     performance_contract,
                     run_nonce=performance_nonce,
                     oracle_manifest_sha256=oracle_manifest_sha256,
                 )
+                if (value.measured_npu_speedup is not None
+                        and value.measured_npu_speedup != measured["speedup_ratio"]):
+                    raise ValueError("measured_npu_speedup disagrees with trusted timing samples")
             elif value.speedup_ratio is not None:
                 value.warnings.append(
                     "Legacy speedup_ratio is unvalidated; it does not establish performance acceptance."

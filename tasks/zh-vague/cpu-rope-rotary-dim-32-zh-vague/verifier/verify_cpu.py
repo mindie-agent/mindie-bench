@@ -1,5 +1,10 @@
+# [Role] Independent behavioral oracle for a controlled task workspace.
+# [Invariants] Rewards require executed input/output checks; source shape is never a success criterion.
+# [Timeouts & Locks] The runner bounds this subprocess; no external service calls.
+# [Side-Effect Policy] Candidate imports execute only in the supplied verification workspace.
 import ast
 import json
+import os
 import pathlib
 import types
 
@@ -10,13 +15,42 @@ if torch.__version__ != "2.10.0":
 
 
 def source_functions(relative, namespace):
-    source = pathlib.Path(relative)
+    source = pathlib.Path(os.environ.get("MINDIE_BENCH_WORKSPACE", ".")) / relative
     tree = ast.parse(source.read_text(), filename=str(source))
-    functions = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    definitions = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            definitions[node.name] = node
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    definitions[target.id] = node
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                definitions[alias.asname or alias.name.split(".")[0]] = node
+    # Isolate the exercised Python interface while retaining its transitive helpers.
+    # Injected runtime bindings remain authoritative; no unrelated model initialization runs.
+    pending = ["set_cos_and_sin", "update_cos_sin", "get_cos_and_sin_slice"]
+    selected = set()
+    while pending:
+        name = pending.pop()
+        node = definitions.get(name)
+        if node is None or node in selected:
+            continue
+        selected.add(node)
+        pending.extend(
+            ref.id
+            for ref in ast.walk(node)
+            if isinstance(ref, ast.Name)
+            and isinstance(ref.ctx, ast.Load)
+            and ref.id in definitions
+            and ref.id not in namespace
+        )
     focused = ast.Module(
         body=[
             ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0),
-            *functions,
+            *(node for node in tree.body if node in selected),
         ],
         type_ignores=[],
     )
@@ -113,7 +147,18 @@ try:
     print(
         f"verified {cases} real CPU partial-RoPE cache cases; explicit dimension, factor precedence and full head"
     )
-    print(json.dumps({"reward": 1.0, "max_abs_error": max_error}))
+    print(
+        json.dumps(
+            {
+                "reward": 1.0,
+                "correctness_verified": True,
+                "validation_scope": "cpu_tensor_correctness",
+                "measured_npu_speedup": None,
+                "speedup_ratio": None,
+                "max_abs_error": max_error,
+            }
+        )
+    )
 except (AssertionError, TypeError, ValueError, AttributeError, NameError, RuntimeError) as exc:
     import traceback
 
@@ -123,5 +168,5 @@ except (AssertionError, TypeError, ValueError, AttributeError, NameError, Runtim
         for marker in ("expanded size", "selected index k out of range", "size of tensor")
     ):
         raise
-    print(json.dumps({"reward": 0.0}))
+    print(json.dumps({"reward": 0.0, "failure_reason": str(exc), "failure_type": type(exc).__name__}))
     raise SystemExit(1)

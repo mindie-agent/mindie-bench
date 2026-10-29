@@ -1,5 +1,6 @@
 #!/bin/bash
 set -eu
+export TORCH_DEVICE_BACKEND_AUTOLOAD=0
 if [ -n "${MINDIE_BENCH_PYTHON:-}" ] && [ -x "${MINDIE_BENCH_PYTHON}" ]; then
     PYTHON_BIN="${MINDIE_BENCH_PYTHON}"
 elif [ -n "${MINDIE_BENCH_CPU_PYTHON:-}" ] && [ -x "${MINDIE_BENCH_CPU_PYTHON}" ]; then

@@ -1,11 +1,114 @@
 {
-  "after_reward": 1.0,
-  "before_reward": 0.0,
-  "errors": [],
-  "model_calls": 0,
-  "schema_version": "1.0",
-  "source_commit": "d8268faea90dd9b999a0a82f6d133751d57b5770",
+  "schema_version": "2.0",
   "status": "completed",
-  "task_sha256": "ce8009145869e6c1b69d70667b205db4962aeec4442289c0bf55c9bbf20a4bea",
-  "tier": "l2"
+  "task": "dspark-mrv2-drafter-crash-zh-vague",
+  "tier": "l2",
+  "validation_scope": "cpu_behavior",
+  "model_calls": 0,
+  "source_commit": "d8268faea90dd9b999a0a82f6d133751d57b5770",
+  "repository": "/Users/maoxx241/code/vllm-ascend",
+  "python": "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python",
+  "before_reward": 0.0,
+  "after_reward": 1.0,
+  "negative_control_reward": 0.0,
+  "helper_gold_reward": 1.0,
+  "verifier_sha256": {
+    "verifier/test.sh": "8f2d6215455079516c6a1a197d2073131ef1c3c64b318f9a04c63e8355297c0a",
+    "verifier/verify.py": "cc359b09f68dec3315378bcdce59893226a54d92ac7e7ce9f3c01d237036702c"
+  },
+  "gold_patch_sha256": "144d4ae9b0c9983baf3c927d5b33b2038e9e8705783d56b4c814e7a26ee418b4",
+  "control_generator_sha256": "2d7b7d1a1673f0a48cb02c74a899681013047ea3da945a9cae388e4e30a44e26",
+  "native_kernel_bound": null,
+  "measured_npu_speedup": null,
+  "speedup_ratio": null,
+  "cases": {
+    "base": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/dspark-mrv2-drafter-crash-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 1.0610911659896374,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "error_type": "AttributeError",
+        "failure_reason": "_mtp_hidden_buffer for PP last rank + DSpark (use_eagle): expected tensor[5, 16], got None; _mtp_hidden_buffer for PP last rank + draft model: expected tensor[5, 16], got None; check_dspark_swa_indices: AttributeError: 'AscendDSAMetadataBuilder' object has no attribute 'block_size'"
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/dsa_v1.py": "cf1eef7a9d4d90e71f2314135962348a09e642ad3678a0d4bc9ebf670bc010bf",
+        "vllm_ascend/models/deepseek_v4/model.py": "236a133efe792f41d7c034deae5e98646b086f9d24301b265bf82ae9fe970cb5"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/base.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/base.stderr"
+    },
+    "negative_control": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/dspark-mrv2-drafter-crash-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 0.630474083009176,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "error_type": "AssertionError",
+        "failure_reason": "check_mtp_hidden_buffer: AssertionError: __init__ never assigns ['_mtp_hidden_buffer']; dspark_swa_indices shape None != (6, 1, 128)"
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/dsa_v1.py": "cb986dc2f584dd2491a3a05a48d5e29e743ac134a1cd62997793a4a995554abd",
+        "vllm_ascend/models/deepseek_v4/model.py": "0ec510d7d8fcb4ac5d66ef2da1e4ef4c39432d3346ec37d0e9411dbe8a890f97"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/negative_control.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/negative_control.stderr"
+    },
+    "gold": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/dspark-mrv2-drafter-crash-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 0.6568553330143914,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/dsa_v1.py": "63e35213d6f20d53bc17a47962116264f755fe62842c0ed9d9c517a0ed65e719",
+        "vllm_ascend/models/deepseek_v4/model.py": "e1d64a1afea39999a56dca9fd30f195502b28b4319ee8bc51a0338955e20db19"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/gold.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/gold.stderr"
+    },
+    "gold_helpers": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/dspark-mrv2-drafter-crash-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 0.6453342919703573,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/dsa_v1.py": "04275b5c5f4fa62d5b997c23d06f39b3b13ad4ac6d3a1317ed84778c62fd6148",
+        "vllm_ascend/models/deepseek_v4/model.py": "5b24c2c0670b1f6c6b72b80e0c58c112f9739551e133937bb2dc03c00116423d"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/gold_helpers.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/gold_helpers.stderr"
+    }
+  },
+  "errors": [],
+  "task_sha256": "481a56bd9422824f532ed351dadb0e0167f149e5a95addbccb411b8d1e836843"
 }

@@ -1,11 +1,118 @@
 {
   "after_reward": 1.0,
   "before_reward": 0.0,
+  "controls": {
+    "base": {
+      "duration_sec": 0.030859083053655922,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "passed": true,
+      "reward": 0.0,
+      "source_sha256": "e257521a11ed1543051a5ea349cbc9b8f5f601af0b9ab62c6410b3b38dd7bd80",
+      "stderr_sha256": "dee33c870754ba5317eedd29732f719c3d547c009d8074cdeedf580ffc3a0d6b",
+      "stdout_sha256": "bb230bba9f3d6ca189717b94692cb3c70c6dd504c9a2fe7a1e27ea5438fc0b49",
+      "verdict": {
+        "failure_reason": "bad fault_domain: {'fault_domain': 'hccl_communication', 'error_codes': ['EI0006', 'E89999'], 'root_cause_line': '[ERROR] HCCL(4211,4220):2026-09-22-14:55:01.000.000 [hccl_comm.cc:88] rank[1] HCCL_E_WAIT_TIMEOUT Notify wait timeout peer rank 0', 'root_cause_rank': '1', 'device_id': '1', 'failed_operator': None, 'decoded_codes': [{'error_code': 'EI0006', 'subsystem': 'hccl_collective'}], 'cascading_timeout_detected': False, 'cascading_rank': None, 'cascading_timeout_lines': [], 'recommended_tools': ['hccn_tool']}",
+        "failure_type": "AssertionError",
+        "reward": 0.0
+      },
+      "workspace_sha256": "cde06c496a1ce981f6db71aaa4886647414fd14c94517c111cb9632fdb9d9575"
+    },
+    "gold": {
+      "duration_sec": 0.11162770900409669,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "5f179bea0f37137d58dfcbd7585218d7b5af92177bc26f48dd590af17895e8a8",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "e26f59501d56592c89be4571fdf5a487be0892c07460fbbdfc47c5c4ebb29e95",
+      "verdict": {
+        "correctness_verified": true,
+        "measured_npu_speedup": null,
+        "native_kernel_bound": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_offline_fixture"
+      },
+      "workspace_sha256": "81e4820de4d787adf3b59ef3b96060aa37c415378f3e5aa00f284b072b2768a4"
+    },
+    "gold_helper_class": {
+      "duration_sec": 0.11276312498375773,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "95cb3dba52ee74e6aa96c4c32d809b15823c315095a6e2a0642651ce905c9a41",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "e26f59501d56592c89be4571fdf5a487be0892c07460fbbdfc47c5c4ebb29e95",
+      "verdict": {
+        "correctness_verified": true,
+        "measured_npu_speedup": null,
+        "native_kernel_bound": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_offline_fixture"
+      },
+      "workspace_sha256": "34f2f53aa98228416fb25762eb7690fbd18ff3e2482f121cae32e9fbfc6fe64d"
+    },
+    "gold_helper_function": {
+      "duration_sec": 0.10863712499849498,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "1fe2ebc4b252d536287d111cd5890c312213621c5b1b4258ba86918eda8f4d5e",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "e26f59501d56592c89be4571fdf5a487be0892c07460fbbdfc47c5c4ebb29e95",
+      "verdict": {
+        "correctness_verified": true,
+        "measured_npu_speedup": null,
+        "native_kernel_bound": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_offline_fixture"
+      },
+      "workspace_sha256": "7a4002c017c58422f94797e0172fde11183c3330542bd7a49c7f462f0e315cea"
+    },
+    "negative": {
+      "duration_sec": 0.027380999992601573,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "passed": true,
+      "reward": 0.0,
+      "source_sha256": "1c38cf150088204ddcd0a0c098d266b87742b473f7db6be8dec24fca3b7d2bc2",
+      "stderr_sha256": "2b9d53ed2d6d67d5ce3a678224e072b93b3bf1022d16554131966d304f9ec2b9",
+      "stdout_sha256": "f8197fa1bb8dcb3181fccaa370740bb0c3db6318fdb814574fd9073bd50d9a90",
+      "verdict": {
+        "failure_reason": "root rank must follow input: {'root_cause_line': '[ERROR] DRIVER(4211,4221):2026-09-22-14:54:52.000.000 rank[0] deviceId:0 ErrCode=E89999, desc=[HBM ECC uncorrectable fault on device 0]', 'root_cause_timestamp': '2026-09-22-14:54:52.000.000', 'root_cause_pid': '4211', 'root_cause_tid': '4221', 'root_cause_rank': '0', 'timestamp': '2026-09-22-14:54:52.000.000', 'pid': '4211', 'tid': '4221', 'error_codes': ['E89999', 'EI0006'], 'aic_error_bitmask': 8388608, 'aic_error_bitmask_hex': '0x800000', 'aicore_subunits': [], 'exception_subunits': [], 'sync_hazard_detected': False, 'sync_hazard_indicators': [], 'graph_dfx_detected': False, 'graph_dfx_stage': None, 'graph_dfx_indicators': [], 'failed_operator': 'MatMulV2', 'kernel_name': 'MatMulV2', 'device_id': '0', 'stream_id': '90', 'task_id': '686', 'cascading_timeout_detected': True, 'cascading_timeout_lines': ['[ERROR] HCCL(4211,4220):2026-09-22-14:55:01.000.000 [hccl_comm.cc:88] rank[1] HCCL_E_WAIT_TIMEOUT Notify wait timeout peer rank 0', '[ERROR] HCCL(4211,4220):2026-09-22-14:55:02.000.000 [hccl_socket.cc:99] rank[1] ErrCode=EI0006 Getting socket times out'], 'cascading_rank': '1', 'decoded_codes': [{'error_code': 'E89999', 'code': 'E89999', 'kind': 'cann', 'severity': 'fatal', 'subsystem': 'driver_memory', 'summary': 'Driver/memory subsystem internal failure (E89999); inspect driver dmesg and HBM health.', 'description': 'Driver/memory subsystem internal failure (E89999); inspect driver dmesg and HBM health.', 'recognized': True, 'documented': True, 'recommended_tools': ['npu-smi', 'asys', 'msnpureport'], 'remediation_steps': ['npu-smi info', 'npu-smi info -t health -i 0', 'npu-smi info -t memory -i 0', 'free -h', 'asys health', 'msnpureport report -d 0', 'asys collect --tar=True --output=$HOME/dfx_info', \"dmesg | grep -i -E 'hisi|svm|oom|alloc' | tail -50\"], 'recommended_actions': ['npu-smi info', 'npu-smi info -t health -i 0', 'npu-smi info -t memory -i 0', 'free -h', 'asys health', 'msnpureport report -d 0', 'asys collect --tar=True --output=$HOME/dfx_info', \"dmesg | grep -i -E 'hisi|svm|oom|alloc' | tail -50\"], 'deterministic_next_commands': ['npu-smi info', 'npu-smi info -t health -i 0', 'npu-smi info -t memory -i 0', 'free -h', 'asys health', 'msnpureport report -d 0', 'asys collect --tar=True --output=$HOME/dfx_info', \"dmesg | grep -i -E 'hisi|svm|oom|alloc' | tail -50\"], 'next_commands': ['npu-smi info', 'npu-smi info -t health -i 0', 'npu-smi info -t memory -i 0', 'free -h', 'asys health', 'msnpureport report -d 0', 'asys collect --tar=True --output=$HOME/dfx_info', \"dmesg | grep -i -E 'hisi|svm|oom|alloc' | tail -50\"], 'commands': ['npu-smi info', 'npu-smi info -t health -i 0', 'npu-smi info -t memory -i 0', 'free -h', 'asys health', 'msnpureport report -d 0', 'asys collect --tar=True --output=$HOME/dfx_info', \"dmesg | grep -i -E 'hisi|svm|oom|alloc' | tail -50\"]}, {'error_code': 'EI0006', 'code': 'EI0006', 'kind': 'cann', 'severity': 'error', 'subsystem': 'hccl_collective', 'summary': 'HCCL get-socket timeout (EI0006); a peer rank is unreachable, hung or exited early.', 'description': 'HCCL get-socket timeout (EI0006); a peer rank is unreachable, hung or exited early.', 'recognized': True, 'documented': True, 'recommended_tools': ['hccn_tool', 'HCCL_ENTRY_LOG_ENABLE=1', 'asys', 'msnpureport'], 'remediation_steps': ['HCCL_ENTRY_LOG_ENABLE=1 ASCEND_GLOBAL_LOG_LEVEL=1 <reproduce-command>', 'hccn_tool -i 0 -link -g', 'hccn_tool -i 0 -ip -g', 'grep -rn \"error cqe\" \"$ASCEND_PROCESS_LOG_PATH\"', 'asys collect --tar=True --output=$HOME/dfx_info', 'msnpureport report -d 0', 'export HCCL_EXEC_TIMEOUT=1800', 'asys analyze -r=trace --file=<hccl_trace.bin>'], 'recommended_actions': ['HCCL_ENTRY_LOG_ENABLE=1 ASCEND_GLOBAL_LOG_LEVEL=1 <reproduce-command>', 'hccn_tool -i 0 -link -g', 'hccn_tool -i 0 -ip -g', 'grep -rn \"error cqe\" \"$ASCEND_PROCESS_LOG_PATH\"', 'asys collect --tar=True --output=$HOME/dfx_info', 'msnpureport report -d 0', 'export HCCL_EXEC_TIMEOUT=1800', 'asys analyze -r=trace --file=<hccl_trace.bin>'], 'deterministic_next_commands': ['HCCL_ENTRY_LOG_ENABLE=1 ASCEND_GLOBAL_LOG_LEVEL=1 <reproduce-command>', 'hccn_tool -i 0 -link -g', 'hccn_tool -i 0 -ip -g', 'grep -rn \"error cqe\" \"$ASCEND_PROCESS_LOG_PATH\"', 'asys collect --tar=True --output=$HOME/dfx_info', 'msnpureport report -d 0', 'export HCCL_EXEC_TIMEOUT=1800', 'asys analyze -r=trace --file=<hccl_trace.bin>'], 'next_commands': ['HCCL_ENTRY_LOG_ENABLE=1 ASCEND_GLOBAL_LOG_LEVEL=1 <reproduce-command>', 'hccn_tool -i 0 -link -g', 'hccn_tool -i 0 -ip -g', 'grep -rn \"error cqe\" \"$ASCEND_PROCESS_LOG_PATH\"', 'asys collect --tar=True --output=$HOME/dfx_info', 'msnpureport report -d 0', 'export HCCL_EXEC_TIMEOUT=1800', 'asys analyze -r=trace --file=<hccl_trace.bin>'], 'commands': ['HCCL_ENTRY_LOG_ENABLE=1 ASCEND_GLOBAL_LOG_LEVEL=1 <reproduce-command>', 'hccn_tool -i 0 -link -g', 'hccn_tool -i 0 -ip -g', 'grep -rn \"error cqe\" \"$ASCEND_PROCESS_LOG_PATH\"', 'asys collect --tar=True --output=$HOME/dfx_info', 'msnpureport report -d 0', 'export HCCL_EXEC_TIMEOUT=1800', 'asys analyze -r=trace --file=<hccl_trace.bin>']}], 'fault_domain': 'device_oom_or_driver', 'model_fault_category': None, 'vllm_ascend_fault_category': None, 'recommended_tools': ['npu-smi', 'asys', 'msnpureport', 'hccn_tool', 'HCCL_ENTRY_LOG_ENABLE=1'], 'remediation_steps': ['npu-smi info', 'npu-smi info -t health -i 0', 'npu-smi info -t memory -i 0', 'free -h', 'asys health', 'msnpureport report -d 0', 'asys collect --tar=True --output=$HOME/dfx_info', \"dmesg | grep -i -E 'hisi|svm|oom|alloc' | tail -50\", 'HCCL_ENTRY_LOG_ENABLE=1 ASCEND_GLOBAL_LOG_LEVEL=1 <reproduce-command>', 'hccn_tool -i 0 -link -g', 'hccn_tool -i 0 -ip -g', 'grep -rn \"error cqe\" \"$ASCEND_PROCESS_LOG_PATH\"', 'export HCCL_EXEC_TIMEOUT=1800', 'asys analyze -r=trace --file=<hccl_trace.bin>'], 'recommended_actions': ['npu-smi info', 'npu-smi info -t health -i 0', 'npu-smi info -t memory -i 0', 'free -h', 'asys health', 'msnpureport report -d 0', 'asys collect --tar=True --output=$HOME/dfx_info', \"dmesg | grep -i -E 'hisi|svm|oom|alloc' | tail -50\", 'HCCL_ENTRY_LOG_ENABLE=1 ASCEND_GLOBAL_LOG_LEVEL=1 <reproduce-command>', 'hccn_tool -i 0 -link -g', 'hccn_tool -i 0 -ip -g', 'grep -rn \"error cqe\" \"$ASCEND_PROCESS_LOG_PATH\"', 'export HCCL_EXEC_TIMEOUT=1800', 'asys analyze -r=trace --file=<hccl_trace.bin>'], 'deterministic_next_commands': ['npu-smi info', 'npu-smi info -t health -i 0', 'npu-smi info -t memory -i 0', 'free -h', 'asys health', 'msnpureport report -d 0', 'asys collect --tar=True --output=$HOME/dfx_info', \"dmesg | grep -i -E 'hisi|svm|oom|alloc' | tail -50\", 'HCCL_ENTRY_LOG_ENABLE=1 ASCEND_GLOBAL_LOG_LEVEL=1 <reproduce-command>', 'hccn_tool -i 0 -link -g', 'hccn_tool -i 0 -ip -g', 'grep -rn \"error cqe\" \"$ASCEND_PROCESS_LOG_PATH\"', 'export HCCL_EXEC_TIMEOUT=1800', 'asys analyze -r=trace --file=<hccl_trace.bin>'], 'summary': 'device_oom_or_driver: Driver/memory subsystem internal failure (E89999); inspect driver dmesg and HBM health. Cascading timeout also detected on rank 1.'}",
+        "failure_type": "AssertionError",
+        "reward": 0.0
+      },
+      "workspace_sha256": "8cc601432454e0fbd5982e61c61f2e13a78832b8b902053b1f7d8ad4024ff948"
+    }
+  },
   "errors": [],
+  "evidence_directory": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/verifier-integrity-20261029/diagnostics-final/diagnostics-cann-plog-cascade-root-cause-fix-zh",
+  "measured_npu_speedup": null,
   "model_calls": 0,
-  "schema_version": "1.0",
+  "negative_reward": 0.0,
+  "schema_version": "2.0",
+  "scope": "controlled_offline_fixture",
   "source_commit": "f752d0215c2e13b44ac472caa14c02b6749762e3",
+  "speedup_ratio": null,
   "status": "completed",
-  "task_sha256": "48e4432285aa6a45af1464b43f00b8876f329f8f8e494dddae8e714759805a16",
-  "tier": "l2"
+  "target": "vllm_ascend_diag/plog_fault_reconciler.py",
+  "task": "diagnostics-cann-plog-cascade-root-cause-fix-zh",
+  "task_sha256": "cb1d567b87734d9e711871f428adc7536a8ac328294e1c5379ec2cf7899f946e",
+  "tier": "l2",
+  "tpot_ms": null,
+  "verifier_files": {
+    "test.sh": "e8bd1c5ac87581260847936d4ab54853d8d6675278b36dd48a578bdde7f52f80",
+    "verify.py": "f2779a7b08cc9fe320b5b0624a7519be908b09be1a858d902286fd198df6b6fb"
+  },
+  "verifier_sha256": "b812e15439ed0f97ba7b84b6a173a3972019d0e243df67ef4825cdfce95cc099"
 }
