@@ -35,6 +35,50 @@ from mindie_bench.runner.trial_preflight import native_capture_payload, require_
 from mindie_bench.scorer.metrics import trajectory_metrics
 
 
+def _mark_private_knowledge_unmeasured(primary, auxiliary):
+    """Native Codex shells hide private CLI and direct corpus access from MCP counters."""
+    measurement = auxiliary["knowledge_measurement"]
+    measurement.update(
+        observed_named_query_count_lower_bound=measurement["query_count"],
+        observed_named_explain_count_lower_bound=measurement["explain_count"],
+        query_count=None,
+        explain_count=None,
+        basis="native_private_knowledge_unmeasured/1",
+        coverage="unmeasured",
+        scope=(
+            "Named MCP events are only a lower bound. Private knowledge_cli.py operations "
+            "(including describe) and direct corpus reads require a separate native trace audit."
+        ),
+    )
+    primary.update(
+        foreground_knowledge_queries_count=None,
+        foreground_knowledge_explains_count=None,
+        knowledge_query_sec=None,
+        llm_and_exploration_sec=None,
+        knowledge_measurement_basis=measurement["basis"],
+    )
+    auxiliary.update(
+        knowledge_queries_count=None,
+        knowledge_explains_count=None,
+        tool_timing_complete=False,
+        timing_overlaps_or_missing=True,
+    )
+    timing = auxiliary["tool_timing"]
+    # Preserve native_* observations while withholding totals that omit private CLI calls.
+    for field in ("knowledge", "combined"):
+        timing[field] = dict.fromkeys(timing[field]) | {"complete": False}
+    timing.update(
+        knowledge_measurement_basis=measurement["basis"],
+        remainder_reason="private_cli_and_direct_corpus_access_unmeasured",
+        cross_component_overlap_sec=None,
+        within_wall_clock=None,
+        scope=(
+            "native_knowledge/native_combined cover named tool events only; "
+            "private CLI calls and direct corpus reads have no measured knowledge duration"
+        ),
+    )
+
+
 def score_trial_trajectory(
     *,
     driver,
@@ -114,6 +158,8 @@ def score_trial_trajectory(
         )
         primary = dict(measured_primary, **primary)
         auxiliary = dict(measured_aux, **auxiliary)
+        if fingerprint.get("native_product") and config.harness.name == "codex":
+            _mark_private_knowledge_unmeasured(primary, auxiliary)
         if any(error["stage"] == "capture" for error in errors):
             primary["cost_complete"] = False
             partial = auxiliary.get("capture_provider_tokens", {})

@@ -252,7 +252,7 @@ class MCPServer(StrictModel):
     command: str
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
-    component: Literal["remote-dev", "knowledge", "npu-top", "coordinator"]
+    component: Literal["remote-dev", "knowledge", "npu-top", "coordinator", "native-tools"]
     required_tools: list[str] = Field(default_factory=list)
 
 
@@ -269,6 +269,10 @@ class NativeDSHPlugin(StrictModel):
     contribution_enabled: Literal[False] = False
 
 
+class NativeCodexPlugin(NativeDSHPlugin):
+    """Selected native Codex package and independently installed runtime."""
+
+
 class GroupConfig(StrictModel):
     mcp_servers: dict[str, MCPServer] = Field(default_factory=dict)
     skills_path: str | None = None
@@ -279,6 +283,7 @@ class GroupConfig(StrictModel):
     capture_timeout_sec: float = Field(default=1200, gt=0)
     dsh_summary_plugin: str | None = None
     native_dsh_plugin: NativeDSHPlugin | None = None
+    native_codex_plugin: NativeCodexPlugin | None = None
     knowledge_mode: Literal["advisory", "explicit", "oracle"] = "advisory"
     oracle_context_files: list[str] = Field(default_factory=list)
 

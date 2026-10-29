@@ -196,9 +196,20 @@ def summarize_five_components(receipts: list) -> dict:
             "mean_first_target_edit_turn": mean(first_edit_turns) if first_edit_turns else None,
         },
         "knowledge": {
-            "queries_total": sum(knowledge_queries) if knowledge_queries else 0,
-            "explains_total": sum(knowledge_explains) if knowledge_explains else 0,
+            "queries_total": (
+                sum(knowledge_queries)
+                if receipts and len(knowledge_queries) == len(receipts)
+                else None
+            ),
+            "explains_total": (
+                sum(knowledge_explains)
+                if receipts and len(knowledge_explains) == len(receipts)
+                else None
+            ),
+            "query_count_observed_attempts": len(knowledge_queries),
+            "explain_count_observed_attempts": len(knowledge_explains),
             "mean_knowledge_query_sec": mean(knowledge_secs) if knowledge_secs else None,
+            "knowledge_timing_observed_attempts": len(knowledge_secs),
             "captures_completed": captures_completed,
             "corpus_lint_passed": corpus_lint_passed,
         },

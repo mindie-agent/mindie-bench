@@ -1,4 +1,4 @@
-"""[Role] Mount the original DSH product host and own its native knowledge service.
+"""[Role] Mount the selected native product and own its knowledge service.
 [Invariants] Product code is imported unchanged from the selected bundle. The
 isolated Store receives only the already filtered corpus, and contribution is
 explicitly disabled through its native authority. Model traffic uses Gateway.
@@ -61,7 +61,7 @@ def _initialize_domain(python: str, env: dict[str, str], corpus: Path, data_home
     return json.loads(completed.stdout)
 
 
-def prepare(root, env, selected, corpus, *, domain_corpora=None, active_domain=None):
+def prepare(root, env, selected, corpus, *, domain_corpora=None, active_domain=None, harness="dsh"):
     native = root / "native-product"
     config_home, data_home = native / "config", native / "data"
     config_home.mkdir(parents=True)
@@ -80,9 +80,13 @@ def prepare(root, env, selected, corpus, *, domain_corpora=None, active_domain=N
             "domain": domain_name,
             "admission_path": str(domain_root / "admission.sqlite3"),
             "capture_mode": "public-transcript",
-            "transcript_adapter": str(package / "scripts" / "dsh_transcript.py"),
+            "transcript_adapter": str(package / "scripts" / f"{harness}_transcript.py"),
             "redactor_executable": selected.redactor_executable,
-            "summary_command": [python, str(package / "scripts" / "dsh_organizer.py")],
+            "summary_command": [
+                python, str(package / "scripts" / (
+                    "dsh_organizer.py" if harness == "dsh" else "agent_worker.py"
+                )),
+            ],
             "community_config": str(community_path),
             "service_launch_context": {"paths": {}, "environment": ["MINDIE_DIAGNOSTICS_CONFIG"]},
             "feeds": [],
@@ -128,16 +132,36 @@ def prepare(root, env, selected, corpus, *, domain_corpora=None, active_domain=N
     }
     if domain_configs:
         config_payload["domain_configs"] = domain_configs
+    if harness == "codex":
+        config_payload.update(
+            runtime_scripts=str(package / "scripts"),
+            admission_path=str(data_home / "admission.sqlite3"),
+            community_config=str(community_path),
+            component_commands={
+                name: [str(Path(python).parent / executable)]
+                for name, executable in (
+                    ("profiler", "mindie-profiler"), ("sim", "mindie-sim"),
+                    ("coordinator", "mindie-coordinator"),
+                )
+                if (Path(python).parent / executable).is_file()
+            },
+        )
     write_json(config_path, config_payload)
     write_json(config_home / "update.json", {"enabled": False})
-    env.update(
-        MINDIE_DSH_CONFIG=str(config_path),
-        MINDIE_DSH_ENGINE_CONFIG=str(engine_path),
-        MINDIE_DSH_CONFIG_HOME=str(config_home),
-        MINDIE_DSH_DATA_HOME=str(data_home),
-        MINDIE_DSH_STATE_DIR=str(data_home / "state"),
-        MINDIE_DIAGNOSTICS_CONFIG=str(config_home / "diagnostics.json"),
-    )
+    env["MINDIE_DIAGNOSTICS_CONFIG"] = str(config_home / "diagnostics.json")
+    if harness == "dsh":
+        env.update(
+            MINDIE_DSH_CONFIG=str(config_path),
+            MINDIE_DSH_ENGINE_CONFIG=str(engine_path),
+            MINDIE_DSH_CONFIG_HOME=str(config_home),
+            MINDIE_DSH_DATA_HOME=str(data_home),
+            MINDIE_DSH_STATE_DIR=str(data_home / "state"),
+        )
+    else:
+        env.update(
+            MINDIE_AGENT_CONFIG=str(config_path),
+            PLUGIN_ROOT=str(package),
+        )
     initialized = _initialize_domain(
         python, env, default_corpus, data_home, default_domain, consent, native / "initialization.stderr"
     )
@@ -161,17 +185,35 @@ def prepare(root, env, selected, corpus, *, domain_corpora=None, active_domain=N
         }
     result = {
         "package_path": str(package),
-        "package_version": json.loads((package / "package.json").read_text())["version"],
+        "harness": harness,
+        "package_version": json.loads((package / (
+            "package.json" if harness == "dsh" else ".codex-plugin/plugin.json"
+        )).read_text())["version"],
+        "package_sha256": tree_hash(package),
         "runtime_python": python,
         "engine_config": str(engine_path),
         "domain": default_domain,
         "connection_path": str(data_home / default_domain / "connection.json"),
         "contribution_enabled": False,
-        "contribution_default_source": str(package / "scripts" / "mindie_sidecar.py"),
+        "contribution_default_source": str(package / "scripts" / (
+            "mindie_sidecar.py" if harness == "dsh" else "bridge.py"
+        )),
         "initialization": initialized,
     }
     if extra_initialized:
         result["extra_domains"] = extra_initialized
+    if harness == "codex":
+        # The original release entry checks this actual interpreter binding;
+        # this source-profile receipt makes no release-validation claim.
+        write_json(native / "runtime.json", {
+            "python": python,
+            "components": initialized["components"],
+            "source_profile": True,
+        })
+        result["prompt_hook"] = [
+            python, "-I", str(package / "scripts" / "entry.py"),
+            "--release", str(native), "user-prompt-submit",
+        ]
     return result
 
 

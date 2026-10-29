@@ -1,6 +1,7 @@
 import json
 import os
 import platform
+import shutil
 import socket
 import subprocess
 import sys
@@ -8,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from mindie_bench.models import Group
+from mindie_bench.runner.profile_builder import build_profile
 from mindie_bench.runner.sandbox import native_command
 
 PROBE = r"""
@@ -140,3 +143,43 @@ def test_native_pty_creation_keeps_existing_ttys_secrets_and_network_private(tmp
     assert observed["pty"]["isatty"], observed
     assert observed["pty"]["payload"] in ("owned-pty-canary\n", "owned-pty-canary\r\n"), observed
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(
+    not shutil.which("zsh") or not shutil.which("sandbox-exec"),
+    reason="requires real zsh and macOS Seatbelt",
+)
+def test_profile_shell_redirections_use_owned_temp_directory(case, tmp_path):
+    trial = tmp_path / "shell-trial"
+    trial.mkdir()
+    profile = build_profile(trial, case["spec"], Group.G0, case["config"])
+    workspace = trial / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside-profile"
+    outside.write_text("private")
+    probe = """set -e
+/bin/cat <<'EOF'
+heredoc-ok
+EOF
+/bin/cat <<< 'here-string-ok'
+print -r -- =(print -r -- temporary-content)
+if print -r -- forbidden > "$1"; then
+    exit 9
+fi
+"""
+    command = native_command(
+        [shutil.which("zsh"), "-c", probe, "probe", str(outside)],
+        read=[],
+        write=[workspace, profile.root],
+        cwd=workspace,
+        policy_path=trial / "shell.sb",
+    )
+    result = subprocess.run(
+        command, cwd=workspace, env=profile.env, capture_output=True, text=True, timeout=10
+    )
+    assert result.returncode == 0, result.stderr
+    heredoc, here_string, temporary = result.stdout.splitlines()
+    assert heredoc == "heredoc-ok"
+    assert here_string == "here-string-ok"
+    assert Path(temporary).parent == Path(profile.env["TMPDIR"])
+    assert outside.read_text() == "private"

@@ -67,6 +67,12 @@ class CodexDriver:
                 lines += [f"{json.dumps(k)} = {json.dumps(v)}" for k, v in server["env"].items()]
         (Path(profile.env["CODEX_HOME"]) / "config.toml").write_text("\n".join(lines) + "\n")
         capture_hook = profile.fingerprint.get("group") in {"G3", "G4"}
+        native_product = profile.fingerprint.get("native_product")
+        hooks = {}
+        if native_product:
+            hooks["UserPromptSubmit"] = [{
+                "hooks": [{"type": "command", "command": shlex.join(native_product["prompt_hook"])}]
+            }]
         if capture_hook:
             hook = [
                 sys.executable,
@@ -75,11 +81,9 @@ class CodexDriver:
                 "mindie_bench.integrations.codex_stop",
                 str(profile.root / "native-stop.json"),
             ]
-            (Path(profile.env["CODEX_HOME"]) / "hooks.json").write_text(
-                json.dumps(
-                    {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": shlex.join(hook)}]}]}}
-                )
-            )
+            hooks["Stop"] = [{"hooks": [{"type": "command", "command": shlex.join(hook)}]}]
+        if hooks:
+            (Path(profile.env["CODEX_HOME"]) / "hooks.json").write_text(json.dumps({"hooks": hooks}))
         if (profile.root / "skills").exists():
             import shutil
 
@@ -89,7 +93,7 @@ class CodexDriver:
         return [
             config.executable,
             "exec",
-            *(["--dangerously-bypass-hook-trust", "-c", "features.hooks=true"] if capture_hook else []),
+            *(["--dangerously-bypass-hook-trust", "-c", "features.hooks=true"] if hooks else []),
             "--json",
             "--skip-git-repo-check",
             "--dangerously-bypass-approvals-and-sandbox",

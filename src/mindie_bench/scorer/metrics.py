@@ -319,6 +319,18 @@ def summarize(
         )
         for r in receipts
     ]
+    query_lower_bounds = [
+        r.auxiliary_metrics.get("knowledge_measurement", {}).get(
+            "observed_named_query_count_lower_bound", value
+        )
+        for r, value in zip(receipts, query_counts, strict=True)
+    ]
+    explain_lower_bounds = [
+        r.auxiliary_metrics.get("knowledge_measurement", {}).get(
+            "observed_named_explain_count_lower_bound", value
+        )
+        for r, value in zip(receipts, explain_counts, strict=True)
+    ]
     query_coverage = _measurement_coverage(
         [_known_count(value) for value in query_counts], reason="mcp_count_missing"
     )
@@ -371,11 +383,21 @@ def summarize(
             ],
             reason="shell_launched_mcp_clients_not_covered_by_native_tool_trajectory",
         ),
-        observed_query_count_lower_bound=query_total,
-        observed_explain_count_lower_bound=explain_total,
-        attempts_with_observed_queries=sum(_known_count(value) and value > 0 for value in query_counts),
+        observed_query_count_lower_bound=(
+            sum(value for value in query_lower_bounds if _known_count(value))
+            if any(_known_count(value) for value in query_lower_bounds)
+            else None
+        ),
+        observed_explain_count_lower_bound=(
+            sum(value for value in explain_lower_bounds if _known_count(value))
+            if any(_known_count(value) for value in explain_lower_bounds)
+            else None
+        ),
+        attempts_with_observed_queries=sum(
+            _known_count(value) and value > 0 for value in query_lower_bounds
+        ),
         attempts_with_observed_explains=sum(
-            _known_count(value) and value > 0 for value in explain_counts
+            _known_count(value) and value > 0 for value in explain_lower_bounds
         ),
         query_count_coverage=query_coverage,
         explain_count_coverage=explain_coverage,
