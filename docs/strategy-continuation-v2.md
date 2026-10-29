@@ -84,6 +84,79 @@ deadline reserves the pilot's cleanup grace. Patch capture reserves half that gr
 which is attempted even when patch accounting fails. No phase restarts a fresh
 full Git timeout. Actual elapsed cost and deadline overruns remain reported.
 
+## Native trajectory and broker observations
+
+An executor callback can attach the native driver's `Trajectory` and the
+production `summarize_broker_knowledge` result to `ContinuationExecution`.
+The same optional `trajectory` and `broker_knowledge` keys are accepted on
+legacy dictionary results. A `Trajectory` instance or its validated serialized
+mapping is supported; these are runner-owned inputs, never parsed from the
+foreground command's stdout.
+
+```python
+from dataclasses import replace
+from mindie_bench.evaluation.broker_knowledge import summarize_broker_knowledge
+
+# In the native callback, after its agent/verifier loop has settled:
+broker_summary = summarize_broker_knowledge(
+    trial_dir / "broker.jsonl",
+    process_origin_monotonic_sec=process_started_monotonic_sec,
+    preflight_finished_monotonic_sec=preflight_finished_monotonic_sec,
+)
+execution = replace(
+    execution,                       # independently verified ContinuationExecution
+    trajectory=driver.trajectory(),  # actual native HarnessDriver
+    broker_knowledge=broker_summary,
+)
+# Return execution from the executor_fn supplied to run_strategy_selection_pilot.
+```
+
+For a legacy callback, return
+`{**payload, "trajectory": trajectory, "broker_knowledge": broker_summary}`.
+Its verifier claim remains unverified. An adapter around `run_trial` can attach
+the validated `trajectory.json` and `broker_knowledge.json` artifacts already
+written by trial finalization, or supply the same in-memory objects from its
+native loop. Artifact loading belongs to that adapter and must bound file size;
+the adoption projector performs no file reads. Native adapters must preserve
+the receipt's terminal outcome and independent verifier evidence.
+
+Each cell exposes `adoption_observation`, including when the verifier outcome
+is unavailable. Evidence has separate meanings:
+
+- A successful explain response with a nonempty unit body and pinned revision
+  establishes `loaded_strategy_refs`. Requested refs alone, unresolved refs,
+  failed tool results and preflight calls establish no loading. The native
+  result projector and broker recorder retain delivered refs from real C5
+  `units` / `requires` bodies, including JSON text MCP results.
+- A successful `knowledge_feedback` call with singular `ref` and
+  `event_type="applied"` establishes a recorded application declaration. The
+  request's `evidence_source` is labelled `requested_evidence_source`; duplicate
+  feedback can return an earlier stored event with different metadata.
+  `declared_adoption` and the declared ref can be scored against the private
+  judge, but `applied_in_actions` remains `None`: neither loading nor feedback
+  proves behavioral application.
+- The presence of a trajectory or broker summary supersedes self-reported
+  adoption, even for empty, failed or incomplete observations. With no accepted
+  application declaration, adoption fields remain `None`. An invalid observation
+  produces an explicit `adoption_observation.error` while retaining an already
+  established independent verifier verdict.
+
+Reference projections and application events retain at most 64 entries, with
+each reference at most 512 characters. Missing bodies, old records without
+reference metadata and truncation mark observation completeness false. Native
+and broker failure/unsettled counts remain separate because both sources can
+record the same call. The projector deduplicates positive refs without inferring
+unobserved absence. Verifier truth remains independent of these observations.
+
+Each cell also declares `continuation_verdict_basis`: concrete local execution
+uses `independent_local_verifier`, typed native callbacks use
+`independent_verifier`, and legacy dictionaries retain the unverified label.
+The report uses `mixed` when these paths are combined. These labels do not
+authorize a model/NPU rollout. With lineage readiness, typed independent
+continuations reach `verified_behavior_only`; concrete local runs retain
+`local_behavior_only`, and mixed/unverified runs remain
+`continuation_unverified`.
+
 ## Remaining native acceptance work
 
 Legacy `executor_fn` callables returning dictionaries remain explicitly marked

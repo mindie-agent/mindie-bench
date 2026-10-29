@@ -40,6 +40,22 @@ def paired(*, start=101, end=104, tool="knowledge_query", request=1, session="se
     ]
 
 
+def test_strategy_observation_excludes_preflight_and_keeps_old_broker_refs_unknown(tmp_path):
+    from mindie_bench.evaluation.strategy_adoption import observe_strategy_adoption
+
+    preflight = paired(start=1, end=2, tool="knowledge_explain")
+    preflight[0].update(requested_refs=["unit-preflight"], requested_refs_complete=True)
+    preflight[1].update(loaded_refs=["unit-preflight@1"], refs_complete=True)
+    foreground = paired(start=3, end=4, request=2, tool="knowledge_explain")
+    summary = summarize_broker_knowledge(
+        journal(tmp_path, [*preflight, *foreground]), preflight_finished_monotonic_sec=2,
+    )
+    observed = observe_strategy_adoption(candidate_ids=["unit-preflight"], broker_knowledge=summary)
+    assert observed["loaded_strategy_refs"] == []
+    assert observed["loading_observation_complete"] is False
+    assert observed["applied_strategy_refs"] is None
+
+
 def test_broker_counts_manual_sdk_call_absent_from_native_trajectory(case, tmp_path):
     observed = summarize_broker_knowledge(journal(tmp_path, paired()))
     trajectory = Trajectory()

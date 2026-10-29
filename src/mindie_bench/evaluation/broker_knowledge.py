@@ -16,6 +16,8 @@ from collections import Counter
 from pathlib import Path
 from statistics import mean
 
+from mindie_bench.evaluation.strategy_adoption import MAX_REFS, unit_ref
+
 SCHEMA = "mindie-bench-broker-knowledge/1"
 BASIS = "broker_tool_start_end/1"
 TOOLS = {
@@ -39,6 +41,18 @@ def _identity(event):
     if type(request) not in {int, str}:
         raise ValueError("knowledge observation has no JSON-RPC request identity")
     return server, session, type(request).__name__, request
+
+
+def _references(event, field):
+    refs = event.get(field)
+    if refs is None:
+        return None
+    if (
+        not isinstance(refs, list) or len(refs) > MAX_REFS
+        or any(not isinstance(value, str) or unit_ref(value) != value for value in refs)
+    ):
+        raise ValueError(f"invalid bounded broker {field}")
+    return refs
 
 
 def summarize_broker_knowledge(
@@ -83,6 +97,10 @@ def summarize_broker_knowledge(
                         is_error=None,
                         request_sha256=event.get("request_sha256"),
                         response_sha256=None,
+                        requested_refs=_references(event, "requested_refs"),
+                        requested_refs_complete=event.get("requested_refs_complete") is True,
+                        loaded_refs=None,
+                        refs_complete=False,
                     )
                     active[key] = call
                     calls.append(call)
@@ -101,6 +119,8 @@ def summarize_broker_knowledge(
                         elapsed_sec=elapsed,
                         is_error=event["is_error"],
                         response_sha256=event.get("response_sha256"),
+                        loaded_refs=_references(event, "loaded_refs"),
+                        refs_complete=event.get("refs_complete") is True,
                     )
                     last_finished[key] = observed
             except (TypeError, ValueError) as exc:

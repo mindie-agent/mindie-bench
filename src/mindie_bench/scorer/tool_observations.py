@@ -14,6 +14,11 @@ import re
 from collections import Counter, defaultdict
 from statistics import mean
 
+from mindie_bench.evaluation.strategy_adoption import (
+    EXPLAIN_TOOLS,
+    delivered_explain_refs,
+    tool_name,
+)
 from mindie_bench.models import ToolCall, ToolResultObservation
 
 SCHEMA = "mindie-bench-tool-observation/1"
@@ -111,6 +116,10 @@ def _observation(call, payload, *, source, native_status=None, error=None):
         classification_reason="no_structured_outcome",
     )
     envelope = _dict(payload)
+    if tool_name(call.name) in EXPLAIN_TOOLS and (
+        call.component == "knowledge" or tool_name(call.name) == "knowledge_explain"
+    ):
+        observed.knowledge_loaded_refs, observed.knowledge_refs_complete = delivered_explain_refs(payload)
     bit = envelope.get("isError", envelope.get("is_error"))
     observed.mcp_is_error = bit if type(bit) is bool else None
     result, malformed = _structured(payload)

@@ -375,6 +375,39 @@ def test_unreported_continuation_spend_stays_unknown_through_cost_of_pass():
 
 
 @pytest.mark.tier1
+@pytest.mark.parametrize("mixed", [False, True])
+def test_native_typed_results_and_legacy_claims_have_explicit_verdict_basis(mixed):
+    from mindie_bench.models import Trajectory
+    from mindie_bench.runner.strategy_continuation import ContinuationExecution
+
+    def executor(**kwargs):
+        case = PILOT_CASES[kwargs["case"].case_id]
+        payload = {**case.reference_solution, "trajectory": Trajectory(native_completed=True)}
+        if mixed and kwargs["arm"] == "A":
+            return payload
+        return ContinuationExecution(
+            payload=payload, terminal_status="pass", completed=True, passed=True,
+            evidence={"outer_budget_exceeded": False}, trajectory=payload["trajectory"],
+        )
+
+    report = run_strategy_selection_pilot(
+        corpus_roots=_corpus_roots(), repetitions=1, executor_fn=executor,
+    )
+    assert report["continuation_verdict_basis"] == ("mixed" if mixed else "independent_verifier")
+    assert report["decision_gate"] == ("continuation_unverified" if mixed else "verified_behavior_only")
+    for row in report["cells"]:
+        assert row["judgment"]["applied_strategy_ref"] is None
+        if mixed and row["cell"]["arm"] == "A":
+            assert row["continuation_passed"] is None
+            assert row["continuation_verdict_basis"] == "executor_self_reported_verifier_passed_unverified"
+        else:
+            assert row["continuation_passed"] is True
+            assert row["continuation_verdict_basis"] == "independent_verifier"
+    assert report["continuation_metrics"]["B"]["selected_and_completed_rate"]["value"] == 1
+    assert report["continuation_metrics"]["B"]["regressed_rate"]["value"] == (None if mixed else 0)
+
+
+@pytest.mark.tier1
 def test_entire_missing_arm_does_not_invent_pass_rate_differences():
     def executor(**kwargs):
         if kwargs["arm"] == "C":

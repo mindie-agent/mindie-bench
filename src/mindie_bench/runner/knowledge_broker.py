@@ -35,6 +35,11 @@ import time
 import uuid
 from pathlib import Path
 
+from mindie_bench.evaluation.strategy_adoption import (
+    EXPLAIN_TOOLS,
+    delivered_explain_refs,
+    requested_explain_refs,
+)
 from mindie_bench.runner.sandbox import native_command
 from mindie_bench.runner.termination import terminate_process_group
 
@@ -230,6 +235,10 @@ class KnowledgeSession:
                 }
                 self.requests[identity] = request
                 if request["tool"]:
+                    refs = {}
+                    if request["tool"] in EXPLAIN_TOOLS:
+                        requested, complete = requested_explain_refs(params.get("arguments", {}))
+                        refs = {"requested_refs": requested, "requested_refs_complete": complete}
                     self.record(
                         "knowledge_tool_start",
                         server=self.name,
@@ -239,6 +248,7 @@ class KnowledgeSession:
                         request_sha256=hashlib.sha256(
                             json.dumps(frame, sort_keys=True).encode()
                         ).hexdigest(),
+                        **refs,
                     )
             self._raw("request", frame)
         self.pending += incoming
@@ -301,6 +311,10 @@ class KnowledgeSession:
                 if projected != frame:
                     self._raw("projected_response", projected)
             if request and request["tool"]:
+                refs = {}
+                if request["tool"] in EXPLAIN_TOOLS:
+                    loaded, complete = delivered_explain_refs(result)
+                    refs = {"loaded_refs": loaded, "refs_complete": complete}
                 self.record(
                     "knowledge_tool_end",
                     server=self.name,
@@ -312,6 +326,7 @@ class KnowledgeSession:
                     is_error=(
                         "error" in frame or isinstance(result, dict) and result.get("isError") is True
                     ),
+                    **refs,
                 )
             output.extend(delivered + b"\n")
         return bytes(output)
