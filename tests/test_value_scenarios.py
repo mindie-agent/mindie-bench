@@ -39,30 +39,6 @@ def test_profiler_scenario_separates_slow_rank_from_slow_link_and_preserves_db(t
     assert raw["raw_baseline"]["link"]
 
 
-def test_sim_scenario_records_accuracy_and_rejects_overflowing_fusion(tmp_path):
-    pytest.importorskip("mindie_sim.a3_physical_calibration")
-    pytest.importorskip("mindie_sim.operator_estimation")
-    from mindie_bench.benchmarks import value_sim
-
-    result = value_sim.run(tmp_path, 1)
-    row = result["measurements"][0]
-    assert row["status"] == "pass"
-    candidate = row["candidate"]
-    assert candidate["qwen_case_deterministic"] is True
-    assert candidate["a3_graph_ttft_ms"] > 0
-    assert candidate["a3_graph_tpot_ms"] > 0
-    assert abs(candidate["tpot_error_pct"]) < 20
-    assert candidate["operator_plan_backends"] == [
-        "gemm_finite_pipeline", "vector_instruction",
-    ]
-    assert candidate["subgraph_overflow_rejected"] is True
-    raw = json.loads(Path(row["raw"]).read_text())
-    assert raw["accuracy"]["ttft_absolute_error_ms"] < 0
-    assert raw["subgraph_screening"]["overflow"]["feasibility"]["failures"] == [
-        "live_buffer_limit",
-    ]
-
-
 def test_diagnostics_triage_is_deterministic_and_redacts_credentials(tmp_path):
     pytest.importorskip("mindie_diagnostics.npu_fault_triage")
     evidence = value_diagnostics.fault_triage_evidence(tmp_path)

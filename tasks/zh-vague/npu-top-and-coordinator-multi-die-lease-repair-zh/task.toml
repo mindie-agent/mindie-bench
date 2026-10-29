@@ -9,7 +9,7 @@ role = "eval"
 repository = "vllm-project/vllm-ascend"
 fix_commit = "8c5ce76d9afb36205b8e59adb7b2d4b2ad89a85c"
 issue = "component-value-0.1.0"
-validation_scope = "Ascend A2/A3 dual-Die Phy-ID npu-smi parsing, sibling-pair S1 gang lease allocation, distinct-host placement, and DCMI cause mask decoding"
+validation_scope = "controlled offline fixture; CPU behavior only, no newly measured NPU performance: Ascend A2/A3 dual-Die Phy-ID npu-smi parsing, sibling-pair S1 gang lease allocation, distinct-host placement, and DCMI cause mask decoding"
 [mindie_knowledge]
 corpus_id = "ascend"
 knowledge_gradient = "near_exact"

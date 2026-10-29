@@ -1,32 +1,34 @@
 diff --git a/PROGRESS.md b/PROGRESS.md
 new file mode 100644
-index 0000000..65b1d5d
+index 0000000..6ba7b61
 --- /dev/null
 +++ b/PROGRESS.md
-@@ -0,0 +1,6 @@
-+# DeepSeek-V4 SparseMLA Decode RSI Exploration Progress
+@@ -0,0 +1,3 @@
++# CPU fixture ablation result
 +
-+- **Stripped L3 Workflow**: `unit-vllm-ascend-deepseek-v4-flash-pro-hash-topk-and-rope-workflow`
-+- **Mounted L4 Mutator**: `unit-vllm-ascend-dsv4-v41-query-dequant-and-lighting-indexer-fusion-mutator`
-+- **Retained Factors**: `fused_q_qr_dequant_and_rope_split`, `contiguous_view_alias_for_lightning_indexer`, `device_resident_topk_block_mask_guard`
-+- **Leave-One-Out Arms Verified**: `full_candidate` (24.0 ms, 0 copies, 0 D2H), `minus_q_fusion` (35.4 ms, 3 copies), `minus_view_alias` (31.6 ms, 2 copies), `minus_device_guard` (1 D2H + invalid GM guard verified).
++The full candidate and three leave-one-out arms exercise controlled CPU tensor contracts. Operator dispatch is a Python fixture; no native kernel binding, NPU timing, TPOT, speedup or card-hour measurement was performed. Legacy synthetic delay formulas have been removed from this candidate.
 diff --git a/experiment-ledger.jsonl b/experiment-ledger.jsonl
 new file mode 100644
-index 0000000..64c4f7f
+index 0000000..128c9fc
 --- /dev/null
 +++ b/experiment-ledger.jsonl
 @@ -0,0 +1,5 @@
-+{"run_id": "run-dsv4-l3-1", "arm": "stage1_l3_baseline", "verdict": "unsupported", "tpot_ms": 48.6, "tensor_move_count": 5, "host_d2h_sync_count": 1}
-+{"run_id": "run-dsv4-l4-full", "arm": "full_candidate", "unit_id": "unit-vllm-ascend-dsv4-v41-query-dequant-and-lighting-indexer-fusion-mutator", "verdict": "attained", "tpot_ms": 24.0, "tensor_move_count": 0, "host_d2h_sync_count": 0, "ablation_retained": true}
-+{"run_id": "run-dsv4-l4-ablate-q", "arm": "minus_q_fusion", "removed_factor": "fused_q_qr_dequant_and_rope_split", "verdict": "supported", "tpot_ms": 35.4, "tensor_move_count": 3, "host_d2h_sync_count": 0}
-+{"run_id": "run-dsv4-l4-ablate-view", "arm": "minus_view_alias", "removed_factor": "contiguous_view_alias_for_lightning_indexer", "verdict": "supported", "tpot_ms": 31.6, "tensor_move_count": 2, "host_d2h_sync_count": 0}
-+{"run_id": "run-dsv4-l4-ablate-guard", "arm": "minus_device_guard", "removed_factor": "device_resident_topk_block_mask_guard", "verdict": "supported", "host_d2h_sync_count": 1, "invalid_gm_triggered": true}
++{"run_id": "run-dsv4-l3-1", "arm": "stage1_l3_baseline", "verdict": "cpu_contract_only", "tpot_ms": null, "tensor_move_count": 5, "host_d2h_sync_count": 1, "latency_ms": null, "speedup_ratio": null, "measurement_scope": "controlled_cpu_tensor_fixture", "native_kernel_bound": null, "measured_npu_speedup": null, "performance_status": "unmeasured"}
++{"run_id": "run-dsv4-l4-full", "arm": "full_candidate", "unit_id": "unit-vllm-ascend-dsv4-v41-query-dequant-and-lighting-indexer-fusion-mutator", "verdict": "cpu_contract_only", "tpot_ms": null, "tensor_move_count": 0, "host_d2h_sync_count": 0, "ablation_retained": true, "latency_ms": null, "speedup_ratio": null, "measurement_scope": "controlled_cpu_tensor_fixture", "native_kernel_bound": null, "measured_npu_speedup": null, "performance_status": "unmeasured"}
++{"run_id": "run-dsv4-l4-ablate-q", "arm": "minus_q_fusion", "removed_factor": "fused_q_qr_dequant_and_rope_split", "verdict": "cpu_contract_only", "tpot_ms": null, "tensor_move_count": 3, "host_d2h_sync_count": 0, "latency_ms": null, "speedup_ratio": null, "measurement_scope": "controlled_cpu_tensor_fixture", "native_kernel_bound": null, "measured_npu_speedup": null, "performance_status": "unmeasured"}
++{"run_id": "run-dsv4-l4-ablate-view", "arm": "minus_view_alias", "removed_factor": "contiguous_view_alias_for_lightning_indexer", "verdict": "cpu_contract_only", "tpot_ms": null, "tensor_move_count": 2, "host_d2h_sync_count": 0, "latency_ms": null, "speedup_ratio": null, "measurement_scope": "controlled_cpu_tensor_fixture", "native_kernel_bound": null, "measured_npu_speedup": null, "performance_status": "unmeasured"}
++{"run_id": "run-dsv4-l4-ablate-guard", "arm": "minus_device_guard", "removed_factor": "device_resident_topk_block_mask_guard", "verdict": "cpu_contract_only", "host_d2h_sync_count": 1, "invalid_gm_triggered": true, "tpot_ms": null, "latency_ms": null, "speedup_ratio": null, "measurement_scope": "controlled_cpu_tensor_fixture", "native_kernel_bound": null, "measured_npu_speedup": null, "performance_status": "unmeasured"}
 diff --git a/vllm_ascend/models/deepseek_v4/sparse_mla_decode.py b/vllm_ascend/models/deepseek_v4/sparse_mla_decode.py
-index 18b79c9..53694f2 100644
+index 18b79c9..b52dca4 100644
 --- a/vllm_ascend/models/deepseek_v4/sparse_mla_decode.py
 +++ b/vllm_ascend/models/deepseek_v4/sparse_mla_decode.py
-@@ -1,6 +1,7 @@
+@@ -1,6 +1,12 @@
 -"""DeepSeek-V4 SparseMLA decode step (Stage-1 L3 configured baseline)."""
++# [Role] Controlled CPU fixture for tensor correctness and separable ablations.
++# [Invariants] Python fixture outputs never represent native kernels or NPU performance.
++# [Timeouts & Locks] Bounded tensor inputs; caller owns the process timeout; no locks.
++# [Side-Effect Policy] Tensor computation only; hardware measurements remain absent.
++
 +"""DeepSeek-V4 SparseMLA decode step with L4 3-factor fusion and leave-one-out ablation."""
  from __future__ import annotations
  
@@ -34,7 +36,7 @@ index 18b79c9..53694f2 100644
  from typing import Any
  import torch
  
-@@ -10,10 +11,15 @@ _rt_spec = _ilu.spec_from_file_location("_ascend_qli_runtime", _Path(__file__).w
+@@ -10,10 +16,15 @@ _rt_spec = _ilu.spec_from_file_location("_ascend_qli_runtime", _Path(__file__).w
  _rt_mod = _ilu.module_from_spec(_rt_spec)
  _rt_spec.loader.exec_module(_rt_mod)
  
@@ -51,7 +53,7 @@ index 18b79c9..53694f2 100644
  
  def _apply_rope_slice(x_rope: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
      half = x_rope.shape[-1] // 2
-@@ -50,29 +56,53 @@ def sparse_mla_decode_step(
+@@ -50,29 +61,53 @@ def sparse_mla_decode_step(
      compress_ratio: int = 4,
      padded_capacity: int = 128,
      eps: float = 1e-6,
@@ -123,7 +125,7 @@ index 18b79c9..53694f2 100644
  
      topk_indices = torch.ops._C_ascend.npu_quant_lightning_indexer(
          q_idx,
-@@ -89,19 +119,30 @@ def sparse_mla_decode_step(
+@@ -89,24 +124,123 @@ def sparse_mla_decode_step(
          layout_key="PA_BSND",
      )
  
@@ -134,7 +136,7 @@ index 18b79c9..53694f2 100644
      work_block_table = block_table.clone()
 -    work_block_table.scatter_(1, topk_slots, topk_indices)
 +    if enable_device_guard:
-+        valid = torch.clamp(seqused_k.to(torch.int32), min=0, max=topk)
++        valid = (topk_indices >= 0).sum(dim=-1).to(torch.int32)
 +        safe_idx = torch.where(
 +            topk_indices < 0,
 +            torch.zeros_like(topk_indices),
@@ -159,11 +161,14 @@ index 18b79c9..53694f2 100644
 +        max_seqlen_k=max_seqlen_arg,
          sparse_mode=3,
      )
-     tpot_ms = 24.0 + 3.8 * tensor_move_count + 5.6 * host_d2h_sync_count
-@@ -109,4 +150,91 @@ def sparse_mla_decode_step(
+-    tpot_ms = 24.0 + 3.8 * tensor_move_count + 5.6 * host_d2h_sync_count
+     return attn_out, {
          "tensor_move_count": tensor_move_count,
          "host_d2h_sync_count": host_d2h_sync_count,
-         "tpot_ms": round(tpot_ms, 2),
+-        "tpot_ms": round(tpot_ms, 2),
++        "tpot_ms": None,
++        "speedup_ratio": None,
++        "performance_status": "unmeasured",
 +        "host_wall_ms": round((time.perf_counter() - t0) * 1000.0, 4),
 +        "correctness_ok": True,
 +    }

@@ -308,7 +308,7 @@ def test_native_capture_payload_and_adapters_across_all_four_harnesses(tmp_path,
     codex_transcript = root / "codex/sessions/2026/rollout-session_codex_1.jsonl"
     codex_transcript.write_text("{}\n")
     codex_payload = native_capture_payload(
-        "codex", Trajectory(native_session_id="session_codex_1"), profile, workspace
+        "codex", Trajectory(native_session_id="session_codex_1", native_completed=True), profile, workspace
     )
     assert codex_payload["harness"] == "codex"
     assert Path(codex_payload["transcript_path"]) == codex_transcript.resolve()
@@ -328,7 +328,7 @@ def test_native_capture_payload_and_adapters_across_all_four_harnesses(tmp_path,
         )
     )
     claude_payload = native_capture_payload(
-        "claude-code", Trajectory(native_session_id="session_claude_1"), profile, workspace
+        "claude-code", Trajectory(native_session_id="session_claude_1", native_completed=True), profile, workspace
     )
     assert claude_payload["harness"] == "claude-code"
     assert "turn_id" not in claude_payload
@@ -338,7 +338,7 @@ def test_native_capture_payload_and_adapters_across_all_four_harnesses(tmp_path,
     kimi_wire = _create_kimi_session(root, workspace, "session_kimi_1")
     kimi_payload = native_capture_payload(
         "kimi",
-        Trajectory(native_session_id="session_kimi_1"),
+        Trajectory(native_session_id="session_kimi_1", native_completed=True),
         profile,
         workspace,
     )
@@ -373,7 +373,7 @@ def test_native_capture_payload_and_adapters_across_all_four_harnesses(tmp_path,
     state_file.write_text(json.dumps({"session_id": "session_kimi_1", "cwd": str(tmp_path)}))
     with pytest.raises(ValueError, match="differs from the foreground workspace"):
         native_capture_payload(
-            "kimi", Trajectory(native_session_id="session_kimi_1"), profile, workspace
+            "kimi", Trajectory(native_session_id="session_kimi_1", native_completed=True), profile, workspace
         )
 
     # 4. DSH
@@ -419,7 +419,7 @@ def test_native_capture_payload_and_adapters_across_all_four_harnesses(tmp_path,
     }
     dsh_payload = native_capture_payload(
         "dsh",
-        Trajectory(native_session_id="session_dsh_1"),
+        Trajectory(native_session_id="session_dsh_1", native_completed=True),
         profile,
         workspace,
         native_descriptor=dsh_descriptor,

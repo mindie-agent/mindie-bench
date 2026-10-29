@@ -1,11 +1,116 @@
 {
   "after_reward": 1.0,
   "before_reward": 0.0,
+  "controls": {
+    "base": {
+      "duration_sec": 0.5720877079293132,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "passed": true,
+      "reward": 0.0,
+      "source_sha256": "85d8f085309f2ceb0cf6bc04994c192518df912bd69f74b25336eadf769e040c",
+      "stderr_sha256": "942d4166fd75a022d07823b9cde063c59ca3bb4d973f35753b54e0dc513b7f88",
+      "stdout_sha256": "9e6b6ded86fffbb62c61d771b95f9576e488f610fd73510ce515fbdf35ec8fc3",
+      "verdict": {
+        "failure_reason": "The expanded size of the tensor (128) must match the existing size (64) at non-singleton dimension 3.  Target sizes: [1, 1, 1, 128].  Tensor sizes: [64]",
+        "failure_type": "RuntimeError",
+        "reward": 0.0
+      },
+      "workspace_sha256": "c83f3992f0d7630a873518af9a03087d10ee9dd1d45b3762f607572df10a1aa7"
+    },
+    "gold": {
+      "duration_sec": 0.6128203750122339,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "e717c9ab51b5ddabdb446678ffc40a61b2052b11e9ec7a423de86eebc56c80c4",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "0d04a2a6b0086636a8ca5362604d983ca387ffc1d2db2ff461e8e0561f0255bd",
+      "verdict": {
+        "correctness_verified": true,
+        "max_abs_error": 0.0,
+        "measured_npu_speedup": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "validation_scope": "cpu_tensor_correctness"
+      },
+      "workspace_sha256": "d00ac7bf90c2f4ba2b334146bf8d06c126d389318769d6499be45ebb1ad09dc0"
+    },
+    "gold_helper_class": {
+      "duration_sec": 0.6251308750361204,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "a44f3eb49b9efe496778c958ab0bc87a1e061284a7d6111aaf86f43119e1a993",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "0d04a2a6b0086636a8ca5362604d983ca387ffc1d2db2ff461e8e0561f0255bd",
+      "verdict": {
+        "correctness_verified": true,
+        "max_abs_error": 0.0,
+        "measured_npu_speedup": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "validation_scope": "cpu_tensor_correctness"
+      },
+      "workspace_sha256": "badb8eccf93ab953e0bc69f926ece36f46377fe2cac9950b68ee224ee8ccb53e"
+    },
+    "gold_helper_function": {
+      "duration_sec": 0.6059515419183299,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "31c32bbf5da9b8c15491dc14e1c937684a59b55fc9c53d65cbc47653527c2a15",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "0d04a2a6b0086636a8ca5362604d983ca387ffc1d2db2ff461e8e0561f0255bd",
+      "verdict": {
+        "correctness_verified": true,
+        "max_abs_error": 0.0,
+        "measured_npu_speedup": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "validation_scope": "cpu_tensor_correctness"
+      },
+      "workspace_sha256": "a54e07a40451adbf41673f6258f7d3d54e23fe6b31021dd049adb2772eed31b3"
+    },
+    "negative": {
+      "duration_sec": 0.5684130840236321,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "passed": true,
+      "reward": 0.0,
+      "source_sha256": "8c994e217672a47cc23b191bf255bfaa59416532a03aa43808bb8725056b0e76",
+      "stderr_sha256": "2d4a1ad2cd616e5c9db6949fbed82e7185bc3aabe640bec86b3f81cb9bf7af7f",
+      "stdout_sha256": "d053b175a21288a174360ebb0eb6e677f8dd06a57cc65f712bafe05a40ec5285",
+      "verdict": {
+        "failure_reason": "'NoneType' object has no attribute 'shape'",
+        "failure_type": "AttributeError",
+        "reward": 0.0
+      },
+      "workspace_sha256": "78885098a9d7cfc9dd82498a35b8a6d9f561f9052d7864ca1fb040e93e60919e"
+    }
+  },
   "errors": [],
+  "evidence_directory": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/verifier-integrity-20261029/remaining-cpu-final/cpu-rope-rotary-dim-64-zh-vague",
+  "measured_npu_speedup": null,
   "model_calls": 0,
-  "schema_version": "1.0",
+  "negative_reward": 0.0,
+  "schema_version": "2.0",
+  "scope": "cpu_tensor_correctness",
   "source_commit": "d060c797ed8fd22a1ecdf86c5e26f6eeaf7531f2",
+  "speedup_ratio": null,
   "status": "completed",
-  "task_sha256": "2418e41f5f758e639dfad287facbd88faa6ce78528fba032c45c31ea441bc933",
-  "tier": "l2"
+  "target": "vllm_ascend/ops/rotary_embedding.py",
+  "task": "cpu-rope-rotary-dim-64-zh-vague",
+  "task_sha256": "966aa33e65b6b0ebb83b06e5b1f0f14c0022ced9860857302450769dd2c3cffc",
+  "tier": "l2",
+  "tpot_ms": null,
+  "verifier_files": {
+    "runtime-binding.json": "ae9d5d9370af488705b88d6d8154cc65cde409eb4575e1f83387d49eeb731188",
+    "test.sh": "5b28ad670f8bfc226d342d899179dc70f1c1677b3c5e1a30293f22463784acff",
+    "verify_cpu.py": "75d7b9c4bcf5d1d3c6f53cf861791ad750b5c55d3f44fc1feb1497309888262d"
+  },
+  "verifier_sha256": "80cf58bbdf547ff2df1ce00f4a01ba3353151d4e4798c2099fc1d7702e82516b"
 }

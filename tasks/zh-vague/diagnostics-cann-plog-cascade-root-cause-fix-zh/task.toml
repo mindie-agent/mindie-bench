@@ -9,7 +9,7 @@ role = "eval"
 repository = "vllm-project/vllm-ascend"
 fix_commit = "8c5ce76d9afb36205b8e59adb7b2d4b2ad89a85c"
 issue = "component-value-0.1.0"
-validation_scope = "CANN multi-rank plog cascade root-cause triage (E89999 vs EI0006), R2 secret redaction, and Outbox uncertain state preservation"
+validation_scope = "controlled offline fixture; CPU behavior only, no newly measured NPU performance: CANN multi-rank plog cascade root-cause triage (E89999 vs EI0006), R2 secret redaction, and Outbox uncertain state preservation"
 [mindie_knowledge]
 corpus_id = "ascend"
 knowledge_gradient = "near_exact"

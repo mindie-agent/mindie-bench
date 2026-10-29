@@ -1,49 +1,190 @@
 {
-  "after_reward": 1.0,
-  "before_reward": 0.0,
-  "errors": [],
-  "model_calls": 0,
-  "remote_postflight": {
-    "5": {
-      "capacity_mb": 98304,
-      "card_id": 5,
-      "chip_id": 0,
-      "model": "Ascend950DT",
-      "physical_id": 5,
-      "pids": [],
-      "used_mb": 4736
-    },
-    "_environment": {
-      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
-      "driver": "25.1.rc3.1",
-      "image_digest": "sha256:c3d00a196905159dbf0b97588d34f085086c2708712fa0d1c8fedd807f0e48a4",
-      "kernel": "6.6.0-145.3.33.164.oe2403sp3.aarch64",
-      "python": "3.12.13 (main, Oct  3 2026, 09:40:56) [GCC 11.4.0]",
-      "torch_npu": "2.10.0.post7"
-    }
-  },
-  "remote_preflight": {
-    "5": {
-      "capacity_mb": 98304,
-      "card_id": 5,
-      "chip_id": 0,
-      "model": "Ascend950DT",
-      "physical_id": 5,
-      "pids": [],
-      "used_mb": 4736
-    },
-    "_environment": {
-      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
-      "driver": "25.1.rc3.1",
-      "image_digest": "sha256:c3d00a196905159dbf0b97588d34f085086c2708712fa0d1c8fedd807f0e48a4",
-      "kernel": "6.6.0-145.3.33.164.oe2403sp3.aarch64",
-      "python": "3.12.13 (main, Oct  3 2026, 09:40:56) [GCC 11.4.0]",
-      "torch_npu": "2.10.0.post7"
-    }
-  },
-  "schema_version": "1.0",
-  "source_commit": "9a276026c6e68faa6ea35f85a538f719bb508767",
+  "schema_version": "2.0",
   "status": "completed",
-  "task_sha256": "30f73c27a18b627ea9107adb10e25a5e2ec2e16fe638e5ed9822ddc4a2fcafbd",
-  "tier": "l3"
+  "task": "l3-mrv2-dsa-prefill-metadata-zh-vague",
+  "tier": "l3",
+  "validation_scope": "cpu_behavior",
+  "model_calls": 0,
+  "source_commit": "9a276026c6e68faa6ea35f85a538f719bb508767",
+  "repository": "/Users/maoxx241/code/vllm-ascend",
+  "python": "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python",
+  "before_reward": 0.0,
+  "after_reward": 1.0,
+  "negative_control_reward": 0.0,
+  "helper_gold_reward": 1.0,
+  "verifier_sha256": {
+    "verifier/test.sh": "8f2d6215455079516c6a1a197d2073131ef1c3c64b318f9a04c63e8355297c0a",
+    "verifier/verify.py": "eda72eebebbdbbc9e627f8025a831506e9bf12315d91289ab0137f1d97c166fd"
+  },
+  "gold_patch_sha256": "fc9676b0b396e607272fcce89037f0516095bca16ab7bf9e917b2db2e80553f8",
+  "control_generator_sha256": "2d7b7d1a1673f0a48cb02c74a899681013047ea3da945a9cae388e4e30a44e26",
+  "native_kernel_bound": null,
+  "measured_npu_speedup": null,
+  "speedup_ratio": null,
+  "cases": {
+    "base": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/l3-mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 0.6093940830323845,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "correctness_verified": false,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null,
+        "error_type": "TypeError",
+        "failure_reason": "check_cache_shape: TypeError: AscendDSABackend.get_kv_cache_shape() got an unexpected keyword argument 'cache_dtype_str'; check_prefill_flow: AttributeError: 'Metadata' object has no attribute 'is_prefilling'; check_draft_flow: TypeError: build_draft_attn_metadata_factory() takes 2 positional arguments but 3 were given; check_seq_lens: AssertionError: Tensor-likes are not equal!\n\nMismatched elements: 2 / 2 (100.0%)\nGreatest absolute difference: 1 at index (0,)\nGreatest relative difference: 0.20000000298023224 at index (0,)"
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/dsa_v1.py": "85beafc529e3db4de160f5a6a6131df28f5527037ec8ae9636b3f187bdec0653",
+        "vllm_ascend/worker/v2/attn_utils.py": "c059c02c9b6521c53d0be5ed791bc7e0c1e610e347af79c89db45a8695670aff",
+        "vllm_ascend/worker/v2/model_states/default.py": "2f72576d6e9e7632183bea54dabc8274852205c640f10a757af5d887c41a31d1",
+        "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "fd1702982e7745de310792cc1837cb8d49f410034fabc87208cfcaeeadf8db7d"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/base.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/base.stderr"
+    },
+    "negative_control": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/l3-mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 0.556233917013742,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "correctness_verified": false,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null,
+        "error_type": "TypeError",
+        "failure_reason": "check_cache_shape: TypeError: AscendDSABackend.get_kv_cache_shape() got an unexpected keyword argument 'cache_dtype_str'; check_prefill_flow: AttributeError: 'AscendModelState' object has no attribute 'attn_metadata'; check_draft_flow: TypeError: build_draft_attn_metadata_factory() takes 2 positional arguments but 3 were given; check_seq_lens: AssertionError: Tensor-likes are not equal!\n\nMismatched elements: 2 / 2 (100.0%)\nGreatest absolute difference: 1 at index (0,)\nGreatest relative difference: 0.1666666716337204 at index (0,)"
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/dsa_v1.py": "c9c3d1c6dae05c52465a51486943bd71081e8aa35346ba070e4cc82ce039d3c4",
+        "vllm_ascend/worker/v2/attn_utils.py": "2185050672851c636bd47eab4a4e33cf8447527eefa74c893e5872723c28151e",
+        "vllm_ascend/worker/v2/model_states/default.py": "1fdab815c564bab78c84dad838575acb4ce3c5ef89657ee3147df2ea9b8d8bcd",
+        "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "8bf6229e7fed1879efe86cfaf20398e23fe4559e11262028b16bf6fbbb625508"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/negative_control.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/negative_control.stderr"
+    },
+    "gold": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/l3-mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 0.5874796250136569,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null,
+        "error_type": null,
+        "failure_reason": null
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/dsa_v1.py": "deb0da427eaaa8673558615e44391f33a596150ccbd8266a86bd712e75d38ae8",
+        "vllm_ascend/worker/v2/attn_utils.py": "f165519719a5794d745b8290b98d6970eb141dcfa4687397a565f291690d20cd",
+        "vllm_ascend/worker/v2/model_states/default.py": "6212f8403ee4096b2461f46c66754d279a38fb186fba711231400fbb42d76614",
+        "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "7453b4a1586315a6893e55782748a39bab69ef3c9a9a12d3718911a76e52d68d"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/gold.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/gold.stderr"
+    },
+    "gold_helpers": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/l3-mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 0.5918623340548947,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null,
+        "error_type": null,
+        "failure_reason": null
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/dsa_v1.py": "e2b2250f885eef6936d86f7cdb75afb1c7c771121159401e33fc4945d21e73bf",
+        "vllm_ascend/worker/v2/attn_utils.py": "8047081f7866a2b1d6e8fe524bb805aa8a5efdb5ce09509e44f53e65b35b4cd7",
+        "vllm_ascend/worker/v2/model_states/default.py": "203ee83407c5e1207ca40cfc667c3876239a82eb4107236ae401d529963a9a4a",
+        "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "8ab670c2df3f71dfd71f58abe60e436cbeca41d3b7850a5854bd5410566e30b4"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/gold_helpers.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/gold_helpers.stderr"
+    },
+    "gold_equivalent": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/l3-mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 0.5854981250595301,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null,
+        "error_type": null,
+        "failure_reason": null
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/dsa_v1.py": "deb0da427eaaa8673558615e44391f33a596150ccbd8266a86bd712e75d38ae8",
+        "vllm_ascend/worker/v2/attn_utils.py": "f165519719a5794d745b8290b98d6970eb141dcfa4687397a565f291690d20cd",
+        "vllm_ascend/worker/v2/model_states/default.py": "e325d16d5ad201669d01cb0cff12dfd19be280136258b7d9bca82283b94758e4",
+        "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "383d317b5faf8618f2d8558a0580de16264ac522694efa0f8d2e156f2dd1cd57"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/gold_equivalent.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/gold_equivalent.stderr"
+    },
+    "negative_partial_state": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/l3-mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 0.5815447500208393,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "correctness_verified": false,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null,
+        "error_type": "AssertionError",
+        "failure_reason": "check_prefill_flow: AssertionError: active prefill flags lost/reused; check_draft_flow: AssertionError: draft call lost active prefill state"
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/dsa_v1.py": "deb0da427eaaa8673558615e44391f33a596150ccbd8266a86bd712e75d38ae8",
+        "vllm_ascend/worker/v2/attn_utils.py": "f165519719a5794d745b8290b98d6970eb141dcfa4687397a565f291690d20cd",
+        "vllm_ascend/worker/v2/model_states/default.py": "87c15e48ed6b8a9206a27f6b6cbbdaefc6d513ad74e270a4fcf7771045a5e43c",
+        "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "4f9d38533d977a3398615c9220a405a485afed976a868b36d0039e7dce14519b"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/negative_partial_state.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/l3-mrv2-dsa-prefill-metadata-zh-vague/negative_partial_state.stderr"
+    }
+  },
+  "errors": [],
+  "task_sha256": "04067117b0268399562620ad7c6b3ca02efc0d58a5dd6f004d140b668d718c84"
 }

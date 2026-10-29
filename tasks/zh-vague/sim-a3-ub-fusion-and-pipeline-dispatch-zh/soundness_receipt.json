@@ -1,11 +1,118 @@
 {
   "after_reward": 1.0,
   "before_reward": 0.0,
+  "controls": {
+    "base": {
+      "duration_sec": 0.02940949995536357,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "passed": true,
+      "reward": 0.0,
+      "source_sha256": "ca2ff206576623880662599f10e46d19d21ddf5a0aeb1d3d097ef45ad3f2d916",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "61703f5aa54ba969a4c68d85475ff055c6d07876b546699a3840534c66b9f1ed",
+      "verdict": {
+        "failure_reason": "bad hap t_hw_us: {'status': 'modeled', 'bound_pipe': 'cube_bound', 't_hw_us': 439.102087769968, 'hap_score': 0.439102087769968}",
+        "failure_type": "AssertionError",
+        "reward": 0.0
+      },
+      "workspace_sha256": "731cd366483294258c47e3985ffcc470dea8f67f7e32f2088656648e491a26d4"
+    },
+    "gold": {
+      "duration_sec": 0.03026895795483142,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "6df965be37e7247d08a493362fac71167ed453c8b3d9501b87712bbe8400ae37",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "e26f59501d56592c89be4571fdf5a487be0892c07460fbbdfc47c5c4ebb29e95",
+      "verdict": {
+        "correctness_verified": true,
+        "measured_npu_speedup": null,
+        "native_kernel_bound": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_offline_fixture"
+      },
+      "workspace_sha256": "b2afa4c6b404ee3765ec82ce1e78b9209a77a2ce27df718dbc0490a29ea17e91"
+    },
+    "gold_helper_class": {
+      "duration_sec": 0.028065750026144087,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "30ddf4d9e0bf502aedafb3f7bc960eb0fbed7e75360e3ca9f3baa9db631bce52",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "e26f59501d56592c89be4571fdf5a487be0892c07460fbbdfc47c5c4ebb29e95",
+      "verdict": {
+        "correctness_verified": true,
+        "measured_npu_speedup": null,
+        "native_kernel_bound": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_offline_fixture"
+      },
+      "workspace_sha256": "95ee028d9e1ea4ec5caf93f5d60bc9f7f493752b5f66d3ad3baea6677db49cf6"
+    },
+    "gold_helper_function": {
+      "duration_sec": 0.0270734999794513,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "passed": true,
+      "reward": 1.0,
+      "source_sha256": "c16a6a8ab1d5eae6dcbc7c6a3c1db0b7fed3fef6f0eb02826357780527fe5d48",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "e26f59501d56592c89be4571fdf5a487be0892c07460fbbdfc47c5c4ebb29e95",
+      "verdict": {
+        "correctness_verified": true,
+        "measured_npu_speedup": null,
+        "native_kernel_bound": null,
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_offline_fixture"
+      },
+      "workspace_sha256": "80d4f14f5a059c85ee3de7ccced91b3732da8721ae58d0b436542debbfdf2529"
+    },
+    "negative": {
+      "duration_sec": 0.026649749954231083,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "passed": true,
+      "reward": 0.0,
+      "source_sha256": "d687a12975a4a60828cd8f21ce26609e5c890eb90a4b5a22ac3d520cad30e98d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_sha256": "c8ce116242b84cfdd0311d8f75c08587e4508425646240484fe2658b4f71ccde",
+      "verdict": {
+        "failure_reason": "UB overflow must produce feasibility failure",
+        "failure_type": "AssertionError",
+        "reward": 0.0
+      },
+      "workspace_sha256": "21ede7af51ff7d5106bb829a927949819848ca8a12938d368ff0c72f074b68cb"
+    }
+  },
   "errors": [],
+  "evidence_directory": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/verifier-integrity-20261029/remaining-cpu-final/sim-a3-ub-fusion-and-pipeline-dispatch-zh",
+  "measured_npu_speedup": null,
   "model_calls": 0,
-  "schema_version": "1.0",
+  "negative_reward": 0.0,
+  "schema_version": "2.0",
+  "scope": "controlled_offline_fixture",
   "source_commit": "f752d0215c2e13b44ac472caa14c02b6749762e3",
+  "speedup_ratio": null,
   "status": "completed",
-  "task_sha256": "7ef19ca5eb3b3875b402a7c09cef49ea6a2979bc7b4f35d3dc414b7a489b13e2",
-  "tier": "l2"
+  "target": "vllm_ascend_diag/a3_sim_planner.py",
+  "task": "sim-a3-ub-fusion-and-pipeline-dispatch-zh",
+  "task_sha256": "fe95bab4c61916fcd948321e358f421b9f07a145b2a7afcf51a656c733322977",
+  "tier": "l2",
+  "tpot_ms": null,
+  "verifier_files": {
+    "test.sh": "e8bd1c5ac87581260847936d4ab54853d8d6675278b36dd48a578bdde7f52f80",
+    "verify.py": "84e6fca441bc556cb7ed7ad87a8c9fd7691a0d40e58c2a4f7fca0f5aa48bfffb"
+  },
+  "verifier_sha256": "77f1dccfe3f9fc30cf4b6c38acf9fcbc7efed2a62013ef69ad6c849f0e69d989"
 }

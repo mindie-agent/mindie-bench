@@ -1,11 +1,110 @@
 {
-  "after_reward": 1.0,
-  "before_reward": 0.0,
-  "errors": [],
-  "model_calls": 0,
-  "schema_version": "1.0",
-  "source_commit": "b9c58e8d7073bdda448c49bc6239778c0e6a6960",
+  "schema_version": "2.0",
   "status": "completed",
-  "task_sha256": "0a43524b9c772ec40d11893f3d37a19298448b45490606420f8a8c93e60a48fc",
-  "tier": "l2"
+  "task": "sfa-mtp-seq-lens-eval-zh-vague",
+  "tier": "l2",
+  "validation_scope": "cpu_behavior",
+  "model_calls": 0,
+  "source_commit": "b9c58e8d7073bdda448c49bc6239778c0e6a6960",
+  "repository": "/Users/maoxx241/code/vllm-ascend",
+  "python": "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python",
+  "before_reward": 0.0,
+  "after_reward": 1.0,
+  "negative_control_reward": 0.0,
+  "helper_gold_reward": 1.0,
+  "verifier_sha256": {
+    "verifier/test.sh": "8f2d6215455079516c6a1a197d2073131ef1c3c64b318f9a04c63e8355297c0a",
+    "verifier/verify.py": "d19ab7d73cf7978d4ef36104ad7f444296af19dee16a70392dce190cfa4ff69e"
+  },
+  "gold_patch_sha256": "91d2f66f39534b2a33634f530478df88c11e7a58ff46892bf31023f013d683df",
+  "control_generator_sha256": "2d7b7d1a1673f0a48cb02c74a899681013047ea3da945a9cae388e4e30a44e26",
+  "native_kernel_bound": null,
+  "measured_npu_speedup": null,
+  "speedup_ratio": null,
+  "cases": {
+    "base": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/sfa-mtp-seq-lens-eval-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 0.5700366250239313,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "error_type": "AssertionError",
+        "failure_reason": "main build lengths were overwritten after later builds: cum_query_lens=[3, 6] seq_lens=[12, 22]; draft_index=1 lengths were overwritten after later builds: cum_query_lens=[3, 6] seq_lens=[12, 22]; draft_index=1 does not use its persistent sequence-length buffers; draft_index=2 does not use its persistent sequence-length buffers"
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/sfa_v1.py": "726c15ff758365cdbb4e4ad3de0b259ae6bfec708b275b092cbbd9ff110585ef"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/sfa-mtp-seq-lens-eval-zh-vague/base.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/sfa-mtp-seq-lens-eval-zh-vague/base.stderr"
+    },
+    "negative_control": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/sfa-mtp-seq-lens-eval-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 0.5446368339471519,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "error_type": "AttributeError",
+        "failure_reason": "AttributeError: 'NoneType' object has no attribute 'cum_query_lens'"
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/sfa_v1.py": "1c065a4a08fff65e5a1e7c07521b854c8828a2b150ed5b725d74b6b032e15ff7"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/sfa-mtp-seq-lens-eval-zh-vague/negative_control.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/sfa-mtp-seq-lens-eval-zh-vague/negative_control.stderr"
+    },
+    "gold": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/sfa-mtp-seq-lens-eval-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 0.602470500045456,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/sfa_v1.py": "a11303cf005c433371471a12e937fdda3d5c6ee5c91f4726c24300a09ca551f3"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/sfa-mtp-seq-lens-eval-zh-vague/gold.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/sfa-mtp-seq-lens-eval-zh-vague/gold.stderr"
+    },
+    "gold_helpers": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/sfa-mtp-seq-lens-eval-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 0.5524919999297708,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null
+      },
+      "source_sha256": {
+        "vllm_ascend/attention/sfa_v1.py": "3aecf2aaa924b490c8abfd359cb05e02cf733598045bab72b0f7ede6bbdb7879"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/sfa-mtp-seq-lens-eval-zh-vague/gold_helpers.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/sfa-mtp-seq-lens-eval-zh-vague/gold_helpers.stderr"
+    }
+  },
+  "errors": [],
+  "task_sha256": "704913b3b796f0fcb8883e4f609678da8e98a01dc73630455af4699653a79eb7"
 }

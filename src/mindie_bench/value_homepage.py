@@ -138,6 +138,22 @@ def _component_line(case: dict, language: str) -> str:
             f"read-only DB immutability {immutable}, analyze latency {analyze_ms} ms "
             "(fixture replay verifies attribution accuracy rather than new hardware captures)."
         )
+    if case["id"] == "sim-causal-modeling-boundaries":
+        deterministic = observed(candidate, "model_deterministic")
+        missing = observed(candidate, "missing_dependency_rejected")
+        released = observed(candidate, "resources_released")
+        cpu_ms = _span((row.get("graph_analysis_latency_ms") for row in candidate), language, digits=2)
+        return (
+            f"- sim：{count} 轮合成资源输入的算子、纯图和服务边界检查，结果确定性 {deterministic}，"
+            f"缺失外部依赖拦截 {missing}，资源释放 {released}，图分析 CPU 用时 {cpu_ms} ms。"
+            "算子和、图耗时与 token commit 指标分开；本场景没有实测精度或融合收益结论。"
+            if zh else
+            f"- sim: {count} operator, pure-graph and serving boundary checks on synthetic resources; "
+            f"determinism {deterministic}, missing external inputs rejected {missing}, "
+            f"resources released {released}, graph-analysis CPU time {cpu_ms} ms. "
+            "Operator sums, graph spans and token-commit metrics remain separate; "
+            "this scenario makes no measured-accuracy or fusion-saving claim."
+        )
     if case["id"] == "sim-a3-graph-and-boundary-screening":
         deterministic = observed(candidate, "qwen_case_deterministic")
         overflow_rejected = observed(candidate, "subgraph_overflow_rejected")

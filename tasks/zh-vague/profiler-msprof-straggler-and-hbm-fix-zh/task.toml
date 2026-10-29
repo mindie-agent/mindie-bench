@@ -9,7 +9,7 @@ role = "eval"
 repository = "vllm-project/vllm-ascend"
 fix_commit = "8c5ce76d9afb36205b8e59adb7b2d4b2ad89a85c"
 issue = "component-value-0.1.0"
-validation_scope = "torch_npu 1.2.0 multi-stream C7 interval-union step accounting, exposed communication straggler attribution, and P0-P4 non-additive HBM reconciliation"
+validation_scope = "controlled offline fixture; CPU behavior only, no newly measured NPU performance: torch_npu 1.2.0 multi-stream C7 interval-union step accounting, exposed communication straggler attribution, and P0-P4 non-additive HBM reconciliation"
 [mindie_knowledge]
 corpus_id = "ascend"
 knowledge_gradient = "near_exact"

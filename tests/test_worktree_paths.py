@@ -1,12 +1,83 @@
 import shutil
 import subprocess
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
 from mindie_bench.runner.worktree_slot import WorktreeSlot
+
+
+@pytest.mark.tier1
+def test_phase_deadline_bounds_contended_metadata_and_keeps_cleanup_recoverable(case):
+    slot = WorktreeSlot(
+        case["spec"].environment["l2"], case["root"] / "deadline-workspace", case["task"],
+    )
+    entered, release = threading.Event(), threading.Event()
+
+    def hold_metadata():
+        with slot.metadata_lock:
+            entered.set()
+            assert release.wait(2), "test failed to release worktree metadata"
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        holder = pool.submit(hold_metadata)
+        assert entered.wait(1)
+        started = time.monotonic()
+        slot.deadline = started + 0.03
+        try:
+            with pytest.raises(TimeoutError, match="worktree metadata|phase deadline"):
+                with slot.metadata_edit():
+                    pytest.fail("contended metadata must not be entered after the phase deadline")
+            assert time.monotonic() - started < 0.5
+            assert slot.created is False
+        finally:
+            release.set()
+            holder.result(timeout=1)
+    # A failed phase never permanently disables the owned slot. The next phase
+    # has its own deadline, and an expired patch budget must not block removal.
+    slot.deadline = time.monotonic() + 2
+    workspace = slot.prepare()
+    (workspace / "module.py").write_text("VALUE = 2\n")
+    slot.deadline = time.monotonic()
+    with pytest.raises(TimeoutError, match="phase deadline"):
+        slot.snapshot_patch(workspace.parent)
+    slot.deadline = time.monotonic() + 2
+    slot.cleanup()
+    assert not workspace.exists()
+    assert (case["repo"] / "module.py").read_text() == "VALUE = 1\n"
+
+
+@pytest.mark.tier1
+def test_interrupted_git_add_retains_cleanup_of_its_real_owned_worktree(case, monkeypatch):
+    slot = WorktreeSlot(
+        case["spec"].environment["l2"], case["root"] / "interrupted-workspace", case["task"],
+        deadline=time.monotonic() + 2,
+    )
+    original = subprocess.run
+
+    def interrupt_after_materialization(command, **kwargs):
+        result = original(command, **kwargs)
+        if command[3:5] == ["worktree", "add"]:
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        return result
+
+    monkeypatch.setattr(subprocess, "run", interrupt_after_materialization)
+    with pytest.raises(subprocess.TimeoutExpired):
+        slot.prepare()
+    assert slot.created is True
+    assert (slot.destination / "module.py").read_text() == "VALUE = 1\n"
+    slot.deadline = time.monotonic() + 2
+    slot.cleanup()
+    assert not slot.destination.exists()
+    listing = original(
+        ["git", "-C", str(case["repo"]), "worktree", "list", "--porcelain"],
+        check=True, capture_output=True, text=True, timeout=2,
+    ).stdout
+    assert str(slot.destination) not in listing
+    assert (case["repo"] / "module.py").read_text() == "VALUE = 1\n"
 
 
 @pytest.mark.parametrize("same_repository", [True, False])

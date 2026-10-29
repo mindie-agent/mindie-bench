@@ -8,6 +8,8 @@ budget, and receipt construction once the verifier outcome is known.
   recorded as secondary evidence and never erase `resolved`/`reward`.
 - Unknown remote effects are reported as `UNKNOWN`; the prior business verdict
   remains separately labeled in `business_terminal_status`.
+- Capture admission precedes the summary gateway; failed native admission makes
+  zero C6 calls and never changes the verified business verdict.
 [Timeouts & Locks]
 - Pure in-memory scoring plus bounded gateway settlement inspection; no waits
   or locks are acquired here.
@@ -345,15 +347,27 @@ def run_g3_capture(
         ),
     }
     if config.harness.name != "fixture":
-        public["native"] = native_capture_payload(
-            config.harness.name,
-            trajectory,
-            profile,
-            workspace,
-            native_descriptor=(
-                driver.native_capture_payload() if config.harness.name == "dsh" else None
-            ),
-        )
+        try:
+            public["native"] = native_capture_payload(
+                config.harness.name,
+                trajectory,
+                profile,
+                workspace,
+                native_descriptor=(
+                    driver.native_capture_payload() if config.harness.name == "dsh" else None
+                ),
+            )
+        except ValueError as exc:
+            auxiliary["capture"] = dict(
+                status="failed",
+                stage="native_admission",
+                harness=config.harness.name,
+                native_completed=trajectory.native_completed,
+                native_error=trajectory.native_error,
+                error=dict(type=type(exc).__name__, message=str(exc)),
+            )
+            auxiliary["capture_model_calls"] = 0
+            raise
     corpus_before_capture = tree_hash(profile.corpus)
     capture_harness = config.harness.model_copy(
         update={"model": group_config.capture_model or config.harness.model}

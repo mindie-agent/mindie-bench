@@ -1,49 +1,529 @@
 {
   "after_reward": 1.0,
   "before_reward": 0.0,
+  "cases": {
+    "baseline": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.candidate.py",
+      "elapsed_seconds": 0.6006099589867517,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "input_files": {
+        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
+        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "76d82df14adfb41941cdc84ab269c902bfd97fbc30a35c2bca0bc77d59fa38fd"
+      },
+      "input_sha256": "fa2dec833c7db5377fa2bfc4f892ee0e094b8ef120f1fc0b2744d825d54e5481",
+      "reward": 0.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.stdout",
+      "verdict": {
+        "ablation_contract_verified": null,
+        "correctness_verified": null,
+        "error_type": "AssertionError",
+        "failure_reason": "Missing run_ablation_suite() in sparse_mla_decode.py",
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "operator_binding": "verifier_owned_python_cpu_contract",
+        "performance_status": "unmeasured",
+        "reward": 0.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "failed"
+      }
+    },
+    "constant_return": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.candidate.py",
+      "elapsed_seconds": 0.5926804159535095,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
+        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
+        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "3905d6901f4a4e42a8352c9229e6b7a564544f443c082f90d02859027e4038dd"
+      },
+      "input_sha256": "6293ce2f9c952c88d18a76b1c79d2874959b3c8753875faad4cc763e0d7fdbc8",
+      "reward": 0.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.stdout",
+      "verdict": {
+        "ablation_contract_verified": null,
+        "correctness_verified": null,
+        "error_type": "AssertionError",
+        "failure_reason": "Independent full-candidate tensor/handoff check failed: {'q_fused_calls': 1, 'qli_calls': 1, 'sfa_calls': 1, 'correct': False, 'error': None, 'q_is_view': True, 'q_is_cloned': False, 'k_alias': True, 'q_alias': True, 'unsafe_guard_exercised': False, 'safe_handoff': True}",
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "operator_binding": "verifier_owned_python_cpu_contract",
+        "performance_status": "unmeasured",
+        "reward": 0.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "failed"
+      }
+    },
+    "gold": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold.candidate.py",
+      "elapsed_seconds": 0.6783893329557031,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
+        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
+        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "8fcd9ba48deb35cafd9f43386109e635a14466d4c05082b8de3133bbcc9158c9"
+      },
+      "input_sha256": "ba63eb9387f20a60362849d5f9dcc893fead02abde9bb5c5d871ef8916705863",
+      "reward": 1.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold.stdout",
+      "verdict": {
+        "ablation_contract_verified": true,
+        "candidate_suite_type": "dict",
+        "correctness_verified": true,
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "observed_cpu_ablation": {
+          "entrypoint": "sparse_mla_decode_step",
+          "full_candidate": {
+            "control": {
+              "args": [],
+              "kwargs": {}
+            },
+            "correct": true,
+            "default_path": true,
+            "error": null,
+            "k_alias": true,
+            "q_alias": true,
+            "q_fused_calls": 1,
+            "q_is_cloned": false,
+            "q_is_view": true,
+            "qli_calls": 1,
+            "safe_handoff": true,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": false
+          },
+          "minus_device_guard": {
+            "control": {
+              "args": [],
+              "kwargs": {
+                "enable_device_guard": false,
+                "enable_q_fusion": true,
+                "enable_view_alias": true
+              }
+            },
+            "correct": false,
+            "default_path": false,
+            "error": "RuntimeError: AICore invalid GM address: negative block id (-1) reached npu_sparse_flash_attention",
+            "k_alias": true,
+            "q_alias": true,
+            "q_fused_calls": 1,
+            "q_is_cloned": false,
+            "q_is_view": true,
+            "qli_calls": 1,
+            "safe_handoff": false,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": true
+          },
+          "minus_q_fusion": {
+            "control": {
+              "args": [],
+              "kwargs": {
+                "enable_device_guard": true,
+                "enable_q_fusion": false,
+                "enable_view_alias": true
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "error": null,
+            "k_alias": true,
+            "q_alias": false,
+            "q_fused_calls": 0,
+            "q_is_cloned": false,
+            "q_is_view": true,
+            "qli_calls": 1,
+            "safe_handoff": true,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": false
+          },
+          "minus_view_alias": {
+            "control": {
+              "args": [],
+              "kwargs": {
+                "enable_device_guard": true,
+                "enable_q_fusion": true,
+                "enable_view_alias": false
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "error": null,
+            "k_alias": false,
+            "q_alias": false,
+            "q_fused_calls": 1,
+            "q_is_cloned": true,
+            "q_is_view": false,
+            "qli_calls": 1,
+            "safe_handoff": true,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": false
+          }
+        },
+        "operator_binding": "verifier_owned_python_cpu_contract",
+        "performance_status": "unmeasured",
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "completed"
+      }
+    },
+    "gold_helper": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.candidate.py",
+      "elapsed_seconds": 0.6859185419743881,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
+        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
+        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "4fdde487cd27963c31c03e8c284473f076b26ecedd8a9ad12ebb22c5328ecc21"
+      },
+      "input_sha256": "e21f6bdd3a682a18119600c9c05d64bf84b31fb6d802d8776683c678ad426b40",
+      "reward": 1.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.stdout",
+      "verdict": {
+        "ablation_contract_verified": true,
+        "candidate_suite_type": "dict",
+        "correctness_verified": true,
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "observed_cpu_ablation": {
+          "entrypoint": "_gold_implementation",
+          "full_candidate": {
+            "control": {
+              "args": [],
+              "kwargs": {}
+            },
+            "correct": true,
+            "default_path": true,
+            "error": null,
+            "k_alias": true,
+            "q_alias": true,
+            "q_fused_calls": 1,
+            "q_is_cloned": false,
+            "q_is_view": true,
+            "qli_calls": 1,
+            "safe_handoff": true,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": false
+          },
+          "minus_device_guard": {
+            "control": {
+              "args": [],
+              "kwargs": {
+                "enable_device_guard": false,
+                "enable_q_fusion": true,
+                "enable_view_alias": true
+              }
+            },
+            "correct": false,
+            "default_path": false,
+            "error": "RuntimeError: AICore invalid GM address: negative block id (-1) reached npu_sparse_flash_attention",
+            "k_alias": true,
+            "q_alias": true,
+            "q_fused_calls": 1,
+            "q_is_cloned": false,
+            "q_is_view": true,
+            "qli_calls": 1,
+            "safe_handoff": false,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": true
+          },
+          "minus_q_fusion": {
+            "control": {
+              "args": [],
+              "kwargs": {
+                "enable_device_guard": true,
+                "enable_q_fusion": false,
+                "enable_view_alias": true
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "error": null,
+            "k_alias": true,
+            "q_alias": false,
+            "q_fused_calls": 0,
+            "q_is_cloned": false,
+            "q_is_view": true,
+            "qli_calls": 1,
+            "safe_handoff": true,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": false
+          },
+          "minus_view_alias": {
+            "control": {
+              "args": [],
+              "kwargs": {
+                "enable_device_guard": true,
+                "enable_q_fusion": true,
+                "enable_view_alias": false
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "error": null,
+            "k_alias": false,
+            "q_alias": false,
+            "q_fused_calls": 1,
+            "q_is_cloned": true,
+            "q_is_view": false,
+            "qli_calls": 1,
+            "safe_handoff": true,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": false
+          }
+        },
+        "operator_binding": "verifier_owned_python_cpu_contract",
+        "performance_status": "unmeasured",
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "completed"
+      }
+    },
+    "gold_suite_helper": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.candidate.py",
+      "elapsed_seconds": 0.6811775839887559,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
+        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
+        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "ce5f4daeff1c4225e3e3a894d715f86f3bb1433f0f6034f732c96cf4f37b4c61"
+      },
+      "input_sha256": "b59a84db56ea99585b2841a06881871b79566e2501cd7aa780b47e71cdf68d12",
+      "reward": 1.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.stdout",
+      "verdict": {
+        "ablation_contract_verified": true,
+        "candidate_suite_type": "dict",
+        "correctness_verified": true,
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "observed_cpu_ablation": {
+          "entrypoint": "_controlled_tensor_entry",
+          "full_candidate": {
+            "control": {
+              "args": [],
+              "kwargs": {}
+            },
+            "correct": true,
+            "default_path": true,
+            "error": null,
+            "k_alias": true,
+            "q_alias": true,
+            "q_fused_calls": 1,
+            "q_is_cloned": false,
+            "q_is_view": true,
+            "qli_calls": 1,
+            "safe_handoff": true,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": false
+          },
+          "minus_device_guard": {
+            "control": {
+              "args": [],
+              "kwargs": {
+                "enable_device_guard": false,
+                "enable_q_fusion": true,
+                "enable_view_alias": true
+              }
+            },
+            "correct": false,
+            "default_path": false,
+            "error": "RuntimeError: AICore invalid GM address: negative block id (-1) reached npu_sparse_flash_attention",
+            "k_alias": true,
+            "q_alias": true,
+            "q_fused_calls": 1,
+            "q_is_cloned": false,
+            "q_is_view": true,
+            "qli_calls": 1,
+            "safe_handoff": false,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": true
+          },
+          "minus_q_fusion": {
+            "control": {
+              "args": [],
+              "kwargs": {
+                "enable_device_guard": true,
+                "enable_q_fusion": false,
+                "enable_view_alias": true
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "error": null,
+            "k_alias": true,
+            "q_alias": false,
+            "q_fused_calls": 0,
+            "q_is_cloned": false,
+            "q_is_view": true,
+            "qli_calls": 1,
+            "safe_handoff": true,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": false
+          },
+          "minus_view_alias": {
+            "control": {
+              "args": [],
+              "kwargs": {
+                "enable_device_guard": true,
+                "enable_q_fusion": true,
+                "enable_view_alias": false
+              }
+            },
+            "correct": true,
+            "default_path": false,
+            "error": null,
+            "k_alias": false,
+            "q_alias": false,
+            "q_fused_calls": 1,
+            "q_is_cloned": true,
+            "q_is_view": false,
+            "qli_calls": 1,
+            "safe_handoff": true,
+            "sfa_calls": 1,
+            "unsafe_guard_exercised": false
+          }
+        },
+        "operator_binding": "verifier_owned_python_cpu_contract",
+        "performance_status": "unmeasured",
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "completed"
+      }
+    },
+    "negative_control": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.candidate.py",
+      "elapsed_seconds": 0.6204893339890987,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
+        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
+        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "c1411e8075a8f977052a5ecb5b8a0015d943b65e677babadbfa1a7a8535b1c9b"
+      },
+      "input_sha256": "423824b5626ca2b80bc4e12aafa5928b077e1de967f3e300d5d14f4d1e828ddb",
+      "reward": 0.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.stdout",
+      "verdict": {
+        "ablation_contract_verified": null,
+        "correctness_verified": null,
+        "error_type": "AssertionError",
+        "failure_reason": "Independent full-candidate tensor/handoff check failed: {'q_fused_calls': 0, 'qli_calls': 0, 'sfa_calls': 0, 'correct': False, 'error': None, 'unsafe_guard_exercised': False, 'safe_handoff': False}",
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "operator_binding": "verifier_owned_python_cpu_contract",
+        "performance_status": "unmeasured",
+        "reward": 0.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "failed"
+      }
+    },
+    "wrong_guard_lengths": {
+      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.candidate.py",
+      "elapsed_seconds": 0.6131957080215216,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "input_files": {
+        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
+        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
+        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
+        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "7517b4b04dbf740f754c2633dd16b00e325182922d41c2248b7895031fb303bd"
+      },
+      "input_sha256": "ba6a8ab5e3638082f4064d43ca2f7b3e56b75bc7b5838d3a94202b5f7af7ea2d",
+      "reward": 0.0,
+      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.stderr",
+      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.stdout",
+      "verdict": {
+        "ablation_contract_verified": null,
+        "correctness_verified": null,
+        "error_type": "AssertionError",
+        "failure_reason": "Independent full-candidate tensor/handoff check failed: {'q_fused_calls': 1, 'qli_calls': 1, 'sfa_calls': 0, 'correct': False, 'error': 'AssertionError: SFA sequence lengths differ from the arm contract', 'q_is_view': True, 'q_is_cloned': False, 'k_alias': True, 'q_alias': True, 'unsafe_guard_exercised': False, 'safe_handoff': False}",
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "operator_binding": "verifier_owned_python_cpu_contract",
+        "performance_status": "unmeasured",
+        "reward": 0.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "failed"
+      }
+    }
+  },
   "errors": [],
+  "execution_scope": "controlled_cpu_tensor_and_ablation_contract",
+  "helper_reward": 1.0,
+  "measured_npu_speedup": null,
   "model_calls": 0,
-  "remote_postflight": {
-    "4": {
-      "capacity_mb": 98304,
-      "card_id": 4,
-      "chip_id": 0,
-      "model": "Ascend950DT",
-      "physical_id": 4,
-      "pids": [],
-      "used_mb": 4740
-    },
-    "_environment": {
-      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
-      "driver": "25.1.rc3.1",
-      "image_digest": "sha256:c3d00a196905159dbf0b97588d34f085086c2708712fa0d1c8fedd807f0e48a4",
-      "kernel": "6.6.0-145.3.33.164.oe2403sp3.aarch64",
-      "python": "3.12.13 (main, Oct  3 2026, 09:40:56) [GCC 11.4.0]",
-      "torch_npu": "2.10.0.post7"
-    }
-  },
-  "remote_preflight": {
-    "4": {
-      "capacity_mb": 98304,
-      "card_id": 4,
-      "chip_id": 0,
-      "model": "Ascend950DT",
-      "physical_id": 4,
-      "pids": [],
-      "used_mb": 4740
-    },
-    "_environment": {
-      "cann": "Version=9.1.0\nversion_dir=cann\nrequired_package_runtime_version=\"9.1\"\nrequired_package_ge-executor_version=\"9.1\"\nrequired_package_metadef_version=\"9.1\"\nrequired_package_bisheng-compiler_version=\"9.1\"\nrequired_package_tbe-tik_version=\"9.1\"\ntimestamp=20260730_231653901",
-      "driver": "25.1.rc3.1",
-      "image_digest": "sha256:c3d00a196905159dbf0b97588d34f085086c2708712fa0d1c8fedd807f0e48a4",
-      "kernel": "6.6.0-145.3.33.164.oe2403sp3.aarch64",
-      "python": "3.12.13 (main, Oct  3 2026, 09:40:56) [GCC 11.4.0]",
-      "torch_npu": "2.10.0.post7"
-    }
-  },
-  "schema_version": "1.0",
+  "native_kernel_bound": null,
+  "negative_control_reward": 0.0,
+  "performance_status": "unmeasured",
+  "python": "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python",
+  "schema_version": "2.0",
   "source_commit": "264445c1379b7e5c00df06752bf6a9c604c2c3cb",
+  "speedup_ratio": null,
   "status": "completed",
-  "task_sha256": "b4b18cc50efb3c6da732a2099ea9702f38229cede7acf105ecaaeadd9cd29279",
-  "tier": "l3"
+  "task_sha256": "82309c9392be473f637390034d50ca91d256ad8d2353b6f360216006fb875bed",
+  "tier": "l3",
+  "verifier_files": {
+    "reference_cpu.py": "44d96bf018b2831d4149d9f35bce0000e5cc86a837fa8143dadae78483429fab",
+    "runtime_controls.py": "d181cd55111a8cb8cf3945d2e62f2e56c2e10e96b16cf9c6369b867dac388eae",
+    "test.sh": "e2e6d259669b20436fe1d564b5df5218b98ba9ae991cedd56f9d6f8a4c7ed641",
+    "verify.py": "b9ad0338b5cb60aa9c2c9ce778f3049abdcb28ee79abb937bd5526845375c174"
+  },
+  "verifier_sha256": "9fd0823a74a8e93b7691397866fc5e08a2ea74d211c62134c5c31c9205d06c91"
 }

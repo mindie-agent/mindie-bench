@@ -1,32 +1,34 @@
 diff --git a/PROGRESS.md b/PROGRESS.md
 new file mode 100644
-index 000000000..d5da0d5f1
+index 0000000..6ba7b61
 --- /dev/null
 +++ b/PROGRESS.md
-@@ -0,0 +1,6 @@
-+# Triton-Ascend Spatial GroupNorm RSI Exploration Progress
+@@ -0,0 +1,3 @@
++# CPU fixture ablation result
 +
-+- **Stripped L3 Workflow**: `unit-triton-ascend-tiling-persistent-grid-and-ub-budget-workflow`
-+- **Mounted L4 Mutator**: `unit-triton-ascend-dimension-merge-and-ub-multibuffer-mutator`
-+- **Retained Factors**: `contiguous_spatial_dim_merge_vec_acc`, `select_optimal_block_size_ub_scaling`, `selective_multibuffer_and_single_store_cast`
-+- **Leave-One-Out Arms Verified**: `full_candidate` (16.0 ms, depth=1, BLOCK_SIZE=4096, multibuffer=False, 0 GM copies), `minus_dim_merge` (38.0 ms, depth=3), `minus_block_scaling` (24.0 ms, BLOCK_SIZE=512), `minus_multibuffer_cast_guard` (22.0 ms, multibuffer=True, 2 GM copies).
++The full candidate and three leave-one-out arms exercise controlled CPU tensor contracts. Operator dispatch is a Python fixture; no native kernel binding, NPU timing, TPOT, speedup or card-hour measurement was performed. Legacy synthetic delay formulas have been removed from this candidate.
 diff --git a/experiment-ledger.jsonl b/experiment-ledger.jsonl
 new file mode 100644
-index 000000000..0098df780
+index 0000000..64e011d
 --- /dev/null
 +++ b/experiment-ledger.jsonl
 @@ -0,0 +1,5 @@
-+{"run_id": "run-op-l3-1", "arm": "stage1_l3_baseline", "verdict": "unsupported", "latency_ms": 52.0, "nested_loop_depth": 3, "block_size": 512, "enable_multibuffer": true, "intermediate_gm_copies": 2}
-+{"run_id": "run-op-l4-full", "arm": "full_candidate", "unit_id": "unit-triton-ascend-dimension-merge-and-ub-multibuffer-mutator", "verdict": "attained", "latency_ms": 16.0, "nested_loop_depth": 1, "block_size": 4096, "enable_multibuffer": false, "intermediate_gm_copies": 0, "ablation_retained": true}
-+{"run_id": "run-op-l4-ablate-dim", "arm": "minus_dim_merge", "removed_factor": "contiguous_spatial_dim_merge_vec_acc", "verdict": "supported", "latency_ms": 38.0, "nested_loop_depth": 3, "block_size": 4096}
-+{"run_id": "run-op-l4-ablate-blk", "arm": "minus_block_scaling", "removed_factor": "select_optimal_block_size_ub_scaling", "verdict": "supported", "latency_ms": 24.0, "nested_loop_depth": 1, "block_size": 512}
-+{"run_id": "run-op-l4-ablate-guard", "arm": "minus_multibuffer_cast_guard", "removed_factor": "selective_multibuffer_and_single_store_cast", "verdict": "supported", "latency_ms": 22.0, "enable_multibuffer": true, "intermediate_gm_copies": 2}
++{"run_id": "run-op-l3-1", "arm": "stage1_l3_baseline", "verdict": "cpu_contract_only", "latency_ms": null, "nested_loop_depth": 3, "block_size": 512, "enable_multibuffer": true, "intermediate_gm_copies": 2, "tpot_ms": null, "speedup_ratio": null, "measurement_scope": "controlled_cpu_tensor_fixture", "native_kernel_bound": null, "measured_npu_speedup": null, "performance_status": "unmeasured"}
++{"run_id": "run-op-l4-full", "arm": "full_candidate", "unit_id": "unit-triton-ascend-dimension-merge-and-ub-multibuffer-mutator", "verdict": "cpu_contract_only", "latency_ms": null, "nested_loop_depth": 1, "block_size": 4096, "enable_multibuffer": false, "intermediate_gm_copies": 0, "ablation_retained": true, "tpot_ms": null, "speedup_ratio": null, "measurement_scope": "controlled_cpu_tensor_fixture", "native_kernel_bound": null, "measured_npu_speedup": null, "performance_status": "unmeasured"}
++{"run_id": "run-op-l4-ablate-dim", "arm": "minus_dim_merge", "removed_factor": "contiguous_spatial_dim_merge_vec_acc", "verdict": "cpu_contract_only", "latency_ms": null, "nested_loop_depth": 3, "block_size": 4096, "tpot_ms": null, "speedup_ratio": null, "measurement_scope": "controlled_cpu_tensor_fixture", "native_kernel_bound": null, "measured_npu_speedup": null, "performance_status": "unmeasured"}
++{"run_id": "run-op-l4-ablate-blk", "arm": "minus_block_scaling", "removed_factor": "select_optimal_block_size_ub_scaling", "verdict": "cpu_contract_only", "latency_ms": null, "nested_loop_depth": 1, "block_size": 512, "tpot_ms": null, "speedup_ratio": null, "measurement_scope": "controlled_cpu_tensor_fixture", "native_kernel_bound": null, "measured_npu_speedup": null, "performance_status": "unmeasured"}
++{"run_id": "run-op-l4-ablate-guard", "arm": "minus_multibuffer_cast_guard", "removed_factor": "selective_multibuffer_and_single_store_cast", "verdict": "cpu_contract_only", "latency_ms": null, "enable_multibuffer": true, "intermediate_gm_copies": 2, "tpot_ms": null, "speedup_ratio": null, "measurement_scope": "controlled_cpu_tensor_fixture", "native_kernel_bound": null, "measured_npu_speedup": null, "performance_status": "unmeasured"}
 diff --git a/vllm_ascend/ops/spatial_group_norm_reduce.py b/vllm_ascend/ops/spatial_group_norm_reduce.py
-index 0e58e4626..b9ab74f65 100644
+index 0e58e46..b8153a2 100644
 --- a/vllm_ascend/ops/spatial_group_norm_reduce.py
 +++ b/vllm_ascend/ops/spatial_group_norm_reduce.py
-@@ -1,65 +1,116 @@
+@@ -1,65 +1,121 @@
 -"""Triton-Ascend 4D Spatial GroupNorm & Reduction operator (Stage-1 L3 baseline)."""
++# [Role] Controlled CPU fixture for tensor correctness and separable ablations.
++# [Invariants] Python fixture outputs never represent native kernels or NPU performance.
++# [Timeouts & Locks] Bounded tensor inputs; caller owns the process timeout; no locks.
++# [Side-Effect Policy] Tensor computation only; hardware measurements remain absent.
++
 +"""Triton-Ascend 4D Spatial GroupNorm & Reduction operator with L4 dimension merge and ablation."""
  from __future__ import annotations
  
@@ -177,10 +179,28 @@ index 0e58e4626..b9ab74f65 100644
          + bias.to(torch.float32).view(1, channels, 1, 1)
      ).to(x.dtype)
  
-@@ -90,3 +141,34 @@ def spatial_group_norm_reduce(
+@@ -73,12 +129,6 @@ def spatial_group_norm_reduce(
+     ).to(x.dtype)
+     max_abs_err = float((out.to(torch.float32) - ref_out.to(torch.float32)).abs().max().item())
+ 
+-    latency_ms = (
+-        16.0
+-        + (22.0 if nested_loop_depth > 1 else 0.0)
+-        + (8.0 if block_size <= 512 else 0.0)
+-        + (6.0 if (enable_multibuffer or intermediate_gm_copies > 0) else 0.0)
+-    )
+     return out, {
+         "grid": grid,
+         "nested_loop_depth": nested_loop_depth,
+@@ -88,5 +138,38 @@ def spatial_group_norm_reduce(
+         "scalar_iterations": scalar_iterations,
+         "max_abs_err": round(max_abs_err, 6),
          "correctness_ok": max_abs_err <= 5e-3,
-         "latency_ms": round(latency_ms, 2),
-     }
+-        "latency_ms": round(latency_ms, 2),
++        "latency_ms": None,
++        "speedup_ratio": None,
++        "performance_status": "unmeasured",
++    }
 +
 +
 +def run_ablation_suite() -> dict[str, dict[str, Any]]:
@@ -211,4 +231,4 @@ index 0e58e4626..b9ab74f65 100644
 +        "minus_dim_merge": m_dim,
 +        "minus_block_scaling": m_blk,
 +        "minus_multibuffer_cast_guard": m_guard,
-+    }
+     }

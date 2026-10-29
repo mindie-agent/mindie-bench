@@ -9,7 +9,7 @@ role = "eval"
 repository = "vllm-project/vllm-ascend"
 fix_commit = "8c5ce76d9afb36205b8e59adb7b2d4b2ad89a85c"
 issue = "component-value-0.1.0"
-validation_scope = "Ascend A3 (Ascend910_9362) four-layer roofline/pipeline/UB-fusion solver, Qwen2.5-7B PhysicalCalibration TTFT/TPOT, and finite Vector/Cube operator DAG estimation"
+validation_scope = "controlled offline fixture; CPU behavior only, no newly measured NPU performance: Ascend A3 (Ascend910_9362) four-layer roofline/pipeline/UB-fusion solver, Qwen2.5-7B PhysicalCalibration TTFT/TPOT, and finite Vector/Cube operator DAG estimation"
 [mindie_knowledge]
 corpus_id = "ascend"
 knowledge_gradient = "near_exact"

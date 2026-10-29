@@ -1,11 +1,234 @@
 {
-  "after_reward": 1.0,
-  "before_reward": 0.0,
-  "errors": [],
-  "model_calls": 0,
-  "schema_version": "1.0",
-  "source_commit": "c3394206bdd00b132580ae439555b4f1a70d5bf6",
+  "schema_version": "2.0",
   "status": "completed",
-  "task_sha256": "047ac583581b2c0f08b56c4164d980646412fc03af0be64476faf4fd0e3a427c",
-  "tier": "l2"
+  "task": "k3-idle-dp-gdn-state-zh-vague",
+  "tier": "l2",
+  "validation_scope": "cpu_behavior",
+  "model_calls": 0,
+  "source_commit": "c3394206bdd00b132580ae439555b4f1a70d5bf6",
+  "repository": "/Users/maoxx241/code/vllm-ascend",
+  "python": "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python",
+  "before_reward": 0.0,
+  "after_reward": 1.0,
+  "negative_control_reward": 0.0,
+  "helper_gold_reward": 1.0,
+  "verifier_sha256": {
+    "verifier/test.sh": "8f2d6215455079516c6a1a197d2073131ef1c3c64b318f9a04c63e8355297c0a",
+    "verifier/verify.py": "a578b6027f3967f27a84ffdbba355e1dd7c7e12b93a9a9bb23d5eedbbbb4e939"
+  },
+  "gold_patch_sha256": "dc90d3e3c1cc88d6bfef2287b145e117799235cc1014d853133bbb8fb4a32b56",
+  "control_generator_sha256": "7dad90050225420b3e790e9a6319aef8327bc63e4bd8374e6ff56c78ad002618",
+  "native_kernel_bound": null,
+  "measured_npu_speedup": null,
+  "speedup_ratio": null,
+  "cases": {
+    "base": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/k3-idle-dp-gdn-state-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 1.3639006670564413,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "error_type": "TypeError",
+        "failure_reason": "idle DP execute_model called _dummy_run((1,), {}) without skip_gdn_state_update=True; check_dummy_run: TypeError: _dummy_run() got an unexpected keyword argument 'skip_gdn_state_update'; check_310p_forwarding: TypeError: NPUModelRunner310._dummy_run() got an unexpected keyword argument 'skip_gdn_state_update'"
+      },
+      "source_sha256": {
+        "vllm_ascend/_310p/model_runner_310p.py": "c7863d51b31276ad93fa69254f2431cc3bec45299f206c170dfcb4cc62c59ef7",
+        "vllm_ascend/ops/gdn.py": "d26e15be45ec8a8bb84dab546d8a54963f75f90d0ae1b9fa0ce4167e73b01895",
+        "vllm_ascend/worker/model_runner_v1.py": "6e22e3a7a2e409f28f59b78f360938dfbf410814e6cba0613f26485b76ae14c4"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/base.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/base.stderr"
+    },
+    "negative_control": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/k3-idle-dp-gdn-state-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 0.7344730410259217,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "error_type": "TypeError",
+        "failure_reason": "idle DP execute_model ran dummy calls [] and returned None; check_dummy_run: TypeError: _dummy_run() got an unexpected keyword argument 'skip_gdn_state_update'; check_310p_forwarding: TypeError: NPUModelRunner310._dummy_run() got an unexpected keyword argument 'skip_gdn_state_update'"
+      },
+      "source_sha256": {
+        "vllm_ascend/_310p/model_runner_310p.py": "012417ddc1442b6d5abdd2673bf074e0e8cf12ed8a46663d11cd5e95169f761c",
+        "vllm_ascend/ops/gdn.py": "eb0a641959d8f809f307c23938383c25073f84822ab2848fd5d1f048baa472d5",
+        "vllm_ascend/worker/model_runner_v1.py": "b93c450b8df646169033dc78b6d82d777e3088b05e75110a5770651708f0336c"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/negative_control.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/negative_control.stderr"
+    },
+    "gold": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/k3-idle-dp-gdn-state-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 1.0243648750474676,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null
+      },
+      "source_sha256": {
+        "vllm_ascend/_310p/model_runner_310p.py": "d5c80055ea02f5d770f04124c5652174ebb9d1db8aae54fc36c6298c9436c8d1",
+        "vllm_ascend/ops/gdn.py": "d26e15be45ec8a8bb84dab546d8a54963f75f90d0ae1b9fa0ce4167e73b01895",
+        "vllm_ascend/worker/model_runner_v1.py": "61ee8bc56d4ac0e1a7f43d1804bfe41c1a6699181774938907c97174f2348343"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/gold.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/gold.stderr"
+    },
+    "gold_helpers": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/k3-idle-dp-gdn-state-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 1.0064011249924079,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null
+      },
+      "source_sha256": {
+        "vllm_ascend/_310p/model_runner_310p.py": "d70adeebb1cee708922e42015158f7b5f8b9b40464491e9d3f88f71c3a55045f",
+        "vllm_ascend/ops/gdn.py": "74a4974546682a0b794a8906ce73d0c1ec43146f8ff1e3052180a83a7528b8d8",
+        "vllm_ascend/worker/model_runner_v1.py": "fcdfec8d13ca0f2ecb6110d2a29a4b940820d7e2698278ae3411c63af3b9a0dc"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/gold_helpers.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/gold_helpers.stderr"
+    },
+    "gold_equivalent": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/k3-idle-dp-gdn-state-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 1.2482426250353456,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null
+      },
+      "source_sha256": {
+        "vllm_ascend/_310p/model_runner_310p.py": "d5c80055ea02f5d770f04124c5652174ebb9d1db8aae54fc36c6298c9436c8d1",
+        "vllm_ascend/ops/behavior_state_helper.py": "fe09e849b6a2569236f2b2504c3ef7af30b0d97233bf180ef5baffd450184fb8",
+        "vllm_ascend/ops/gdn.py": "d26e15be45ec8a8bb84dab546d8a54963f75f90d0ae1b9fa0ce4167e73b01895",
+        "vllm_ascend/worker/model_runner_v1.py": "4023e5554698c7e5b330b4d7f4d5a712a409e4d30b57801ce1148817bfe34325"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/gold_equivalent.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/gold_equivalent.stderr"
+    },
+    "negative_partial_state": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/k3-idle-dp-gdn-state-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 1.0532362500671297,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "error_type": "AssertionError",
+        "failure_reason": "skip_gdn_state_update=True: GDN output retains live work: tokens=0, query_start_loc=[0, 0], nested_query_start_loc=[0, 1]; zero-token consumer did not return before device computation: NativeDispatch: active GDN computation reached a device operator"
+      },
+      "source_sha256": {
+        "vllm_ascend/_310p/model_runner_310p.py": "d5c80055ea02f5d770f04124c5652174ebb9d1db8aae54fc36c6298c9436c8d1",
+        "vllm_ascend/ops/behavior_state_helper.py": "97fa050d01f2ed65fdb5496da38f4d87e08bb31f2d2ee42a38884279fe110784",
+        "vllm_ascend/ops/gdn.py": "d26e15be45ec8a8bb84dab546d8a54963f75f90d0ae1b9fa0ce4167e73b01895",
+        "vllm_ascend/worker/model_runner_v1.py": "4023e5554698c7e5b330b4d7f4d5a712a409e4d30b57801ce1148817bfe34325"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/negative_partial_state.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/negative_partial_state.stderr"
+    },
+    "gold_consumer_early_return": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/k3-idle-dp-gdn-state-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 1.0144367080647498,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null
+      },
+      "source_sha256": {
+        "vllm_ascend/_310p/model_runner_310p.py": "d5c80055ea02f5d770f04124c5652174ebb9d1db8aae54fc36c6298c9436c8d1",
+        "vllm_ascend/ops/behavior_state_helper.py": "913e7eca26da5b77b500b36d1bc258e1ce400b88d0f6bf858e91558b9ea59da4",
+        "vllm_ascend/ops/gdn.py": "3f3300bce0381c2b67d7290f590f550351f5287378c40825fefcd11e6159365a",
+        "vllm_ascend/worker/model_runner_v1.py": "4023e5554698c7e5b330b4d7f4d5a712a409e4d30b57801ce1148817bfe34325"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/gold_consumer_early_return.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/gold_consumer_early_return.stderr"
+    },
+    "negative_missing_consumer_guard": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/k3-idle-dp-gdn-state-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 0.9881932499120012,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "error_type": "AssertionError",
+        "failure_reason": "skip_gdn_state_update=True: GDN output retains live work: tokens=0, query_start_loc=[0, 0], nested_query_start_loc=None; zero-token consumer did not return before device computation: AttributeError: 'AscendGatedDeltaNetAttention' object has no attribute 'rearrange_mixed_qkv'"
+      },
+      "source_sha256": {
+        "vllm_ascend/_310p/model_runner_310p.py": "d5c80055ea02f5d770f04124c5652174ebb9d1db8aae54fc36c6298c9436c8d1",
+        "vllm_ascend/ops/behavior_state_helper.py": "913e7eca26da5b77b500b36d1bc258e1ce400b88d0f6bf858e91558b9ea59da4",
+        "vllm_ascend/ops/gdn.py": "74a4974546682a0b794a8906ce73d0c1ec43146f8ff1e3052180a83a7528b8d8",
+        "vllm_ascend/worker/model_runner_v1.py": "4023e5554698c7e5b330b4d7f4d5a712a409e4d30b57801ce1148817bfe34325"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/negative_missing_consumer_guard.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/negative_missing_consumer_guard.stderr"
+    },
+    "negative_unconditional_consumer": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/k3-idle-dp-gdn-state-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 0.933075749897398,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "error_type": "AssertionError",
+        "failure_reason": "skip_gdn_state_update=True: GDN output retains live work: tokens=0, query_start_loc=[0, 0], nested_query_start_loc=None; active GDN control returned without dispatching computation"
+      },
+      "source_sha256": {
+        "vllm_ascend/_310p/model_runner_310p.py": "d5c80055ea02f5d770f04124c5652174ebb9d1db8aae54fc36c6298c9436c8d1",
+        "vllm_ascend/ops/behavior_state_helper.py": "913e7eca26da5b77b500b36d1bc258e1ce400b88d0f6bf858e91558b9ea59da4",
+        "vllm_ascend/ops/gdn.py": "0dbc358ffac880c1fadadc5221196193f6989a499e441cbb1de6314445ac7975",
+        "vllm_ascend/worker/model_runner_v1.py": "4023e5554698c7e5b330b4d7f4d5a712a409e4d30b57801ce1148817bfe34325"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/negative_unconditional_consumer.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-consumer/k3-idle-dp-gdn-state-zh-vague/negative_unconditional_consumer.stderr"
+    }
+  },
+  "errors": [],
+  "task_sha256": "1c46b0cee0f08ed85d4eaf11955043d733d2cce881ef836eb006f2c49cd3e60a"
 }

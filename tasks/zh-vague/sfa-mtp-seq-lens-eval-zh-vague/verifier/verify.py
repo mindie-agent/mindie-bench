@@ -1,3 +1,8 @@
+# [Role] Independent CPU behavior oracle for the historical regression.
+# [Invariants] Only executed tensor/state assertions establish success; helpers remain candidate code.
+# [Timeouts & Locks] Parent verifier bounds the isolated process; no locks or background jobs.
+# [Side-Effect Policy] Reads candidate sources; no NPU initialization or hardware performance claims.
+
 """Behavior oracle for SFA multi-step MTP sequence-length buffers (vllm-ascend #14236).
 
 Builds main and draft-step metadata through the workspace's AscendSFAMetadataBuilder
@@ -44,8 +49,72 @@ def define_function(node, namespace, filename):
             namespace[node.name] = previous
 
 
+def candidate_namespace(values):
+    """Give extracted classes real module globals (dataclass/typing resolve here)."""
+    import sys
+    module = types.ModuleType(f"_behavior_candidate_{len(sys.modules)}")
+    module.__dict__.update(values)
+    sys.modules[module.__name__] = module
+    return module.__dict__
+
+
+def load_support(tree, namespace, filename):
+    """Load candidate helpers, including classes, without module imports/initialization.
+
+    Unrelated hardware definitions may need unavailable bases/defaults; leave those
+    deferred. An exercised dependency still raises visibly at the behavior boundary.
+    AST selection is only an execution boundary and never a success criterion.
+    """
+    namespace.setdefault("__name__", "__main__")
+    # CPU-safe imports used by extracted helpers retain their normal aliases.
+    # Imported hardware/runtime collaborators remain the explicitly injected seam.
+    allowed = {"collections", "contextlib", "dataclasses", "enum", "functools", "itertools",
+               "math", "typing", "types", "numpy", "torch", "copy", "operator", "numbers"}
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            aliases = [alias for alias in node.names
+                       if alias.name.split(".")[0] in allowed
+                       and (alias.asname or alias.name.split(".")[0]) not in namespace]
+            selected = ast.Import(names=aliases) if aliases else None
+        elif isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] in allowed:
+            aliases = [alias for alias in node.names if (alias.asname or alias.name) not in namespace]
+            selected = ast.ImportFrom(module=node.module, names=aliases, level=node.level) if aliases else None
+        else:
+            selected = None
+        if selected is not None:
+            module = ast.Module(body=[selected], type_ignores=[])
+            exec(compile(ast.fix_missing_locations(module), filename, "exec"), namespace)
+    pending = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name not in namespace:
+                pending.append(node)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, TypeError):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    namespace.setdefault(target.id, value)
+    future = ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)
+    while pending:
+        deferred = []
+        for node in pending:
+            try:
+                module = ast.Module(body=[future, node], type_ignores=[])
+                exec(compile(ast.fix_missing_locations(module), filename, "exec"), namespace)
+            except (NameError, AttributeError):
+                deferred.append(node)
+        if len(deferred) == len(pending):
+            break
+        pending = deferred
+
+
 def load_class(tree, name, namespace, filename):
     """Rebuild a class from its methods; only methods the oracle calls must be definable."""
+    load_support(tree, namespace, filename)
     cls = type(name, (), {})
     for item in find_class(tree, name).body:
         if not isinstance(item, ast.FunctionDef):
@@ -64,7 +133,7 @@ def load_class(tree, name, namespace, filename):
 def check_draft_steps_keep_their_lengths(tree):
     import torch
 
-    namespace = {"torch": torch}
+    namespace = candidate_namespace({"torch": torch})
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and (function := define_function(node, namespace, SFA)):
             namespace[node.name] = function
@@ -135,11 +204,13 @@ def check_draft_steps_keep_their_lengths(tree):
 
 def main():
     failures = []
+    error_types = []
     try:
         path = ROOT / SFA
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         find_class(tree, BUILDER)
     except (OSError, SyntaxError, AssertionError) as exc:
+        error_types.append(type(exc).__name__)
         failures.append(f"{SFA}: {type(exc).__name__}: {exc}")
     if not failures:
         import torch  # noqa: F401 - absent runtime must crash as infrastructure, never score.
@@ -147,11 +218,12 @@ def main():
         try:
             failures.extend(check_draft_steps_keep_their_lengths(tree))
         except Exception as exc:  # noqa: BLE001 - any source defect is a judged failure.
+            error_types.append(type(exc).__name__)
             failures.append(f"{type(exc).__name__}: {exc}")
     if failures:
-        print(json.dumps({"reward": 0.0, "failure_reason": "; ".join(failures)}))
+        print(json.dumps({"reward": 0.0, "error_type": error_types[0] if error_types else "AssertionError", "failure_reason": "; ".join(failures)}))
         raise SystemExit(1)
-    print(json.dumps({"reward": 1.0}))
+    print(json.dumps({"reward": 1.0, "correctness_verified": True, "validation_scope": "cpu_behavior", "native_kernel_bound": None, "measured_npu_speedup": None, "speedup_ratio": None}))
 
 
 if __name__ == "__main__":

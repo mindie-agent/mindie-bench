@@ -1,11 +1,114 @@
 {
-  "after_reward": 1.0,
-  "before_reward": 0.0,
-  "errors": [],
-  "model_calls": 0,
-  "schema_version": "1.0",
-  "source_commit": "63bd2c418c8914201981f1150fc0e0ae5724896e",
+  "schema_version": "2.0",
   "status": "completed",
-  "task_sha256": "b3995119d04e4af6a6eb9435734c78bb5d8fb5fe5dab3e3ce5c2b6d2ee25aa4c",
-  "tier": "l2"
+  "task": "mtp-draft-slot-mapping-capacity-zh-vague",
+  "tier": "l2",
+  "validation_scope": "cpu_behavior",
+  "model_calls": 0,
+  "source_commit": "63bd2c418c8914201981f1150fc0e0ae5724896e",
+  "repository": "/Users/maoxx241/code/vllm-ascend",
+  "python": "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python",
+  "before_reward": 0.0,
+  "after_reward": 1.0,
+  "negative_control_reward": 0.0,
+  "helper_gold_reward": 1.0,
+  "verifier_sha256": {
+    "verifier/test.sh": "8f2d6215455079516c6a1a197d2073131ef1c3c64b318f9a04c63e8355297c0a",
+    "verifier/verify.py": "c1c186f8f0a5061700152424f94533eb6a70300de35f039c8e31d45250f2bba4"
+  },
+  "gold_patch_sha256": "cab16a9b8da46ac2967c3e28939f8c679ff53913cbfc9c158797ec71f7e65a9c",
+  "control_generator_sha256": "2d7b7d1a1673f0a48cb02c74a899681013047ea3da945a9cae388e4e30a44e26",
+  "native_kernel_bound": null,
+  "measured_npu_speedup": null,
+  "speedup_ratio": null,
+  "cases": {
+    "base": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mtp-draft-slot-mapping-capacity-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 0.7258909590309486,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "error_type": "AssertionError",
+        "failure_reason": "BlockTable slot_mapping holds 28 slots for num_speculative_tokens=0; expected 20; BlockTable slot_mapping holds 28 slots for num_speculative_tokens=1; expected 20; BlockTable slot_mapping holds 28 slots for num_speculative_tokens=2; expected 24; BlockTable slot_mapping holds 28 slots for num_speculative_tokens=5; expected 36; DCP1 MTP5 draft slot mapping of 36 slots overflowed: operands could not be broadcast together with shapes (36,) (36,) (28,) ; DCP4 MTP5 draft slot mapping of 36 slots overflowed: The expanded size of the tensor (28) must match the existing size (36) at non-singleton dimension 0.  Target sizes: [28].  Tensor sizes: [36]; slot_mapping_group for num_speculative_tokens=1 has sizes [28]; expected 1 x 20; slot_mapping_group for num_speculative_tokens=5 has sizes [28, 28, 28, 28, 28]; expected 5 x 36"
+      },
+      "source_sha256": {
+        "vllm_ascend/spec_decode/llm_base_proposer.py": "83258dd96bf745eca929a7fb81466b07d8a0f7ab1da34ce0e4adc7a400323015",
+        "vllm_ascend/worker/block_table.py": "a24ca005bdee4bca954f3c6c82b42ab9814841c43d2d786c1c753915786b6e04"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/base.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/base.stderr"
+    },
+    "negative_control": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mtp-draft-slot-mapping-capacity-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_sec": 0.6109961669426411,
+      "reward": 0.0,
+      "verdict": {
+        "reward": 0.0,
+        "error_type": "AttributeError",
+        "failure_reason": "BlockTable: AttributeError: 'BlockTable' object has no attribute 'slot_mapping'; AscendSpecDecodeBaseProposer: AssertionError: __init__ never assigns ['query_start_loc_group', 'seq_lens_group', 'slot_mapping_group']"
+      },
+      "source_sha256": {
+        "vllm_ascend/spec_decode/llm_base_proposer.py": "5054de6f297eac60b045e2b317a108ea02fbcb97b9881a1dd0030ed71b7103c3",
+        "vllm_ascend/worker/block_table.py": "081eb3d1a68e6b35e227938a5f77d1ffb6c65fb2b951bf9bd754f5c54c9b24ae"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/negative_control.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/negative_control.stderr"
+    },
+    "gold": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mtp-draft-slot-mapping-capacity-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 0.637935834005475,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null
+      },
+      "source_sha256": {
+        "vllm_ascend/spec_decode/llm_base_proposer.py": "c8f07fea43e6f10226a403441b1c9b3dd958512764e2c4ccdc27737a1275ca79",
+        "vllm_ascend/worker/block_table.py": "6c17cb4ce9a461c0b8f30bfa6bf3a91ad0eaf44d1bf08b780af59d2ae52071b7"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/gold.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/gold.stderr"
+    },
+    "gold_helpers": {
+      "command": [
+        "bash",
+        "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mtp-draft-slot-mapping-capacity-zh-vague/verifier/test.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_sec": 0.7008712909882888,
+      "reward": 1.0,
+      "verdict": {
+        "reward": 1.0,
+        "correctness_verified": true,
+        "validation_scope": "cpu_behavior",
+        "native_kernel_bound": null,
+        "measured_npu_speedup": null,
+        "speedup_ratio": null
+      },
+      "source_sha256": {
+        "vllm_ascend/spec_decode/llm_base_proposer.py": "223aac11b78db8741a0e31ebfaeea407d9d844ca4a12812ce2cac87129baa146",
+        "vllm_ascend/worker/block_table.py": "d8e59ef86fefed47d29366b151c6e29b31f5a302e4c749d247e96eca2a60d530"
+      },
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/gold_helpers.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/gold_helpers.stderr"
+    }
+  },
+  "errors": [],
+  "task_sha256": "606fa4d043151d2caa3e919f909cd1a23cc1c3f9bee1839a24f07d41459b5446"
 }
