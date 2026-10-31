@@ -14,10 +14,10 @@
   "helper_gold_reward": 1.0,
   "verifier_sha256": {
     "verifier/test.sh": "8f2d6215455079516c6a1a197d2073131ef1c3c64b318f9a04c63e8355297c0a",
-    "verifier/verify.py": "cc359b09f68dec3315378bcdce59893226a54d92ac7e7ce9f3c01d237036702c"
+    "verifier/verify.py": "9ae2166eba9d11222d937deb0fa40aaa9d883b152eb2706ce3b5a7437fce192e"
   },
   "gold_patch_sha256": "144d4ae9b0c9983baf3c927d5b33b2038e9e8705783d56b4c814e7a26ee418b4",
-  "control_generator_sha256": "2d7b7d1a1673f0a48cb02c74a899681013047ea3da945a9cae388e4e30a44e26",
+  "control_generator_sha256": "7dad90050225420b3e790e9a6319aef8327bc63e4bd8374e6ff56c78ad002618",
   "native_kernel_bound": null,
   "measured_npu_speedup": null,
   "speedup_ratio": null,
@@ -28,7 +28,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/dspark-mrv2-drafter-crash-zh-vague/verifier/test.sh"
       ],
       "exit_code": 1,
-      "elapsed_sec": 1.0610911659896374,
+      "elapsed_sec": 1.0223896659445018,
       "reward": 0.0,
       "verdict": {
         "reward": 0.0,
@@ -39,8 +39,8 @@
         "vllm_ascend/attention/dsa_v1.py": "cf1eef7a9d4d90e71f2314135962348a09e642ad3678a0d4bc9ebf670bc010bf",
         "vllm_ascend/models/deepseek_v4/model.py": "236a133efe792f41d7c034deae5e98646b086f9d24301b265bf82ae9fe970cb5"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/base.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/base.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/dspark-mrv2-drafter-crash-zh-vague/base.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/dspark-mrv2-drafter-crash-zh-vague/base.stderr"
     },
     "negative_control": {
       "command": [
@@ -48,7 +48,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/dspark-mrv2-drafter-crash-zh-vague/verifier/test.sh"
       ],
       "exit_code": 1,
-      "elapsed_sec": 0.630474083009176,
+      "elapsed_sec": 0.531915207975544,
       "reward": 0.0,
       "verdict": {
         "reward": 0.0,
@@ -59,8 +59,8 @@
         "vllm_ascend/attention/dsa_v1.py": "cb986dc2f584dd2491a3a05a48d5e29e743ac134a1cd62997793a4a995554abd",
         "vllm_ascend/models/deepseek_v4/model.py": "0ec510d7d8fcb4ac5d66ef2da1e4ef4c39432d3346ec37d0e9411dbe8a890f97"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/negative_control.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/negative_control.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/dspark-mrv2-drafter-crash-zh-vague/negative_control.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/dspark-mrv2-drafter-crash-zh-vague/negative_control.stderr"
     },
     "gold": {
       "command": [
@@ -68,7 +68,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/dspark-mrv2-drafter-crash-zh-vague/verifier/test.sh"
       ],
       "exit_code": 0,
-      "elapsed_sec": 0.6568553330143914,
+      "elapsed_sec": 0.5630371660226956,
       "reward": 1.0,
       "verdict": {
         "reward": 1.0,
@@ -82,8 +82,8 @@
         "vllm_ascend/attention/dsa_v1.py": "63e35213d6f20d53bc17a47962116264f755fe62842c0ed9d9c517a0ed65e719",
         "vllm_ascend/models/deepseek_v4/model.py": "e1d64a1afea39999a56dca9fd30f195502b28b4319ee8bc51a0338955e20db19"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/gold.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/gold.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/dspark-mrv2-drafter-crash-zh-vague/gold.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/dspark-mrv2-drafter-crash-zh-vague/gold.stderr"
     },
     "gold_helpers": {
       "command": [
@@ -91,7 +91,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/dspark-mrv2-drafter-crash-zh-vague/verifier/test.sh"
       ],
       "exit_code": 0,
-      "elapsed_sec": 0.6453342919703573,
+      "elapsed_sec": 0.5434727090178058,
       "reward": 1.0,
       "verdict": {
         "reward": 1.0,
@@ -105,10 +105,10 @@
         "vllm_ascend/attention/dsa_v1.py": "04275b5c5f4fa62d5b997c23d06f39b3b13ad4ac6d3a1317ed84778c62fd6148",
         "vllm_ascend/models/deepseek_v4/model.py": "5b24c2c0670b1f6c6b72b80e0c58c112f9739551e133937bb2dc03c00116423d"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/gold_helpers.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/dspark-mrv2-drafter-crash-zh-vague/gold_helpers.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/dspark-mrv2-drafter-crash-zh-vague/gold_helpers.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/dspark-mrv2-drafter-crash-zh-vague/gold_helpers.stderr"
     }
   },
   "errors": [],
-  "task_sha256": "481a56bd9422824f532ed351dadb0e0167f149e5a95addbccb411b8d1e836843"
+  "task_sha256": "54cb5fc6642413651fbecdf1cb1de7607050292d40361cc2b8352611abefbf69"
 }

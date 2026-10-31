@@ -1,13 +1,21 @@
-# mindie-bench 0.4.5: Native Knowledge Evaluation and Missing Measurement Semantics
+# mindie-bench 0.4.5: Native Knowledge Evaluation Integration, Shell Temp Isolation & Missing-Metric Accounting
 
 [中文](https://github.com/mindie-agent/mindie-bench/blob/v0.4.5/docs/releases/mindie-bench-0.4.5.md) · **English**
 
-Native Codex evaluation uses the plugin's production entry, actual `UserPromptSubmit` authorization, and private knowledge CLI while preserving isolated profiles and the selected model and reasoning configuration. Native DSH configuration includes the required `mcpPluginUrl` and checks the actually mounted host catalog before paid execution. Starting a standalone Store or MCP process is not accepted as proof that the host loaded the plugin. Both hosts reuse installed component commands and task dependency paths; artifact identities now include actual module source and wheel digests.
+`mindie-bench 0.4.5` standardizes production knowledge evaluation wiring across the native Codex and DSH harnesses, fixes `zsh` heredoc temp-file sandbox denials, and tightens metric accounting when private CLI knowledge calls are only partially observable via named MCP events.
 
-When named MCP events cannot fully observe Codex's private knowledge calls, absolute query/explain counts, knowledge time, and the corresponding remainder remain `null`. Observed named calls are retained separately as lower bounds. Aggregates and component reports no longer convert missing or partial coverage to zero, or treat an entire shell command's duration as knowledge time. Actual model tokens, wall time, and business oracle results remain separate measurements.
+## 1. Key Fixes & Engineering Improvements
 
-Native terminal setup binds zsh's `TMPPREFIX` to the existing profile temporary directory, preventing heredoc and here-string operations from trying to write to unauthorized `/tmp/zsh` paths without broadening sandbox access. Historical receipts, failure logs, frozen artifacts, and paid-request usage are preserved.
+- **Production Native Knowledge Wiring for Codex & DSH**:
+  - Native Codex evaluation runs through the plugin's production entry point, real `UserPromptSubmit` hook authorization, and private knowledge CLI while preserving isolated profiles and configured model/reasoning settings.
+  - Native DSH configuration injects `mcpPluginUrl` and verifies the mounted host catalog during preflight rather than treating standalone Store or MCP startup as proof of host attachment.
+  - Both harnesses reuse installed component CLIs and task dependency paths, recording loaded module source and wheel digests in artifact provenance.
+- **Honest `null` Accounting for Partially Observed CLI Knowledge Calls**:
+  - When named MCP events do not cover all private CLI knowledge invocations in Codex, total `query`/`explain` counts, knowledge latency, and residual non-knowledge time remain `null`, while observed named calls are reported separately as a lower bound.
+  - Summary and component reports no longer coerce missing coverage to `0` or count an entire shell command's elapsed time as knowledge retrieval time.
+- **Sandboxed `zsh` `TMPPREFIX` Binding**:
+  - Native terminal setup binds `TMPPREFIX` to the profile's managed temporary directory so `zsh` heredocs and here-strings no longer attempt to write to unauthorized `/tmp/zsh*` paths.
 
-The merged functional commit passed 73 focused local tests covering real terminal processes, native event parsing, and missing-value aggregation. Ruff, LF, and cross-platform CI also passed. The formal release workflow still installs this exact tag's locked dependencies, verifies formal first-party dependency Releases, runs local contracts and the retrieval-scoring microbenchmark, and publishes evidence and checksums.
+## 2. Verification
 
-This release corrects evaluation integration and measurement, not proof of an overall knowledge-policy benefit. Small single-bug CPU pairs showed a cost-reduction signal, but the complex-task non-regression threshold was not met. Codex temporary-file noise, unfinished attempts, and incomplete usage remain part of the evidence. Release preparation adds no paid model calls and does not rewrite historical results.
+- **`73 passed`** across focused local regression tests covering real terminal processes, native event parsing, and missing-value aggregation boundaries; `ruff`, Unix `LF` line-ending checks, and cross-platform CI all pass.

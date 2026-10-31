@@ -15,7 +15,7 @@ knowledge_gradient = "near_exact"
 same_origin_task_hashes = []
 target_files = ["vllm_ascend/worker/block_table.py", "vllm_ascend/spec_decode/llm_base_proposer.py"]
 [budget]
-max_turns = 60
+max_turns = 120
 max_npu_runs = 12
 timeout_sec = 600
 verifier_timeout_sec = 180

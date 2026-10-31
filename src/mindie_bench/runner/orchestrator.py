@@ -465,22 +465,31 @@ def run_trial(
                     fingerprint["inference_native_stop_reason"] = result.stop_reason
                 # The stopped agent's existing artifact is still independently judged.
                 # Reaching its limit is recorded separately from that business verdict.
-                passed = verdict.reward == 1.0
-                status = TerminalStatus.PASS if passed else TerminalStatus.FAIL
-                reason = (
-                    None
-                    if passed
-                    else verdict.failure_reason
-                    or "external verifier rejected final state"
-                )
+                if verdict.verification_status == "unsupported":
+                    passed = False
+                    status = TerminalStatus.INFRA
+                    reason = (
+                        verdict.failure_reason
+                        or "verifier environment is unsupported (missing required runtime dependency)"
+                    )
+                else:
+                    passed = verdict.reward == 1.0
+                    status = TerminalStatus.PASS if passed else TerminalStatus.FAIL
+                    reason = (
+                        None
+                        if passed
+                        else verdict.failure_reason
+                        or "external verifier rejected final state"
+                    )
                 primary.update(
-                    resolved=passed,
-                    reward=1.0 if passed else 0.0,
+                    resolved=passed if status != TerminalStatus.INFRA else None,
+                    reward=1.0 if passed else (0.0 if status != TerminalStatus.INFRA else None),
                     performance_metrics=verdict.model_dump(exclude={"reward"}),
                 )
                 auxiliary["verifier"] = verifier_record
                 verifier_seconds = time.monotonic() - verifier_started
-                primary_verdict = status
+                if status != TerminalStatus.INFRA:
+                    primary_verdict = status
         phase = "postflight"
         if (
             capture_enabled
@@ -488,6 +497,7 @@ def run_trial(
             and primary.get("performance_metrics", {}).get("oracle_status") != "oracle_tampered"
         ):
             phase = "capture"
+            capture_started = time.monotonic()
             capture_started = run_g3_capture(
                 task_root=task_root,
                 task=task,

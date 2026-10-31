@@ -275,10 +275,18 @@ def local_verifier(
             env[env_key] = candidate
             py_path = Path(candidate).expanduser()
             if py_path.is_file():
-                extra_verifier_reads.append(py_path.resolve(strict=True).parent.parent)
+                extra_verifier_reads.extend(
+                    [
+                        py_path.parent.parent.resolve(strict=True),
+                        py_path.resolve(strict=True).parent.parent,
+                    ]
+                )
     default_cpu_rt = Path("/tmp/mindie-bench-cpu-runtime-20261022")
     if default_cpu_rt.is_dir():
         extra_verifier_reads.append(default_cpu_rt.resolve(strict=True))
+        default_cpu_py = default_cpu_rt / "venv" / "bin" / "python"
+        if default_cpu_py.is_file():
+            extra_verifier_reads.append(default_cpu_py.resolve(strict=True).parent.parent)
     deadline = time.monotonic() + timeout
 
     def execute(arguments: list[str], name: str):

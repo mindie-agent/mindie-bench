@@ -95,7 +95,17 @@ def load_class(tree, name, methods, namespace, filename, base="object"):
     # Keep the actual class cell so zero-argument super() retains Python semantics.
     node = copy.deepcopy(next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == name))
     node.bases, node.keywords, node.decorator_list = [ast.Name(id=base, ctx=ast.Load())], [], []
-    node.body = [n for n in node.body if isinstance(n, ast.FunctionDef) and n.name in methods]
+    kept = []
+    for n in node.body:
+        if isinstance(n, ast.FunctionDef) and n.name in methods:
+            kept.append(n)
+        elif isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None:
+            try:
+                ast.literal_eval(n.value)
+                kept.append(n)
+            except (ValueError, TypeError):
+                pass
+    node.body = kept or [ast.Pass()]
     load_support(tree, namespace, filename)
     compile_nodes([node], namespace, filename)
     return namespace[name]

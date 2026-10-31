@@ -600,6 +600,7 @@ def build_agent_prompt(profile, task_root, *, remote, devices):
             "Apply the repair here and use the public reproducer or relevant available "
             "tests for validation. Git history, stash and checkout are unavailable. "
             "Choose validation proportional to the change and observed failures; "
-            "report any unavailable dependencies in your final answer.\n"
+            "finish and return your final answer as soon as your targeted repair is verified, "
+            "and report any unavailable dependencies in your final answer.\n"
         )
     return prompt

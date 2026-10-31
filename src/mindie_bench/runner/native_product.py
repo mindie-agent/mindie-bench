@@ -260,16 +260,26 @@ class NativeProductService:
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-        connection = Path(connection_path)
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            if proc.poll() is not None:
-                raise RuntimeError("native knowledge service exited before readiness")
-            if connection.is_file():
-                state = json.loads(connection.read_text())
-                return proc, urlparse(state["url"]).port
-            time.sleep(0.02)
-        raise TimeoutError("native knowledge service did not become ready in30s")
+        try:
+            connection = Path(connection_path)
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                if proc.poll() is not None:
+                    raise RuntimeError("native knowledge service exited before readiness")
+                if connection.is_file():
+                    state = json.loads(connection.read_text())
+                    return proc, urlparse(state["url"]).port
+                time.sleep(0.02)
+            raise TimeoutError("native knowledge service did not become ready in30s")
+        except BaseException:
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGTERM)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait(timeout=5)
+            raise
 
     def __enter__(self):
         info = self.info

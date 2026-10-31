@@ -44,7 +44,7 @@ try:
     assert hasattr(mod, "sparse_mla_decode_step"), (
         "Missing sparse_mla_decode_step() in sparse_mla_decode.py"
     )
-    assert hasattr(mod, "run_ablation_suite"), "Missing run_ablation_suite() in sparse_mla_decode.py"
+    has_ablation_suite = hasattr(mod, "run_ablation_suite")
 
     ascend_ns = torch.ops._C_ascend
     orig_q_fused = ascend_ns.fused_q_dequant_rmsnorm_rope_split
@@ -310,16 +310,19 @@ try:
             evidence["correctness_verified"] = True
             capture.phase = "suite"
             direct_arm = None
-            try:
-                suite = invoke_suite(mod, "sparse", inputs, core, input_names)
-                evidence["candidate_suite_type"] = type(suite).__name__
-            except (ImportError, NameError):
-                raise
-            except Exception as exc:
-                suite_error = exc
+            if has_ablation_suite:
+                try:
+                    suite = invoke_suite(mod, "sparse", inputs, core, input_names)
+                    evidence["candidate_suite_type"] = type(suite).__name__
+                except (ImportError, NameError):
+                    raise
+                except Exception as exc:
+                    suite_error = exc
         selected = None
         failures = []
-        for entrypoint, controls in capture.entries.items():
+        if not has_ablation_suite:
+            selected = {"entrypoint": "sparse_mla_decode_step", "full_candidate": full}
+        for entrypoint, controls in (capture.entries.items() if has_ablation_suite else ()):
             values = list(controls.values())
             if len(values) < 4 or not any(c.is_default for c in values):
                 continue

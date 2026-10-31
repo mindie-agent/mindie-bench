@@ -126,6 +126,16 @@ def load_class(tree, name, namespace, filename):
     load_support(tree, namespace, filename)
     cls = type(name, (), {})
     for item in find_class(tree, name).body:
+        if isinstance(item, (ast.Assign, ast.AnnAssign)) and item.value is not None:
+            try:
+                value = ast.literal_eval(item.value)
+            except (ValueError, TypeError):
+                continue
+            targets = item.targets if isinstance(item, ast.Assign) else [item.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    setattr(cls, target.id, value)
+            continue
         if not isinstance(item, ast.FunctionDef):
             continue
         method = copy.deepcopy(item)

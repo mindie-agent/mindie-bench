@@ -3,8 +3,8 @@
   "before_reward": 0.0,
   "cases": {
     "baseline": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/baseline.candidate.py",
-      "elapsed_seconds": 0.5586596250068396,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/baseline.candidate.py",
+      "elapsed_seconds": 0.5327179579762742,
       "exit_code": 1,
       "expected_reward": 0.0,
       "input_files": {
@@ -12,8 +12,8 @@
       },
       "input_sha256": "c7058e41fe03b057aa64363eb2017292ad4e3764dcd3605b88f045fa6cd59019",
       "reward": 0.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/baseline.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/baseline.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/baseline.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/baseline.stdout",
       "verdict": {
         "ablation_contract_verified": null,
         "correctness_verified": null,
@@ -35,8 +35,8 @@
       }
     },
     "constant_return": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/constant_return.candidate.py",
-      "elapsed_seconds": 0.5634539169259369,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/constant_return.candidate.py",
+      "elapsed_seconds": 0.5180616249563172,
       "exit_code": 1,
       "expected_reward": 0.0,
       "input_files": {
@@ -46,8 +46,8 @@
       },
       "input_sha256": "5f46f3b3bf7d68cf01248ef1071fe93839c40bbb5e97fbf2707f6a3df4a0f2f0",
       "reward": 0.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/constant_return.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/constant_return.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/constant_return.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/constant_return.stdout",
       "verdict": {
         "ablation_contract_verified": null,
         "correctness_verified": null,
@@ -69,8 +69,8 @@
       }
     },
     "gold": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold.candidate.py",
-      "elapsed_seconds": 0.5634427079930902,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold.candidate.py",
+      "elapsed_seconds": 0.5331516670994461,
       "exit_code": 0,
       "expected_reward": 1.0,
       "input_files": {
@@ -80,8 +80,8 @@
       },
       "input_sha256": "7ff77d1e929a6e650117378296d1491f5e2719627cc84b19335b1f196dd61d8e",
       "reward": 1.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold.stdout",
       "verdict": {
         "ablation_contract_verified": true,
         "candidate_suite_type": "dict",
@@ -186,8 +186,8 @@
       }
     },
     "gold_bf16_inplace": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_bf16_inplace.candidate.py",
-      "elapsed_seconds": 0.5769093750277534,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_bf16_inplace.candidate.py",
+      "elapsed_seconds": 0.5293003339320421,
       "exit_code": 0,
       "expected_reward": 1.0,
       "input_files": {
@@ -197,8 +197,8 @@
       },
       "input_sha256": "dd35a3fba2500fe3d18f16cb1afe0664147fb1db5579dd808e6a0f22a13e5610",
       "reward": 1.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_bf16_inplace.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_bf16_inplace.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_bf16_inplace.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_bf16_inplace.stdout",
       "verdict": {
         "ablation_contract_verified": true,
         "candidate_suite_type": "dict",
@@ -303,8 +303,8 @@
       }
     },
     "gold_helper": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_helper.candidate.py",
-      "elapsed_seconds": 0.5574646670138463,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_helper.candidate.py",
+      "elapsed_seconds": 0.5355636660242453,
       "exit_code": 0,
       "expected_reward": 1.0,
       "input_files": {
@@ -314,8 +314,8 @@
       },
       "input_sha256": "1e98ffae2687197f226428ddb3f0c6652007e92e0a686627b9af7199ccb4955e",
       "reward": 1.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_helper.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_helper.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_helper.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_helper.stdout",
       "verdict": {
         "ablation_contract_verified": true,
         "candidate_suite_type": "dict",
@@ -420,8 +420,8 @@
       }
     },
     "gold_suite_helper": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_suite_helper.candidate.py",
-      "elapsed_seconds": 0.7900594159727916,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_suite_helper.candidate.py",
+      "elapsed_seconds": 0.5566664580255747,
       "exit_code": 0,
       "expected_reward": 1.0,
       "input_files": {
@@ -431,8 +431,8 @@
       },
       "input_sha256": "b44156de6375f7e71cf2b61799643877b0ebdf87dca73706273961e2d4e8ec22",
       "reward": 1.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_suite_helper.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_suite_helper.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_suite_helper.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/gold_suite_helper.stdout",
       "verdict": {
         "ablation_contract_verified": true,
         "candidate_suite_type": "dict",
@@ -537,8 +537,8 @@
       }
     },
     "negative_control": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/negative_control.candidate.py",
-      "elapsed_seconds": 0.5534632080234587,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/negative_control.candidate.py",
+      "elapsed_seconds": 0.5255570419831201,
       "exit_code": 1,
       "expected_reward": 0.0,
       "input_files": {
@@ -548,8 +548,8 @@
       },
       "input_sha256": "fe367a61e7c20b5b406a30bca1942b5cdce4d9d2b9d89dbee505752cced05ad6",
       "reward": 0.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/negative_control.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-triton-spatial-norm-dim-merge-rsi-zh/negative_control.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/negative_control.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-triton-spatial-norm-dim-merge-rsi-zh/negative_control.stdout",
       "verdict": {
         "ablation_contract_verified": null,
         "correctness_verified": null,
@@ -584,12 +584,12 @@
   "source_commit": "264445c1379b7e5c00df06752bf6a9c604c2c3cb",
   "speedup_ratio": null,
   "status": "completed",
-  "task_sha256": "5dc00c176be7f6fc0bb86fb2d6e8a9375ddbbcf488410a8941f0e9d9a7a1730a",
+  "task_sha256": "64c45bf85a0cbc7a7024d1ecb87089c9d78e70e0dc9b4ee037c269e8adf44527",
   "tier": "l3",
   "verifier_files": {
     "runtime_controls.py": "d181cd55111a8cb8cf3945d2e62f2e56c2e10e96b16cf9c6369b867dac388eae",
     "test.sh": "e2e6d259669b20436fe1d564b5df5218b98ba9ae991cedd56f9d6f8a4c7ed641",
-    "verify.py": "f8727e07884ea77d247508e22aa54dbdaaf1e3a58dc86c5ac5b3d5c52edeadb7"
+    "verify.py": "b0df8e1a811432d3f801819bbefc02f9e588c731f9a156d3b0501cc4ef363f53"
   },
-  "verifier_sha256": "5cfb17ec697d46b1c60582c781911526ee662a13da91ca6f6da313db4bf3d540"
+  "verifier_sha256": "a75395d66755dcf2ab0487600c6e3b550cc08f1ecfde14ac61d7d57add09912b"
 }

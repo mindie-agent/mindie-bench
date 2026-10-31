@@ -3,10 +3,15 @@
   "before_reward": 0.0,
   "controls": {
     "base": {
-      "duration_sec": 0.02940949995536357,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/sim-a3-ub-fusion-and-pipeline-dispatch-zh/verifier/test.sh"
+      ],
+      "duration_sec": 0.02485987509135157,
       "exit_code": 1,
       "expected_reward": 0.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 0.0,
       "source_sha256": "ca2ff206576623880662599f10e46d19d21ddf5a0aeb1d3d097ef45ad3f2d916",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -19,10 +24,15 @@
       "workspace_sha256": "731cd366483294258c47e3985ffcc470dea8f67f7e32f2088656648e491a26d4"
     },
     "gold": {
-      "duration_sec": 0.03026895795483142,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/sim-a3-ub-fusion-and-pipeline-dispatch-zh/verifier/test.sh"
+      ],
+      "duration_sec": 0.15630120795685798,
       "exit_code": 0,
       "expected_reward": 1.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 1.0,
       "source_sha256": "6df965be37e7247d08a493362fac71167ed453c8b3d9501b87712bbe8400ae37",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -39,10 +49,15 @@
       "workspace_sha256": "b2afa4c6b404ee3765ec82ce1e78b9209a77a2ce27df718dbc0490a29ea17e91"
     },
     "gold_helper_class": {
-      "duration_sec": 0.028065750026144087,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/sim-a3-ub-fusion-and-pipeline-dispatch-zh/verifier/test.sh"
+      ],
+      "duration_sec": 0.15696054208092391,
       "exit_code": 0,
       "expected_reward": 1.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 1.0,
       "source_sha256": "30ddf4d9e0bf502aedafb3f7bc960eb0fbed7e75360e3ca9f3baa9db631bce52",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -59,10 +74,15 @@
       "workspace_sha256": "95ee028d9e1ea4ec5caf93f5d60bc9f7f493752b5f66d3ad3baea6677db49cf6"
     },
     "gold_helper_function": {
-      "duration_sec": 0.0270734999794513,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/sim-a3-ub-fusion-and-pipeline-dispatch-zh/verifier/test.sh"
+      ],
+      "duration_sec": 0.1531005830038339,
       "exit_code": 0,
       "expected_reward": 1.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 1.0,
       "source_sha256": "c16a6a8ab1d5eae6dcbc7c6a3c1db0b7fed3fef6f0eb02826357780527fe5d48",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -79,10 +99,15 @@
       "workspace_sha256": "80d4f14f5a059c85ee3de7ccced91b3732da8721ae58d0b436542debbfdf2529"
     },
     "negative": {
-      "duration_sec": 0.026649749954231083,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/sim-a3-ub-fusion-and-pipeline-dispatch-zh/verifier/test.sh"
+      ],
+      "duration_sec": 0.022209375048987567,
       "exit_code": 1,
       "expected_reward": 0.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 0.0,
       "source_sha256": "d687a12975a4a60828cd8f21ce26609e5c890eb90a4b5a22ac3d520cad30e98d",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -96,7 +121,7 @@
     }
   },
   "errors": [],
-  "evidence_directory": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/verifier-integrity-20261029/remaining-cpu-final/sim-a3-ub-fusion-and-pipeline-dispatch-zh",
+  "evidence_directory": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/sim-a3-ub-fusion-and-pipeline-dispatch-zh",
   "measured_npu_speedup": null,
   "model_calls": 0,
   "negative_reward": 0.0,
@@ -107,12 +132,12 @@
   "status": "completed",
   "target": "vllm_ascend_diag/a3_sim_planner.py",
   "task": "sim-a3-ub-fusion-and-pipeline-dispatch-zh",
-  "task_sha256": "fe95bab4c61916fcd948321e358f421b9f07a145b2a7afcf51a656c733322977",
+  "task_sha256": "747feef83b8dfe936a7f2eaa6d5106408dc12496473dff0d490badca4dd37375",
   "tier": "l2",
   "tpot_ms": null,
   "verifier_files": {
-    "test.sh": "e8bd1c5ac87581260847936d4ab54853d8d6675278b36dd48a578bdde7f52f80",
-    "verify.py": "84e6fca441bc556cb7ed7ad87a8c9fd7691a0d40e58c2a4f7fca0f5aa48bfffb"
+    "test.sh": "f9e75ac73a21070ff282ff4653fa45a5d52191f8563523d9c0206936059873e0",
+    "verify.py": "1f724794580129149985d5a78673dab11984633c5ed7345e4644d5b5000ec47c"
   },
-  "verifier_sha256": "77f1dccfe3f9fc30cf4b6c38acf9fcbc7efed2a62013ef69ad6c849f0e69d989"
+  "verifier_sha256": "7085cb0de37fab0657514e9f8521060e2810b7ef77ef68655ad30a615f535763"
 }

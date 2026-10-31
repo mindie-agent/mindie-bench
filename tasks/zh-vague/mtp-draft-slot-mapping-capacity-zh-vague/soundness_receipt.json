@@ -14,10 +14,10 @@
   "helper_gold_reward": 1.0,
   "verifier_sha256": {
     "verifier/test.sh": "8f2d6215455079516c6a1a197d2073131ef1c3c64b318f9a04c63e8355297c0a",
-    "verifier/verify.py": "c1c186f8f0a5061700152424f94533eb6a70300de35f039c8e31d45250f2bba4"
+    "verifier/verify.py": "aafc696e9e7b67a09aaa1e93b2e9ed0f0a2ede068ecc5344aaf43b0c88d78da8"
   },
   "gold_patch_sha256": "cab16a9b8da46ac2967c3e28939f8c679ff53913cbfc9c158797ec71f7e65a9c",
-  "control_generator_sha256": "2d7b7d1a1673f0a48cb02c74a899681013047ea3da945a9cae388e4e30a44e26",
+  "control_generator_sha256": "7dad90050225420b3e790e9a6319aef8327bc63e4bd8374e6ff56c78ad002618",
   "native_kernel_bound": null,
   "measured_npu_speedup": null,
   "speedup_ratio": null,
@@ -28,7 +28,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mtp-draft-slot-mapping-capacity-zh-vague/verifier/test.sh"
       ],
       "exit_code": 1,
-      "elapsed_sec": 0.7258909590309486,
+      "elapsed_sec": 0.593752000015229,
       "reward": 0.0,
       "verdict": {
         "reward": 0.0,
@@ -39,8 +39,8 @@
         "vllm_ascend/spec_decode/llm_base_proposer.py": "83258dd96bf745eca929a7fb81466b07d8a0f7ab1da34ce0e4adc7a400323015",
         "vllm_ascend/worker/block_table.py": "a24ca005bdee4bca954f3c6c82b42ab9814841c43d2d786c1c753915786b6e04"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/base.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/base.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mtp-draft-slot-mapping-capacity-zh-vague/base.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mtp-draft-slot-mapping-capacity-zh-vague/base.stderr"
     },
     "negative_control": {
       "command": [
@@ -48,7 +48,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mtp-draft-slot-mapping-capacity-zh-vague/verifier/test.sh"
       ],
       "exit_code": 1,
-      "elapsed_sec": 0.6109961669426411,
+      "elapsed_sec": 0.5309878330444917,
       "reward": 0.0,
       "verdict": {
         "reward": 0.0,
@@ -59,8 +59,8 @@
         "vllm_ascend/spec_decode/llm_base_proposer.py": "5054de6f297eac60b045e2b317a108ea02fbcb97b9881a1dd0030ed71b7103c3",
         "vllm_ascend/worker/block_table.py": "081eb3d1a68e6b35e227938a5f77d1ffb6c65fb2b951bf9bd754f5c54c9b24ae"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/negative_control.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/negative_control.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mtp-draft-slot-mapping-capacity-zh-vague/negative_control.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mtp-draft-slot-mapping-capacity-zh-vague/negative_control.stderr"
     },
     "gold": {
       "command": [
@@ -68,7 +68,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mtp-draft-slot-mapping-capacity-zh-vague/verifier/test.sh"
       ],
       "exit_code": 0,
-      "elapsed_sec": 0.637935834005475,
+      "elapsed_sec": 0.5765646669315174,
       "reward": 1.0,
       "verdict": {
         "reward": 1.0,
@@ -82,8 +82,8 @@
         "vllm_ascend/spec_decode/llm_base_proposer.py": "c8f07fea43e6f10226a403441b1c9b3dd958512764e2c4ccdc27737a1275ca79",
         "vllm_ascend/worker/block_table.py": "6c17cb4ce9a461c0b8f30bfa6bf3a91ad0eaf44d1bf08b780af59d2ae52071b7"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/gold.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/gold.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mtp-draft-slot-mapping-capacity-zh-vague/gold.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mtp-draft-slot-mapping-capacity-zh-vague/gold.stderr"
     },
     "gold_helpers": {
       "command": [
@@ -91,7 +91,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mtp-draft-slot-mapping-capacity-zh-vague/verifier/test.sh"
       ],
       "exit_code": 0,
-      "elapsed_sec": 0.7008712909882888,
+      "elapsed_sec": 0.5855643750401214,
       "reward": 1.0,
       "verdict": {
         "reward": 1.0,
@@ -105,10 +105,10 @@
         "vllm_ascend/spec_decode/llm_base_proposer.py": "223aac11b78db8741a0e31ebfaeea407d9d844ca4a12812ce2cac87129baa146",
         "vllm_ascend/worker/block_table.py": "d8e59ef86fefed47d29366b151c6e29b31f5a302e4c749d247e96eca2a60d530"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/gold_helpers.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mtp-draft-slot-mapping-capacity-zh-vague/gold_helpers.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mtp-draft-slot-mapping-capacity-zh-vague/gold_helpers.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mtp-draft-slot-mapping-capacity-zh-vague/gold_helpers.stderr"
     }
   },
   "errors": [],
-  "task_sha256": "606fa4d043151d2caa3e919f909cd1a23cc1c3f9bee1839a24f07d41459b5446"
+  "task_sha256": "fe2dfe9ad275a0e313d7eae23806dee3c7d2ff8eaf097d2debeab93d87a73cf3"
 }

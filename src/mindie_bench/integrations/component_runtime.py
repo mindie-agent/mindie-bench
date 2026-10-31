@@ -84,6 +84,8 @@ def package_metadata(name, source_paths=()):
         "mindie-diagnostics": "mindie_diagnostics",
         "mindie-knowledge": "mindie_knowledge",
         "remote-dev": "remote_dev",
+        "mindie-profiler": "mindie_profiler",
+        "mindie-sim": "mindie_sim",
     }
     module = importlib.util.find_spec(modules[name])
     for source in source_paths:

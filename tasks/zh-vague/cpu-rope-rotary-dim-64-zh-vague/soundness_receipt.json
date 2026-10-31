@@ -3,13 +3,18 @@
   "before_reward": 0.0,
   "controls": {
     "base": {
-      "duration_sec": 0.5720877079293132,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/cpu-rope-rotary-dim-64-zh-vague/verifier/test.sh"
+      ],
+      "duration_sec": 0.5129181660013273,
       "exit_code": 1,
       "expected_reward": 0.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 0.0,
       "source_sha256": "85d8f085309f2ceb0cf6bc04994c192518df912bd69f74b25336eadf769e040c",
-      "stderr_sha256": "942d4166fd75a022d07823b9cde063c59ca3bb4d973f35753b54e0dc513b7f88",
+      "stderr_sha256": "c27493902128d0522616100cd4b3a44c8ee60ccb5abaf71f54cbfcda51e11daf",
       "stdout_sha256": "9e6b6ded86fffbb62c61d771b95f9576e488f610fd73510ce515fbdf35ec8fc3",
       "verdict": {
         "failure_reason": "The expanded size of the tensor (128) must match the existing size (64) at non-singleton dimension 3.  Target sizes: [1, 1, 1, 128].  Tensor sizes: [64]",
@@ -19,10 +24,15 @@
       "workspace_sha256": "c83f3992f0d7630a873518af9a03087d10ee9dd1d45b3762f607572df10a1aa7"
     },
     "gold": {
-      "duration_sec": 0.6128203750122339,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/cpu-rope-rotary-dim-64-zh-vague/verifier/test.sh"
+      ],
+      "duration_sec": 0.5592208750313148,
       "exit_code": 0,
       "expected_reward": 1.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 1.0,
       "source_sha256": "e717c9ab51b5ddabdb446678ffc40a61b2052b11e9ec7a423de86eebc56c80c4",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -38,10 +48,15 @@
       "workspace_sha256": "d00ac7bf90c2f4ba2b334146bf8d06c126d389318769d6499be45ebb1ad09dc0"
     },
     "gold_helper_class": {
-      "duration_sec": 0.6251308750361204,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/cpu-rope-rotary-dim-64-zh-vague/verifier/test.sh"
+      ],
+      "duration_sec": 0.5722593750106171,
       "exit_code": 0,
       "expected_reward": 1.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 1.0,
       "source_sha256": "a44f3eb49b9efe496778c958ab0bc87a1e061284a7d6111aaf86f43119e1a993",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -57,10 +72,15 @@
       "workspace_sha256": "badb8eccf93ab953e0bc69f926ece36f46377fe2cac9950b68ee224ee8ccb53e"
     },
     "gold_helper_function": {
-      "duration_sec": 0.6059515419183299,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/cpu-rope-rotary-dim-64-zh-vague/verifier/test.sh"
+      ],
+      "duration_sec": 0.5747199159814045,
       "exit_code": 0,
       "expected_reward": 1.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 1.0,
       "source_sha256": "31c32bbf5da9b8c15491dc14e1c937684a59b55fc9c53d65cbc47653527c2a15",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -76,13 +96,18 @@
       "workspace_sha256": "a54e07a40451adbf41673f6258f7d3d54e23fe6b31021dd049adb2772eed31b3"
     },
     "negative": {
-      "duration_sec": 0.5684130840236321,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/cpu-rope-rotary-dim-64-zh-vague/verifier/test.sh"
+      ],
+      "duration_sec": 0.5065464170183986,
       "exit_code": 1,
       "expected_reward": 0.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 0.0,
       "source_sha256": "8c994e217672a47cc23b191bf255bfaa59416532a03aa43808bb8725056b0e76",
-      "stderr_sha256": "2d4a1ad2cd616e5c9db6949fbed82e7185bc3aabe640bec86b3f81cb9bf7af7f",
+      "stderr_sha256": "3392daa315c83d570833d36c5fb7c746102ea89c28956ffef406963e3dbc18c3",
       "stdout_sha256": "d053b175a21288a174360ebb0eb6e677f8dd06a57cc65f712bafe05a40ec5285",
       "verdict": {
         "failure_reason": "'NoneType' object has no attribute 'shape'",
@@ -93,7 +118,7 @@
     }
   },
   "errors": [],
-  "evidence_directory": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/verifier-integrity-20261029/remaining-cpu-final/cpu-rope-rotary-dim-64-zh-vague",
+  "evidence_directory": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/cpu-rope-rotary-dim-64-zh-vague",
   "measured_npu_speedup": null,
   "model_calls": 0,
   "negative_reward": 0.0,
@@ -104,7 +129,7 @@
   "status": "completed",
   "target": "vllm_ascend/ops/rotary_embedding.py",
   "task": "cpu-rope-rotary-dim-64-zh-vague",
-  "task_sha256": "966aa33e65b6b0ebb83b06e5b1f0f14c0022ced9860857302450769dd2c3cffc",
+  "task_sha256": "a3c0ca1159c0b63cc0b4ae1029279c98f79cf4913af822a20529fd1d4c1b5675",
   "tier": "l2",
   "tpot_ms": null,
   "verifier_files": {

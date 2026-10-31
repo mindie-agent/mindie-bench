@@ -3,10 +3,15 @@
   "before_reward": 0.0,
   "controls": {
     "base": {
-      "duration_sec": 0.03473516693338752,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/profiler-msprof-straggler-and-hbm-fix-zh/verifier/test.sh"
+      ],
+      "duration_sec": 0.026942124939523637,
       "exit_code": 1,
       "expected_reward": 0.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 0.0,
       "source_sha256": "30113f4d19760cbb022c2bbe33346a198695f58bcc13961860a184d036679aa1",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -19,10 +24,15 @@
       "workspace_sha256": "74ee7ea432997dca7ed9234e633c291eceadda9af54c04b8cf576586d0f3a724"
     },
     "gold": {
-      "duration_sec": 0.032474666950292885,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/profiler-msprof-straggler-and-hbm-fix-zh/verifier/test.sh"
+      ],
+      "duration_sec": 0.12877904099877924,
       "exit_code": 0,
       "expected_reward": 1.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 1.0,
       "source_sha256": "d4a61fde57de4d0a7902585c5e3a151d690072ff3b39fd7f1ade039505494655",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -39,10 +49,15 @@
       "workspace_sha256": "56481b3165aeba9ead6f58df55b0e39543b12d5c4299645a9fd7f4d800dfece8"
     },
     "gold_helper_class": {
-      "duration_sec": 0.035607167053967714,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/profiler-msprof-straggler-and-hbm-fix-zh/verifier/test.sh"
+      ],
+      "duration_sec": 0.11997787503059953,
       "exit_code": 0,
       "expected_reward": 1.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 1.0,
       "source_sha256": "df0fa2a5e795a71cc68913ab73d3931cf3226d5889b8f21f1275ea86424102e0",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -59,10 +74,15 @@
       "workspace_sha256": "91f11ca4caddb841406bd28f6019ecb459fd3adf422d8e3cf668b7adb473109c"
     },
     "gold_helper_function": {
-      "duration_sec": 0.03107949998229742,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/profiler-msprof-straggler-and-hbm-fix-zh/verifier/test.sh"
+      ],
+      "duration_sec": 0.12309816700872034,
       "exit_code": 0,
       "expected_reward": 1.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 1.0,
       "source_sha256": "02ab90b4250765cb96a33b354880f6c0ab68da8d7a231d180fef49db6f714b1f",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -79,12 +99,17 @@
       "workspace_sha256": "a528a7957837e25f050b9bb679916bee0ac1975daddeb2b170b6b599f1f7b0d7"
     },
     "negative": {
-      "duration_sec": 0.028984665987081826,
+      "command": [
+        "bash",
+        "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/profiler-msprof-straggler-and-hbm-fix-zh/verifier/test.sh"
+      ],
+      "duration_sec": 0.028581834048964083,
       "exit_code": 1,
       "expected_reward": 0.0,
       "passed": true,
+      "python_executable": "/Users/maoxx241/code/mindie-bench/reports/human-corpus-eval-20261031/runtime/bin/python",
       "reward": 0.0,
-      "source_sha256": "54725a09032f6a58038230ef1fd0368147ff280a114c2be9d298b034346c2389",
+      "source_sha256": "e91613351e8e3592930ef81a803265cb6de0bdd40e25dc209a089b102ba4c9a0",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "stdout_sha256": "7fa27aa2ab6fb03fec10d702b0f8fe62a1a7044b39eff549d3a6983c882b125b",
       "verdict": {
@@ -92,11 +117,11 @@
         "failure_type": "AssertionError",
         "reward": 0.0
       },
-      "workspace_sha256": "f6131fd43618bb8d872d9c58ee1f0d6f41f05c25406d018bcee474dc781124d1"
+      "workspace_sha256": "7fe0909bf98d64729fe9917bf669f5ba63bde4f3a4195dfe4646767e282d61b8"
     }
   },
   "errors": [],
-  "evidence_directory": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/verifier-integrity-20261029/remaining-cpu-final/profiler-msprof-straggler-and-hbm-fix-zh",
+  "evidence_directory": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/remaining/profiler-msprof-straggler-and-hbm-fix-zh",
   "measured_npu_speedup": null,
   "model_calls": 0,
   "negative_reward": 0.0,
@@ -107,12 +132,12 @@
   "status": "completed",
   "target": "vllm_ascend_diag/profile_reconciler.py",
   "task": "profiler-msprof-straggler-and-hbm-fix-zh",
-  "task_sha256": "7abb1e8965af604f220568de65c8d47a3467210d6bad315ad31e57d370b43029",
+  "task_sha256": "91c07d4b6644b9e0df6514f9886e901cd96c5ef8df43a017df5c57e5d7253e8a",
   "tier": "l2",
   "tpot_ms": null,
   "verifier_files": {
-    "test.sh": "e8bd1c5ac87581260847936d4ab54853d8d6675278b36dd48a578bdde7f52f80",
-    "verify.py": "8a9a20b09e26fe19936a3bb7c3437727151863a7ec4cc3dd8289ef66f96c1b7d"
+    "test.sh": "f9e75ac73a21070ff282ff4653fa45a5d52191f8563523d9c0206936059873e0",
+    "verify.py": "2396938322d3fa2541a7aab3dee47cc6611455014ad8c11cdcd31e65f7a6e9ec"
   },
-  "verifier_sha256": "24e93b794299fc9ffd9656daa2660d275b930478e5c0dd3e894c0eabc063bcf3"
+  "verifier_sha256": "5690a7c2b07bae25e30f87b28742193adfaab387e720e3d4a85df8c19becbe94"
 }

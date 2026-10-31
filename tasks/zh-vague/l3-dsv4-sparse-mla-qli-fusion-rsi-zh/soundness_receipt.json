@@ -3,8 +3,8 @@
   "before_reward": 0.0,
   "cases": {
     "baseline": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.candidate.py",
-      "elapsed_seconds": 0.6006099589867517,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.candidate.py",
+      "elapsed_seconds": 0.534583583008498,
       "exit_code": 1,
       "expected_reward": 0.0,
       "input_files": {
@@ -13,13 +13,13 @@
       },
       "input_sha256": "fa2dec833c7db5377fa2bfc4f892ee0e094b8ef120f1fc0b2744d825d54e5481",
       "reward": 0.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.stdout",
       "verdict": {
         "ablation_contract_verified": null,
         "correctness_verified": null,
         "error_type": "AssertionError",
-        "failure_reason": "Missing run_ablation_suite() in sparse_mla_decode.py",
+        "failure_reason": "Independent full-candidate tensor/handoff check failed: {'q_fused_calls': 0, 'qli_calls': 0, 'sfa_calls': 0, 'correct': False, 'error': 'AssertionError: Full-candidate QLI K cache must preserve storage alias', 'unsafe_guard_exercised': False, 'safe_handoff': False}",
         "latency_ms": null,
         "measured_npu_speedup": null,
         "measurement_source": null,
@@ -36,8 +36,8 @@
       }
     },
     "constant_return": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.candidate.py",
-      "elapsed_seconds": 0.5926804159535095,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.candidate.py",
+      "elapsed_seconds": 0.531452541006729,
       "exit_code": 1,
       "expected_reward": 0.0,
       "input_files": {
@@ -48,8 +48,8 @@
       },
       "input_sha256": "6293ce2f9c952c88d18a76b1c79d2874959b3c8753875faad4cc763e0d7fdbc8",
       "reward": 0.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.stdout",
       "verdict": {
         "ablation_contract_verified": null,
         "correctness_verified": null,
@@ -71,8 +71,8 @@
       }
     },
     "gold": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold.candidate.py",
-      "elapsed_seconds": 0.6783893329557031,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold.candidate.py",
+      "elapsed_seconds": 0.6150701249716803,
       "exit_code": 0,
       "expected_reward": 1.0,
       "input_files": {
@@ -83,8 +83,8 @@
       },
       "input_sha256": "ba63eb9387f20a60362849d5f9dcc893fead02abde9bb5c5d871ef8916705863",
       "reward": 1.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold.stdout",
       "verdict": {
         "ablation_contract_verified": true,
         "candidate_suite_type": "dict",
@@ -192,8 +192,8 @@
       }
     },
     "gold_helper": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.candidate.py",
-      "elapsed_seconds": 0.6859185419743881,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.candidate.py",
+      "elapsed_seconds": 0.6106959159951657,
       "exit_code": 0,
       "expected_reward": 1.0,
       "input_files": {
@@ -204,8 +204,8 @@
       },
       "input_sha256": "e21f6bdd3a682a18119600c9c05d64bf84b31fb6d802d8776683c678ad426b40",
       "reward": 1.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.stdout",
       "verdict": {
         "ablation_contract_verified": true,
         "candidate_suite_type": "dict",
@@ -313,8 +313,8 @@
       }
     },
     "gold_suite_helper": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.candidate.py",
-      "elapsed_seconds": 0.6811775839887559,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.candidate.py",
+      "elapsed_seconds": 0.6269882079213858,
       "exit_code": 0,
       "expected_reward": 1.0,
       "input_files": {
@@ -325,8 +325,8 @@
       },
       "input_sha256": "b59a84db56ea99585b2841a06881871b79566e2501cd7aa780b47e71cdf68d12",
       "reward": 1.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.stdout",
       "verdict": {
         "ablation_contract_verified": true,
         "candidate_suite_type": "dict",
@@ -434,8 +434,8 @@
       }
     },
     "negative_control": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.candidate.py",
-      "elapsed_seconds": 0.6204893339890987,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.candidate.py",
+      "elapsed_seconds": 0.5462718750350177,
       "exit_code": 1,
       "expected_reward": 0.0,
       "input_files": {
@@ -446,8 +446,8 @@
       },
       "input_sha256": "423824b5626ca2b80bc4e12aafa5928b077e1de967f3e300d5d14f4d1e828ddb",
       "reward": 0.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.stdout",
       "verdict": {
         "ablation_contract_verified": null,
         "correctness_verified": null,
@@ -469,8 +469,8 @@
       }
     },
     "wrong_guard_lengths": {
-      "candidate_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.candidate.py",
-      "elapsed_seconds": 0.6131957080215216,
+      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.candidate.py",
+      "elapsed_seconds": 0.5404369588941336,
       "exit_code": 1,
       "expected_reward": 0.0,
       "input_files": {
@@ -481,8 +481,8 @@
       },
       "input_sha256": "ba6a8ab5e3638082f4064d43ca2f7b3e56b75bc7b5838d3a94202b5f7af7ea2d",
       "reward": 0.0,
-      "stderr_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.stderr",
-      "stdout_path": "reports/integrity-20261029/g4-soundness-v3/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.stdout",
+      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.stderr",
+      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/l3-dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.stdout",
       "verdict": {
         "ablation_contract_verified": null,
         "correctness_verified": null,
@@ -517,13 +517,13 @@
   "source_commit": "264445c1379b7e5c00df06752bf6a9c604c2c3cb",
   "speedup_ratio": null,
   "status": "completed",
-  "task_sha256": "82309c9392be473f637390034d50ca91d256ad8d2353b6f360216006fb875bed",
+  "task_sha256": "b514096641e83cc7b4f467c79b1c400d2fe178957951dda7962e5f35f21a21f1",
   "tier": "l3",
   "verifier_files": {
     "reference_cpu.py": "44d96bf018b2831d4149d9f35bce0000e5cc86a837fa8143dadae78483429fab",
     "runtime_controls.py": "d181cd55111a8cb8cf3945d2e62f2e56c2e10e96b16cf9c6369b867dac388eae",
     "test.sh": "e2e6d259669b20436fe1d564b5df5218b98ba9ae991cedd56f9d6f8a4c7ed641",
-    "verify.py": "b9ad0338b5cb60aa9c2c9ce778f3049abdcb28ee79abb937bd5526845375c174"
+    "verify.py": "d01ab7703f30ee3b54c7097c22939990646b1b5af37c9caee4642ee4b62ce377"
   },
-  "verifier_sha256": "9fd0823a74a8e93b7691397866fc5e08a2ea74d211c62134c5c31c9205d06c91"
+  "verifier_sha256": "c18a5acc6d405e1d826bab1135b85a698ce4cd4ede9f22363ff37f219772a02f"
 }

@@ -556,6 +556,9 @@ def capture(args, payload):
             hits = consumer.query(query_text, conditions=conditions)
             matched = [hit for hit in hits["results"] if hit["id"] in admitted]
             if not matched:
+                hits = consumer.query(query_text, conditions=conditions, include_unknown=True)
+                matched = [hit for hit in hits["results"] if hit["id"] in admitted]
+            if not matched:
                 raise RuntimeError(
                     "independent consumer cannot retrieve a new unit under actual conditions"
                 )

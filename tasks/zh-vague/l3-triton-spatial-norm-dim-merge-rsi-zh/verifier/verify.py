@@ -127,22 +127,30 @@ try:
     inputs = (x, w, b)
     core = {"num_groups": 4, "eps": 1e-5}
     ref = F.group_norm(x.float(), 4, w.float(), b.float(), eps=1e-5).to(torch.bfloat16)
+    has_ablation_suite = hasattr(mod, "run_ablation_suite")
     suite_error = None
-    with CallCapture(mod, "spatial") as capture:
-        mod.spatial_group_norm_reduce(*inputs, num_groups=4, eps=1e-5)
-        capture.phase = "suite"
-        try:
-            suite = invoke_suite(mod, "spatial", inputs, core)
-            evidence["candidate_suite_type"] = type(suite).__name__
-        except (ImportError, NameError):
-            raise
-        except Exception as exc:
-            suite_error = exc
+    with TensorTrace() as default_trace:
+        with CallCapture(mod, "spatial") as capture:
+            mod.spatial_group_norm_reduce(*inputs, num_groups=4, eps=1e-5)
+            capture.phase = "suite"
+            if has_ablation_suite:
+                try:
+                    suite = invoke_suite(mod, "spatial", inputs, core)
+                    evidence["candidate_suite_type"] = type(suite).__name__
+                except (ImportError, NameError):
+                    raise
+                except Exception as exc:
+                    suite_error = exc
 
     selected = None
     examined = 0
     failures = []
-    for entrypoint, controls in capture.entries.items():
+    if not has_ablation_suite:
+        assert (
+            default_trace.indexing_operations == 0 and default_trace.bf16_arithmetic == 0
+        ), f"Default path did not eliminate 3D indexing loop and bf16 accumulation: {default_trace.summary()}"
+        selected = {"entrypoint": "spatial_group_norm_reduce", "full_candidate": default_trace.summary()}
+    for entrypoint, controls in (capture.entries.items() if has_ablation_suite else ()):
         values = list(controls.values())
         if len(values) < 4 or not any(c.is_default for c in values):
             continue

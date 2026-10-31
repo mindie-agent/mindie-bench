@@ -14,10 +14,10 @@
   "helper_gold_reward": 1.0,
   "verifier_sha256": {
     "verifier/test.sh": "8f2d6215455079516c6a1a197d2073131ef1c3c64b318f9a04c63e8355297c0a",
-    "verifier/verify.py": "eda72eebebbdbbc9e627f8025a831506e9bf12315d91289ab0137f1d97c166fd"
+    "verifier/verify.py": "15cb38b5a702899feffe2873b6621c559bce94f689325d278271cd5fe1540d5a"
   },
   "gold_patch_sha256": "fc9676b0b396e607272fcce89037f0516095bca16ab7bf9e917b2db2e80553f8",
-  "control_generator_sha256": "2d7b7d1a1673f0a48cb02c74a899681013047ea3da945a9cae388e4e30a44e26",
+  "control_generator_sha256": "7dad90050225420b3e790e9a6319aef8327bc63e4bd8374e6ff56c78ad002618",
   "native_kernel_bound": null,
   "measured_npu_speedup": null,
   "speedup_ratio": null,
@@ -28,7 +28,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
       ],
       "exit_code": 1,
-      "elapsed_sec": 0.607298249960877,
+      "elapsed_sec": 0.5641485420055687,
       "reward": 0.0,
       "verdict": {
         "reward": 0.0,
@@ -46,8 +46,8 @@
         "vllm_ascend/worker/v2/model_states/default.py": "2f72576d6e9e7632183bea54dabc8274852205c640f10a757af5d887c41a31d1",
         "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "fd1702982e7745de310792cc1837cb8d49f410034fabc87208cfcaeeadf8db7d"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/base.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/base.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/base.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/base.stderr"
     },
     "negative_control": {
       "command": [
@@ -55,7 +55,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
       ],
       "exit_code": 1,
-      "elapsed_sec": 0.5865019999910146,
+      "elapsed_sec": 0.5071545420214534,
       "reward": 0.0,
       "verdict": {
         "reward": 0.0,
@@ -73,8 +73,8 @@
         "vllm_ascend/worker/v2/model_states/default.py": "1fdab815c564bab78c84dad838575acb4ce3c5ef89657ee3147df2ea9b8d8bcd",
         "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "8bf6229e7fed1879efe86cfaf20398e23fe4559e11262028b16bf6fbbb625508"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/negative_control.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/negative_control.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/negative_control.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/negative_control.stderr"
     },
     "gold": {
       "command": [
@@ -82,7 +82,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
       ],
       "exit_code": 0,
-      "elapsed_sec": 0.6589679999742657,
+      "elapsed_sec": 0.5473216669633985,
       "reward": 1.0,
       "verdict": {
         "reward": 1.0,
@@ -100,8 +100,8 @@
         "vllm_ascend/worker/v2/model_states/default.py": "6212f8403ee4096b2461f46c66754d279a38fb186fba711231400fbb42d76614",
         "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "7453b4a1586315a6893e55782748a39bab69ef3c9a9a12d3718911a76e52d68d"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/gold.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/gold.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/gold.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/gold.stderr"
     },
     "gold_helpers": {
       "command": [
@@ -109,7 +109,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
       ],
       "exit_code": 0,
-      "elapsed_sec": 0.5909838330699131,
+      "elapsed_sec": 0.5469387089833617,
       "reward": 1.0,
       "verdict": {
         "reward": 1.0,
@@ -127,8 +127,8 @@
         "vllm_ascend/worker/v2/model_states/default.py": "203ee83407c5e1207ca40cfc667c3876239a82eb4107236ae401d529963a9a4a",
         "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "8ab670c2df3f71dfd71f58abe60e436cbeca41d3b7850a5854bd5410566e30b4"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/gold_helpers.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/gold_helpers.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/gold_helpers.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/gold_helpers.stderr"
     },
     "gold_equivalent": {
       "command": [
@@ -136,7 +136,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
       ],
       "exit_code": 0,
-      "elapsed_sec": 0.5807669169735163,
+      "elapsed_sec": 0.5476676250109449,
       "reward": 1.0,
       "verdict": {
         "reward": 1.0,
@@ -154,8 +154,8 @@
         "vllm_ascend/worker/v2/model_states/default.py": "e325d16d5ad201669d01cb0cff12dfd19be280136258b7d9bca82283b94758e4",
         "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "383d317b5faf8618f2d8558a0580de16264ac522694efa0f8d2e156f2dd1cd57"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/gold_equivalent.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/gold_equivalent.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/gold_equivalent.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/gold_equivalent.stderr"
     },
     "negative_partial_state": {
       "command": [
@@ -163,7 +163,7 @@
         "/Users/maoxx241/code/mindie-bench/tasks/zh-vague/mrv2-dsa-prefill-metadata-zh-vague/verifier/test.sh"
       ],
       "exit_code": 1,
-      "elapsed_sec": 0.595346000045538,
+      "elapsed_sec": 0.5532672919798642,
       "reward": 0.0,
       "verdict": {
         "reward": 0.0,
@@ -181,10 +181,10 @@
         "vllm_ascend/worker/v2/model_states/default.py": "87c15e48ed6b8a9206a27f6b6cbbdaefc6d513ad74e270a4fcf7771045a5e43c",
         "vllm_ascend/worker/v2/spec_decode/autoregressive/speculator.py": "4f9d38533d977a3398615c9220a405a485afed976a868b36d0039e7dce14519b"
       },
-      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/negative_partial_state.stdout",
-      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/integrity-20261029/behavior-soundness-final/mrv2-dsa-prefill-metadata-zh-vague/negative_partial_state.stderr"
+      "stdout": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/negative_partial_state.stdout",
+      "stderr": "/Volumes/data/Projects/DevelopmentData/mindie-bench/reports/human-corpus-eval-20261031/soundness/behavior/mrv2-dsa-prefill-metadata-zh-vague/negative_partial_state.stderr"
     }
   },
   "errors": [],
-  "task_sha256": "258d23e40d3b50d3151fdf9d10d84e18c986dbae3f0ab16df40327da856b1f16"
+  "task_sha256": "f230b10c0585dab2486d85c4f95fa2f3a03852e8a2ba42b8f8acd4a7b178dc32"
 }

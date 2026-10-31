@@ -356,7 +356,10 @@ def build_profile(
             runtime_paths.append(command)
             if (command.parent / "mindie-profiler").is_file():
                 runtime_paths.extend([command.parent.parent, resolved_cmd.parent.parent])
-                if str(command.parent) not in env["PATH"].split(os.pathsep):
+                if (
+                    group in {Group.G2, Group.G3, Group.G4}
+                    and str(command.parent) not in env["PATH"].split(os.pathsep)
+                ):
                     env["PATH"] = f"{command.parent}{os.pathsep}{env['PATH']}"
         replacements = {
             "{corpus}": str(corpus or ""),
@@ -431,7 +434,12 @@ def build_profile(
             if dom_head != dom_decl.commit or dom_dirty:
                 raise ValueError("domain corpus must be clean at its exact declared commit")
             dom_dest = private_root / f"corpus-{dom_name}"
-            filtered_corpus(dom_src, dom_dest, excluded if dom_cid == task.mindie_knowledge.corpus_id else set())
+            dom_effective_src = (
+                (corpus_override or dom_src)
+                if dom_cid == task.mindie_knowledge.corpus_id
+                else dom_src
+            )
+            filtered_corpus(dom_effective_src, dom_dest, excluded)
             domain_corpora_paths[dom_name] = dom_dest
         active_domain = (
             "operators"

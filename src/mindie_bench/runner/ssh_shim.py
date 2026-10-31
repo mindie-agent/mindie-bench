@@ -85,7 +85,10 @@ def main():
         raise ValueError("only one-shot commands to bench-slot are available")
     command = " ".join(args)
     gateway = os.environ["MINDIE_BENCH_GATEWAY"]
-    if os.environ.get("MINDIE_BENCH_SSH_STREAM") == "1" and command != "bash -s":
+    if (
+        os.environ.get("MINDIE_BENCH_SSH_STREAM") == "1"
+        or os.environ.get("REMOTE_DEV_HARNESS_PROFILE") == "dsh"
+    ) and command != "bash -s":
         return _stream(gateway, command)
     if stdin_null or sys.stdin.isatty():
         stdin = b""
