@@ -37,14 +37,14 @@ get socket timeout EI0006 peer 10.18.4.22:64000 closed
 
 def _triage_fault(text: str) -> dict:
     """Call the installed deterministic triage entry point and preserve its result."""
-    from mindie_diagnostics import npu_fault_triage
+    from mindie_debugger import npu_fault_triage
 
     function = getattr(npu_fault_triage, "triage_npu_fault", None)
     if function is None:
         function = getattr(npu_fault_triage, "triage_ascend_plog", None)
     if function is None:
         raise RuntimeError(
-            "installed mindie-diagnostics lacks npu_fault_triage/triage_ascend_plog"
+            "installed mindie-debugger lacks npu_fault_triage/triage_ascend_plog"
         )
     return function(text)
 
@@ -237,7 +237,7 @@ def one(output: str, repetition: int, exercise_retry: bool = True):
             assert sum(row["method"] == "POST" for row in receiver.requests) == 1
             precision = None
             if (importlib.util.find_spec("torch") is not None
-                    and importlib.util.find_spec("mindie_diagnostics.precision") is not None):
+                    and importlib.util.find_spec("mindie_debugger.precision") is not None):
                 precision = precision_localization_evidence(root)
             candidate = {
                 "failure_occurrences": 3, "queue_items": 1, "http_posts": 1,

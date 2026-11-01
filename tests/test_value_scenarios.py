@@ -41,7 +41,7 @@ def test_profiler_scenario_separates_slow_rank_from_slow_link_and_preserves_db(t
 
 
 def test_diagnostics_triage_is_deterministic_and_redacts_credentials(tmp_path):
-    pytest.importorskip("mindie_diagnostics.npu_fault_triage")
+    pytest.importorskip("mindie_debugger.npu_fault_triage")
     evidence = value_diagnostics.fault_triage_evidence(tmp_path)
     assert evidence["secrets_removed"] is True
     assert evidence["privacy_findings"] > 0
@@ -58,7 +58,7 @@ def test_diagnostics_triage_is_deterministic_and_redacts_credentials(tmp_path):
 
 def test_precision_localization_catches_five_real_bugs_without_false_positives(tmp_path):
     pytest.importorskip("torch")
-    pytest.importorskip("mindie_diagnostics.precision")
+    pytest.importorskip("mindie_debugger.precision")
     first = value_precision.precision_localization_evidence(tmp_path)
     first_bytes = Path(first["evidence_path"]).read_bytes()
     second = value_precision.precision_localization_evidence(tmp_path)

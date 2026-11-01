@@ -37,7 +37,7 @@ def test_faults_reach_http_once_with_redaction_and_revoke(tmp_path):
     assert raw["delivery"]["status"] == "published"
     assert raw["reconcile"]["status"] == "reconciled"
     if (importlib.util.find_spec("torch") is not None
-            and importlib.util.find_spec("mindie_diagnostics.precision") is not None):
+            and importlib.util.find_spec("mindie_debugger.precision") is not None):
         assert result["candidate"]["precision_bugs_caught"] == 5
         assert result["candidate"]["precision_false_positives"] == 0
         assert raw["precision_localization"]["cases_evaluated"] == 5

@@ -1,7 +1,7 @@
 """Localize five real precision defects with the installed diagnostics primitives.
 
 [Role] Replay production-shaped GDN, SFA, KDA, GroupNorm/SparseMLA and MoE/sampler
-localization cases against the unchanged ``mindie_diagnostics.precision`` tools.
+localization cases against the unchanged ``mindie_debugger.precision`` tools.
 [Invariants] Every pre-fix path must be detected, every post-fix path must stay clean,
 and two complete runs must serialize to byte-identical JSON.
 [Timeouts & Locks] All cases are bounded CPU tensor work; no sleeps, locks or devices.
@@ -72,7 +72,7 @@ def _read_safetensors_header(path: Path) -> dict:
 def _build_moe_checkpoint(root: Path) -> tuple[dict, dict]:
     """Create a 256-expert checkpoint, slim it to 16 and prove the saved layout."""
     torch = _torch()
-    from mindie_diagnostics.precision import slim_moe_checkpoint
+    from mindie_debugger.precision import slim_moe_checkpoint
 
     source = root / "moe-source"
     source.mkdir()
@@ -133,7 +133,7 @@ def _moe_diverged(report: dict) -> tuple[list[str], str | None]:
 
 def _slim_moe_lockstep(torch, root: Path, stimulus: dict) -> dict:
     """Run healed and naive lockstep traces over a slimmed three-layer MoE."""
-    from mindie_diagnostics.precision import LockstepDiffer, build_deterministic_stimulus
+    from mindie_debugger.precision import LockstepDiffer, build_deterministic_stimulus
 
     report, checkpoint = _build_moe_checkpoint(root)
     assert stimulus == build_deterministic_stimulus(
@@ -234,7 +234,7 @@ def _slim_moe_lockstep(torch, root: Path, stimulus: dict) -> dict:
 
 def _w4a8_and_sampler(torch) -> dict:
     """Separate 4-bit quantization loss from a scale-stride kernel bug and sampler drift."""
-    from mindie_diagnostics import precision
+    from mindie_debugger import precision
 
     contract = precision.FakeQuantContract(bits=4, symmetric=True, scale_axis=0)
     generator = torch.Generator().manual_seed(2026)
@@ -327,7 +327,7 @@ def _w4a8_and_sampler(torch) -> dict:
 def _case_k3_gdn_idle_dp_state() -> dict:
     """Prove the idle-DP dummy GDN call mutates recurrent state only before the fix."""
     torch = _torch()
-    from mindie_diagnostics.precision import MemoryWatchpoint
+    from mindie_debugger.precision import MemoryWatchpoint
     class _GDNRecurrent(torch.nn.Module):
         def __init__(self, conv_state, ssm_state):
             super().__init__()
@@ -408,7 +408,7 @@ def _case_k3_gdn_idle_dp_state() -> dict:
 def _case_sfa_mtp_draft_seq_lens() -> dict:
     """Prove pre-fix draft metadata aliases one buffer and stomps earlier draft views."""
     torch = _torch()
-    from mindie_diagnostics.precision import MemoryWatchpoint, StorageGraph
+    from mindie_debugger.precision import MemoryWatchpoint, StorageGraph
 
     class _DraftMeta:
         def __init__(self, cum_query_lens, seq_lens):
@@ -500,7 +500,7 @@ def _case_sfa_mtp_draft_seq_lens() -> dict:
 def _case_kda_varlen_padded_workspace() -> dict:
     """Prove the KDA varlen prefix workspace stomps u_out at chunk 74 and latches NaN."""
     torch = _torch()
-    from mindie_diagnostics.precision import MemoryWatchpoint, WatchRingBuffer
+    from mindie_debugger.precision import MemoryWatchpoint, WatchRingBuffer
 
     def chunk_rows(lengths):
         return [min(64, length - start) for length in lengths
@@ -572,7 +572,7 @@ def _case_kda_varlen_padded_workspace() -> dict:
 def _case_spatial_group_norm_bf16_truncation() -> dict:
     """Prove BF16 partial accumulation is a real bug and SparseMLA -1 scatter latches."""
     torch = _torch()
-    from mindie_diagnostics.precision import WatchRingBuffer, capture_call, replay_call
+    from mindie_debugger.precision import WatchRingBuffer, capture_call, replay_call
 
     def prefix(x, weight, bias, num_groups=8, eps=1e-5):
         n_batch, channels, height, width = x.shape
@@ -675,7 +675,7 @@ def _case_spatial_group_norm_bf16_truncation() -> dict:
 def _case_moe_healed_lockstep_and_w4a8_gate() -> dict:
     """Exercise slim MoE healing, W4A8 fake-quant triage and sampler drift."""
     torch = _torch()
-    from mindie_diagnostics.precision import build_deterministic_stimulus
+    from mindie_debugger.precision import build_deterministic_stimulus
 
     stimulus = build_deterministic_stimulus(
         vocab_size=64, batch_size=2, seq_len=8, seed=7
