@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
-from mindie_bench.benchmarks import value_diagnostics, value_scenarios
+from mindie_bench.benchmarks import value_diagnostics, value_precision, value_scenarios
 
 
 def test_optional_scenarios_join_defaults_only_when_importable(monkeypatch):
@@ -53,3 +54,31 @@ def test_diagnostics_triage_is_deterministic_and_redacts_credentials(tmp_path):
     assert "ghp_valuefixture" not in redacted
     assert "10.18.4.22" not in redacted
     assert "/home/alice" not in redacted
+
+
+def test_precision_localization_catches_five_real_bugs_without_false_positives(tmp_path):
+    pytest.importorskip("torch")
+    pytest.importorskip("mindie_diagnostics.precision")
+    first = value_precision.precision_localization_evidence(tmp_path)
+    first_bytes = Path(first["evidence_path"]).read_bytes()
+    second = value_precision.precision_localization_evidence(tmp_path)
+    second_bytes = Path(second["evidence_path"]).read_bytes()
+    assert first_bytes == second_bytes
+    assert first["evidence_sha256"] == hashlib.sha256(first_bytes).hexdigest()
+    assert second["evidence_sha256"] == hashlib.sha256(second_bytes).hexdigest()
+    assert first["status"] == second["status"] == "pass"
+    assert first["deterministic"] is second["deterministic"] is True
+    assert first["cases_evaluated"] == second["cases_evaluated"] == 5
+    assert first["pre_fix_bugs_caught"] == second["pre_fix_bugs_caught"] == 5
+    assert first["post_fix_false_positives"] == second["post_fix_false_positives"] == 0
+    assert first["k3_idle_dp_caught"] is True
+    assert first["k3_offending_module"].endswith("layers.0.self_attn")
+    assert first["sfa_mtp_alias_caught"] is True
+    assert first["kda_workspace_caught"] is True
+    assert first["kda_first_stomp_chunk"] == 74
+    assert first["norm_truncation_caught"] is True
+    assert first["moe_healed_localized"] is True
+    assert first["moe_first_diverged_module"] == "layers.1.experts.2"
+    payload = json.loads(first_bytes)
+    assert payload["cases"] == first["cases"] == second["cases"]
+    assert payload["pre_fix_bugs_caught"] == 5

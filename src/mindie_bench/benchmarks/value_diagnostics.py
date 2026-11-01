@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .value_common import source_revisions, write_json
+from .value_precision import precision_localization_evidence
 
 REPOSITORY = "mindie-value-fixture/local-receiver"
 
@@ -144,6 +145,7 @@ class Receiver:
 
 def one(output: str, repetition: int, exercise_retry: bool = True):
     import importlib.metadata
+    import importlib.util
     import sys
 
     from mindie_diagnostics.integration import record_failure
@@ -233,12 +235,42 @@ def one(output: str, repetition: int, exercise_retry: bool = True):
             assert off["status"] == "withdrawn"
             assert len(receiver.requests) == requests_before_off
             assert sum(row["method"] == "POST" for row in receiver.requests) == 1
+            precision = None
+            if (importlib.util.find_spec("torch") is not None
+                    and importlib.util.find_spec("mindie_diagnostics.precision") is not None):
+                precision = precision_localization_evidence(root)
+            candidate = {
+                "failure_occurrences": 3, "queue_items": 1, "http_posts": 1,
+                "delivered_reports": 1, "reconciled_without_duplicate": True,
+                "private_fixture_removed": True, "useful_fault_fields_retained": True,
+                "withdrawal_prevented_requests": True,
+                "fault_log_redacted": triage["secrets_removed"],
+                "fault_triage_deterministic": triage["deterministic"],
+                "fault_triage_root_cause_rank": triage["root_cause_rank"],
+                "fault_triage_domain": triage["root_cause_domain"],
+                "fault_triage_cascading_timeout": triage["cascading_timeout_detected"],
+                "fault_triage_cascading_rank": triage["cascading_rank"],
+                "production_retry_wait_sec": retry_wait_sec,
+                "failure_to_delivery_sec": delivery_sec,
+            }
+            if precision is not None:
+                candidate.update({
+                    "precision_localization_deterministic": precision["deterministic"],
+                    "precision_cases_evaluated": precision["cases_evaluated"],
+                    "precision_bugs_caught": precision["pre_fix_bugs_caught"],
+                    "precision_false_positives": precision["post_fix_false_positives"],
+                    "precision_k3_idle_dp_caught": precision["k3_idle_dp_caught"],
+                    "precision_sfa_mtp_alias_caught": precision["sfa_mtp_alias_caught"],
+                    "precision_kda_workspace_caught": precision["kda_workspace_caught"],
+                    "precision_norm_truncation_caught": precision["norm_truncation_caught"],
+                    "precision_moe_healed_localized": precision["moe_healed_localized"],
+                })
             raw = {"activation": activation, "recorded": recorded, "ingest": ingested,
                    "initial_occurrences": initial_rows[0]["occurrences"],
                    "first_publish": first, "delivery": delivered, "reconcile": reconciled,
                    "withdrawn": off, "receiver_requests": receiver.requests,
                    "receiver_issues": receiver.issues, "final_outbox": queue.rows(),
-                   "fault_triage": triage,
+                   "fault_triage": triage, "precision_localization": precision,
                    "receiver_scope": "loopback transport fixture; no public Issue exists"}
             write_json(root / "raw.json", raw)
             (root / "delivered-report.md").write_text(body)
@@ -247,18 +279,7 @@ def one(output: str, repetition: int, exercise_retry: bool = True):
                 "baseline": {"failure_occurrences": 3, "raw_tracebacks": len(baseline),
                              "contains_synthetic_secret": secret in "\n".join(baseline),
                              "automatic_delivery": False},
-                "candidate": {"failure_occurrences": 3, "queue_items": 1, "http_posts": 1,
-                              "delivered_reports": 1, "reconciled_without_duplicate": True,
-                              "private_fixture_removed": True, "useful_fault_fields_retained": True,
-                              "withdrawal_prevented_requests": True,
-                              "fault_log_redacted": triage["secrets_removed"],
-                              "fault_triage_deterministic": triage["deterministic"],
-                              "fault_triage_root_cause_rank": triage["root_cause_rank"],
-                              "fault_triage_domain": triage["root_cause_domain"],
-                              "fault_triage_cascading_timeout": triage["cascading_timeout_detected"],
-                              "fault_triage_cascading_rank": triage["cascading_rank"],
-                              "production_retry_wait_sec": retry_wait_sec,
-                              "failure_to_delivery_sec": delivery_sec},
+                "candidate": candidate,
                 "raw": str(root / "raw.json"),
                 "report": str(root / "delivered-report.md"),
             }
