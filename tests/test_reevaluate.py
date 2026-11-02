@@ -22,7 +22,7 @@ def test_remote_replay_restores_patch_and_helpers_and_does_not_rewrite_unknown(t
     patch = subprocess.check_output(["git", "-C", str(repo), "diff"], timeout=5)
     task = tmp_path / "tasks/arithmetic"
     (task / "verifier").mkdir(parents=True)
-    (task / "task.toml").write_text(f'[environment.l3]\nrepo_path = "{repo}"\n')
+    (task / "task.toml").write_text(f'[environment.l3]\nrepo_path = "{repo.as_posix()}"\n', encoding="utf-8")
     (task / "verifier/test.sh").write_text(
         '#!/bin/sh\nexec "$MINDIE_BENCH_PYTHON" -B -c '\
         "'import json; from candidate import calculate; "

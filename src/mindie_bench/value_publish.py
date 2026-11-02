@@ -29,7 +29,7 @@ def component_view(report: dict, target: dict) -> dict:
     component = component_name(target["repository"])
     if report["component_revisions"].get(component) != target["revision"]:
         raise ValueError(f"component value attachment source differs: {component}")
-    if component in {"codex", "claude-code", "kimi", "dsh"}:
+    if component in {"codex", "claude-code", "kimi", "dsh", "agy", "wb"}:
         studies = [row for row in report["studies"] if row["harness"] == component]
         scope = (
             "Native host tasks with controlled MCP and shipped Skills. "

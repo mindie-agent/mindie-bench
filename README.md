@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="./docs/releases/mindie-bench-0.4.5.md"><img src="https://img.shields.io/badge/release-v0.4.5-7045F5.svg" alt="Release v0.4.5"></a>
+  <a href="./docs/releases/mindie-bench-0.4.6.md"><img src="https://img.shields.io/badge/release-v0.4.6-7045F5.svg" alt="Release v0.4.6"></a>
   <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/Interface-CLI%20%7C%20Python%20API%20%7C%20HF%20Parquet-00ADD8" alt="CLI | Python API | HF Parquet">
   <img src="https://img.shields.io/badge/Target-Ascend%20NPU%20(A2%20910B%20%7C%20A3%20910C%20%7C%20A5%20950DT)-FF6B00" alt="Ascend NPU A2/A3/A5">
@@ -26,11 +26,11 @@
 
 做 AI Infra 编程助手或 Agent 插件时，最怕陷入“拿几个顺手 Case 自嗨”的陷阱：换个环境就跑不通、把测试集答案漏进上下文、只看加速比却把数值精度改坏了，或者把网络抖动/容器崩溃静默算进业务失败。
 
-`mindie-bench`（包名 `mindie_bench`，当前正式版本 [`v0.4.5`](./docs/releases/mindie-bench-0.4.5.md)）是 MindIE Agent 生态的**独立评测驱动器与常驻昇腾 NPU 基准测试套件**。它固定宿主客户端（Claude Code / Codex / Kimi Code / DSH）、底层大模型、任务快照与预算上限，通过严格的对照实验回答核心问题：**加了远端工具、昇腾领域知识库、跨任务经验飞轮与开放探索模式之后，Agent 在真实昇腾工程任务上的完成率（Completion Rate）和端到端总交付成本（Total Cost）究竟提升了多少？**
+`mindie-bench`（包名 `mindie_bench`，当前正式版本 [`v0.4.6`](./docs/releases/mindie-bench-0.4.6.md)）是 MindIE Agent 生态的**独立评测驱动器与常驻昇腾 NPU 基准测试套件**。它固定宿主客户端（Claude Code / Codex / Kimi Code / DSH / AGY / OpenClaw）、底层大模型、任务快照与预算上限，通过严格的对照实验回答核心问题：**加了远端工具、昇腾领域知识库、跨任务经验飞轮与开放探索模式之后，Agent 在真实昇腾工程任务上的完成率（Completion Rate）和端到端总交付成本（Total Cost）究竟提升了多少？**
 
 - **物理隔离的宿主沙箱（Isolated Host Runner）**：每次 Trial 在全新的 `HOME` / `XDG` 目录、独立 Shell 临时目录及操作系统级沙箱（macOS Seatbelt / Linux `bubblewrap`）中启动宿主 CLI；答案测试集（`oracle_tests/`）在启动前打包密封到沙箱外部（`oracle.bundle` + SHA-256 清单），模型 API 密钥由父进程 `MeteringGateway` 代理持有，彻底杜绝偷看测试集与凭据泄露。
 - **20 个行为级判分任务与精度/性能双重门禁（Behavioral Oracles & Gate Runner）**：全量 20 个基准任务的判分器（Oracle）均在真实子进程中导入候选代码并验证修复后的动态运行时行为，通过 **109 项三态与辅助变体对照**（`base` 必败、`negative_control` 必败、`gold` 必过）。性能优化任务必须同时通过**独立数值精度校验、ACLGraph 图捕获、显存预算、留一法消融与热态服务吞吐/Roofline HAP 加速门禁**——单靠牺牲精度换来的“伪加速”一律判败。
-- **G0–G4 严格受控消融与跨任务经验复用**：在同一套任务矩阵上对比 `G0`（裸宿主基线）、`G1`（接入 `remote-dev` / `npu-top` / `diagnostics` / `coordinator` / `profiler` / `sim` 工具）、`G2`（接入按时间戳与同源哈希物理过滤的 `knowledge` 7 大领域 `450` 个 `L1–L4` 知识单元）、`G3`（种子任务完成后自动脱敏沉淀经验包，并供下游异构任务检索复用）与 `G4`（`mode="explore"` 去偏置开放探索 + 留一法消融）。
+- **G0–G4 严格受控消融与跨任务经验复用**：在同一套任务矩阵上对比 `G0`（裸宿主基线）、`G1`（接入 `remote-dev` 远端执行、`npu-top` 物理卡快照、`coordinator` 并发租约仲裁、`debugger` 昇腾故障定界与数值精度定位、`profiler` 性能与显存归因、`sim` 算子与整图性能仿真及 `diagnostics` 组件异常脱敏上报）、`G2`（接入按时间戳与同源哈希物理过滤的 `knowledge` 7 大领域 `450` 个 `L1–L4` 知识单元）、`G3`（种子任务完成后自动脱敏沉淀经验包，并供下游异构任务检索复用）与 `G4`（`mode="explore"` 去偏置开放探索 + 留一法消融）。
 - **四态诚实回执与可复现发布契约**：严格区分 `completed_pass`、`completed_fail`、`infra_failed`（环境/探针故障）与 `unknown`（超时或断连后外部副作用不确定），绝不把基础设施故障静默折算为业务失败，也不会自动重跑覆盖失败证据。
 
 ```mermaid
@@ -60,19 +60,19 @@ flowchart TB
 <details>
 <summary>🤖 <b>AI Agent 自动安装与使用协议（Instructions for AI Agents）</b></summary>
 
-如果你是收到上述指令的 AI Agent，请按以下步骤为当前用户完成 `mindie-bench`（当前正式版本 `v0.4.5`）的安装与本地验证：
+如果你是收到上述指令的 AI Agent，请按以下步骤为当前用户完成 `mindie-bench`（当前正式版本 `v0.4.6`）的安装与本地验证：
 
 1. **检查基础依赖**：确认本机具备 Python `>= 3.11` 与 `uv`（若需执行离线知识库重放，可附加安装 `[knowledge]` 扩展；若需导出 Parquet 数据集，可附加安装 `[export]` 扩展）。
 2. **安装命令行与开发环境**：
    - 克隆仓库并按锁文件同步全量环境（推荐用于运行基准任务集）：
      ```bash
-     git clone --branch v0.4.5 https://github.com/mindie-agent/mindie-bench.git
+     git clone --branch v0.4.6 https://github.com/mindie-agent/mindie-bench.git
      cd mindie-bench
      uv sync --locked --all-extras
      ```
    - 或直接将 CLI 安装为全局工具：
      ```bash
-     uv tool install "git+https://github.com/mindie-agent/mindie-bench@v0.4.5"
+     uv tool install "git+https://github.com/mindie-agent/mindie-bench@v0.4.6"
      ```
 3. **运行零模型冒烟演示与校验**：
    ```bash
@@ -80,7 +80,7 @@ flowchart TB
    uv run mindie-bench demo --output /tmp/mindie-bench-demo
    uv run mindie-bench score --input /tmp/mindie-bench-demo/run
    ```
-4. **告知用户**：提示用户 `mindie-bench v0.4.5` 已就绪；在启动真实模型或真机 NPU 评测前，应先运行 `mindie-bench validate` 与 `mindie-bench soundness` 完成前置契约校验。
+4. **告知用户**：提示用户 `mindie-bench v0.4.6` 已就绪；在启动真实模型或真机 NPU 评测前，应先运行 `mindie-bench validate` 与 `mindie-bench soundness` 完成前置契约校验。
 
 </details>
 
@@ -97,7 +97,7 @@ flowchart TB
 | **3. 隔离宿主运行器**<br/>*(Isolated Host Runner / `run-host`)* | `mindie-bench run --tier l1\|l2\|l3 --groups G0,G1,G2 --canary-first` | 在独立 `HOME` / `XDG` / Shell 临时目录与 OS 沙箱中驱动 **Claude Code、Codex、Kimi Code、DSH**；支持 `--canary-first` 先跑单格金丝雀验证，通过后再放行完整矩阵，由 `MeteringGateway` 精确计量 Token、工具调用区间并集与真实端到端耗时。 |
 | **4. 组件级基准测试**<br/>*(Component Benchmarks / `run-component`)* | `mindie-bench release-run`<br/>`mindie-bench component-retrieval` | 对各组件仓库的 `benchmarks/release.json` 执行功能/微基准/端到端测量并生成 `benchmark-results.json`；在 7 大领域知识语料库（`450` 个 `L1–L4` 分级单元及历史检索评测集）上运行冻结检索基准（Recall@K / 延迟）。 |
 | **5. 跨任务经验复用与开放探索评测**<br/>*(Cross-Task Reuse & Exploration / `run-reuse`)* | `mindie-bench run --groups G3,G4`<br/>`mindie-bench mechanism-replay`<br/>`mindie-bench mine --recipe` | 验证 `G3` 完整闭环（种子任务结束 $\to$ 确定性脱敏与质量门禁 $\to$ 本地知识入库 $\to$ 下游评估任务跨任务检索复用）与 `G4` `mode="explore"` 开放探索 + 留一法消融；提供 `mechanism-replay` 评估 `M1-01..M6-01` 机制决策，并用 `mine --recipe` 将历史修复编译为可执行 L2 任务包。 |
-| **6. 审计、评分与发布契约核验**<br/>*(Audit, Scoring & Publication Contracts)* | `mindie-bench score` / `compare`<br/>`mindie-bench audit-report` / `freeze`<br/>`mindie-bench release-collect`<br/>`mindie-bench value-collect` / `value-verify`<br/>`mindie-bench export-hf` | 统计 `pass@1`、`pass^k`、配对 Bootstrap 置信区间与 Sentry 轨迹审计；核验 12 仓库配套发布契约与 `product-value-v1.json` 价值门禁；经 `mindie_knowledge` 脱敏与 Gitleaks 扫描后导出双切分 Hugging Face 数据集（`trials.parquet`、`tasks.parquet`、`eval_manifest.json`、`leaderboard.json`）。 |
+| **6. 审计、评分与发布契约核验**<br/>*(Audit, Scoring & Publication Contracts)* | `mindie-bench score` / `compare`<br/>`mindie-bench audit-report` / `freeze`<br/>`mindie-bench release-collect`<br/>`mindie-bench value-collect` / `value-verify`<br/>`mindie-bench export-hf` | 统计 `pass@1`、`pass^k`、配对 Bootstrap 置信区间与 Sentry 轨迹审计；核验全栈组件与插件配套发布契约与 `product-value-v1.json` 价值门禁；经 `mindie_knowledge` 脱敏与 Gitleaks 扫描后导出双切分 Hugging Face 数据集（`trials.parquet`、`tasks.parquet`、`eval_manifest.json`、`leaderboard.json`）。 |
 
 ### 2. CLI 子命令速查表
 
@@ -221,7 +221,7 @@ mindie-bench/
 │   ├── runner/                      # 隔离宿主编排器 (orchestrator)、防篡改裁判 (verifier)、远端 NPU 槽位 (remote_slot)、MCP 探针与计费网关
 │   ├── evaluation/                  # Oracle 密封器 (oracle_freezer)、门禁核验 (gates)、消融评估 (ablation)、机制重放与源码可见性审计
 │   ├── scorer/                      # 轨迹与矩阵统计评分器 (metrics)、NPU 命令识别器、工具错误分类与 Bootstrap 显著性检验
-│   ├── integrations/                # 一等公民组件运行时适配器 (knowledge / remote-dev / coordinator) 与 10 仓库一致性检查
+│   ├── integrations/                # 一等公民组件运行时适配器 (knowledge / remote-dev / coordinator / debugger / diagnostics 等) 与多仓库一致性检查
 │   ├── mining/                      # 知识包到可执行基准任务的自动化挖掘与编译工具 (knowledge_to_task)
 │   └── hf_sync/                     # 确定性隐私脱敏、Gitleaks 扫描与 Hugging Face 双切分 Parquet 导出器
 ├── tasks/                           # L1 / L2 / L3 真实算子、vLLM-Ascend 推理、诊断重放与跨任务复用基准集
@@ -239,6 +239,7 @@ mindie-bench/
 
 | 文档主题 | 链接 |
 | --- | --- |
+| **`v0.4.6` 发布说明（`mindie_debugger` 故障与精度评测对齐、口语化题面套件、策略采纳观测与行为判分加固）** | [docs/releases/mindie-bench-0.4.6.md](./docs/releases/mindie-bench-0.4.6.md) · [English](./docs/releases/mindie-bench-0.4.6.en.md) |
 | **`v0.4.5` 发布说明（原生知识评测接入、Shell 临时目录隔离与缺测统计修正）** | [docs/releases/mindie-bench-0.4.5.md](./docs/releases/mindie-bench-0.4.5.md) · [English](./docs/releases/mindie-bench-0.4.5.en.md) |
 | **`v0.4.4` / `v0.4.3` 发布说明（行为级判分器与流式结算修复）** | [docs/releases/mindie-bench-0.4.4.md](./docs/releases/mindie-bench-0.4.4.md) · [docs/releases/mindie-bench-0.4.3.md](./docs/releases/mindie-bench-0.4.3.md) |
 | 运行手册与实验配置契约 | [docs/usage.md](./docs/usage.md) |

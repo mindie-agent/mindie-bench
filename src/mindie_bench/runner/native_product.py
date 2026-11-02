@@ -142,6 +142,7 @@ def prepare(root, env, selected, corpus, *, domain_corpora=None, active_domain=N
                 for name, executable in (
                     ("profiler", "mindie-profiler"), ("sim", "mindie-sim"),
                     ("coordinator", "mindie-coordinator"),
+                    ("debugger", "mindie-debugger"),
                 )
                 if (Path(python).parent / executable).is_file()
             },

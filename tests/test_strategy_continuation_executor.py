@@ -147,7 +147,7 @@ def test_sandbox_continuation_runs_real_oracle_and_pairs_actual_regressions(
         assert not Path(evidence["workspace"]).exists()
         if row["cell"]["arm"] != "A":
             assert row["continuation_regressed"] is not expected
-            context = json.loads((trial / "agent_context.json").read_text())
+            context = json.loads((trial / "agent_context.json").read_text(encoding="utf-8"))
             assert context["strategy_context"]["units"]
     assert len(workspaces) == len(set(workspaces)) == 6
     assert (Path(source.repo_path) / "candidate.py").read_text() == (

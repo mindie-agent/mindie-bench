@@ -82,6 +82,7 @@ def package_metadata(name, source_paths=()):
         "mindie-coordinator": "mindie_coordinator",
         "npu-top": "npu_top",
         "mindie-diagnostics": "mindie_diagnostics",
+        "mindie-debugger": "mindie_debugger",
         "mindie-knowledge": "mindie_knowledge",
         "remote-dev": "remote_dev",
         "mindie-profiler": "mindie_profiler",

@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 
 COMPONENTS = {
     "mindie-diagnostics": "mindie-agent/diagnostics",
+    "mindie-debugger": "mindie-agent/debugger",
     "mindie-knowledge": "mindie-agent/knowledge",
     "remote-dev": "mindie-agent/remote-dev",
     "mindie-coordinator": "mindie-agent/coordinator",

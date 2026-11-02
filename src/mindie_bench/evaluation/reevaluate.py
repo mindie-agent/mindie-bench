@@ -44,11 +44,11 @@ def read_json(path: Path) -> dict:
     # Remote artifacts have a 32 MiB raw bound; refuse an unbounded JSON load.
     if path.stat().st_size > 50 * 1024 * 1024:
         raise ValueError(f"JSON artifact exceeds 50 MiB: {path}")
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def write_json(path: Path, value: dict) -> None:
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def verifier_identity(task: Path) -> dict:
@@ -70,14 +70,14 @@ def restore_candidate(row: dict, receipt: dict, task: Path, workspace: Path) -> 
         patch_bytes = base64.b64decode(cleanup["patch_b64"], validate=True)
         if patch_path.read_bytes() != patch_bytes:
             raise ValueError("remote patch disagrees with the saved cleanup artifact")
-        spec = tomllib.loads((task / "task.toml").read_text())
+        spec = tomllib.loads((task / "task.toml").read_text(encoding="utf-8"))
         environment = spec["environment"][row["tier"]]
         base = receipt["environment_fingerprint"]["base_commit"]
-        with tempfile.TemporaryFile() as archive:
-            subprocess.run(["git", "-C", environment["repo_path"], "archive", base],
-                           stdout=archive, stderr=subprocess.PIPE, check=True, timeout=30)
-            archive.seek(0)
-            with tarfile.open(fileobj=archive) as source:
+        with tempfile.TemporaryDirectory(prefix="mindie-reevaluate-archive-") as temp_dir:
+            archive_path = Path(temp_dir) / "archive.tar"
+            subprocess.run(["git", "-C", environment["repo_path"], "archive", "-o", str(archive_path), base],
+                           stderr=subprocess.PIPE, check=True, timeout=30)
+            with tarfile.open(archive_path) as source:
                 source.extractall(workspace, filter="data")
         if patch_bytes:
             subprocess.run(["git", "apply", "--no-index", "--binary", str(patch_path)],
@@ -102,13 +102,13 @@ def restore_candidate(row: dict, receipt: dict, task: Path, workspace: Path) -> 
 
 def run_verifier(task: Path, workspace: Path, output: Path, python: Path, timeout: float) -> dict:
     before = verifier_identity(task)
-    env = dict(os.environ, MINDIE_BENCH_WORKSPACE=str(workspace),
-               MINDIE_BENCH_PYTHON=str(python), MINDIE_BENCH_CPU_PYTHON=str(python),
+    env = dict(os.environ, MINDIE_BENCH_WORKSPACE=workspace.as_posix(),
+               MINDIE_BENCH_PYTHON=python.as_posix(), MINDIE_BENCH_CPU_PYTHON=python.as_posix(),
                PYTHONDONTWRITEBYTECODE="1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1")
     started = time.monotonic()
     timed_out = False
     with (output / "stdout.txt").open("wb") as stdout, (output / "stderr.txt").open("wb") as stderr:
-        process = subprocess.Popen(["bash", str(task / "verifier/test.sh")], cwd=workspace,
+        process = subprocess.Popen(["bash", (task / "verifier/test.sh").as_posix()], cwd=workspace,
                                    env=env, stdout=stdout, stderr=stderr, start_new_session=True)
         try:
             process.wait(timeout=timeout)
@@ -129,7 +129,7 @@ def run_verifier(task: Path, workspace: Path, output: Path, python: Path, timeou
         return dict(result, failure_category="verifier_timeout", failure_reason="judge timed out")
     payload = None
     # Process output is streamed to disk; only JSON verdict lines enter the report.
-    with (output / "stdout.txt").open(errors="replace") as stream:
+    with (output / "stdout.txt").open(encoding="utf-8", errors="replace") as stream:
         for line in stream:
             try:
                 candidate = json.loads(line)
@@ -276,7 +276,7 @@ def reevaluate(inventory: Path, tasks: Path, output: Path, python: Path,
         ],
     }
     write_json(output / "reevaluation.json", result)
-    (output / "README.md").write_text(markdown(result))
+    (output / "README.md").write_text(markdown(result), encoding="utf-8")
     return result
 
 

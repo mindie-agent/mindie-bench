@@ -342,7 +342,7 @@ def component_view_product(report: dict, target: dict) -> dict:
     component = component_name(target["repository"])
     if report["component_revisions"].get(component) != target["revision"]:
         raise ValueError(f"component value attachment source differs: {component}")
-    if component in {"codex", "claude-code", "kimi"}:
+    if component in {"codex", "claude-code", "kimi", "agy", "wb"}:
         scope = (
             "Native compatibility evidence only. This plugin does not carry the matched "
             "product comparison; no single-component productivity or causal gain is claimed."
@@ -354,7 +354,7 @@ def component_view_product(report: dict, target: dict) -> dict:
             "configured product combination, not a causal single-component gain."
         )
         comparisons, matrix = report["comparisons"], report.get("matrix")
-    elif component in {"knowledge", "remote-dev", "coordinator", "npu-top", "diagnostics", "profiler", "sim"}:
+    elif component in {"knowledge", "remote-dev", "coordinator", "npu-top", "diagnostics", "debugger", "profiler", "sim"}:
         scope = (
             "Combination context and component functional evidence. Product arms are joint "
             "configurations, so these results cannot be attributed to this component alone."
@@ -373,7 +373,7 @@ def component_view_product(report: dict, target: dict) -> dict:
         case for case in report["component_cases"]
         if component == "mindie-bench" or case["component"] == component
     ]
-    if component in {"codex", "claude-code", "kimi"}:
+    if component in {"codex", "claude-code", "kimi", "agy", "wb"}:
         base = {
             key: report[key]
             for key in (

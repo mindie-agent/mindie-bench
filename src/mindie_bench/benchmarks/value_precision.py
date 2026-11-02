@@ -1,4 +1,4 @@
-"""Localize five real precision defects with the installed diagnostics primitives.
+"""Localize five real precision defects with the installed debugger primitives.
 
 [Role] Replay production-shaped GDN, SFA, KDA, GroupNorm/SparseMLA and MoE/sampler
 localization cases against the unchanged ``mindie_debugger.precision`` tools.

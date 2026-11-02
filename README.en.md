@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="./docs/releases/mindie-bench-0.4.5.en.md"><img src="https://img.shields.io/badge/release-v0.4.5-7045F5.svg" alt="Release v0.4.5"></a>
+  <a href="./docs/releases/mindie-bench-0.4.6.en.md"><img src="https://img.shields.io/badge/release-v0.4.6-7045F5.svg" alt="Release v0.4.6"></a>
   <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/Interface-CLI%20%7C%20Python%20API%20%7C%20HF%20Parquet-00ADD8" alt="CLI | Python API | HF Parquet">
   <img src="https://img.shields.io/badge/Target-Ascend%20NPU%20(A2%20910B%20%7C%20A3%20910C%20%7C%20A5%20950DT)-FF6B00" alt="Ascend NPU A2/A3/A5">
@@ -26,11 +26,11 @@
 
 Evaluating AI coding agents on Ascend NPU infrastructure is notoriously easy to get wrong: agents can accidentally read test answers from a shared checkout, leak personal CLI credentials, claim fake kernel speedups that break FP32 numerical accuracy, or have infrastructure/SSH hiccups silently counted as task failures.
 
-`mindie-bench` (`mindie_bench`, current formal release [`v0.4.5`](./docs/releases/mindie-bench-0.4.5.en.md)) is the **standalone, evidence-preserving evaluation harness and live Ascend NPU benchmark suite** for the MindIE Agent ecosystem. It holds the native host harness (Claude Code, Codex, Kimi Code, DSH), model deployment, source snapshot, and execution budget constant while measuring the exact impact of remote tools, domain knowledge, cross-task experience reuse, and de-biased exploration:
+`mindie-bench` (`mindie_bench`, current formal release [`v0.4.6`](./docs/releases/mindie-bench-0.4.6.en.md)) is the **standalone, evidence-preserving evaluation harness and live Ascend NPU benchmark suite** for the MindIE Agent ecosystem. It holds the native host harness (Claude Code, Codex, Kimi Code, DSH, AGY, OpenClaw), model deployment, source snapshot, and execution budget constant while measuring the exact impact of remote tools, domain knowledge, cross-task experience reuse, and de-biased exploration:
 
 - **Isolated Host Runner**: Launches fresh native Claude Code, OpenAI Codex, Kimi Code, or DSH profiles inside isolated `HOME` / `XDG` / shell temporary directories and OS sandboxes (macOS Seatbelt / Linux `bubblewrap`). Oracle test suites (`oracle_tests/`) are sealed into an external host bundle (`oracle.bundle` + SHA-256 manifest) before the agent starts, and real model API keys stay inside the parent `MeteringGateway` proxy.
 - **20 Behavioral-Oracle Tasks & Accuracy/Performance Speedup Gates**: All 20 benchmark task oracles execute candidate code in real subprocesses and verify dynamic runtime behavior across **109 verified three-state and helper controls** (`base` must fail, `negative_control` must fail, `gold` must pass). Performance tasks must pass **independent FP32 numerical verification, `ACLGraph` capture, memory bounds, leave-one-out ablation, warm-service latency, and Roofline-anchored HAP (Hardware Achievable Performance) speedup gates** — isolated speedup without numerical correctness never earns a pass.
-- **Controlled `G0–G4` Ablation & Cross-Task Knowledge Reuse**: Compares `G0` (base harness), `G1` (`+ remote-dev` / `npu-top` / `diagnostics` / `coordinator` / `profiler` / `sim` MCP tools), `G2` (`+ knowledge` retrieval over physically holdout-filtered corpora across 7 domains / `450` graded `L1–L4` units), `G3` (post-trial experience capture $\to$ deterministic redaction $\to$ corpus quality gate $\to$ downstream evaluation reuse), and `G4` (`mode="explore"` de-biased exploration + leave-one-out ablation).
+- **Controlled `G0–G4` Ablation & Cross-Task Knowledge Reuse**: Compares `G0` (base harness), `G1` (`+ remote-dev` remote execution, `npu-top` device snapshots, `coordinator` lease arbitration, `debugger` Ascend PLOG fault triage & numerical precision localization, `profiler` latency/memory attribution, `sim` operator/graph performance modeling, and `diagnostics` local fault redaction/reporting), `G2` (`+ knowledge` retrieval over physically holdout-filtered corpora across 7 domains / `450` graded `L1–L4` units), `G3` (post-trial experience capture $\to$ deterministic redaction $\to$ corpus quality gate $\to$ downstream evaluation reuse), and `G4` (`mode="explore"` de-biased exploration + leave-one-out ablation).
 - **Four-State Terminal Receipts & Publication Contracts**: Strictly separates `completed_pass`, `completed_fail`, `infra_failed`, and `unknown` external effects. Failed or uncertain trials are never silently folded into business failures or automatically overwritten.
 
 ```mermaid
@@ -60,19 +60,19 @@ Please install https://github.com/mindie-agent/mindie-bench for me
 <details>
 <summary>🤖 <b>Instructions for AI Agents (Auto-Install & Usage Protocol)</b></summary>
 
-If you are an AI Agent receiving the prompt above, follow these steps to install and verify `mindie-bench` (current formal release `v0.4.5`):
+If you are an AI Agent receiving the prompt above, follow these steps to install and verify `mindie-bench` (current formal release `v0.4.6`):
 
 1. **Check Prerequisites**: Confirm Python `>= 3.11` and `uv` are installed.
 2. **Install the CLI and Environment**:
    - Clone and sync the locked workspace environment (recommended for running benchmark tasks):
      ```bash
-     git clone --branch v0.4.5 https://github.com/mindie-agent/mindie-bench.git
+     git clone --branch v0.4.6 https://github.com/mindie-agent/mindie-bench.git
      cd mindie-bench
      uv sync --locked --all-extras
      ```
    - Or install the `mindie-bench` CLI globally:
      ```bash
-     uv tool install "git+https://github.com/mindie-agent/mindie-bench@v0.4.5"
+     uv tool install "git+https://github.com/mindie-agent/mindie-bench@v0.4.6"
      ```
 3. **Run the Zero-Model Smoke Demo & Scorer**:
    ```bash
@@ -80,7 +80,7 @@ If you are an AI Agent receiving the prompt above, follow these steps to install
    uv run mindie-bench demo --output /tmp/mindie-bench-demo
    uv run mindie-bench score --input /tmp/mindie-bench-demo/run
    ```
-4. **Notify the User**: Let the user know `mindie-bench v0.4.5` is ready, and always run `mindie-bench validate` and `mindie-bench soundness` before launching paid model or live NPU matrix runs.
+4. **Notify the User**: Let the user know `mindie-bench v0.4.6` is ready, and always run `mindie-bench validate` and `mindie-bench soundness` before launching paid model or live NPU matrix runs.
 
 </details>
 
@@ -97,7 +97,7 @@ If you are an AI Agent receiving the prompt above, follow these steps to install
 | **3. Isolated Host Runner**<br/>*(Isolated Host Runner / `run-host`)* | `mindie-bench run --tier l1\|l2\|l3 --groups G0,G1,G2 --canary-first` | Drives **Claude Code, OpenAI Codex, Kimi Code, and DSH** inside fresh `HOME`/`XDG`/temp profiles and OS sandboxes; supports `--canary-first` admission, cooperative NPU card leases, and interval-union tool timing via `MeteringGateway`. |
 | **4. Component Benchmarks**<br/>*(Component Benchmarks / `run-component`)* | `mindie-bench release-run`<br/>`mindie-bench component-retrieval` | Runs per-repository `benchmarks/release.json` functional/microbenchmark/e2e suites (`benchmark-results.json` + SHA-256 checksums) and evaluates Recall@K & latency on frozen retrieval queries across the 7 public Ascend corpora (`450` graded `L1–L4` units and historical retrieval sets). |
 | **5. Cross-Task Knowledge Reuse & Exploration**<br/>*(Cross-Task Reuse & Exploration / `run-reuse` / `build-gate-pack`)* | `mindie-bench run --groups G3,G4`<br/>`mindie-bench mechanism-replay`<br/>`mindie-bench mine --recipe` | Evaluates the full `G3` flywheel (seed completion $\to$ deterministic redaction & quality gate $\to$ local Git publication $\to$ held-out downstream evaluation reuse), `G4` `mode="explore"` de-biased exploration + leave-one-out ablation, `M1-01..M6-01` mechanism replay, and hashed source-bound L2 task compilation (`mine --recipe`). |
-| **6. Bundle Auditing, Scoring & Publication Contracts**<br/>*(Audit / `score` / `verify-publication-contracts` / `export-manifest`)* | `mindie-bench score` / `compare`<br/>`mindie-bench audit-report` / `freeze`<br/>`mindie-bench release-collect`<br/>`mindie-bench value-collect` / `value-verify`<br/>`mindie-bench export-hf` | Computes `pass@1`, `pass^k`, paired bootstrap CIs, and Sentry trajectory audits; verifies 12-repo release manifests and `product-value-v1.json` contracts; applies `mindie_knowledge` redaction and Gitleaks scans to export Hugging Face datasets (`trials.parquet`, `tasks.parquet`, `eval_manifest.json`, `leaderboard.json`). |
+| **6. Bundle Auditing, Scoring & Publication Contracts**<br/>*(Audit / `score` / `verify-publication-contracts` / `export-manifest`)* | `mindie-bench score` / `compare`<br/>`mindie-bench audit-report` / `freeze`<br/>`mindie-bench release-collect`<br/>`mindie-bench value-collect` / `value-verify`<br/>`mindie-bench export-hf` | Computes `pass@1`, `pass^k`, paired bootstrap CIs, and Sentry trajectory audits; verifies multi-repo release manifests and `product-value-v1.json` contracts; applies `mindie_knowledge` redaction and Gitleaks scans to export Hugging Face datasets (`trials.parquet`, `tasks.parquet`, `eval_manifest.json`, `leaderboard.json`). |
 
 ### 2. CLI Subcommand Reference
 
@@ -221,7 +221,7 @@ mindie-bench/
 │   ├── runner/                      # Isolated host orchestrator, anti-tamper verifier, remote NPU slot, MCP probe & metering gateway
 │   ├── evaluation/                  # Oracle bundle freezer, performance/accuracy gates, ablation evaluator, mechanism replay & audits
 │   ├── scorer/                      # Trajectory & matrix statistical scorer, NPU command recognizer, tool error classifier & bootstrap CI
-│   ├── integrations/                # First-party component runtime adapter (knowledge / remote-dev / coordinator) & checkout verifier
+│   ├── integrations/                # First-party component runtime adapter (knowledge / remote-dev / coordinator / debugger / diagnostics, etc.) & checkout verifier
 │   ├── mining/                      # Automated knowledge-to-benchmark-task miner and hashed L2 recipe compiler
 │   └── hf_sync/                     # Deterministic redaction, Gitleaks scanner, and dual-split Hugging Face Parquet exporter
 ├── tasks/                           # L1 / L2 / L3 operator, vLLM-Ascend inference, diagnostic replay, and cross-task reuse suites
@@ -239,6 +239,7 @@ mindie-bench/
 
 | Topic | Link |
 | --- | --- |
+| **`v0.4.6` Release Notes (`mindie_debugger` Fault & Precision Alignment, Colloquial Prompts, Strategy Adoption & Behavioral Verifiers)** | [docs/releases/mindie-bench-0.4.6.en.md](./docs/releases/mindie-bench-0.4.6.en.md) · [中文](./docs/releases/mindie-bench-0.4.6.md) |
 | **`v0.4.5` Release Notes (Native Knowledge Eval Wiring, Shell Temp Isolation & Missing-Metric Accounting)** | [docs/releases/mindie-bench-0.4.5.en.md](./docs/releases/mindie-bench-0.4.5.en.md) · [中文](./docs/releases/mindie-bench-0.4.5.md) |
 | **`v0.4.4` / `v0.4.3` Release Notes (Behavioral Verifiers & Settlement Fix)** | [docs/releases/mindie-bench-0.4.4.en.md](./docs/releases/mindie-bench-0.4.4.en.md) · [docs/releases/mindie-bench-0.4.3.en.md](./docs/releases/mindie-bench-0.4.3.en.md) |
 | Usage Guide & Experiment Contracts | [docs/usage.md](./docs/usage.md) |

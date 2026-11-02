@@ -26,7 +26,7 @@ Every core module starts with a standardized **Module-Top Agent Invariant Header
 | | `src/mindie_bench/scorer/command_observations.py` | Static shell/AST recognizer for NPU test commands (`observe_npu_command`, `is_recognized_npu_command`). |
 | | `src/mindie_bench/scorer/tool_observations.py` | Remote tool error classifier (`summarize_tool_observations`), separating infrastructure faults from normal test/command failures. |
 | | `src/mindie_bench/scorer/statistics.py` | Paired bootstrap CI and exact permutation tests for ablation comparisons. |
-| **Integrations (`integrations/`)** | `src/mindie_bench/integrations/component_runtime.py` | Production adapter (`ComponentRuntimeAdapter`) bridging `knowledge`, `remote-dev`, and `coordinator` into `mindie-bench` without shadow fallbacks. |
+| **Integrations (`integrations/`)** | `src/mindie_bench/integrations/component_runtime.py` | Production adapter (`ComponentRuntimeAdapter`) bridging `knowledge`, `remote-dev`, `coordinator`, `debugger`, and runtime components into `mindie-bench` without shadow fallbacks. |
 | | `src/mindie_bench/integrations/first_party.py` | Lockfile and release consistency verifier (`verify_ecosystem_checkouts`) across all 10 MindIE Agent repositories. |
 | **Mining (`mining/`)** | `src/mindie_bench/mining/knowledge_to_task.py` | Automated knowledge-to-benchmark-task miner (`mine_knowledge`), turning validated knowledge packages with diff/verification blocks into draft L1/L2/L3 tasks. |
 
@@ -60,7 +60,7 @@ All layered execution paths enforce strict timeout hierarchy so inner cleanup an
 - **Oracle Sealing (`evaluation/oracle_freezer.py`)**: Before agent launch, `oracle_tests/` is bundled into a read-only host-side `oracle.bundle` + `manifest.json` (`sha256` per file) and deleted from the agent workspace. During verification, `restore_oracle_tests` restores from the sealed bundle and verifies SHA-256 hashes before running tests.
 - **Ablation Groups (`G0..G3`)**:
   - `G0`: Base harness only (no MindIE MCP servers or skills).
-  - `G1`: `+ remote-dev` / `npu-top` / `diagnostics` MCP servers.
+  - `G1`: `+ remote-dev` / `npu-top` / `debugger` / `diagnostics` MCP servers.
   - `G2`: `G1 + knowledge` read-only retrieval (filtered by `cutoff_date` and `holdout_ids` so oracle knowledge packages never leak into the corpus).
   - `G3`: `G2 +` post-trial experience capture (`capture_command` required; fails closed if omitted).
 

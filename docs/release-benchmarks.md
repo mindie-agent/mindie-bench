@@ -151,7 +151,7 @@ evaluates the fixed product value suite in `benchmarks/product-value-v1.json`:
   capture/reuse (`G3`) per host and model without averaging across models.
 - **Component scenarios**: repeated scenarios for `coordinator` (concurrent lease
   and port arbitration), `npu-top` (hardware capture replay and live container
-  ownership), and `diagnostics` (local HTTP fault deduplication, redaction, and
+  ownership), `debugger` (`mindie_debugger` Ascend HCCL / MindIE Service / operator log fault triage and precision localization), and `diagnostics` (local HTTP fault deduplication, redaction, and
   consent withdrawal).
 
 Collect and verify the public value report from recorded trial receipts and

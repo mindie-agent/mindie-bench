@@ -20,6 +20,7 @@ COMPONENTS = {
     "knowledge": ("mindie-knowledge", "mindie_knowledge"),
     "remote-dev": ("remote-dev", "remote_dev"),
     "diagnostics": ("mindie-diagnostics", "mindie_diagnostics"),
+    "debugger": ("mindie-debugger", "mindie_debugger"),
     "npu-top": ("npu-top", "npu_top"),
     "coordinator": ("mindie-coordinator", "mindie_coordinator"),
     "profiler": ("mindie-profiler", "mindie_profiler"),
