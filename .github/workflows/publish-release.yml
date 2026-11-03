@@ -69,6 +69,7 @@ jobs:
         env:
           VERSION_FILES: ${{ inputs.version-files }}
           BENCHMARK_REF: ${{ inputs.benchmark-ref }}
+          RELEASE_NOTES_PATH: ${{ inputs.release-notes-path }}
         run: |
           python - <<'PY'
           import json, os, pathlib, re, subprocess, tomllib
@@ -86,6 +87,29 @@ jobs:
               else:
                   actual = json.loads(path.read_text())["version"]
               assert actual == version, f"{filename}: {actual} does not match {tag}"
+          repo_slug = os.environ.get("GITHUB_REPOSITORY", "").split("/", 1)[-1]
+          for readme_name in ("README.md", "README.en.md"):
+              readme_path = pathlib.Path(readme_name)
+              assert readme_path.is_file(), f"missing required {readme_name}"
+              readme_txt = readme_path.read_text(encoding="utf-8")
+              badges = re.findall(r"https://img\.shields\.io/badge/[Rr]elease-v([0-9]+\.[0-9]+\.[0-9]+)-", readme_txt)
+              assert badges, f"{readme_name}: missing shields.io Release badge for {tag}"
+              for b_ver in badges:
+                  assert b_ver == version, f"{readme_name}: Release badge v{b_ver} does not match {tag}"
+              if repo_slug:
+                  for dl_ver, whl_ver in re.findall(
+                      rf"github\.com/mindie-agent/{re.escape(repo_slug)}/releases/download/v([0-9]+\.[0-9]+\.[0-9]+)/[A-Za-z0-9_]+-([0-9]+\.[0-9]+\.[0-9]+)-py3-none-any\.whl",
+                      readme_txt,
+                  ):
+                      assert dl_ver == version and whl_ver == version, (
+                          f"{readme_name}: wheel URL v{dl_ver}/{whl_ver} does not match {tag}"
+                      )
+          notes_path = os.environ.get("RELEASE_NOTES_PATH", "").strip()
+          if notes_path:
+              assert pathlib.Path(notes_path).is_file(), f"release notes file not found: {notes_path}"
+              assert version in pathlib.Path(notes_path).name, (
+                  f"release-notes-path {notes_path} does not match {tag}"
+              )
           revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
           assert revision == os.environ["GITHUB_SHA"], "checkout differs from triggering tag"
           assert not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"]), "candidate checkout is dirty"
