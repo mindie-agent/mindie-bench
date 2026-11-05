@@ -143,7 +143,11 @@ class DshDriver:
         completed_turn = (
             self._completed_turn
             if self._completed_turn is not None
-            else (max(1, self._turn) if self._usage_seen and self.result.native_error is None else None)
+            else (
+                self._turn
+                if self._turn > 0 and self._usage_seen and self.result.native_error is None
+                else None
+            )
         )
         ready = (
             self.result.native_completed or (self._usage_seen and self.result.native_error is None)
@@ -238,7 +242,9 @@ class DshDriver:
                     self.result.native_completed = True
                     self.result.native_error = None
                     self._completed_turn = (
-                        turn if type(turn) is int and turn > 0 else max(1, self._turn)
+                        turn
+                        if type(turn) is int and turn > 0
+                        else (self._turn if self._usage_seen else None)
                     )
                 elif isinstance(reason, dict):
                     self.result.native_completed = False

@@ -33,7 +33,7 @@ from mindie_bench.runner.provider_transport import provider_connection
 from mindie_bench.runner.usage import UsageMeter
 from mindie_bench.scorer.command_observations import is_recognized_npu_command
 
-_SETTLEMENT_GRACE_SECONDS = float(os.environ.get("MINDIE_BENCH_SETTLEMENT_GRACE_SECONDS", "180.0"))
+_SETTLEMENT_GRACE_SECONDS = float(os.environ.get("MINDIE_BENCH_SETTLEMENT_GRACE_SECONDS", "30.0"))
 MODEL_SETTLEMENT_GRACE_SEC = _SETTLEMENT_GRACE_SECONDS
 _TRANSPORT_STAGES = ("connect", "submit", "response_headers", "response_body")
 
