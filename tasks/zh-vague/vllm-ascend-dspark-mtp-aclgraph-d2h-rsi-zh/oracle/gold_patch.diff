@@ -1,8 +1,8 @@
 diff --git a/vllm_ascend/worker/v2/spec_decode/dspark/speculator.py b/vllm_ascend/worker/v2/spec_decode/dspark/speculator.py
-index 8d6341a18..01da04019 100644
+index a771b79c7..01da04019 100644
 --- a/vllm_ascend/worker/v2/spec_decode/dspark/speculator.py
 +++ b/vllm_ascend/worker/v2/spec_decode/dspark/speculator.py
-@@ -180,51 +180,124 @@ def dspark_aclgraph_speculative_step(
+@@ -180,49 +180,124 @@ def dspark_aclgraph_speculative_step(
      num_speculative_tokens: int = 3,
      num_query_per_req: int = 3,
      bucket_sizes: tuple[int, ...] = (4, 8, 12, 16, 24, 32),
@@ -15,12 +15,10 @@ index 8d6341a18..01da04019 100644
 -    captured_step_d2h_syncs = 0
 -    metadata_allocs_in_capture = 2
 -
--    # Baseline sizes bucket from raw request count without separating target (1+K) vs draft (num_query_per_req)
 -    num_reqs_padded = next((b for b in bucket_sizes if b >= num_reqs), bucket_sizes[-1])
 -    target_tokens_padded = num_reqs_padded * num_query_per_req
 -    draft_tokens_padded = num_reqs_padded * num_query_per_req
 -
--    # Rebuild actual_seq_lengths_q inside captured step clamping at num_reqs
 -    max_seq_host = int(req_seq_lens.max().item())
 -    captured_step_d2h_syncs += 1
 -    actual_seq_lengths_q = torch.tensor(

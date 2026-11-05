@@ -9,8 +9,8 @@ index 5f968cdb0..3b1ad97ad 100644
 -    return 512
 +    max_elems_by_ub = (128 * 1024) // (4 * max(num_live_f32_buffers, 1))
 +    cap = 4096 if dtype == torch.float32 else min(16384, max_elems_by_ub * 2)
-+    raw = 1 if min(numel, cap) <= 1 else (1 << (int(min(numel, cap)) - 1).bit_length())
-+    return max(512, min(raw, cap))
++    raw = 1 << (max(1, int(min(numel, cap))).bit_length() - 1)
++    return max(512, raw)
  
  
  def spatial_group_norm_reduce(

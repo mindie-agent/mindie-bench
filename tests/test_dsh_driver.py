@@ -222,3 +222,36 @@ def test_dsh_capture_needs_observed_turn_identity_and_does_not_reuse_prior_compl
         3,
     )
     assert driver.trajectory().native_error == "original provider error"
+
+
+def test_dsh_step_end_with_usage_is_not_capture_ready_before_turn_end():
+    driver = DshDriver()
+    driver.consume({"type": "session", "sessionId": "s"}, 0, 0)
+    driver.consume({"type": "status", "phase": "turn_start", "turn": 1}, 1, 1)
+    driver.consume(
+        {
+            "type": "status",
+            "phase": "step_end",
+            "turn": 1,
+            "step": 1,
+            "usage": {"inputTokens": 10, "outputTokens": 5},
+        },
+        2,
+        1,
+    )
+    assert not driver.native_session_capture().capture_ready
+    driver.consume(
+        {"type": "status", "phase": "turn_end", "reason": {"kind": "completed"}},
+        3,
+        1,
+    )
+    assert driver.native_session_capture().capture_ready
+    assert driver.native_capture_payload()["turn_id"] == "1"
+    driver.consume({"type": "status", "phase": "turn_start", "turn": 2}, 4, 2)
+    assert not driver.native_session_capture().capture_ready
+    driver.consume(
+        {"type": "status", "phase": "turn_end", "reason": {"kind": "completed"}},
+        5,
+        2,
+    )
+    assert not driver.native_session_capture().capture_ready

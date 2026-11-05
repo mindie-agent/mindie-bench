@@ -84,6 +84,7 @@ def initialize(request):
         )
         if graded:
             import os
+
             from mindie_knowledge.graded.index import read_units
 
             units = read_units(corpus)

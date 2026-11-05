@@ -18,7 +18,7 @@ def _install_triton_stub_if_missing() -> None:
     if "triton" in sys.modules or importlib.util.find_spec("triton") is not None:
         return
     from importlib.machinery import ModuleSpec
-    import torch._dynamo  # Pre-initialize torch._dynamo before injecting CPU triton stub
+
 
     class UnavailableJIT:
         def __init__(self, fn):
@@ -156,7 +156,7 @@ try:
         int(mod.select_optimal_block_size(16384, torch.float32, 3)),
         int(mod.select_optimal_block_size(256, torch.bfloat16, 3)),
     ]
-    assert bs_probe == [16384, 13106, 4096, 512], (
+    assert bs_probe == [16384, 8192, 4096, 512], (
         f"select_optimal_block_size failed Ascend 950DT UB budget scaling contract: got {bs_probe}"
     )
     evidence["correctness_verified"] = True
@@ -167,28 +167,24 @@ try:
     core = {"num_groups": 4, "eps": 1e-5}
     ref = F.group_norm(x.float(), 4, w.float(), b.float(), eps=1e-5).to(torch.bfloat16)
     has_ablation_suite = hasattr(mod, "run_ablation_suite")
+    assert has_ablation_suite, "Missing run_ablation_suite in spatial_group_norm_reduce.py"
     suite_error = None
     with TensorTrace() as default_trace:
         with CallCapture(mod, "spatial") as capture:
             mod.spatial_group_norm_reduce(*inputs, num_groups=4, eps=1e-5)
             capture.phase = "suite"
-            if has_ablation_suite:
-                try:
-                    suite = invoke_suite(mod, "spatial", inputs, core)
-                    evidence["candidate_suite_type"] = type(suite).__name__
-                except (ImportError, NameError):
-                    raise
-                except Exception as exc:
-                    suite_error = exc
+            try:
+                suite = invoke_suite(mod, "spatial", inputs, core)
+                evidence["candidate_suite_type"] = type(suite).__name__
+            except (ImportError, NameError):
+                raise
+            except Exception as exc:
+                suite_error = exc
 
-    selected = {
-        "entrypoint": "spatial_group_norm_reduce",
-        "full_candidate": default_trace.summary(),
-        "bs_probe": bs_probe,
-    }
+    selected = None
     examined = 0
     failures = []
-    for entrypoint, controls in (capture.entries.items() if has_ablation_suite else ()):
+    for entrypoint, controls in capture.entries.items():
         values = list(controls.values())
         if len(values) < 4 or not any(c.is_default for c in values):
             continue
@@ -245,18 +241,37 @@ try:
                             "minus_dim_merge": dim,
                             "minus_block_scaling": block,
                             "minus_multibuffer_cast_guard": guard,
+                            "bs_probe": bs_probe,
                         }
                         break
-                    if "minus_dim_merge" in selected:
+                    if selected:
                         break
-                if "minus_dim_merge" in selected:
+                if selected:
                     break
-            if "minus_dim_merge" in selected:
+            if selected:
                 break
-        if "minus_dim_merge" in selected:
+        if selected:
             break
         failures.append({"entrypoint": entrypoint, "observed": observed})
-    evidence["observed_cpu_ablation"] = selected
+    evidence["observed_cpu_ablation"] = selected or {
+        "entrypoints": failures,
+        "replayed_controls": examined,
+        "bs_probe": bs_probe,
+    }
+    if selected is None and suite_error is not None:
+        message = str(suite_error)
+        if isinstance(suite_error, (ImportError, NotImplementedError)) or (
+            isinstance(suite_error, ValueError) and "NPU" in message and "require" in message
+        ):
+            raise UnsupportedCPUExecution(
+                f"CPU ablation execution unavailable: {type(suite_error).__name__}: {message}"
+            )
+        raise AssertionError(
+            f"Executed CPU ablation failed: {type(suite_error).__name__}: {message}"
+        ) from suite_error
+    assert selected is not None, (
+        "Independent replay did not establish three distinct numerical/tensor-work ablations"
+    )
     evidence.update(
         correctness_verified=True, ablation_contract_verified=True, verification_status="completed"
     )

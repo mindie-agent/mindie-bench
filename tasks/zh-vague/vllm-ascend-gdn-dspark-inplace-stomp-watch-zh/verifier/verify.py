@@ -6,11 +6,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
-
-import torch
+from pathlib import Path
 
 EXPECTED_REPRO_SHA256 = "a331c1cd97b2ee027c857585a26b1b0949ab0eaa3d20c330fad5eafc247d9b5b"
 
@@ -107,7 +105,7 @@ def main() -> int:
         return _fail("Step 2 sequence state and GDN state block outputs did not match expected values")
 
     # 3. Verify zero storage aliasing between caller live tensors and GDN/DSpark internal outputs
-    live_bt_ptr = int(res["live_block_table"].untyped_storage().data_ptr())
+    int(res["live_block_table"].untyped_storage().data_ptr())
     live_qsl_ptr = int(res["live_query_start_loc"].untyped_storage().data_ptr())
     live_sl_ptr = int(res["live_seq_lens"].untyped_storage().data_ptr())
 

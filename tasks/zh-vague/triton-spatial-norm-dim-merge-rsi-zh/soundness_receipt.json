@@ -1,5 +1,6 @@
 {
   "after_reward": 1.0,
+  "base_commit": "fd7a20924a666a0dfad6206eb3a45ec2156d64b2",
   "before_reward": 0.0,
   "cases": {
     "baseline": {
@@ -573,33 +574,32 @@
   },
   "errors": [],
   "execution_scope": "controlled_cpu_tensor_and_ablation_contract",
+  "gold_patch_sha256": "532ea34ce5aeccae77df1924e47ccdde57bcb237367d4c9b18ca0db2ed49776b",
   "helper_reward": 1.0,
   "measured_npu_speedup": null,
   "model_calls": 0,
   "native_kernel_bound": null,
   "negative_control_reward": 0.0,
   "performance_status": "unmeasured",
+  "post_fix": {
+    "exit_code": 0,
+    "reward": 1.0
+  },
+  "pre_fix": {
+    "exit_code": 1,
+    "reward": 0.0
+  },
   "python": "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python",
-  "schema_version": "2.0",
-  "source_commit": "99921b398a02344e80054dfd59fc127ce1ebbf98",
+  "schema_version": "1.0",
+  "source_commit": "1223fea314cb6172900bd615c9940fcd2c658925",
   "speedup_ratio": null,
   "status": "completed",
-  "task_sha256": "1dc1937eefb59f5b55a397f360ee982569c2b17d35e2cc3fbc8534f77591ae09",
+  "task_sha256": "cfbf399180de431072d697edb6c16a6da30268239fc45c6298fa0e71b920fda8",
   "tier": "l2",
   "verifier_files": {
     "runtime_controls.py": "d181cd55111a8cb8cf3945d2e62f2e56c2e10e96b16cf9c6369b867dac388eae",
     "test.sh": "e2e6d259669b20436fe1d564b5df5218b98ba9ae991cedd56f9d6f8a4c7ed641",
     "verify.py": "b0df8e1a811432d3f801819bbefc02f9e588c731f9a156d3b0501cc4ef363f53"
   },
-  "verifier_sha256": "d875a81a5233a905acb4d9661119f421458589bb19bd84ca0a10a131e7e9acae",
-  "base_commit": "fd7a20924a666a0dfad6206eb3a45ec2156d64b2",
-  "gold_patch_sha256": "532ea34ce5aeccae77df1924e47ccdde57bcb237367d4c9b18ca0db2ed49776b",
-  "pre_fix": {
-    "exit_code": 1,
-    "reward": 0.0
-  },
-  "post_fix": {
-    "exit_code": 0,
-    "reward": 1.0
-  }
+  "verifier_sha256": "d875a81a5233a905acb4d9661119f421458589bb19bd84ca0a10a131e7e9acae"
 }

@@ -138,7 +138,7 @@
   "schema_version": "1.0",
   "source_commit": "f02da291ec0bdbe31af248deffa69f7a97e8f259",
   "status": "completed",
-  "task_sha256": "037caeaaa36b14360f45e6e1d6b473f169ce860986f355714a16b082cb11a54e",
+  "task_sha256": "741b37141ea39ff86827183971f77802ea7e01b203443fe6022edacc98951866",
   "tier": "l3",
   "validation_scope": "One real A3 NPU, two private shapes/four rotated buffers, AB/BA/AB independent operator and eight-norm-step HTTP service blocks. Not full-vLLM throughput."
 }

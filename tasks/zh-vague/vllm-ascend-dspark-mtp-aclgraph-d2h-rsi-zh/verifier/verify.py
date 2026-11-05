@@ -182,6 +182,23 @@ def main() -> None:
         assert aq2_list == [3, 6, 9, 12, 15, 16], f"Invalid actual_seq_lengths_q on batch=5: {aq2}"
 
         evidence["correctness_verified"] = True
+        assert hasattr(mod, "run_ablation_suite"), "Missing run_ablation_suite in speculator.py"
+        try:
+            suite = mod.run_ablation_suite()
+        except TypeError:
+            suite = mod.run_ablation_suite(seq1.clone(), acc1.clone(), q1.clone(), slots1.clone())
+        assert isinstance(suite, dict), f"run_ablation_suite must return a dict, got {type(suite).__name__}"
+        evidence["candidate_suite_type"] = type(suite).__name__
+        required_arms = {
+            "full_candidate",
+            "minus_bucket_alignment",
+            "minus_metadata_hoist",
+            "minus_device_resident_accepted_tokens",
+        }
+        assert required_arms <= set(suite.keys()), (
+            f"run_ablation_suite missing required arms: {sorted(required_arms - set(suite.keys()))}"
+        )
+
         arm_traces: dict[str, dict[str, object]] = {
             "full_candidate": {
                 "scalar_sync_ops": tr1.scalar_sync_ops + tr2.scalar_sync_ops,
@@ -194,13 +211,59 @@ def main() -> None:
                 "status": "ok",
             }
         }
-        if hasattr(mod, "run_ablation_suite"):
+        for arm_name, flags in [
+            ("minus_bucket_alignment", dict(align_buckets=False, hoist_metadata=True, device_resident_accepted=True)),
+            ("minus_metadata_hoist", dict(align_buckets=True, hoist_metadata=False, device_resident_accepted=True)),
+            (
+                "minus_device_resident_accepted_tokens",
+                dict(align_buckets=True, hoist_metadata=True, device_resident_accepted=False),
+            ),
+        ]:
             try:
-                suite = mod.run_ablation_suite()
-            except TypeError:
-                suite = mod.run_ablation_suite(seq1, acc1, q1, slots1)
-            if isinstance(suite, dict):
-                evidence["candidate_suite_type"] = type(suite).__name__
+                with DSparkTrace() as tr_arm:
+                    upd_arm, m_arm = _invoke_step(
+                        mod,
+                        seq1.clone(),
+                        acc1.clone(),
+                        q1.clone(),
+                        slots1.clone(),
+                        **flags,
+                    )
+                aq_arm = m_arm.get("actual_seq_lengths_q")
+                aq_arm_list = aq_arm.tolist() if isinstance(aq_arm, torch.Tensor) else list(aq_arm or ())
+                arm_traces[arm_name] = {
+                    "scalar_sync_ops": tr_arm.scalar_sync_ops,
+                    "clone_ops": tr_arm.clone_ops,
+                    "draft_tokens_padded": m_arm.get("draft_tokens_padded"),
+                    "target_tokens_padded": m_arm.get("target_tokens_padded"),
+                    "actual_seq_lengths_q": aq_arm_list,
+                    "metadata_allocs_in_capture": m_arm.get("metadata_allocs_in_capture", 0),
+                    "captured_step_d2h_syncs": m_arm.get("captured_step_d2h_syncs", 0),
+                    "updated_ok": upd_arm.tolist() == [19, 26, 16],
+                    "status": "ok",
+                }
+            except RuntimeError as exc:
+                arm_traces[arm_name] = {
+                    "status": "error",
+                    "error": str(exc),
+                }
+
+        b_arm = arm_traces["minus_bucket_alignment"]
+        assert (
+            b_arm.get("status") == "error"
+            or b_arm.get("target_tokens_padded") != 16
+            or (b_arm.get("actual_seq_lengths_q") or [None])[-1] != b_arm.get("draft_tokens_padded")
+        ), f"minus_bucket_alignment did not exhibit bucket/TND mismatch: {b_arm}"
+
+        h_arm = arm_traces["minus_metadata_hoist"]
+        assert h_arm.get("status") == "ok" and (
+            int(h_arm.get("metadata_allocs_in_capture", 0)) > 0 or int(h_arm.get("clone_ops", 0)) > 0
+        ), f"minus_metadata_hoist did not exhibit metadata allocations/clones: {h_arm}"
+
+        d_arm = arm_traces["minus_device_resident_accepted_tokens"]
+        assert d_arm.get("status") == "ok" and (
+            int(d_arm.get("captured_step_d2h_syncs", 0)) > 0 or int(d_arm.get("scalar_sync_ops", 0)) > 0
+        ), f"minus_device_resident_accepted_tokens did not exhibit host D2H syncs: {d_arm}"
 
         evidence["observed_cpu_ablation"] = arm_traces
         evidence.update(

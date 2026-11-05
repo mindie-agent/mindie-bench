@@ -311,19 +311,19 @@ try:
             full = execute(lambda values: mod.sparse_mla_decode_step(*values, **core), "full_candidate")
             assert is_full(full), f"Independent full-candidate tensor/handoff check failed: {full}"
             evidence["correctness_verified"] = True
+            assert has_ablation_suite, "Missing run_ablation_suite in sparse_mla_decode.py"
             capture.phase = "suite"
             direct_arm = None
-            if has_ablation_suite:
-                try:
-                    suite = invoke_suite(mod, "sparse", inputs, core, input_names)
-                    evidence["candidate_suite_type"] = type(suite).__name__
-                except (ImportError, NameError):
-                    raise
-                except Exception as exc:
-                    suite_error = exc
-        selected = {"entrypoint": "sparse_mla_decode_step", "full_candidate": full}
+            try:
+                suite = invoke_suite(mod, "sparse", inputs, core, input_names)
+                evidence["candidate_suite_type"] = type(suite).__name__
+            except (ImportError, NameError):
+                raise
+            except Exception as exc:
+                suite_error = exc
+        selected = None
         failures = []
-        for entrypoint, controls in (capture.entries.items() if has_ablation_suite else ()):
+        for entrypoint, controls in capture.entries.items():
             values = list(controls.values())
             if len(values) < 4 or not any(c.is_default for c in values):
                 continue
@@ -370,7 +370,16 @@ try:
                 }
                 break
             failures.append({"entrypoint": entrypoint, "observed": observed})
-        evidence["observed_cpu_ablation"] = selected
+        evidence["observed_cpu_ablation"] = selected or {"entrypoints": failures}
+        if selected is None and suite_error is not None:
+            if isinstance(suite_error, (ImportError, NotImplementedError)):
+                raise UnsupportedCPUExecution(f"CPU ablation execution unavailable: {suite_error}")
+            raise AssertionError(
+                f"Executed CPU ablation failed: {type(suite_error).__name__}: {suite_error}"
+            ) from suite_error
+        assert selected is not None, (
+            "Independent replay did not establish three distinct operator/view/guard ablations"
+        )
     finally:
         ascend_ns.fused_q_dequant_rmsnorm_rope_split = orig_q_fused
         ascend_ns.npu_quant_lightning_indexer = orig_qli

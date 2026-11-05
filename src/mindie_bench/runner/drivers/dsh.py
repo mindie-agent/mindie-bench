@@ -96,6 +96,7 @@ class DshDriver:
         self._turn = 1
         self._tokens = [0, 0, 0, 0]
         self._usage_seen = False
+        self._turn_usage_seen = False
         self._public_ids = set()
         self._base_command: tuple[str, ...] | None = None
         self._session_cwd: str | None = None
@@ -140,18 +141,7 @@ class DshDriver:
             continuation = self.continuation_command(identity)
         except ValueError:
             continuation = None
-        completed_turn = (
-            self._completed_turn
-            if self._completed_turn is not None
-            else (
-                self._turn
-                if self._turn > 0 and self._usage_seen and self.result.native_error is None
-                else None
-            )
-        )
-        ready = (
-            self.result.native_completed or (self._usage_seen and self.result.native_error is None)
-        ) and completed_turn is not None
+        ready = self.result.native_completed and self._completed_turn is not None
         return DshSessionCapture(
             status="available" if ready else "incomplete",
             session_id=identity,
@@ -223,6 +213,7 @@ class DshDriver:
             if phase == "turn_start":
                 self.result.native_completed = False
                 self._completed_turn = None
+                self._turn_usage_seen = False
             elif phase == "step_end":
                 usage = event.get("usage")
                 if isinstance(usage, dict):
@@ -234,6 +225,7 @@ class DshDriver:
                     ]
                     if all(type(value) is int and value >= 0 for value in values):
                         self._usage_seen = True
+                        self._turn_usage_seen = True
                         for index, value in enumerate(values):
                             self._tokens[index] += value
             elif phase == "turn_end":
@@ -244,7 +236,7 @@ class DshDriver:
                     self._completed_turn = (
                         turn
                         if type(turn) is int and turn > 0
-                        else (self._turn if self._usage_seen else None)
+                        else (self._turn if self._turn > 0 and self._turn_usage_seen else None)
                     )
                 elif isinstance(reason, dict):
                     self.result.native_completed = False

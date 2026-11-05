@@ -6,6 +6,6 @@
   "schema_version": "1.0",
   "source_commit": "bcc6bd4d0e7db67e489b2beeae0488975147f919",
   "status": "completed",
-  "task_sha256": "9eb5ad7483110ea85d6fbed07eb65bbb9349f91dfc9eefaf8408cdf778e8c915",
+  "task_sha256": "da0b0bdb4c188e05544cf67fb129b75506ac1869e9d39e92307d4272b5a919db",
   "tier": "l2"
 }

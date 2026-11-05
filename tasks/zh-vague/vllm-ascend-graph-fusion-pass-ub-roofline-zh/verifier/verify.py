@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Sequence
-from dataclasses import dataclass
 import json
 import math
 import os
-from pathlib import Path
 import subprocess
 import sys
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-
 
 ALLOWED_FILES = {
     "vllm_ascend/compilation/graph_fusion_pass_manager.py",

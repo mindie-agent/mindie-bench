@@ -126,9 +126,7 @@ RUNTIME_HELPER_MODULES = (
 
 
 def native_capture_payload(harness, trajectory, profile, workspace, *, native_descriptor=None):
-    if not trajectory.native_completed and not (
-        harness == "dsh" and isinstance(native_descriptor, dict) and native_descriptor.get("completed") is True
-    ):
+    if not trajectory.native_completed:
         raise ValueError(f"{harness} capture requires an observed completed native turn")
     identity = trajectory.native_session_id
     if not identity:

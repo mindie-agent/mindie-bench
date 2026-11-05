@@ -2,20 +2,14 @@ diff --git a/vllm_ascend/models/deepseek_v4/sparse_mla_decode.py b/vllm_ascend/m
 index fc0363829..423e05cb3 100644
 --- a/vllm_ascend/models/deepseek_v4/sparse_mla_decode.py
 +++ b/vllm_ascend/models/deepseek_v4/sparse_mla_decode.py
-@@ -1,16 +1,25 @@
+@@ -1,16 +1,19 @@
 -"""DeepSeek-V4 SparseMLA decode step with QuantLightningIndexer (QLI-v2) and SFA."""
 +"""DeepSeek-V4 SparseMLA decode layer operator."""
  from __future__ import annotations
  
-+import importlib.util as _ilu
-+from pathlib import Path as _Path
  from typing import Any
  import torch
  
-+_rt_spec = _ilu.spec_from_file_location("_ascend_qli_runtime", _Path(__file__).with_name("_ascend_qli_runtime.py"))
-+_rt_mod = _ilu.module_from_spec(_rt_spec)
-+_rt_spec.loader.exec_module(_rt_mod)
-+
 +DSV4_BLOCK_SIZES = 64
 +ENABLE_INDEXER_OVERLAP = False
 +

@@ -6,9 +6,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import torch
 
@@ -102,7 +102,7 @@ def main() -> int:
     model.eval()
     runner = repro._make_lightweight_runner(model, max_tokens=4, max_reqs=4)
     runner.input_batch.block_table[0].slot_mapping.gpu[:4].copy_(torch.tensor([10, 11, 12, 13], dtype=torch.int32))
-    static_slot_ptr = int(runner.input_batch.block_table[0].slot_mapping.gpu.data_ptr())
+    int(runner.input_batch.block_table[0].slot_mapping.gpu.data_ptr())
     static_pos_ptr = int(runner.positions.data_ptr())
 
     attn_capture_dict, _ = runner._build_attention_metadata(
@@ -127,7 +127,7 @@ def main() -> int:
         num_reqs_padded=4,
         for_cudagraph_capture=False,
     )
-    cm = attn_dict["layers.0.self_attn"]
+    attn_dict["layers.0.self_attn"]
     if runner.input_batch.block_table[0].slot_mapping.gpu[2:4].tolist() != [-1, -1]:
         return _fail(
             f"Padded slot_mapping.gpu[2:4] was not masked to -1: got {runner.input_batch.block_table[0].slot_mapping.gpu[:4].tolist()}"

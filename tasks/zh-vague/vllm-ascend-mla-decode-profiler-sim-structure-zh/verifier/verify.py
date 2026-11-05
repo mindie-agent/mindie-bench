@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import ast
-from copy import copy, deepcopy
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from copy import copy, deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import torch
-
 
 ALLOWED_FILES = {
     "vllm_ascend/ops/mla.py",

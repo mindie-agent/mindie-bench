@@ -292,15 +292,18 @@ def main() -> None:
             err_a = float((q_a.float() - q_ref.float()).abs().max().item())
             arm_traces[arm_name] = {**tr.summary(), "max_abs_err": err_a}
 
-        if supports_arm_kwargs:
-            if "fuse_qkv_norm_proj" in retained:
-                assert arm_traces["minus_qkv_norm_proj_fusion"]["tensor_ops"] > arm_traces["full_candidate"]["tensor_ops"]
-            assert (
-                arm_traces["minus_vectorized_rope"]["clone_repeat_ops"] > arm_traces["full_candidate"]["clone_repeat_ops"]
-                or arm_traces["minus_vectorized_rope"]["tensor_ops"] > arm_traces["full_candidate"]["tensor_ops"]
-            )
-            assert arm_traces["minus_coalesced_kv_scatter"]["select_slice_ops"] > arm_traces["full_candidate"]["select_slice_ops"]
-            assert arm_traces["plus_decoy_lowbit_truncation"]["max_abs_err"] > 2e-2
+        assert supports_arm_kwargs, (
+            "mla_prolog_rope_kvcache_step must accept leave-one-out ablation flags "
+            "(fuse_qkv_norm_proj, vectorized_rope_no_broadcast, coalesce_kv_cache_scatter, enable_lowbit_qk_truncation)"
+        )
+        if "fuse_qkv_norm_proj" in retained:
+            assert arm_traces["minus_qkv_norm_proj_fusion"]["tensor_ops"] > arm_traces["full_candidate"]["tensor_ops"]
+        assert (
+            arm_traces["minus_vectorized_rope"]["clone_repeat_ops"] > arm_traces["full_candidate"]["clone_repeat_ops"]
+            or arm_traces["minus_vectorized_rope"]["tensor_ops"] > arm_traces["full_candidate"]["tensor_ops"]
+        )
+        assert arm_traces["minus_coalesced_kv_scatter"]["select_slice_ops"] > arm_traces["full_candidate"]["select_slice_ops"]
+        assert arm_traces["plus_decoy_lowbit_truncation"]["max_abs_err"] > 2e-2
 
         evidence["observed_cpu_ablation"] = arm_traces
         evidence.update(

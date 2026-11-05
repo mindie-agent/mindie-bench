@@ -6,12 +6,11 @@ import ast
 import json
 import math
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-
 
 ALLOWED_FILES = {
     "vllm_ascend/profiling_config.py",
