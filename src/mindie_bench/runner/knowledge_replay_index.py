@@ -271,12 +271,19 @@ class RoutingIndex:
             for parent_id in self._index.closure[ident]:
                 if self._index.units[parent_id].metadata["tier"] != "L1":
                     _include_parent(parent_id, inherited, omitted, raw_inherited_by_id)
+            active_closure = all(
+                self._index.units[node].status == "active"
+                for node in [*self._index.closure[ident], ident]
+            )
             base_row["excerpt"] = content
             base_row["excerpt_truncated"] = truncated
             base_row["inherited_rules"] = inherited
             base_row["inheritance_excluded"] = omitted
             base_row["ready_to_apply"] = bool(
-                base_row.get("match_status") == "matched" and not omitted and not truncated
+                base_row.get("match_status") == "matched"
+                and not omitted
+                and not truncated
+                and active_closure
             )
             merged_results.append(base_row)
         return {"cards": merged_cards, "results": merged_results}
@@ -349,10 +356,11 @@ class RoutingIndex:
     ) -> dict[str, Any]:
         """Return complete closure units only: no truncated procedural body ever leaves."""
         requested_refs = list(seq(refs))
-        response = self._index.explain_closure(
-            requested_refs, conditions=None if conditions is None else dict(conditions),
-            known_refs=self.resolve_known_refs(known_refs), token_budget=token_budget,
-        )
+        with self._isolated_retrieval_env():
+            response = self._index.explain_closure(
+                requested_refs, conditions=None if conditions is None else dict(conditions),
+                known_refs=self.resolve_known_refs(known_refs), token_budget=token_budget,
+            )
         delivered = {entry["id"]: entry
                      for entry in [*response["requires"], *response["units"]]}
         unresolved_ids = {str(entry.get("id")) for entry in response["unresolved"]}
