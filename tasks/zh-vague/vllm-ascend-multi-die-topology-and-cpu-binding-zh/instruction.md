@@ -1,0 +1,1 @@
+在昇腾双 Die 服务器上用 vllm-ascend 启动多实例推理时，vllm_ascend/cpu_binding.py 和 platform.py 在解析 ASCEND_RT_VISIBLE_DEVICES 拓扑、双 Die 同卡亲和选卡以及 NUMA 绑核时经常把实例错绑到隔离核或跨卡低带宽链路上（现场采集的拓扑与报错日志见 logs/ascend_topo_binding_err.log），帮我把拓扑解析、亲和选卡与绑核逻辑修好。

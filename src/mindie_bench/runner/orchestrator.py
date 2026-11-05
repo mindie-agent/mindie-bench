@@ -277,6 +277,8 @@ def run_trial(
                 ANTHROPIC_API_KEY="broker-only",
                 ANTHROPIC_BASE_URL=gateway.url,
             )
+            if workspace is not None:
+                profile.env["MINDIE_BENCH_WORKSPACE"] = str(workspace)
             if config.harness.name == "dsh":
                 profile.env.update(
                     DSH_HOME=profile.env["DSH_HOME"],

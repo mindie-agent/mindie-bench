@@ -1,0 +1,142 @@
+diff --git a/vllm_ascend/ops/mla.py b/vllm_ascend/ops/mla.py
+index 7fca0012e..e7258d430 100644
+--- a/vllm_ascend/ops/mla.py
++++ b/vllm_ascend/ops/mla.py
+@@ -213,63 +213,88 @@ def mla_prolog_rope_kvcache_step(
+     qk_rope_head_dim: int = 8,
+     kv_lora_rank: int = 24,
+     eps: float = 1e-6,
++    *,
++    fuse_qkv_norm_proj: bool = True,
++    vectorized_rope_no_broadcast: bool = True,
++    coalesce_kv_cache_scatter: bool = True,
++    enable_lowbit_qk_truncation: bool = False,
+ ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+     """MLA prolog projection, RoPE positional encoding, and paged KV cache scatter."""
+     import torch.nn.functional as F
+ 
+     orig_dtype = hidden_states.dtype
+-    num_tokens = hidden_states.shape[0]
++    T = hidden_states.shape[0]
++    q_lora_rank = w_q_a.shape[0]
+     head_dim = qk_nope_head_dim + qk_rope_head_dim
+ 
+-    q_latent = F.linear(hidden_states.clone(), w_q_a.clone()).clone()
+-    kv_all = F.linear(hidden_states.clone(), w_kv_a.clone()).clone()
+-    kv_latent = kv_all[:, :kv_lora_rank].clone()
+-    k_pe_raw = kv_all[:, kv_lora_rank:].clone()
+-
+-    q_norm_rows = []
+-    for idx in range(num_tokens):
+-        row_f32 = q_latent[idx].to(torch.float32).clone()
+-        rstd = torch.rsqrt(row_f32.pow(2).mean() + eps)
+-        q_norm_rows.append((row_f32 * rstd * q_a_rms_weight.to(torch.float32)).to(orig_dtype))
+-    q_normed = torch.stack(q_norm_rows, dim=0)
+-
+-    kv_norm_rows = []
+-    for idx in range(num_tokens):
+-        row_f32 = kv_latent[idx].to(torch.float32).clone()
+-        rstd = torch.rsqrt(row_f32.pow(2).mean() + eps)
+-        kv_norm_rows.append((row_f32 * rstd * kv_a_rms_weight.to(torch.float32)).to(orig_dtype))
+-    kv_nope_normed = torch.stack(kv_norm_rows, dim=0)
+-
+-    q_all = F.linear(q_normed, w_q_b).view(num_tokens, num_heads, head_dim)
+-    q_nope = (torch.round(q_all[:, :, :qk_nope_head_dim].to(torch.float32) * 8.0) / 8.0).to(orig_dtype)
+-    kv_nope_normed = (torch.round(kv_nope_normed.to(torch.float32) * 8.0) / 8.0).to(orig_dtype)
+-    q_pe = q_all[:, :, qk_nope_head_dim:]
+-
+-    cos_f32 = cos.to(torch.float32)
+-    sin_f32 = sin.to(torch.float32)
+-    q_pe_heads = []
+-    for h_idx in range(num_heads):
+-        qh = q_pe[:, h_idx, :].to(torch.float32).clone()
+-        qh_rot = (qh * cos_f32 + _rotate_half_last_dim(qh) * sin_f32).to(orig_dtype)
+-        q_pe_heads.append(qh_rot)
+-    q_pe_rot = torch.stack(q_pe_heads, dim=1)
+-
+-    k_pe_expanded = k_pe_raw.unsqueeze(1).repeat(1, num_heads, 1).clone().to(torch.float32)
+-    k_pe_rot_exp = (
+-        k_pe_expanded * cos_f32.unsqueeze(1) + _rotate_half_last_dim(k_pe_expanded) * sin_f32.unsqueeze(1)
+-    ).to(orig_dtype)
+-    k_pe_rot = k_pe_rot_exp[:, 0, :].clone()
++    if fuse_qkv_norm_proj:
++        w_qkv = torch.cat((w_q_a, w_kv_a), dim=0)
++        qkv_all = F.linear(hidden_states, w_qkv).float()
++        q_latent = qkv_all[:, :q_lora_rank]
++        kv_latent = qkv_all[:, q_lora_rank : q_lora_rank + kv_lora_rank]
++        k_pe_raw = qkv_all[:, q_lora_rank + kv_lora_rank :].to(orig_dtype)
++    else:
++        q_latent = F.linear(hidden_states.clone(), w_q_a).float()
++        kv_all = F.linear(hidden_states.clone(), w_kv_a).float()
++        kv_latent = kv_all[:, :kv_lora_rank].clone()
++        k_pe_raw = kv_all[:, kv_lora_rank:].clone().to(orig_dtype)
++
++    q_rstd = torch.rsqrt(q_latent.pow(2).mean(dim=-1, keepdim=True) + eps)
++    q_normed = (q_latent * q_rstd * q_a_rms_weight.float()).to(orig_dtype)
++    kv_rstd = torch.rsqrt(kv_latent.pow(2).mean(dim=-1, keepdim=True) + eps)
++    kv_nope_normed = (kv_latent * kv_rstd * kv_a_rms_weight.to(torch.float32)).to(orig_dtype)
++
++    q_all = F.linear(q_normed, w_q_b).view(T, num_heads, head_dim)
++    q_nope = q_all[:, :, :qk_nope_head_dim]
++    q_pe = q_all[:, :, qk_nope_head_dim:].float()
++    half = qk_rope_head_dim // 2
++
++    if vectorized_rope_no_broadcast:
++        q_rot_half = torch.cat((-q_pe[..., half:], q_pe[..., :half]), dim=-1)
++        q_pe_rot = (q_pe * cos.float().unsqueeze(1) + q_rot_half * sin.float().unsqueeze(1)).to(orig_dtype)
++        k_pe_f = k_pe_raw.float()
++        k_rot_half = torch.cat((-k_pe_f[..., half:], k_pe_f[..., :half]), dim=-1)
++        k_pe_rot = (k_pe_f * cos.float() + k_rot_half * sin.float()).to(orig_dtype)
++    else:
++        cos_q = cos.float().unsqueeze(1).repeat(1, num_heads, 1).clone()
++        sin_q = sin.float().unsqueeze(1).repeat(1, num_heads, 1).clone()
++        q_rot_half = torch.cat((-q_pe[..., half:].clone(), q_pe[..., :half].clone()), dim=-1)
++        q_pe_rot = (q_pe * cos_q + q_rot_half * sin_q).to(orig_dtype)
++        k_pe_f = k_pe_raw.float().clone()
++        k_rot_half = torch.cat((-k_pe_f[..., half:].clone(), k_pe_f[..., :half].clone()), dim=-1)
++        k_pe_rot = (k_pe_f * cos.float().clone() + k_rot_half * sin.float().clone()).to(orig_dtype)
+ 
+     q_out = torch.cat((q_nope, q_pe_rot), dim=-1)
+-
+-    block_size = kv_cache_nope.shape[1]
+-    for tok_idx in range(num_tokens):
+-        slot = int(slot_mapping[tok_idx].item())
+-        if slot < 0:
+-            continue
+-        blk_idx = slot // block_size
+-        blk_off = slot % block_size
+-        kv_cache_nope[blk_idx, blk_off].copy_(kv_nope_normed[tok_idx].clone())
+-        kv_cache_rope[blk_idx, blk_off].copy_(k_pe_rot[tok_idx].clone())
++    if enable_lowbit_qk_truncation:
++        q_out = (torch.round(q_out.float() * 16.0) / 16.0).to(orig_dtype)
++
++    if coalesce_kv_cache_scatter:
++        valid = slot_mapping >= 0
++        valid_slots = slot_mapping[valid].to(torch.int64)
++        kv_cache_nope.view(-1, kv_lora_rank).index_copy_(0, valid_slots, kv_nope_normed[valid])
++        kv_cache_rope.view(-1, qk_rope_head_dim).index_copy_(0, valid_slots, k_pe_rot[valid])
++    else:
++        block_size = kv_cache_nope.shape[1]
++        for t in range(T):
++            slot = int(slot_mapping[t].item())
++            if slot >= 0:
++                b_idx = slot // block_size
++                b_off = slot % block_size
++                kv_cache_nope[b_idx, b_off].copy_(kv_nope_normed[t])
++                kv_cache_rope[b_idx, b_off].copy_(k_pe_rot[t])
+ 
+     return q_out, kv_nope_normed, k_pe_rot
++
++
++def run_ablation_report() -> dict[str, object]:
++    """Return leave-one-out factor retention report for MLA prolog."""
++    return {
++        "retained_factors": [
++            "fuse_qkv_norm_proj",
++            "vectorized_rope_no_broadcast",
++            "coalesce_kv_cache_scatter",
++        ],
++        "rejected_factors": [
++            "enable_lowbit_qk_truncation",
++        ],
++    }

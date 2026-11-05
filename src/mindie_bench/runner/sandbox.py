@@ -65,6 +65,8 @@ def native_command(
             lines.append(f"(allow file-read* ({predicate} {json.dumps(str(path))}))")
         for path in sorted(set(p.resolve() for p in write)):
             lines.append(f"(allow file-write* (subpath {json.dumps(str(path))}))")
+        if policy_path.name == "agent.sb":
+            lines.append('(deny file-read* (regex #"/state-v[0-9]+/graded/blobs(/|$)"))')
         if directory_watchers:
             # Kimi's native file watcher uses FSEvents and visits the workspace
             # ancestors. Grant directory entries, never sibling file contents.

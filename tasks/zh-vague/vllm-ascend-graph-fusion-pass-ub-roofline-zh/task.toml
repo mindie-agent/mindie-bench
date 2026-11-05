@@ -1,0 +1,25 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-graph-fusion-pass-ub-roofline-zh"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "368d03ca5a587693917f5e800da097709cd51279"
+issue = "component-value-v2-s3"
+validation_scope = "Ascend 192 KiB (196608 B) UB ping-pong double-buffered working-set feasibility gate and causal multi-pipe Roofline critical-path latency selection in GraphFusionPassManager"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/compilation/graph_fusion_pass_manager.py"]
+[budget]
+max_turns = 50
+max_npu_runs = 6
+timeout_sec = 480
+verifier_timeout_sec = 120
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "bcc6bd4d0e7db67e489b2beeae0488975147f919"

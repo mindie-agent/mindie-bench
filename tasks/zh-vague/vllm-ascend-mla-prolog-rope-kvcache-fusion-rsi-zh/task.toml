@@ -1,0 +1,27 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-mla-prolog-rope-kvcache-fusion-rsi-zh"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "1223fea314cb6172900bd615c9940fcd2c658925"
+issue = "rsi-g4"
+groups = ["G0", "G2", "G4"]
+validation_scope = "Controlled CPU tensor correctness and leave-one-out ablation contracts; native kernel binding and NPU speedup unmeasured"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = ["unit-vllm-ascend-mla-prolog-qkv-rope-kvcache-coalesce-mutator"]
+analogical_task_hashes = ["unit-vllm-ascend-mla-prolog-single-proj-and-lowbit-qk-workflow"]
+target_files = ["vllm_ascend/ops/mla.py"]
+[budget]
+max_turns = 60
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "1223fea314cb6172900bd615c9940fcd2c658925"

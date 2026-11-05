@@ -1,0 +1,27 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-multi-die-topology-and-cpu-binding-zh"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "8bf6c660a7ffb479d616983971f8a9910bd3f02b"
+issue = "stream-c-c1"
+groups = ["G0", "G1", "G2"]
+validation_scope = "CPU behavior verification of Ascend multi-Die Phy-ID topology affinity expansion, isolcpus exclusion, sibling-die gang device selection, and DCMI throttling bitmask decoding"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+analogical_task_hashes = ["unit-vllm-ascend-npu-top-and-coordinator-multi-die-lease-sop"]
+target_files = ["vllm_ascend/cpu_binding.py", "vllm_ascend/platform.py"]
+[budget]
+max_turns = 60
+max_npu_runs = 6
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "66d72633bba8239b39300f813b01670ede47b75a"

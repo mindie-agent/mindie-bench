@@ -158,14 +158,24 @@ def invoke_suite(module, family, inputs, core, sparse_names=()):
     fn = module.run_ablation_suite
     signature = inspect.signature(fn)
     if family == "spatial":
-        attempts = [(tuple(inputs), core), ((), {"device": "cpu"}), ((), {})]
+        attempts = [((), {}), (tuple(inputs), core), ((), {"device": "cpu"})]
     else:
         payload = {**dict(zip(sparse_names, inputs)), **core}
-        attempts = [((), {"inputs": payload}), ((), {"device": "cpu"}), ((), {})]
+        attempts = [
+            ((), {}),
+            (tuple(inputs), core),
+            ((), payload),
+            ((), {"inputs": payload}),
+            ((), {"device": "cpu"}),
+        ]
+    last_type_error = None
     for args, kwargs in attempts:
         try:
             signature.bind(*args, **kwargs)
-        except TypeError:
+            return fn(*args, **kwargs)
+        except TypeError as exc:
+            last_type_error = exc
             continue
-        return fn(*args, **kwargs)
+    if last_type_error is not None:
+        raise last_type_error
     raise UnsupportedCPUExecution("Ablation suite has no supported CPU input binding")

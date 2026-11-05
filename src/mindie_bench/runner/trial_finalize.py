@@ -149,6 +149,17 @@ def score_trial_trajectory(
                 ),
             )
             write_json(trial_dir / "broker_knowledge.json", broker_knowledge, exclusive=True)
+        knowledge_audit_records = None
+        audit_path = trial_dir / "profile" / "knowledge_query_audit.jsonl"
+        if audit_path.is_file():
+            try:
+                knowledge_audit_records = [
+                    json.loads(line)
+                    for line in audit_path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+            except Exception:
+                knowledge_audit_records = None
         measured_primary, measured_aux = trajectory_metrics(
             trajectory,
             task,
@@ -157,6 +168,7 @@ def score_trial_trajectory(
             tier=tier,
             source_visibility=source_visibility,
             broker_knowledge=broker_knowledge,
+            knowledge_audit_records=knowledge_audit_records,
         )
         primary = dict(measured_primary, **primary)
         auxiliary = dict(measured_aux, **auxiliary)
@@ -343,6 +355,7 @@ def run_g3_capture(
             instance_id=task.task.instance_id,
             business_terminal_status=status.value,
             verifier=primary.get("performance_metrics"),
+            verifier_result=auxiliary.get("verifier", {}).get("result"),
             benchmark_source_sha256=fingerprint["benchmark_source_sha256"],
         ),
     }
@@ -468,11 +481,13 @@ def run_g3_capture(
     if auxiliary["capture_model_calls"] and capture_receipt["tokens"].get("total") == 0:
         raise ValueError("capture inference occurred but its usage was reported as zero")
     provider_tokens = auxiliary["capture_provider_tokens"]
+    provider_sum = sum(
+        provider_tokens[name] for name in ["input_uncached", "input_cached", "output"]
+    )
     if (
         auxiliary["capture_model_calls"]
         and provider_tokens["complete"]
-        and capture_receipt["tokens"]["total"]
-        != sum(provider_tokens[name] for name in ["input_uncached", "input_cached", "output"])
+        and capture_receipt["tokens"]["total"] != provider_sum
     ):
         raise ValueError("capture usage differs from the observed model-provider ledger")
     auxiliary["captured_corpus_sha256"] = tree_hash(profile.corpus)

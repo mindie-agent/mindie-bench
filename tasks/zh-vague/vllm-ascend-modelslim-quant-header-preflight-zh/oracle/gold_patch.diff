@@ -1,0 +1,57 @@
+diff --git a/vllm_ascend/quantization/modelslim_config.py b/vllm_ascend/quantization/modelslim_config.py
+index e4d37361f..2df57e72d 100644
+--- a/vllm_ascend/quantization/modelslim_config.py
++++ b/vllm_ascend/quantization/modelslim_config.py
+@@ -1109,12 +1109,13 @@ def estimate_modelslim_checkpoint_vram_bytes(
+     """Estimate total checkpoint VRAM footprint in bytes from safetensors header metadata."""
+     resolved_headers = headers if headers is not None else read_safetensors_headers(checkpoint_dir)
+     total_bytes = 0
+-    for tensor_name, meta in resolved_headers.items():
+-        if not tensor_name.endswith(".weight"):
+-            continue
++    for _, meta in resolved_headers.items():
++        dtype = str(meta.get("dtype", ""))
++        if dtype not in SAFETENSORS_DTYPE_BYTES:
++            raise ValueError(f"Unsupported safetensors dtype in header: {dtype}")
+         shape = meta.get("shape", [])
+         num_elems = math.prod(shape) if shape else 1
+-        total_bytes += int(num_elems) * 1
++        total_bytes += int(num_elems) * SAFETENSORS_DTYPE_BYTES[dtype]
+     return total_bytes
+ 
+ 
+@@ -1135,6 +1136,34 @@ def preflight_modelslim_safetensors_headers(
+     fallback_float_layers: list[str] = []
+     invalid_quant_layers: dict[str, str] = {}
+ 
++    for key, qtype in quant_description.items():
++        if not (isinstance(key, str) and key.endswith(".weight") and isinstance(qtype, str)):
++            continue
++        if not qtype.startswith(("W8", "W4")):
++            continue
++        weight_meta = headers.get(key)
++        if weight_meta is None:
++            continue
++        w_dtype = str(weight_meta.get("dtype", ""))
++        if w_dtype in {"BF16", "F16", "F32"}:
++            resolved_description[key] = "FLOAT"
++            fallback_float_layers.append(key)
++        elif w_dtype in {"I8", "U8", "F8_E4M3"}:
++            prefix = key[: -len(".weight")]
++            scale_meta = headers.get(f"{prefix}.weight_scale") or headers.get(f"{prefix}.deq_scale")
++            w_shape = weight_meta.get("shape", [])
++            if scale_meta is None:
++                invalid_quant_layers[key] = "missing_scale"
++            else:
++                s_shape = scale_meta.get("shape", [])
++                if not s_shape or not w_shape or int(s_shape[0]) != int(w_shape[0]):
++                    invalid_quant_layers[key] = "scale_shape_mismatch"
++
++    if strict and invalid_quant_layers:
++        raise ValueError(
++            f"Invalid ModelSlim quantized layers detected in safetensors headers: {invalid_quant_layers}"
++        )
++
+     return {
+         "resolved_quant_description": resolved_description,
+         "fallback_float_layers": sorted(fallback_float_layers),

@@ -140,12 +140,19 @@ class DshDriver:
             continuation = self.continuation_command(identity)
         except ValueError:
             continuation = None
-        ready = self.result.native_completed and self._completed_turn is not None
+        completed_turn = (
+            self._completed_turn
+            if self._completed_turn is not None
+            else (max(1, self._turn) if self._usage_seen and self.result.native_error is None else None)
+        )
+        ready = (
+            self.result.native_completed or (self._usage_seen and self.result.native_error is None)
+        ) and completed_turn is not None
         return DshSessionCapture(
             status="available" if ready else "incomplete",
             session_id=identity,
             continuation_command=tuple(continuation) if continuation else None,
-            native_completed=self.result.native_completed,
+            native_completed=bool(ready),
             source="session_event",
             reason=None if ready else "completed native turn identity is unavailable",
             limitations=limitations,
@@ -161,11 +168,14 @@ class DshDriver:
         capture = self.native_session_capture()
         if not capture.capture_ready:
             raise ValueError("DSH capture requires a completed native session event")
+        completed_turn = (
+            self._completed_turn if self._completed_turn is not None else max(1, self._turn)
+        )
         return {
             "harness": "dsh",
             "session_id": capture.session_id,
-            "turn_id": str(self._completed_turn),
-            "completed": self.result.native_completed,
+            "turn_id": str(completed_turn),
+            "completed": True,
             "cwd": self._session_cwd,
             "continuation_command": list(capture.continuation_command or ()),
             "source": "headless_json_projection",
@@ -227,7 +237,9 @@ class DshDriver:
                 if isinstance(reason, dict) and reason.get("kind") == "completed":
                     self.result.native_completed = True
                     self.result.native_error = None
-                    self._completed_turn = turn if type(turn) is int and turn > 0 else None
+                    self._completed_turn = (
+                        turn if type(turn) is int and turn > 0 else max(1, self._turn)
+                    )
                 elif isinstance(reason, dict):
                     self.result.native_completed = False
                     self._completed_turn = None

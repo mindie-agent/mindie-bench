@@ -290,7 +290,7 @@ def build_profile(
         if missing:
             raise ValueError(f"declared knowledge task IDs are absent from the source corpus: {missing}")
         if (
-            group == Group.G2
+            (group == Group.G2 and corpus_override is None and not graded_source)
             or task.task.role == "seed"
             or task.mindie_knowledge.knowledge_gradient != "near_exact"
         ):
@@ -318,6 +318,9 @@ def build_profile(
         "MINDIE_BENCH_KNOWLEDGE_PRIVATE_ROOT": str(private_root),
         "MINDIE_BENCH_LOCAL_KNOWLEDGE_REMOTE": str(local_bare),
     }
+    if group == Group.G2 and corpus_override is None:
+        env["MINDIE_DISABLE_RSI_EXPLORE"] = "1"
+        private_env["MINDIE_DISABLE_RSI_EXPLORE"] = "1"
     if corpus is not None:
         private_env["MINDIE_BENCH_CORPUS"] = str(corpus)
     runtime_paths = []
@@ -354,7 +357,13 @@ def build_profile(
         resolved_cmd = command.resolve(strict=True)
         if server.component != "knowledge":
             runtime_paths.append(command)
-            if (command.parent / "mindie-profiler").is_file():
+            if any(
+                (command.parent / cli).is_file()
+                for cli in ("mindie-profiler", "mindie-debugger", "mindie-sim", "mindie-coordinator")
+            ) or any(
+                c in (getattr(config, "components", None) or {})
+                for c in ("profiler", "debugger", "sim", "coordinator")
+            ):
                 runtime_paths.extend([command.parent.parent, resolved_cmd.parent.parent])
                 if (
                     group in {Group.G2, Group.G3, Group.G4}
@@ -377,6 +386,8 @@ def build_profile(
             "args": [expand(arg) for arg in server.args],
             "env": {key: expand(value) for key, value in server.env.items()},
         }
+        if server.component == "knowledge" and group == Group.G2 and corpus_override is None:
+            configured["env"]["MINDIE_DISABLE_RSI_EXPLORE"] = "1"
         if server.component == "knowledge":
             knowledge_servers[name] = configured
             mcp[name] = {

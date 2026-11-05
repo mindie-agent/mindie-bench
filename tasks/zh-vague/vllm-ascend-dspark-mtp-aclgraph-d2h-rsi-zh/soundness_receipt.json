@@ -1,0 +1,20 @@
+{
+  "after_reward": 1.0,
+  "before_reward": 0.0,
+  "schema_version": "2.0",
+  "source_commit": "99921b398a02344e80054dfd59fc127ce1ebbf98",
+  "status": "completed",
+  "task_sha256": "39c6c5415e0d9d8d0eb2e24ef17498541181afffd7bf7132f6bbab71ae87471a",
+  "tier": "l2",
+  "base_commit": "fd7a20924a666a0dfad6206eb3a45ec2156d64b2",
+  "verifier_sha256": "d702a2c73279570c8bfa91418e451677c0af4b478d8ae0fcfa2dad63d854bce8",
+  "gold_patch_sha256": "fd751bdb4821cd2a9975232c68b13be664b528c1178f9811ed675cca35386106",
+  "pre_fix": {
+    "exit_code": 1,
+    "reward": 0.0
+  },
+  "post_fix": {
+    "exit_code": 0,
+    "reward": 1.0
+  }
+}

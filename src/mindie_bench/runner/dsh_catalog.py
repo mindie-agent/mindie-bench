@@ -77,7 +77,7 @@ def _stop_probe_group(process: subprocess.Popen, *, reason: str) -> None:
     if process.poll() is None:
         try:
             os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             return
         try:
             process.wait(timeout=2)
@@ -85,7 +85,7 @@ def _stop_probe_group(process: subprocess.Popen, *, reason: str) -> None:
             pass
     try:
         os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         return
     try:
         process.wait(timeout=5)

@@ -1,0 +1,56 @@
+diff --git a/vllm_ascend/logger.py b/vllm_ascend/logger.py
+index 2109882b8..bf468617b 100644
+--- a/vllm_ascend/logger.py
++++ b/vllm_ascend/logger.py
+@@ -215,8 +215,20 @@ def redact_crash_diagnostic_text(text: str) -> str:
+     """Scrub sensitive endpoints, tokens, and home paths while preserving CANN codes and vllm_ascend paths."""
+     if not text:
+         return text
+-    # Buggy baseline: only redacts Bearer tokens, leaking SSH/IPv4 endpoints, sk-/ASCEND_LAUNCH_TOKEN, and home paths
+-    redacted = re.sub(r"Bearer\s+[A-Za-z0-9._\-]+", "Bearer <REDACTED_TOKEN>", text)
++    redacted = re.sub(
++        r"(?:ssh://)?[A-Za-z0-9._\-]+@(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?",
++        "<REDACTED_SSH>",
++        text,
++    )
++    redacted = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b", "<REDACTED_IP>", redacted)
++    redacted = re.sub(r"Bearer\s+[A-Za-z0-9._\-]+", "Bearer <REDACTED_TOKEN>", redacted)
++    redacted = re.sub(r"\bsk-[A-Za-z0-9._\-]+\b", "<REDACTED_TOKEN>", redacted)
++    redacted = re.sub(
++        r"\b((?:ASCEND_LAUNCH_TOKEN|VLLM_API_KEY|API_KEY|ACCESS_TOKEN|SECRET_KEY)=)\S+",
++        r"\1<REDACTED_TOKEN>",
++        redacted,
++    )
++    redacted = re.sub(r"/(?:Users|home)/[A-Za-z0-9._\-]+", "<REDACTED_HOME>", redacted)
+     return redacted
+ 
+ 
+@@ -255,6 +267,10 @@ class CrashDiagnosticOutbox:
+         entry = self._entries[entry_id]
+         if entry["status"] == "sent":
+             return dict(entry)
++        if entry["status"] == "uncertain" and not allow_uncertain_replay:
++            raise RuntimeError(
++                f"Refusing automatic replay of uncertain diagnostic outbox entry '{entry_id}'"
++            )
+ 
+         entry["attempts"] += 1
+         try:
+@@ -263,11 +279,14 @@ class CrashDiagnosticOutbox:
+             entry["receipt"] = receipt
+             entry["receipt_unconfirmed"] = False
+             entry["last_error"] = None
++        except TimeoutError as exc:
++            entry["status"] = "uncertain"
++            entry["receipt_unconfirmed"] = True
++            entry["last_error"] = f"TimeoutError: {exc}"
+         except OSError as exc:
+-            # Buggy baseline: catches TimeoutError via OSError and resets status to "pending"
+-            entry["status"] = "pending"
++            entry["status"] = "failed"
+             entry["receipt_unconfirmed"] = False
+-            entry["last_error"] = str(exc)
++            entry["last_error"] = f"{type(exc).__name__}: {exc}"
+         return dict(entry)
+ 
+     def flush_pending(self, send_fn: Callable[[str], str | None]) -> list[dict[str, Any]]:

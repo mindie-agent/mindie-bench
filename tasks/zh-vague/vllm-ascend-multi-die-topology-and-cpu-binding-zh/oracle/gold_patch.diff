@@ -1,0 +1,211 @@
+diff --git a/vllm_ascend/cpu_binding.py b/vllm_ascend/cpu_binding.py
+index cbe0054c2..883b79454 100644
+--- a/vllm_ascend/cpu_binding.py
++++ b/vllm_ascend/cpu_binding.py
+@@ -194,10 +194,12 @@ class DeviceInfo:
+     def parse_allowed_cpus(self) -> list[int]:
+         if not os.path.exists(ALLOWED_CPUS_PATH):
+             return []
++        isolated = set(self.parse_isolated_cpus())
+         with open(ALLOWED_CPUS_PATH) as f:
+             for line in f:
+                 if line.startswith("Cpus_allowed_list"):
+-                    return self.expand_cpu_list(line.split()[1])
++                    expanded = self.expand_cpu_list(line.split()[1])
++                    return [cpu for cpu in expanded if cpu not in isolated]
+         raise RuntimeError("Can not found specific 'Cpus_allowed_list' in the '/proc/self/status' file.")
+ 
+     def parse_topo_affinity(self) -> dict[int, list[int]]:
+@@ -212,6 +214,25 @@ class DeviceInfo:
+                 last_part = parts[-1]
+                 if self.is_cpu_list(last_part):
+                     affinity[int(npu_match.group(1))] = self.expand_cpu_list(last_part)
++        all_logic = self.get_all_logic_npus()
++        if (
++            affinity
++            and self.npu_map_info
++            and len(affinity) == len(self.npu_map_info)
++            and len(all_logic) > len(affinity)
++        ):
++            expanded_affinity: dict[int, list[int]] = {}
++            for board_id_str, chip_map in self.npu_map_info.items():
++                if not board_id_str.isdigit():
++                    continue
++                board_cpus = affinity.get(int(board_id_str))
++                if board_cpus is None:
++                    continue
++                for logic_str in chip_map.values():
++                    if logic_str and logic_str.isdigit():
++                        expanded_affinity[int(logic_str)] = list(board_cpus)
++            if expanded_affinity:
++                return expanded_affinity
+         return affinity
+ 
+ 
+@@ -572,26 +593,18 @@ class CpuAlloc:
+             return
+ 
+         allowed_cpu_set = set(self.device_info.allowed_cpus)
+-        visible_devices = os.getenv("ASCEND_RT_VISIBLE_DEVICES") or ASCEND_RT_VISIBLE_DEVICES
+-        if visible_devices:
+-            candidate_npus = list(self.device_info.running_npu_list)
+-        else:
+-            candidate_npus = [
+-                npu
+-                for npu in self.device_info.all_logic_npus
+-                if npu in self.device_info.running_npu_list
+-                or any(cpu in allowed_cpu_set for cpu in self.device_info.npu_affinity.get(npu, []))
+-            ]
++        # Consider all logical NPUs to avoid CPU distribution overlap across worker processes.
++        candidate_npus = [
++            npu
++            for npu in self.device_info.all_logic_npus
++            # Always keep visible NPUs for strict conflict checks; include
++            # non-visible NPUs only when they overlap this process's cpuset.
++            if npu in self.device_info.running_npu_list
++            or any(cpu in allowed_cpu_set for cpu in self.device_info.npu_affinity.get(npu, []))
++        ]
+         for npu in candidate_npus:
+-            affinity_key = (
+-                npu // 2
+-                if visible_devices
+-                and self.device_info.npu_map_info
+-                and self.device_info.total_logic_npus > len(self.device_info.npu_map_info)
+-                else npu
+-            )
+             base_cpu_list = [
+-                cpu for cpu in self.device_info.npu_affinity.get(affinity_key, []) if cpu in self.device_info.allowed_cpus
++                cpu for cpu in self.device_info.npu_affinity.get(npu, []) if cpu in self.device_info.allowed_cpus
+             ]
+             if not base_cpu_list:
+                 raise RuntimeError("CPUs available in 'Cpus_allowed_list' conflict with NUMA affinity.")
+diff --git a/vllm_ascend/platform.py b/vllm_ascend/platform.py
+index 0c90f3678..1bfed2151 100644
+--- a/vllm_ascend/platform.py
++++ b/vllm_ascend/platform.py
+@@ -1479,9 +1479,9 @@ def _validate_draft_decode_context_parallel_config(vllm_config: VllmConfig) -> N
+ 
+ 
+ DCMI_THROTTLING_BIT_REASONS: dict[int, str] = {
+-    1: "overtemp_throttling",
+-    2: "power_cap_throttling",
+-    4: "hbm_ecc_uncorrectable",
++    0: "overtemp_throttling",
++    1: "power_cap_throttling",
++    3: "hbm_ecc_uncorrectable",
+ }
+ 
+ 
+@@ -1495,13 +1495,23 @@ def decode_dcmi_throttling_mask(bitmask: int, ret_code: int = 0) -> dict[str, An
+       - any other set bit b: unknown_bit_<b>
+       - ret_code != 0 or bitmask < 0: dcmi_query_error(<code_or_mask>)
+     """
++    if ret_code != 0 or bitmask < 0:
++        err_val = ret_code if ret_code != 0 else bitmask
++        return {
++            "healthy": False,
++            "throttled": True,
++            "uncorrectable_ecc": False,
++            "reasons": [f"dcmi_query_error({err_val})"],
++        }
+     reasons: list[str] = []
+-    for bit_idx, reason in sorted(DCMI_THROTTLING_BIT_REASONS.items()):
+-        if bitmask > 0 and (bitmask & (1 << bit_idx)):
+-            reasons.append(reason)
+-    uncorrectable_ecc = "hbm_ecc_uncorrectable" in reasons
++    bit_idx = 0
++    while (1 << bit_idx) <= bitmask:
++        if bitmask & (1 << bit_idx):
++            reasons.append(DCMI_THROTTLING_BIT_REASONS.get(bit_idx, f"unknown_bit_{bit_idx}"))
++        bit_idx += 1
++    uncorrectable_ecc = bool(bitmask & (1 << 3))
+     throttled = len(reasons) > 0
+-    healthy = not throttled and ret_code == 0
++    healthy = not throttled and not uncorrectable_ecc
+     return {
+         "healthy": healthy,
+         "throttled": throttled,
+@@ -1510,6 +1520,34 @@ def decode_dcmi_throttling_mask(bitmask: int, ret_code: int = 0) -> dict[str, An
+     }
+ 
+ 
++def _select_sibling_priority_from_pool(pool: list[int], num_devices: int, chips_per_card: int) -> list[int]:
++    cards: dict[int, list[int]] = {}
++    for pid in sorted(pool):
++        card_id = pid // chips_per_card
++        cards.setdefault(card_id, []).append(pid)
++
++    full_cards = [dies for _, dies in sorted(cards.items()) if len(dies) == chips_per_card]
++    partial_cards = [dies for _, dies in sorted(cards.items()) if len(dies) < chips_per_card]
++
++    chosen: list[int] = []
++    used_full_idx = 0
++    while used_full_idx < len(full_cards) and len(chosen) + chips_per_card <= num_devices:
++        chosen.extend(full_cards[used_full_idx])
++        used_full_idx += 1
++
++    if len(chosen) < num_devices:
++        for dies in partial_cards:
++            for pid in dies:
++                if len(chosen) < num_devices:
++                    chosen.append(pid)
++        for idx in range(used_full_idx, len(full_cards)):
++            for pid in full_cards[idx]:
++                if len(chosen) < num_devices:
++                    chosen.append(pid)
++
++    return sorted(chosen[:num_devices])
++
++
+ def select_multi_die_gang_devices(
+     num_devices: int,
+     available_phy_ids: list[int],
+@@ -1519,8 +1557,8 @@ def select_multi_die_gang_devices(
+ ) -> list[int]:
+     """Select healthy logical Phy-IDs for a multi-die instance.
+ 
+-    Should exclude any unhealthy/throttled Phy-ID, keep allocation within a single
+-    HCCS ring (phy_id // hccs_ring_size) when possible, and prioritize complete
++    Excludes any unhealthy/throttled Phy-ID, keeps allocation within a single
++    HCCS ring (phy_id // hccs_ring_size) when possible, and prioritizes complete
+     sibling-die pairs (2k, 2k+1) on the same physical card before singletons.
+     """
+     if num_devices <= 0:
+@@ -1535,7 +1573,36 @@ def select_multi_die_gang_devices(
+         raise RuntimeError(
+             f"Insufficient healthy NPU dies: requested={num_devices}, healthy={len(healthy_ids)}"
+         )
+-    return healthy_ids[:num_devices]
++
++    rings: dict[int, list[int]] = {}
++    for pid in healthy_ids:
++        ring_id = pid // hccs_ring_size
++        rings.setdefault(ring_id, []).append(pid)
++
++    def _count_full_cards(pool: list[int]) -> int:
++        cards: dict[int, int] = {}
++        for pid in pool:
++            cid = pid // chips_per_card
++            cards[cid] = cards.get(cid, 0) + 1
++        return sum(1 for cnt in cards.values() if cnt == chips_per_card)
++
++    candidate_rings = [
++        (ring_id, pool) for ring_id, pool in rings.items() if len(pool) >= num_devices
++    ]
++    if candidate_rings:
++        max_pairs_needed = num_devices // chips_per_card
++        best_ring_id, best_pool = max(
++            candidate_rings,
++            key=lambda item: (
++                min(max_pairs_needed, _count_full_cards(item[1])),
++                _count_full_cards(item[1]),
++                len(item[1]),
++                -item[0],
++            ),
++        )
++        return _select_sibling_priority_from_pool(best_pool, num_devices, chips_per_card)
++
++    return _select_sibling_priority_from_pool(healthy_ids, num_devices, chips_per_card)
+ 
+ 
+ NPUPlatform.decode_dcmi_throttling_mask = staticmethod(decode_dcmi_throttling_mask)

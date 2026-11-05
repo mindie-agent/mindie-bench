@@ -1,0 +1,57 @@
+diff --git a/vllm_ascend/compilation/graph_fusion_pass_manager.py b/vllm_ascend/compilation/graph_fusion_pass_manager.py
+index ce932252c..dd7a6c9ef 100644
+--- a/vllm_ascend/compilation/graph_fusion_pass_manager.py
++++ b/vllm_ascend/compilation/graph_fusion_pass_manager.py
+@@ -48,8 +48,7 @@ class FusionPlanCandidate:
+ 
+ def compute_ub_working_set_bytes(candidate: FusionPlanCandidate) -> int:
+     """Compute Unified Buffer (UB) byte footprint for one tile of a fused kernel."""
+-    # BUG: ignores double_buffer multiplier (2x when ping-pong double buffering is enabled)
+-    buffer_mult = 1
++    buffer_mult = 2 if candidate.double_buffer else 1
+     return (
+         buffer_mult
+         * int(candidate.tile_tokens)
+@@ -66,10 +65,14 @@ def evaluate_fusion_plan_roofline(
+ ) -> dict[str, Any]:
+     """Evaluate UB capacity feasibility and causal multi-pipe Roofline critical-path latency."""
+     ub_bytes = compute_ub_working_set_bytes(candidate)
+-    # BUG: fails to check ub_bytes <= ub_capacity_bytes and omits MTE/HBM pipe + unoverlapped tail
+-    ub_feasible = True
+-    critical_path_us = max(float(candidate.t_cube_us), float(candidate.t_vector_us))
+-    dominant_pipe = "cube" if float(candidate.t_cube_us) >= float(candidate.t_vector_us) else "vector"
++    ub_feasible = bool(ub_bytes <= int(ub_capacity_bytes))
++    pipe_times = {
++        "cube": float(candidate.t_cube_us),
++        "vector": float(candidate.t_vector_us),
++        "mte_hbm": float(candidate.t_mte_hbm_us),
++    }
++    dominant_pipe = max(pipe_times, key=lambda k: pipe_times[k])
++    critical_path_us = max(pipe_times.values()) + float(candidate.t_unoverlapped_tail_us)
+     saving_us = float(candidate.unfused_latency_us) - critical_path_us
+     is_beneficial = bool(ub_feasible and saving_us > 0.0)
+     return {
+@@ -147,10 +150,19 @@ class GraphFusionPassManager:
+             evaluate_fusion_plan_roofline(c, ub_capacity_bytes=ub_capacity_bytes)
+             for c in candidates
+         ]
+-        if not evaluated:
+-            return {"selected_plan": None, "evaluated_plans": []}
+-        # BUG: greedily picks largest fused_ops without filtering by ub_feasible / is_beneficial
+-        best = max(evaluated, key=lambda item: item["fused_ops"])
++        viable = [
++            item for item in evaluated if item["ub_feasible"] and item["is_beneficial"]
++        ]
++        if not viable:
++            return {
++                "selected_plan": None,
++                "selected_metrics": None,
++                "evaluated_plans": evaluated,
++            }
++        best = min(
++            viable,
++            key=lambda item: (item["critical_path_us"], item["ub_working_set_bytes"]),
++        )
+         return {
+             "selected_plan": best["name"],
+             "selected_metrics": best,

@@ -1,0 +1,116 @@
+diff --git a/vllm_ascend/sample/sampler.py b/vllm_ascend/sample/sampler.py
+index d7168ec00..f344b791a 100644
+--- a/vllm_ascend/sample/sampler.py
++++ b/vllm_ascend/sample/sampler.py
+@@ -159,6 +159,42 @@ class AscendTopKTopPSampler(TopKTopPSampler):
+             return random_sample(probs, generators), logits_to_return
+ 
+ 
++def _filter_logits_top_k_top_p(
++    logits: torch.Tensor,
++    k: torch.Tensor | None,
++    p: torch.Tensor | None,
++) -> torch.Tensor:
++    width = logits.size(1)
++    if k is not None:
++        probs = logits.softmax(dim=-1, dtype=torch.float32)
++        probs_sort, _ = probs.sort(dim=-1, descending=False)
++        k_long = k.to(device=logits.device, dtype=torch.long)
++        no_top_k_mask = (k_long <= 0) | (k_long >= width)
++        safe_k = torch.where(no_top_k_mask, torch.full_like(k_long, width), k_long).clamp(min=1, max=width)
++        top_k_count = (width - safe_k).unsqueeze(1)
++        top_k_cutoff = probs_sort.gather(-1, top_k_count)
++        top_k_cutoff.masked_fill_(no_top_k_mask.unsqueeze(1), -float("inf"))
++        elements_to_discard = probs < top_k_cutoff
++        logits.masked_fill_(elements_to_discard, -float("inf"))
++
++    if p is not None:
++        probs = logits.softmax(dim=-1, dtype=torch.float32)
++        probs_sort, _ = probs.sort(dim=-1, descending=False)
++        p_fp = p.to(device=logits.device, dtype=probs_sort.dtype)
++        no_top_p_mask = (p_fp <= 0.0) | (p_fp >= 1.0)
++        safe_p = torch.where(no_top_p_mask, torch.ones_like(p_fp), p_fp)
++        cumprob = torch.cumsum(probs_sort, dim=-1)
++        top_p_mask = cumprob <= (1.0 - safe_p.unsqueeze(1))
++        top_p_mask[:, -1] = False  # Always retain at least the highest-probability token
++        top_p_count = top_p_mask.sum(dim=-1, keepdim=True)
++        top_p_cutoff = probs_sort.gather(-1, top_p_count)
++        top_p_cutoff.masked_fill_(no_top_p_mask.unsqueeze(1), -float("inf"))
++        elements_to_discard = probs < top_p_cutoff
++        logits.masked_fill_(elements_to_discard, -float("inf"))
++
++    return logits
++
++
+ def _apply_top_k_top_p_pytorch(
+     logits: torch.Tensor,  # [B, V_local]
+     k: torch.Tensor,  # [B] or None
+@@ -170,10 +206,10 @@ def _apply_top_k_top_p_pytorch(
+         B, V_local = logits.shape
+         rank = tp_group.rank_in_group
+ 
+-        if top_k is None or (p is None and k is None):
++        if top_k is None or top_k <= 0 or (p is None and k is None):
+             k_for_topk = V_local
+         else:
+-            k_for_topk = min(top_k, V_local)
++            k_for_topk = min(int(top_k), V_local)
+ 
+         local_vals, local_idx = torch.topk(logits, k=k_for_topk, dim=-1)
+         local_global_idx = local_idx + rank * V_local
+@@ -183,53 +219,12 @@ def _apply_top_k_top_p_pytorch(
+         if p is None and k is None:
+             return gathered_vals, gathered_idx
+ 
+-        probs = gathered_vals.softmax(dim=-1)
+-        probs_sort, _ = probs.sort(dim=-1, descending=False)
+-        if k is not None:
+-            kk = k.to(torch.long).clamp(min=1, max=V_local)
+-            top_k_count = (probs_sort.size(1) - kk).unsqueeze(1)  # [B,1]
+-            top_k_cutoff = probs_sort.gather(-1, top_k_count)
+-            no_top_k_mask = (kk == V_local).unsqueeze(1)
+-            top_k_cutoff.masked_fill_(no_top_k_mask, -float("inf"))
+-            elements_to_discard = probs < top_k_cutoff
+-            gathered_vals.masked_fill_(elements_to_discard, -float("inf"))
+-        if p is not None:
+-            cumprob = torch.cumsum(probs_sort, dim=-1)
+-            top_p_mask = cumprob <= (1 - p.unsqueeze(1))
+-            top_p_count = (top_p_mask.sum(dim=-1, keepdim=True) - 1).clamp(min=0)
+-            top_p_cutoff = probs_sort.gather(-1, top_p_count)
+-            elements_to_discard = probs <= top_p_cutoff
+-            gathered_vals.masked_fill_(elements_to_discard, -float("inf"))
++        _filter_logits_top_k_top_p(gathered_vals, k, p)
+         return gathered_vals, gathered_idx
+     else:
+         if p is None and k is None:
+             return logits
+-
+-        probs = logits.softmax(dim=-1)
+-        probs_sort, _ = probs.sort(dim=-1, descending=False)
+-
+-        if k is not None:
+-            top_k_count = probs_sort.size(1) - k.to(torch.long)  # shape: (batch, )
+-            top_k_count = top_k_count.unsqueeze(dim=1)
+-            top_k_cutoff = probs_sort.gather(-1, top_k_count)
+-
+-            # Make sure the no top-k rows are no-op.
+-            no_top_k_mask = (k == logits.shape[1]).unsqueeze(dim=1)
+-            top_k_cutoff.masked_fill_(no_top_k_mask, -float("inf"))
+-
+-            elements_to_discard = probs < top_k_cutoff
+-            logits.masked_fill_(elements_to_discard, -float("inf"))
+-
+-        if p is not None:
+-            cumprob = torch.cumsum(probs_sort, dim=-1)
+-            top_p_mask = cumprob <= 1 - p.unsqueeze(dim=1)
+-
+-            top_p_count = (top_p_mask.sum(dim=-1).unsqueeze(1) - 1).clamp(min=0)
+-            top_p_cutoff = probs_sort.gather(-1, top_p_count)
+-            elements_to_discard = probs <= top_p_cutoff
+-            logits.masked_fill_(elements_to_discard, -float("inf"))
+-
+-        return logits
++        return _filter_logits_top_k_top_p(logits, k, p)
+ 
+ 
+ def _apply_top_k_top_p_torch_npu(

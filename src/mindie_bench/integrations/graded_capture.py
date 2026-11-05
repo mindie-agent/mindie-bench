@@ -445,6 +445,24 @@ def capture(args, payload):
                 repetitions=1,
             ),
         ]
+        verifier_res = manifest.get("verifier_result") if isinstance(manifest, dict) else None
+        if (
+            payload["business_terminal_status"] == "completed_pass"
+            and isinstance(verifier_res, dict)
+            and verifier_res.get("ablation_contract_verified") is True
+        ):
+            ablation_bytes = json.dumps(verifier_res, ensure_ascii=False, sort_keys=True)
+            ablation_sha = hashlib.sha256(ablation_bytes.encode("utf-8")).hexdigest()
+            inputs.append(
+                dict(
+                    kind="ablation_receipt",
+                    outcome="verified",
+                    content=ablation_bytes,
+                    source_locator=locator + ":ablation-receipt.json",
+                    evidence_refs=["ablation:" + ablation_sha],
+                    repetitions=1,
+                )
+            )
         # This receipt remains local. Engine performs the established redaction
         # before any selected transcript bytes reach the native organizer.
         write_json(output / "selected-inputs.private.json", inputs)
@@ -461,6 +479,13 @@ def capture(args, payload):
             )
         report["distill"] = distilled
         usage = SummaryLedger(producer.db).usage_totals()
+        if harness_name == "codex" and usage.get("input_tokens", 0) >= usage.get("cached_input_tokens", 0):
+            # Codex turn.completed reports total input_tokens inclusive of cached_input_tokens;
+            # normalize input_tokens to uncached input tokens so the 3 buckets are disjoint.
+            usage = dict(
+                usage,
+                input_tokens=usage["input_tokens"] - usage.get("cached_input_tokens", 0),
+            )
         report["indexer_usage"] = usage
         known_total = sum(usage[key] for key in ("input_tokens", "cached_input_tokens", "output_tokens"))
         report["tokens"] = dict(

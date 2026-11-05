@@ -1,0 +1,90 @@
+diff --git a/vllm_ascend/core/kv_cache_interface.py b/vllm_ascend/core/kv_cache_interface.py
+index 85061a61d..04d6ce2aa 100644
+--- a/vllm_ascend/core/kv_cache_interface.py
++++ b/vllm_ascend/core/kv_cache_interface.py
+@@ -275,17 +275,21 @@ def compute_kv_vram_budget(
+        deducted from available KV cache HBM before dividing by ``kv_bytes_per_seq``.
+     """
+     usable_hbm_bytes = int(hbm_capacity_bytes * gpu_memory_utilization)
+-    # BUG: treats workspace as single-buffered even when async_scheduling=True
+-    effective_workspace_bytes = int(workspace_bytes)
++    effective_workspace_bytes = (
++        2 * int(workspace_bytes) if async_scheduling else int(workspace_bytes)
++    )
+     available_kv_bytes = max(
+         0,
+         usable_hbm_bytes - int(weight_bytes) - int(runtime_overhead_bytes) - effective_workspace_bytes,
+     )
+     sync_tokens_padded = cdiv(max_seq_len, block_size) * block_size
+-    # BUG: omits in-flight lookahead tokens and delayed-release KV block retention
+-    tokens_per_seq_padded = sync_tokens_padded
++    kv_bytes_per_seq_sync = sync_tokens_padded * int(kv_bytes_per_token)
++    in_flight_steps = max(1, int(delayed_release_steps)) if async_scheduling else 0
++    tokens_per_step = 1 + max(0, int(num_speculative_tokens))
++    lookahead_tokens = in_flight_steps * tokens_per_step
++    tokens_per_seq_padded = cdiv(max_seq_len + lookahead_tokens, block_size) * block_size
+     kv_bytes_per_seq = tokens_per_seq_padded * int(kv_bytes_per_token)
+-    delayed_release_bytes = 0
++    delayed_release_bytes = in_flight_steps * kv_bytes_per_seq_sync
+     usable_kv_bytes = max(0, available_kv_bytes - delayed_release_bytes)
+     b_vram_max = usable_kv_bytes // kv_bytes_per_seq if kv_bytes_per_seq > 0 else 0
+     return AscendAsyncKVCacheBudget(
+@@ -326,8 +330,7 @@ def solve_sla_safe_concurrency(
+             int(max_num_seqs),
+             int((sla_us - float(base_step_us) - effective_host_us) // float(per_seq_step_us)),
+         )
+-    # BUG: fails to cap b_safe by budget.b_vram_max
+-    b_safe = b_latency_max
++    b_safe = min(budget.b_vram_max, b_latency_max)
+     step_ms_at_b_safe = (
+         (float(base_step_us) + effective_host_us + b_safe * float(per_seq_step_us)) / 1000.0
+         if b_safe > 0
+@@ -345,7 +348,7 @@ def solve_sla_safe_concurrency(
+         b_latency_max=b_latency_max,
+         b_safe=b_safe,
+         step_ms_at_b_safe=step_ms_at_b_safe,
+-        hbm_bound=False,
++        hbm_bound=bool(budget.b_vram_max < b_latency_max),
+     )
+ 
+ 
+diff --git a/vllm_ascend/worker/model_runner_v1.py b/vllm_ascend/worker/model_runner_v1.py
+index 010d14384..d5dc20d9b 100644
+--- a/vllm_ascend/worker/model_runner_v1.py
++++ b/vllm_ascend/worker/model_runner_v1.py
+@@ -3740,7 +3740,13 @@ class NPUModelRunner(GPUModelRunner):
+         delayed_release_steps: int = 1,
+     ) -> AscendAsyncKVCacheBudget:
+         """Resolve KV cache VRAM budget and SLA-safe concurrency for NPUModelRunner."""
+-        # BUG: ignores scheduler_config.async_scheduling and speculative_config.num_speculative_tokens
++        async_scheduling = bool(getattr(self.scheduler_config, "async_scheduling", False))
++        spec_cfg = getattr(self, "speculative_config", None)
++        num_spec_tokens = (
++            int(getattr(spec_cfg, "num_speculative_tokens", 0) or 0)
++            if spec_cfg is not None
++            else 0
++        )
+         vram_budget = compute_kv_vram_budget(
+             hbm_capacity_bytes=hbm_capacity_bytes,
+             gpu_memory_utilization=float(self.cache_config.gpu_memory_utilization),
+@@ -3749,9 +3755,9 @@ class NPUModelRunner(GPUModelRunner):
+             kv_bytes_per_token=kv_bytes_per_token,
+             max_seq_len=int(self.max_model_len),
+             block_size=int(self.block_size),
+-            async_scheduling=False,
++            async_scheduling=async_scheduling,
+             delayed_release_steps=delayed_release_steps,
+-            num_speculative_tokens=0,
++            num_speculative_tokens=num_spec_tokens,
+             runtime_overhead_bytes=runtime_overhead_bytes,
+         )
+         budget = solve_sla_safe_concurrency(
+@@ -3763,6 +3769,8 @@ class NPUModelRunner(GPUModelRunner):
+             host_overhead_saved_us=host_overhead_saved_us,
+             max_num_seqs=int(self.max_num_reqs),
+         )
++        if budget.b_safe > 0:
++            self.max_num_reqs = min(int(self.max_num_reqs), budget.b_safe)
+         return budget
+ 
+     def _align_memory(self, tensor: torch.Tensor, alignment: int) -> torch.Tensor:

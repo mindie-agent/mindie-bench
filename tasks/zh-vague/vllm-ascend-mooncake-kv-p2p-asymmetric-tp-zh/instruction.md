@@ -1,0 +1,1 @@
+在 vllm-ascend 里用 Mooncake P2P 连接器跑 PD 分离推理时，只要 Prefill 节点和 Decode 节点的 TP 并行度不一致（比如 Prefill TP=4、Decode TP=8）就会算错 KV 分片映射，而且请求中途取消或超时后待发送列表里的 KV 块一直不释放导致内存泄漏，帮我修复 mooncake_connector.py 里的非对称 TP 映射与异常请求清理逻辑。

@@ -1,0 +1,11 @@
+{
+  "after_reward": 1.0,
+  "before_reward": 0.0,
+  "errors": [],
+  "model_calls": 0,
+  "schema_version": "1.0",
+  "source_commit": "276ce64b2ab60a15d1bd89adc1ef86af4675e902",
+  "status": "completed",
+  "task_sha256": "addfa4e2fa5dcd6fb9db13bf560534de0363a92baea1b97d3ac0e4ce685b306a",
+  "tier": "l2"
+}

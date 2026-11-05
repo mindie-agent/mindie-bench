@@ -581,15 +581,25 @@
   "performance_status": "unmeasured",
   "python": "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python",
   "schema_version": "2.0",
-  "source_commit": "264445c1379b7e5c00df06752bf6a9c604c2c3cb",
+  "source_commit": "99921b398a02344e80054dfd59fc127ce1ebbf98",
   "speedup_ratio": null,
   "status": "completed",
-  "task_sha256": "6e406d9d89d0ba526801ec4487a44a1f71b407d4ac08813d5ae6ace65f524e4c",
+  "task_sha256": "1dc1937eefb59f5b55a397f360ee982569c2b17d35e2cc3fbc8534f77591ae09",
   "tier": "l2",
   "verifier_files": {
     "runtime_controls.py": "d181cd55111a8cb8cf3945d2e62f2e56c2e10e96b16cf9c6369b867dac388eae",
     "test.sh": "e2e6d259669b20436fe1d564b5df5218b98ba9ae991cedd56f9d6f8a4c7ed641",
     "verify.py": "b0df8e1a811432d3f801819bbefc02f9e588c731f9a156d3b0501cc4ef363f53"
   },
-  "verifier_sha256": "a75395d66755dcf2ab0487600c6e3b550cc08f1ecfde14ac61d7d57add09912b"
+  "verifier_sha256": "d875a81a5233a905acb4d9661119f421458589bb19bd84ca0a10a131e7e9acae",
+  "base_commit": "fd7a20924a666a0dfad6206eb3a45ec2156d64b2",
+  "gold_patch_sha256": "532ea34ce5aeccae77df1924e47ccdde57bcb237367d4c9b18ca0db2ed49776b",
+  "pre_fix": {
+    "exit_code": 1,
+    "reward": 0.0
+  },
+  "post_fix": {
+    "exit_code": 0,
+    "reward": 1.0
+  }
 }

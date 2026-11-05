@@ -23,7 +23,7 @@ timeout_sec = 600
 verifier_timeout_sec = 180
 [environment.l3]
 repo_path = "/Users/maoxx241/code/vllm-ascend"
-base_commit = "264445c1379b7e5c00df06752bf6a9c604c2c3cb"
+base_commit = "c333708f96e61e7b28dc3dfb1e0e08750d44dd32"
 npu_model = "Ascend910"
 npu_count = 1
 

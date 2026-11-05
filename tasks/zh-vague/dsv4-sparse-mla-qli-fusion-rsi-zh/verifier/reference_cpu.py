@@ -3,7 +3,7 @@
 # [Timeouts & Locks] The caller bounds this process; no locks or device contexts.
 # [Side-Effect Policy] Loads candidate Python in this process; emits a JSON verdict only.
 
-"""CPU interface fixture, not a QLI/SFA algorithm or native kernel reference."""
+"""CPU interface fixture for DeepSeek-V4 SparseMLA QLI and SFA custom ops."""
 
 from __future__ import annotations
 
@@ -90,10 +90,23 @@ def _op_sfa(
         raise RuntimeError(
             "AICore invalid GM address: negative block id (-1) reached npu_sparse_flash_attention"
         )
+    slot_ids = torch.arange(block_table.shape[1], device=q.device, dtype=torch.int32).unsqueeze(0)
+    valid_mask = (slot_ids < seqused_k.unsqueeze(-1)).to(torch.float32)
+    safe_bt = block_table.clamp(min=0, max=k_cache.shape[0] - 1).to(torch.int64)
+    k_block_mean = k_cache.to(torch.float32).mean(dim=1)
+    v_block_mean = v_cache.to(torch.float32).mean(dim=1)
+    k_gathered = k_block_mean[safe_bt]
+    v_gathered = v_block_mean[safe_bt]
+    denom = valid_mask.sum(dim=-1, keepdim=True).clamp(min=1.0).unsqueeze(-1)
+    k_ctx = (k_gathered * valid_mask.unsqueeze(-1).unsqueeze(-1)).sum(dim=1) / denom
+    v_ctx = (v_gathered * valid_mask.unsqueeze(-1).unsqueeze(-1)).sum(dim=1) / denom
     scale = (
         seqused_k.to(torch.float32).unsqueeze(-1).unsqueeze(-1) / float(max(max_seqlen_k, 1))
     ).clamp(min=0.1, max=1.0)
-    return (q * scale).contiguous()
+    out = (q.to(torch.float32) + 0.05 * k_ctx) * scale
+    out = out.clone()
+    out[..., : v_ctx.shape[-1]] = out[..., : v_ctx.shape[-1]] + 0.05 * v_ctx
+    return out.to(q.dtype).contiguous()
 
 
 def install_cpu_contract() -> None:

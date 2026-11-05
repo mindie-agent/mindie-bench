@@ -1,0 +1,27 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-mooncake-kv-p2p-asymmetric-tp-zh"
+domain_category = "distributed_correctness"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "71f2fe63428aaa7e6162d49631c7fe294c9ef3aa"
+issue = "stream-c-v1"
+groups = ["G0", "G1", "G2"]
+validation_scope = "CPU behavior verification of Mooncake P2P asymmetric TP rank/pull mapping (Prefill TP<Decode TP and TP>Decode TP with head replication) and expired/aborted request KV block cleanup"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+analogical_task_hashes = []
+target_files = ["vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py"]
+[budget]
+max_turns = 120
+max_npu_runs = 6
+timeout_sec = 900
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "b35a1ea196d16421383d2041a4d695a4731d7143"

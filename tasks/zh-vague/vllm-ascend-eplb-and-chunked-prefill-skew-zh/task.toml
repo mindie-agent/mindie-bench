@@ -1,0 +1,25 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-eplb-and-chunked-prefill-skew-zh"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "01cf00a37a1e4af26189b4aa843145809b4e021a"
+issue = "component-value-v2-s2"
+validation_scope = "Multi-DP AllToAllV straggler synchronization barrier wait, EPLB expert routing imbalance trigger and net D2D migration benefit gate, and SLA-constrained chunked-prefill token budget"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/eplb/eplb_updator.py", "vllm_ascend/ascend_config.py"]
+[budget]
+max_turns = 50
+max_npu_runs = 6
+timeout_sec = 480
+verifier_timeout_sec = 120
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "276ce64b2ab60a15d1bd89adc1ef86af4675e902"

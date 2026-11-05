@@ -1,0 +1,1 @@
+我们在昇腾上用 vllm-ascend 加载 ModelSlim 导出的混合量化权重（目录在 checkpoints/dsv4_w8a8_mixed/）时，部分层实际存的是 BF16 权重或缺少量化 scale 张量，结果预检不报错、跑到前向或显存估算时直接崩溃（报错日志见 logs/modelslim_load_crash.log），帮我把 vllm_ascend/quantization/modelslim_config.py 里的零权重 safetensors 头部预检、混合回退与显存估算逻辑修好。

@@ -1,0 +1,25 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-mla-decode-profiler-sim-structure-zh"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "01fcee529a8f788ef06f8ce0f3d3727b9d117998"
+issue = "component-value-v2-s4"
+validation_scope = "Eliminate unattributed aclnnCast and aclnnInplaceCopy kernels in AscendMultiHeadLatentAttention.forward, mla_forward, and NPUModelRunner._prepare_mla_decode_step_metadata"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/ops/mla.py", "vllm_ascend/worker/model_runner_v1.py"]
+[budget]
+max_turns = 50
+max_npu_runs = 6
+timeout_sec = 480
+verifier_timeout_sec = 120
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "7f1980b7c4ffd0c83f23ac3c742cea37b42ae443"
