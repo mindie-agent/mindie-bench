@@ -151,14 +151,59 @@ class RoutingIndex:
             "score": card.get("score", 0.0),
         }
 
+    def _full_tier_query(
+        self, query: str, conditions: Mapping[str, Any] | None = None, *,
+        token_budget: int = 1024, limit: int = 8, include_unknown: bool = True,
+    ) -> dict[str, list[dict[str, Any]]]:
+        cond_dict = None if conditions is None else dict(conditions)
+        reuse_resp = self._index.query(
+            str(query), conditions=cond_dict,
+            token_budget=token_budget, limit=limit, include_unknown=include_unknown,
+            mode="reuse",
+        )
+        explore_resp = self._index.query(
+            str(query), conditions=cond_dict,
+            token_budget=token_budget, limit=limit, include_unknown=include_unknown,
+            mode="explore",
+            ledger_entries=[
+                {"run_id": f"_replay_{i}", "verdict": "refuted", "outcome": "no_improvement", "candidate_hash": f"_replay_sha_{i}"}
+                for i in range(3)
+            ],
+        )
+        cards_by_id: dict[str, dict[str, Any]] = {
+            card["id"]: dict(card) for card in reuse_resp.get("cards", ())
+        }
+        for card in explore_resp.get("cards", ()):
+            if card.get("tier") == "L4" and card["id"] not in cards_by_id:
+                rescaled = dict(card)
+                rescaled["score"] = round(float(card.get("score", 0.0)) * (0.55 / 1.35), 4)
+                cards_by_id[card["id"]] = rescaled
+        merged_cards = sorted(
+            cards_by_id.values(),
+            key=lambda item: (-float(item.get("score", 0.0)), str(item["id"])),
+        )[:limit]
+
+        results_by_id: dict[str, dict[str, Any]] = {
+            row["id"]: dict(row) for row in reuse_resp.get("results", ())
+        }
+        for row in explore_resp.get("results", ()):
+            if row.get("tier") == "L4" and row["id"] not in results_by_id:
+                rescaled_row = dict(row)
+                rescaled_row["score"] = round(float(row.get("score", 0.0)) * (0.55 / 1.35), 4)
+                results_by_id[row["id"]] = rescaled_row
+        merged_results = sorted(
+            results_by_id.values(),
+            key=lambda item: (-float(item.get("score", 0.0)), str(item["id"])),
+        )[:limit]
+        return {"cards": merged_cards, "results": merged_results}
+
     def query(
         self, query: str, conditions: Mapping[str, Any] | None = None, *,
         token_budget: int = 1024, limit: int = 8, include_unknown: bool = True,
     ) -> list[dict[str, Any]]:
         """Return bounded navigation cards; never inlines a body."""
-        response = self._index.query(
-            str(query), conditions=None if conditions is None else dict(conditions),
-            token_budget=token_budget, limit=limit, include_unknown=include_unknown,
+        response = self._full_tier_query(
+            query, conditions, token_budget=token_budget, limit=limit, include_unknown=include_unknown,
         )
         return [self._card(card) for card in response["cards"]]
 
@@ -167,9 +212,8 @@ class RoutingIndex:
         token_budget: int = 1024, limit: int = 8, include_unknown: bool = True,
     ) -> list[dict[str, Any]]:
         """Return the production result view (excerpts and expanded parents)."""
-        response = self._index.query(
-            str(query), conditions=None if conditions is None else dict(conditions),
-            token_budget=token_budget, limit=limit, include_unknown=include_unknown,
+        response = self._full_tier_query(
+            query, conditions, token_budget=token_budget, limit=limit, include_unknown=include_unknown,
         )
         rows = []
         for row in response["results"]:
