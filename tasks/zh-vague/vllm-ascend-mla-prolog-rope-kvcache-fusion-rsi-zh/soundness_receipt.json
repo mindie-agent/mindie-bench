@@ -2,9 +2,136 @@
   "after_reward": 1.0,
   "base_commit": "1223fea314cb6172900bd615c9940fcd2c658925",
   "before_reward": 0.0,
+  "cases": {
+    "baseline": {
+      "elapsed_seconds": 0.552363,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "input_files": {
+        "vllm_ascend/ops/mla.py": "d09fffdfe479189c5e7e654257d8690993d9b22952b04089b0516f3256edae56"
+      },
+      "input_sha256": "26d9e9813a49d4fbba1a9cb35ad24e70279939539867ab3d0af7f26b26bf4b50",
+      "reward": 0.0,
+      "verdict": {
+        "ablation_contract_verified": false,
+        "correctness_verified": false,
+        "error_type": "AssertionError",
+        "failure_reason": "Default path numerical error too large: q=0.0625, kv=0.0625, rope=0.0",
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 0.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "failed"
+      }
+    },
+    "gold": {
+      "elapsed_seconds": 0.541304,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "input_files": {
+        "vllm_ascend/ops/mla.py": "0682d0586f686e0b89af7304344627cc393db2fad1e35460cf908ed336ada97a"
+      },
+      "input_sha256": "3f2099a02c83b06caa05e390edaafef1fb2a83314a705cf33d63671888aa3935",
+      "reward": 1.0,
+      "verdict": {
+        "ablation_contract_verified": true,
+        "correctness_verified": true,
+        "latency_ms": null,
+        "max_abs_error": 0.0,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "observed_cpu_ablation": {
+          "full_candidate": {
+            "clone_repeat_ops": 0,
+            "linear_ops": 2,
+            "max_abs_err": 0.0,
+            "select_slice_ops": 9,
+            "tensor_ops": 62
+          },
+          "minus_coalesced_kv_scatter": {
+            "clone_repeat_ops": 0,
+            "linear_ops": 2,
+            "max_abs_err": 0.0,
+            "select_slice_ops": 59,
+            "tensor_ops": 126
+          },
+          "minus_qkv_norm_proj_fusion": {
+            "clone_repeat_ops": 4,
+            "linear_ops": 3,
+            "max_abs_err": 0.0,
+            "select_slice_ops": 8,
+            "tensor_ops": 67
+          },
+          "minus_vectorized_rope": {
+            "clone_repeat_ops": 11,
+            "linear_ops": 2,
+            "max_abs_err": 0.0,
+            "select_slice_ops": 9,
+            "tensor_ops": 73
+          },
+          "plus_decoy_lowbit_truncation": {
+            "clone_repeat_ops": 0,
+            "linear_ops": 2,
+            "max_abs_err": 0.03125,
+            "select_slice_ops": 9,
+            "tensor_ops": 67
+          }
+        },
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "completed"
+      }
+    },
+    "negative_control": {
+      "elapsed_seconds": 0.563512,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "input_files": {
+        "vllm_ascend/ops/mla.py": "93fe92495e2f32e7fc3b878e36f669cd2cfdfb507956497cac81ac599e2b50e2"
+      },
+      "input_sha256": "546fe033ba0da24c6b4238772f320bc8508f8c4ff7708b1018337a02227c986d",
+      "reward": 0.0,
+      "verdict": {
+        "ablation_contract_verified": false,
+        "correctness_verified": true,
+        "error_type": "AssertionError",
+        "failure_reason": "",
+        "latency_ms": null,
+        "max_abs_error": 0.0,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 0.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "failed"
+      }
+    }
+  },
   "errors": [],
   "gold_patch_sha256": "e0de5a60c892183aedb4d3056494041e219b7b1fe172ef19aa81f798d354d0b2",
   "model_calls": 0,
+  "negative_control_reward": 0.0,
   "post_fix": {
     "exit_code": 0,
     "reward": 1.0

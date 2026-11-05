@@ -4,17 +4,14 @@
   "before_reward": 0.0,
   "cases": {
     "baseline": {
-      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.candidate.py",
-      "elapsed_seconds": 0.5543230000184849,
+      "elapsed_seconds": 0.547129,
       "exit_code": 1,
       "expected_reward": 0.0,
       "input_files": {
         "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "a8a6780ffb86a2688c09601adaf27d00ee066ade4e9f5b6a88866a9e4e9ae1c9"
       },
-      "input_sha256": "fa2dec833c7db5377fa2bfc4f892ee0e094b8ef120f1fc0b2744d825d54e5481",
+      "input_sha256": "b4846ed4eba125cc469579a7dbccfdbaef22f07354e51bffeb3dd5bd2407511b",
       "reward": 0.0,
-      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.stderr",
-      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/baseline.stdout",
       "verdict": {
         "ablation_contract_verified": false,
         "correctness_verified": false,
@@ -35,53 +32,15 @@
         "verification_status": "failed"
       }
     },
-    "constant_return": {
-      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.candidate.py",
-      "elapsed_seconds": 0.5302982080029324,
-      "exit_code": 1,
-      "expected_reward": 0.0,
-      "input_files": {
-        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
-        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
-        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
-        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "3905d6901f4a4e42a8352c9229e6b7a564544f443c082f90d02859027e4038dd"
-      },
-      "input_sha256": "6293ce2f9c952c88d18a76b1c79d2874959b3c8753875faad4cc763e0d7fdbc8",
-      "reward": 0.0,
-      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.stderr",
-      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/constant_return.stdout",
-      "verdict": {
-        "ablation_contract_verified": null,
-        "correctness_verified": null,
-        "error_type": "AssertionError",
-        "failure_reason": "Independent full-candidate tensor/handoff check failed: {'q_fused_calls': 1, 'qli_calls': 1, 'sfa_calls': 1, 'correct': False, 'error': None, 'q_is_view': True, 'q_is_cloned': False, 'k_alias': True, 'q_alias': True, 'unsafe_guard_exercised': False, 'safe_handoff': True}",
-        "latency_ms": null,
-        "measured_npu_speedup": null,
-        "measurement_source": null,
-        "native_kernel_bound": null,
-        "native_kernel_status": "unverified",
-        "npu_card_hours": null,
-        "operator_binding": "verifier_owned_python_cpu_contract",
-        "performance_status": "unmeasured",
-        "reward": 0.0,
-        "speedup_ratio": null,
-        "tpot_ms": null,
-        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
-        "verification_status": "failed"
-      }
-    },
     "gold": {
-      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/gold.candidate.py",
-      "elapsed_seconds": 0.6355990000301972,
+      "elapsed_seconds": 0.579315,
       "exit_code": 0,
       "expected_reward": 1.0,
       "input_files": {
         "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "09987062e62ab6581c4ad1c9083831f5242f4a8e51771cd9af33a6592094a1e3"
       },
-      "input_sha256": "ba63eb9387f20a60362849d5f9dcc893fead02abde9bb5c5d871ef8916705863",
+      "input_sha256": "a90964aafe67e20ef02a5f18369b2e7474365e1ceb8b2b15fc05d94ff677a919",
       "reward": 1.0,
-      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/gold.stderr",
-      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/gold.stdout",
       "verdict": {
         "ablation_contract_verified": true,
         "candidate_suite_type": "dict",
@@ -188,309 +147,142 @@
         "verification_status": "completed"
       }
     },
-    "gold_helper": {
-      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.candidate.py",
-      "elapsed_seconds": 0.6127947919303551,
-      "exit_code": 0,
-      "expected_reward": 1.0,
-      "input_files": {
-        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
-        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
-        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
-        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "4fdde487cd27963c31c03e8c284473f076b26ecedd8a9ad12ebb22c5328ecc21"
-      },
-      "input_sha256": "e21f6bdd3a682a18119600c9c05d64bf84b31fb6d802d8776683c678ad426b40",
-      "reward": 1.0,
-      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.stderr",
-      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/gold_helper.stdout",
-      "verdict": {
-        "ablation_contract_verified": true,
-        "candidate_suite_type": "dict",
-        "correctness_verified": true,
-        "latency_ms": null,
-        "measured_npu_speedup": null,
-        "measurement_source": null,
-        "native_kernel_bound": null,
-        "native_kernel_status": "unverified",
-        "npu_card_hours": null,
-        "observed_cpu_ablation": {
-          "entrypoint": "_gold_implementation",
-          "full_candidate": {
-            "control": {
-              "args": [],
-              "kwargs": {}
-            },
-            "correct": true,
-            "default_path": true,
-            "error": null,
-            "k_alias": true,
-            "q_alias": true,
-            "q_fused_calls": 1,
-            "q_is_cloned": false,
-            "q_is_view": true,
-            "qli_calls": 1,
-            "safe_handoff": true,
-            "sfa_calls": 1,
-            "unsafe_guard_exercised": false
-          },
-          "minus_device_guard": {
-            "control": {
-              "args": [],
-              "kwargs": {
-                "enable_device_guard": false,
-                "enable_q_fusion": true,
-                "enable_view_alias": true
-              }
-            },
-            "correct": false,
-            "default_path": false,
-            "error": "RuntimeError: AICore invalid GM address: negative block id (-1) reached npu_sparse_flash_attention",
-            "k_alias": true,
-            "q_alias": true,
-            "q_fused_calls": 1,
-            "q_is_cloned": false,
-            "q_is_view": true,
-            "qli_calls": 1,
-            "safe_handoff": false,
-            "sfa_calls": 1,
-            "unsafe_guard_exercised": true
-          },
-          "minus_q_fusion": {
-            "control": {
-              "args": [],
-              "kwargs": {
-                "enable_device_guard": true,
-                "enable_q_fusion": false,
-                "enable_view_alias": true
-              }
-            },
-            "correct": true,
-            "default_path": false,
-            "error": null,
-            "k_alias": true,
-            "q_alias": false,
-            "q_fused_calls": 0,
-            "q_is_cloned": false,
-            "q_is_view": true,
-            "qli_calls": 1,
-            "safe_handoff": true,
-            "sfa_calls": 1,
-            "unsafe_guard_exercised": false
-          },
-          "minus_view_alias": {
-            "control": {
-              "args": [],
-              "kwargs": {
-                "enable_device_guard": true,
-                "enable_q_fusion": true,
-                "enable_view_alias": false
-              }
-            },
-            "correct": true,
-            "default_path": false,
-            "error": null,
-            "k_alias": false,
-            "q_alias": false,
-            "q_fused_calls": 1,
-            "q_is_cloned": true,
-            "q_is_view": false,
-            "qli_calls": 1,
-            "safe_handoff": true,
-            "sfa_calls": 1,
-            "unsafe_guard_exercised": false
-          }
-        },
-        "operator_binding": "verifier_owned_python_cpu_contract",
-        "performance_status": "unmeasured",
-        "reward": 1.0,
-        "speedup_ratio": null,
-        "tpot_ms": null,
-        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
-        "verification_status": "completed"
-      }
-    },
-    "gold_suite_helper": {
-      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.candidate.py",
-      "elapsed_seconds": 0.623954665963538,
-      "exit_code": 0,
-      "expected_reward": 1.0,
-      "input_files": {
-        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
-        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
-        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
-        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "ce5f4daeff1c4225e3e3a894d715f86f3bb1433f0f6034f732c96cf4f37b4c61"
-      },
-      "input_sha256": "b59a84db56ea99585b2841a06881871b79566e2501cd7aa780b47e71cdf68d12",
-      "reward": 1.0,
-      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.stderr",
-      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/gold_suite_helper.stdout",
-      "verdict": {
-        "ablation_contract_verified": true,
-        "candidate_suite_type": "dict",
-        "correctness_verified": true,
-        "latency_ms": null,
-        "measured_npu_speedup": null,
-        "measurement_source": null,
-        "native_kernel_bound": null,
-        "native_kernel_status": "unverified",
-        "npu_card_hours": null,
-        "observed_cpu_ablation": {
-          "entrypoint": "_controlled_tensor_entry",
-          "full_candidate": {
-            "control": {
-              "args": [],
-              "kwargs": {}
-            },
-            "correct": true,
-            "default_path": true,
-            "error": null,
-            "k_alias": true,
-            "q_alias": true,
-            "q_fused_calls": 1,
-            "q_is_cloned": false,
-            "q_is_view": true,
-            "qli_calls": 1,
-            "safe_handoff": true,
-            "sfa_calls": 1,
-            "unsafe_guard_exercised": false
-          },
-          "minus_device_guard": {
-            "control": {
-              "args": [],
-              "kwargs": {
-                "enable_device_guard": false,
-                "enable_q_fusion": true,
-                "enable_view_alias": true
-              }
-            },
-            "correct": false,
-            "default_path": false,
-            "error": "RuntimeError: AICore invalid GM address: negative block id (-1) reached npu_sparse_flash_attention",
-            "k_alias": true,
-            "q_alias": true,
-            "q_fused_calls": 1,
-            "q_is_cloned": false,
-            "q_is_view": true,
-            "qli_calls": 1,
-            "safe_handoff": false,
-            "sfa_calls": 1,
-            "unsafe_guard_exercised": true
-          },
-          "minus_q_fusion": {
-            "control": {
-              "args": [],
-              "kwargs": {
-                "enable_device_guard": true,
-                "enable_q_fusion": false,
-                "enable_view_alias": true
-              }
-            },
-            "correct": true,
-            "default_path": false,
-            "error": null,
-            "k_alias": true,
-            "q_alias": false,
-            "q_fused_calls": 0,
-            "q_is_cloned": false,
-            "q_is_view": true,
-            "qli_calls": 1,
-            "safe_handoff": true,
-            "sfa_calls": 1,
-            "unsafe_guard_exercised": false
-          },
-          "minus_view_alias": {
-            "control": {
-              "args": [],
-              "kwargs": {
-                "enable_device_guard": true,
-                "enable_q_fusion": true,
-                "enable_view_alias": false
-              }
-            },
-            "correct": true,
-            "default_path": false,
-            "error": null,
-            "k_alias": false,
-            "q_alias": false,
-            "q_fused_calls": 1,
-            "q_is_cloned": true,
-            "q_is_view": false,
-            "qli_calls": 1,
-            "safe_handoff": true,
-            "sfa_calls": 1,
-            "unsafe_guard_exercised": false
-          }
-        },
-        "operator_binding": "verifier_owned_python_cpu_contract",
-        "performance_status": "unmeasured",
-        "reward": 1.0,
-        "speedup_ratio": null,
-        "tpot_ms": null,
-        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
-        "verification_status": "completed"
-      }
-    },
     "negative_control": {
-      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.candidate.py",
-      "elapsed_seconds": 0.5225069170119241,
+      "elapsed_seconds": 0.577693,
       "exit_code": 1,
       "expected_reward": 0.0,
       "input_files": {
-        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
-        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
-        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
-        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "c1411e8075a8f977052a5ecb5b8a0015d943b65e677babadbfa1a7a8535b1c9b"
+        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "a740f49665198ca8cd6af7f61e0fd91064148e7f73b2a668f568a8a45826e2bf"
       },
-      "input_sha256": "423824b5626ca2b80bc4e12aafa5928b077e1de967f3e300d5d14f4d1e828ddb",
+      "input_sha256": "5ec9ea6045c750a1beea0b1467548f18057f9def036f5fbbbb1f3922bf870d75",
       "reward": 0.0,
-      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.stderr",
-      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/negative_control.stdout",
       "verdict": {
-        "ablation_contract_verified": null,
-        "correctness_verified": null,
+        "ablation_contract_verified": false,
+        "candidate_suite_type": "dict",
+        "correctness_verified": true,
         "error_type": "AssertionError",
-        "failure_reason": "Independent full-candidate tensor/handoff check failed: {'q_fused_calls': 0, 'qli_calls': 0, 'sfa_calls': 0, 'correct': False, 'error': None, 'unsafe_guard_exercised': False, 'safe_handoff': False}",
+        "failure_reason": "Independent replay did not establish three distinct operator/view/guard ablations",
         "latency_ms": null,
         "measured_npu_speedup": null,
         "measurement_source": null,
         "native_kernel_bound": null,
         "native_kernel_status": "unverified",
         "npu_card_hours": null,
-        "operator_binding": "verifier_owned_python_cpu_contract",
-        "performance_status": "unmeasured",
-        "reward": 0.0,
-        "speedup_ratio": null,
-        "tpot_ms": null,
-        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
-        "verification_status": "failed"
-      }
-    },
-    "wrong_guard_lengths": {
-      "candidate_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.candidate.py",
-      "elapsed_seconds": 0.5355314170010388,
-      "exit_code": 1,
-      "expected_reward": 0.0,
-      "input_files": {
-        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
-        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
-        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
-        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "7517b4b04dbf740f754c2633dd16b00e325182922d41c2248b7895031fb303bd"
-      },
-      "input_sha256": "ba6a8ab5e3638082f4064d43ca2f7b3e56b75bc7b5838d3a94202b5f7af7ea2d",
-      "reward": 0.0,
-      "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.stderr",
-      "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/dsv4-sparse-mla-qli-fusion-rsi-zh/wrong_guard_lengths.stdout",
-      "verdict": {
-        "ablation_contract_verified": null,
-        "correctness_verified": null,
-        "error_type": "AssertionError",
-        "failure_reason": "Independent full-candidate tensor/handoff check failed: {'q_fused_calls': 1, 'qli_calls': 1, 'sfa_calls': 0, 'correct': False, 'error': 'AssertionError: SFA sequence lengths differ from the arm contract', 'q_is_view': True, 'q_is_cloned': False, 'k_alias': True, 'q_alias': True, 'unsafe_guard_exercised': False, 'safe_handoff': False}",
-        "latency_ms": null,
-        "measured_npu_speedup": null,
-        "measurement_source": null,
-        "native_kernel_bound": null,
-        "native_kernel_status": "unverified",
-        "npu_card_hours": null,
+        "observed_cpu_ablation": {
+          "entrypoints": [
+            {
+              "entrypoint": "sparse_mla_decode_step",
+              "observed": [
+                {
+                  "control": {
+                    "args": [],
+                    "kwargs": {}
+                  },
+                  "correct": true,
+                  "default_path": true,
+                  "error": null,
+                  "k_alias": true,
+                  "q_alias": true,
+                  "q_fused_calls": 1,
+                  "q_is_cloned": false,
+                  "q_is_view": true,
+                  "qli_calls": 1,
+                  "safe_handoff": true,
+                  "sfa_calls": 1,
+                  "unsafe_guard_exercised": false
+                },
+                {
+                  "control": {
+                    "args": [],
+                    "kwargs": {
+                      "alias_qli_views": true,
+                      "device_topk_guard": true,
+                      "fuse_q_qr_dequant": true
+                    }
+                  },
+                  "correct": true,
+                  "default_path": false,
+                  "error": null,
+                  "k_alias": true,
+                  "q_alias": true,
+                  "q_fused_calls": 1,
+                  "q_is_cloned": false,
+                  "q_is_view": true,
+                  "qli_calls": 1,
+                  "safe_handoff": true,
+                  "sfa_calls": 1,
+                  "unsafe_guard_exercised": false
+                },
+                {
+                  "control": {
+                    "args": [],
+                    "kwargs": {
+                      "alias_qli_views": true,
+                      "device_topk_guard": true,
+                      "fuse_q_qr_dequant": false
+                    }
+                  },
+                  "correct": true,
+                  "default_path": false,
+                  "error": null,
+                  "k_alias": true,
+                  "q_alias": true,
+                  "q_fused_calls": 1,
+                  "q_is_cloned": false,
+                  "q_is_view": true,
+                  "qli_calls": 1,
+                  "safe_handoff": true,
+                  "sfa_calls": 1,
+                  "unsafe_guard_exercised": false
+                },
+                {
+                  "control": {
+                    "args": [],
+                    "kwargs": {
+                      "alias_qli_views": false,
+                      "device_topk_guard": true,
+                      "fuse_q_qr_dequant": true
+                    }
+                  },
+                  "correct": true,
+                  "default_path": false,
+                  "error": null,
+                  "k_alias": false,
+                  "q_alias": false,
+                  "q_fused_calls": 1,
+                  "q_is_cloned": true,
+                  "q_is_view": false,
+                  "qli_calls": 1,
+                  "safe_handoff": true,
+                  "sfa_calls": 1,
+                  "unsafe_guard_exercised": false
+                },
+                {
+                  "control": {
+                    "args": [],
+                    "kwargs": {
+                      "alias_qli_views": true,
+                      "device_topk_guard": false,
+                      "fuse_q_qr_dequant": true
+                    }
+                  },
+                  "correct": false,
+                  "default_path": false,
+                  "error": "RuntimeError: AICore invalid GM address: negative block id (-1) reached npu_sparse_flash_attention",
+                  "k_alias": true,
+                  "q_alias": true,
+                  "q_fused_calls": 1,
+                  "q_is_cloned": false,
+                  "q_is_view": true,
+                  "qli_calls": 1,
+                  "safe_handoff": false,
+                  "sfa_calls": 1,
+                  "unsafe_guard_exercised": true
+                }
+              ]
+            }
+          ]
+        },
         "operator_binding": "verifier_owned_python_cpu_contract",
         "performance_status": "unmeasured",
         "reward": 0.0,
@@ -504,7 +296,6 @@
   "errors": [],
   "execution_scope": "controlled_cpu_tensor_and_ablation_contract",
   "gold_patch_sha256": "ddbb3b51a85c2587643daf6ca30ac91d36571298e327379a8453354f472256e9",
-  "helper_reward": 1.0,
   "measured_npu_speedup": null,
   "model_calls": 0,
   "native_kernel_bound": null,
@@ -518,7 +309,6 @@
     "exit_code": 1,
     "reward": 0.0
   },
-  "python": "/tmp/mindie-bench-cpu-runtime-20261022/venv/bin/python",
   "schema_version": "1.0",
   "source_commit": "1223fea314cb6172900bd615c9940fcd2c658925",
   "speedup_ratio": null,
