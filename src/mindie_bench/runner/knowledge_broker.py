@@ -81,7 +81,7 @@ class KnowledgeSession:
         self.owner_fd = None
         self.raw = (self.root / "protocol.jsonl").open("xb")
         self.errors = (self.root / "stderr").open("xb")
-        env = dict(profile.env, **profile.private_env, **spec["env"])
+        env = {**profile.env, **profile.private_env, **spec["env"]}
         for key in (
             "HOME",
             "XDG_CONFIG_HOME",

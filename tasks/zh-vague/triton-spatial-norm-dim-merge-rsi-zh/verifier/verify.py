@@ -10,9 +10,16 @@ import sys
 import types
 from pathlib import Path
 
-if importlib.util.find_spec("triton") is None:
-    # Support CPU-only import of modules that also define Triton functions.
-    # A decorated function is never executable or launchable in this adapter.
+os.environ.setdefault("USER", "mindie")
+os.environ.setdefault("LOGNAME", "mindie")
+
+
+def _install_triton_stub_if_missing() -> None:
+    if "triton" in sys.modules or importlib.util.find_spec("triton") is not None:
+        return
+    from importlib.machinery import ModuleSpec
+
+
     class UnavailableJIT:
         def __init__(self, fn):
             self.__name__ = fn.__name__
@@ -25,24 +32,33 @@ if importlib.util.find_spec("triton") is None:
 
     triton_mod = types.ModuleType("triton")
     triton_mod.__path__ = []
+    triton_mod.__spec__ = ModuleSpec("triton", None)
     triton_mod.jit = UnavailableJIT
     triton_mod.cdiv = lambda a, b: (a + b - 1) // b
     triton_mod.next_power_of_2 = lambda n: 1 if n <= 1 else (1 << (int(n) - 1).bit_length())
     tl_mod = types.ModuleType("triton.language")
     tl_mod.constexpr = int
+    tl_mod.dtype = object
+    tl_mod.float32 = "fp32"
+    tl_mod.float16 = "fp16"
+    tl_mod.bfloat16 = "bf16"
     errors_mod = types.ModuleType("triton.errors")
     errors_mod.TritonError = type("TritonError", (Exception,), {})
+    backends_mod = types.ModuleType("triton.backends")
+    backends_mod.backends = {}
     triton_mod.language = tl_mod
     triton_mod.errors = errors_mod
+    triton_mod.backends = backends_mod
     sys.modules["triton"] = triton_mod
     sys.modules["triton.language"] = tl_mod
     sys.modules["triton.errors"] = errors_mod
+    sys.modules["triton.backends"] = backends_mod
 
 
 evidence = {
     "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
-    "correctness_verified": None,
-    "ablation_contract_verified": None,
+    "correctness_verified": False,
+    "ablation_contract_verified": False,
     "native_kernel_bound": None,
     "native_kernel_status": "unverified",
     "measured_npu_speedup": None,
@@ -103,6 +119,7 @@ try:
                 "bf16_arithmetic": self.bf16_arithmetic,
             }
 
+    _install_triton_stub_if_missing()
     target = root / "vllm_ascend/ops/spatial_group_norm_reduce.py"
     spec = importlib.util.spec_from_file_location("spatial_group_norm_reduce", target)
     mod = importlib.util.module_from_spec(spec)
@@ -114,12 +131,34 @@ try:
         w = (torch.randn(shape[1], generator=gen) * 0.5 + 1.0).to(torch.bfloat16)
         b = (torch.randn(shape[1], generator=gen) * 0.2).to(torch.bfloat16)
         ref = F.group_norm(x.float(), num_groups, w.float(), b.float(), eps=1e-5).to(torch.bfloat16)
-        out = output_tensor(mod.spatial_group_norm_reduce(x, w, b, num_groups=num_groups, eps=1e-5))
+        with TensorTrace() as check_trace:
+            raw_res = mod.spatial_group_norm_reduce(x, w, b, num_groups=num_groups, eps=1e-5)
+            out = output_tensor(raw_res)
         assert out is not None and out.shape == x.shape and out.dtype == x.dtype, "Invalid output tensor"
         err = float((out.float() - ref.float()).abs().max())
         assert err <= 5e-3 and torch.allclose(out.float(), ref.float(), atol=5e-3, rtol=5e-3), (
             f"Numerical check failed on shape {shape}: max_abs_err={err}"
         )
+        assert check_trace.indexing_operations == 0, (
+            f"Default path still performs slice/indexing operations on shape {shape}: {check_trace.summary()}"
+        )
+        assert check_trace.bf16_arithmetic == 0 and check_trace.bf16_casts <= 1, (
+            f"Default path still performs intermediate BF16 arithmetic/casts on shape {shape}: {check_trace.summary()}"
+        )
+        if isinstance(raw_res, tuple) and len(raw_res) > 1 and isinstance(raw_res[1], dict):
+            assert raw_res[1].get("multibuffer") is False, (
+                f"Default path left multibuffer={raw_res[1].get('multibuffer')} enabled on multi-pass reduction"
+            )
+    assert hasattr(mod, "select_optimal_block_size"), "Missing select_optimal_block_size in spatial_group_norm_reduce.py"
+    bs_probe = [
+        int(mod.select_optimal_block_size(16384, torch.bfloat16, 3)),
+        int(mod.select_optimal_block_size(16384, torch.bfloat16, 5)),
+        int(mod.select_optimal_block_size(16384, torch.float32, 3)),
+        int(mod.select_optimal_block_size(256, torch.bfloat16, 3)),
+    ]
+    assert bs_probe == [16384, 8192, 4096, 512], (
+        f"select_optimal_block_size failed Ascend 950DT UB budget scaling contract: got {bs_probe}"
+    )
     evidence["correctness_verified"] = True
 
     x = (torch.randn((2, 16, 32, 32), generator=gen) * 2.5 + 1.5).to(torch.bfloat16)
@@ -128,29 +167,24 @@ try:
     core = {"num_groups": 4, "eps": 1e-5}
     ref = F.group_norm(x.float(), 4, w.float(), b.float(), eps=1e-5).to(torch.bfloat16)
     has_ablation_suite = hasattr(mod, "run_ablation_suite")
+    assert has_ablation_suite, "Missing run_ablation_suite in spatial_group_norm_reduce.py"
     suite_error = None
     with TensorTrace() as default_trace:
         with CallCapture(mod, "spatial") as capture:
             mod.spatial_group_norm_reduce(*inputs, num_groups=4, eps=1e-5)
             capture.phase = "suite"
-            if has_ablation_suite:
-                try:
-                    suite = invoke_suite(mod, "spatial", inputs, core)
-                    evidence["candidate_suite_type"] = type(suite).__name__
-                except (ImportError, NameError):
-                    raise
-                except Exception as exc:
-                    suite_error = exc
+            try:
+                suite = invoke_suite(mod, "spatial", inputs, core)
+                evidence["candidate_suite_type"] = type(suite).__name__
+            except (ImportError, NameError):
+                raise
+            except Exception as exc:
+                suite_error = exc
 
     selected = None
     examined = 0
     failures = []
-    if not has_ablation_suite:
-        assert (
-            default_trace.indexing_operations == 0 and default_trace.bf16_arithmetic == 0
-        ), f"Default path did not eliminate 3D indexing loop and bf16 accumulation: {default_trace.summary()}"
-        selected = {"entrypoint": "spatial_group_norm_reduce", "full_candidate": default_trace.summary()}
-    for entrypoint, controls in (capture.entries.items() if has_ablation_suite else ()):
+    for entrypoint, controls in capture.entries.items():
         values = list(controls.values())
         if len(values) < 4 or not any(c.is_default for c in values):
             continue
@@ -207,6 +241,7 @@ try:
                             "minus_dim_merge": dim,
                             "minus_block_scaling": block,
                             "minus_multibuffer_cast_guard": guard,
+                            "bs_probe": bs_probe,
                         }
                         break
                     if selected:
@@ -221,6 +256,7 @@ try:
     evidence["observed_cpu_ablation"] = selected or {
         "entrypoints": failures,
         "replayed_controls": examined,
+        "bs_probe": bs_probe,
     }
     if selected is None and suite_error is not None:
         message = str(suite_error)

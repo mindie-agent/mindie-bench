@@ -1,0 +1,67 @@
+diff --git a/vllm_ascend/ops/triton/kda/kda.py b/vllm_ascend/ops/triton/kda/kda.py
+index ee188222a..679717e32 100644
+--- a/vllm_ascend/ops/triton/kda/kda.py
++++ b/vllm_ascend/ops/triton/kda/kda.py
+@@ -1309,7 +1309,14 @@ def chunk_kda_varlen_mixed_continuation(
+         bos = int(cu_seqlens[seq_idx].item())
+         eos = int(cu_seqlens[seq_idx + 1].item())
+         seq_len = eos - bos
+-        h_state = h_init_all[seq_idx].clone()
++        if continuation_slot_map is not None and int(continuation_slot_map[seq_idx].item()) >= 0:
++            src_slot = int(continuation_slot_map[seq_idx].item())
++            if src_slot < seq_idx:
++                h_state = final_state[src_slot].clone()
++            else:
++                h_state = h_init_all[src_slot].clone()
++        else:
++            h_state = h_init_all[seq_idx].clone()
+         if seq_len <= 0:
+             final_state[seq_idx] = h_state
+             continue
+@@ -1317,8 +1324,10 @@ def chunk_kda_varlen_mixed_continuation(
+         num_chunks = cdiv(seq_len, chunk_size)
+         for chunk_idx in range(num_chunks):
+             c_start = bos + chunk_idx * chunk_size
+-            # BUG: unclamped tail chunk window leaks into subsequent decode/prefill sequences
+-            c_end = min(c_start + chunk_size, T_total)
++            c_end = min(c_start + chunk_size, eos)
++            valid_len = c_end - c_start
++            if valid_len <= 0:
++                continue
+             h_chunk_init = h_state.clone()
+ 
+             q_c = q[0, c_start:c_end].to(torch.float32)
+@@ -1328,9 +1337,10 @@ def chunk_kda_varlen_mixed_continuation(
+             beta_c = beta[0, c_start:c_end].to(torch.float32)
+ 
+             g_cum = torch.cumsum(g_c, dim=0)
++            g_last = g_cum[valid_len - 1]
+             h_running = h_chunk_init.clone()
+             v_delta_list: list[torch.Tensor] = []
+-            for t_idx in range(c_end - c_start):
++            for t_idx in range(valid_len):
+                 k_t = k_c[t_idx]
+                 v_t = v_c[t_idx]
+                 g_t = g_c[t_idx]
+@@ -1345,15 +1355,18 @@ def chunk_kda_varlen_mixed_continuation(
+             q_decayed = q_c * torch.exp(g_cum) * scale
+             o_inter = torch.einsum("thk,hvk->thv", q_decayed, h_chunk_init)
+ 
+-            t_len = c_end - c_start
+             g_diff = g_cum.unsqueeze(1) - g_cum.unsqueeze(0)
+-            causal_mask = torch.tril(torch.ones((t_len, t_len), dtype=torch.bool, device=q.device))
++            causal_mask = torch.tril(torch.ones((valid_len, valid_len), dtype=torch.bool, device=q.device))
+             g_diff_masked = torch.where(causal_mask.unsqueeze(-1).unsqueeze(-1), g_diff, float("-inf"))
+             attn_qk = torch.einsum("thk,shk,tshk->tsh", q_c, k_c, torch.exp(g_diff_masked)) * scale
+             o_intra = torch.einsum("tsh,shv->thv", attn_qk, v_delta_c)
+ 
+             o[0, c_start:c_end] = o_inter + o_intra
+-            h_state = h_running
++            decay_to_end = torch.exp(g_last.unsqueeze(0) - g_cum)
++            k_decayed = k_c * decay_to_end
++            h_state = h_chunk_init * torch.exp(g_last).unsqueeze(1) + torch.einsum(
++                "thv,thk->hvk", v_delta_c, k_decayed
++            )
+ 
+         final_state[seq_idx] = h_state
+ 

@@ -9,10 +9,13 @@ import os
 import sys
 from pathlib import Path
 
+os.environ.setdefault("USER", "mindie")
+os.environ.setdefault("LOGNAME", "mindie")
+
 evidence = {
     "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
-    "correctness_verified": None,
-    "ablation_contract_verified": None,
+    "correctness_verified": False,
+    "ablation_contract_verified": False,
     "native_kernel_bound": None,
     "native_kernel_status": "unverified",
     "measured_npu_speedup": None,
@@ -70,7 +73,7 @@ try:
         assert isinstance(q_idx, torch.Tensor) and isinstance(k_idx, torch.Tensor), (
             "QLI expects tensor inputs"
         )
-        q_is_view = (q_idx._base is not None) and (not q_idx.is_contiguous()) and (q_idx.stride(-1) == 1)
+        q_is_view = ((q_idx._base is not None) or (not q_idx.is_contiguous())) and (q_idx.stride(-1) == 1)
         q_is_cloned = (q_idx._base is None) and q_idx.is_contiguous()
         if direct_arm is not None:
             assert torch.allclose(q_idx, ref_q[..., :index_dim], atol=1e-4, rtol=1e-4), (
@@ -308,21 +311,19 @@ try:
             full = execute(lambda values: mod.sparse_mla_decode_step(*values, **core), "full_candidate")
             assert is_full(full), f"Independent full-candidate tensor/handoff check failed: {full}"
             evidence["correctness_verified"] = True
+            assert has_ablation_suite, "Missing run_ablation_suite in sparse_mla_decode.py"
             capture.phase = "suite"
             direct_arm = None
-            if has_ablation_suite:
-                try:
-                    suite = invoke_suite(mod, "sparse", inputs, core, input_names)
-                    evidence["candidate_suite_type"] = type(suite).__name__
-                except (ImportError, NameError):
-                    raise
-                except Exception as exc:
-                    suite_error = exc
+            try:
+                suite = invoke_suite(mod, "sparse", inputs, core, input_names)
+                evidence["candidate_suite_type"] = type(suite).__name__
+            except (ImportError, NameError):
+                raise
+            except Exception as exc:
+                suite_error = exc
         selected = None
         failures = []
-        if not has_ablation_suite:
-            selected = {"entrypoint": "sparse_mla_decode_step", "full_candidate": full}
-        for entrypoint, controls in (capture.entries.items() if has_ablation_suite else ()):
+        for entrypoint, controls in capture.entries.items():
             values = list(controls.values())
             if len(values) < 4 or not any(c.is_default for c in values):
                 continue

@@ -7,14 +7,14 @@ evidence = "verified"
 role = "eval"
 [task.source]
 repository = "vllm-project/vllm-ascend"
-fix_commit = "2a423c6b31873692ea3cba2704d09cd45e3e7d22"
+fix_commit = "1223fea314cb6172900bd615c9940fcd2c658925"
 issue = "rsi-g4"
 validation_scope = "Controlled CPU tensor correctness and leave-one-out ablation contracts; native kernel binding and NPU speedup unmeasured"
 [mindie_knowledge]
-corpus_id = "operators"
+corpus_id = "ascend"
 knowledge_gradient = "near_exact"
-same_origin_task_hashes = ["unit-triton-ascend-dimension-merge-and-ub-multibuffer-mutator", "unit-vectorized-bf16-fp32-accumulation-cast-fusion-mutator"]
-analogical_task_hashes = ["unit-triton-ascend-tiling-persistent-grid-and-ub-budget-workflow", "unit-triton-ascend-hardware-and-compiler-constraints-contract", "unit-ascend-910b-a3-memory-alignment-and-tiling-axioms"]
+same_origin_task_hashes = ["unit-triton-ascend-dimension-merge-and-ub-multibuffer-mutator"]
+analogical_task_hashes = ["unit-triton-ascend-tiling-persistent-grid-and-ub-budget-workflow", "unit-vllm-ascend-npu-runtime-and-graph-invariants"]
 target_files = ["vllm_ascend/ops/spatial_group_norm_reduce.py"]
 [budget]
 max_turns = 60
@@ -23,4 +23,4 @@ timeout_sec = 600
 verifier_timeout_sec = 180
 [environment.l2]
 repo_path = "/Users/maoxx241/code/vllm-ascend"
-base_commit = "264445c1379b7e5c00df06752bf6a9c604c2c3cb"
+base_commit = "1223fea314cb6172900bd615c9940fcd2c658925"

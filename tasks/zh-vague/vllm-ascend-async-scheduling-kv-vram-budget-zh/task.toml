@@ -1,0 +1,25 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-async-scheduling-kv-vram-budget-zh"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "b539b13f774bac3ea8d0d33b23c8a378218bdff3"
+issue = "component-value-v2-s1"
+validation_scope = "Ascend 950PR (A5) async scheduling double-buffered workspace, in-flight lookahead KV padding, delayed KV block release retention, and joint HBM + TPOT SLA concurrency solver"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/core/kv_cache_interface.py", "vllm_ascend/worker/model_runner_v1.py"]
+[budget]
+max_turns = 50
+max_npu_runs = 6
+timeout_sec = 480
+verifier_timeout_sec = 120
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "0031f376146ff4534df9fa385109392f4b053bc1"

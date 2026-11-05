@@ -27,12 +27,16 @@ small compatibility projection consumed by `knowledge_replay.py`.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from mindie_knowledge.graded.conditions import match_conditions as _match_conditions
 from mindie_knowledge.graded.index import RoutingIndex as ProductionRoutingIndex
+from mindie_knowledge.graded.index import _excerpt
 from mindie_knowledge.graded.index import token_estimate as _body_tokens
 
 RECORD_OVERHEAD = 24
@@ -151,14 +155,146 @@ class RoutingIndex:
             "score": card.get("score", 0.0),
         }
 
+    @contextmanager
+    def _isolated_retrieval_env(self):
+        saved_ws = os.environ.pop("MINDIE_BENCH_WORKSPACE", None)
+        saved_dis = os.environ.pop("MINDIE_DISABLE_RSI_EXPLORE", None)
+        try:
+            with patch.object(Path, "cwd", return_value=self.root / "__offline_replay__"):
+                yield
+        finally:
+            if saved_ws is not None:
+                os.environ["MINDIE_BENCH_WORKSPACE"] = saved_ws
+            if saved_dis is not None:
+                os.environ["MINDIE_DISABLE_RSI_EXPLORE"] = saved_dis
+
+    def _full_tier_query(
+        self, query: str, conditions: Mapping[str, Any] | None = None, *,
+        token_budget: int = 1024, limit: int = 8, include_unknown: bool = True,
+    ) -> dict[str, list[dict[str, Any]]]:
+        cond_dict = None if conditions is None else dict(conditions)
+        with self._isolated_retrieval_env():
+            reuse_resp = self._index.query(
+                str(query), conditions=cond_dict,
+                token_budget=token_budget, limit=limit, include_unknown=include_unknown,
+                mode="reuse",
+            )
+            explore_resp = self._index.query(
+                str(query), conditions=cond_dict,
+                token_budget=token_budget, limit=limit, include_unknown=include_unknown,
+                mode="explore",
+            )
+        cards_by_id: dict[str, dict[str, Any]] = {
+            card["id"]: dict(card) for card in reuse_resp.get("cards", ())
+        }
+        for card in explore_resp.get("cards", ()):
+            if card.get("tier") == "L4" and card["id"] not in cards_by_id:
+                rescaled = dict(card)
+                rescaled["score"] = round(float(card.get("score", 0.0)) * (0.55 / 1.35), 4)
+                cards_by_id[card["id"]] = rescaled
+        merged_cards = sorted(
+            cards_by_id.values(),
+            key=lambda item: (-float(item.get("score", 0.0)), str(item["id"])),
+        )[:limit]
+
+        raw_results_by_id: dict[str, dict[str, Any]] = {
+            row["id"]: dict(row) for row in reuse_resp.get("results", ())
+        }
+        for row in explore_resp.get("results", ()):
+            if row.get("tier") == "L4" and row["id"] not in raw_results_by_id:
+                rescaled_row = dict(row)
+                rescaled_row["score"] = round(float(row.get("score", 0.0)) * (0.55 / 1.35), 4)
+                raw_results_by_id[row["id"]] = rescaled_row
+
+        # Re-budget the merged ranking under a single shared token_budget and parent set.
+        selected_cards = [c for c in merged_cards if c["id"] in raw_results_by_id]
+        left = token_budget
+        charged_parents: set[str] = set()
+        merged_results: list[dict[str, Any]] = []
+        for position, card in enumerate(selected_cards):
+            ident = card["id"]
+            if ident in charged_parents or left < 1:
+                continue
+            unit = self._index.units[ident]
+            unit_tokens = _body_tokens(unit.body)
+            if unit.metadata["tier"] == "L1" and unit_tokens > left:
+                continue
+            base_row = dict(raw_results_by_id[ident])
+            inherited: list[dict[str, Any]] = []
+            omitted: list[dict[str, Any]] = list(base_row.get("inheritance_excluded") or [])
+            raw_inherited_by_id = {
+                item["id"]: dict(item)
+                for item in (base_row.get("inherited_rules") or ())
+                if isinstance(item, Mapping) and "id" in item
+            }
+
+            def _include_parent(
+                parent_id: str,
+                inh_list: list[dict[str, Any]],
+                omit_list: list[dict[str, Any]],
+                raw_map: dict[str, dict[str, Any]],
+                *,
+                reserve_tokens: int = 0,
+            ) -> None:
+                nonlocal left
+                if parent_id not in raw_map:
+                    return
+                parent_unit = self._index.units[parent_id]
+                raw_entry = dict(raw_map[parent_id])
+                if parent_id in charged_parents:
+                    raw_entry.pop("content", None)
+                    raw_entry["deduplicated"] = True
+                    inh_list.append(raw_entry)
+                    return
+                cost = _body_tokens(parent_unit.body)
+                if cost > left - reserve_tokens:
+                    omit_list.append({"id": parent_id, "status": "budget_excluded"})
+                    return
+                left -= cost
+                charged_parents.add(parent_id)
+                raw_entry.pop("deduplicated", None)
+                raw_entry["content"] = parent_unit.body
+                inh_list.append(raw_entry)
+
+            reserve = unit_tokens if unit.metadata["tier"] == "L1" else 1
+            for parent_id in self._index.closure[ident]:
+                if self._index.units[parent_id].metadata["tier"] == "L1":
+                    _include_parent(
+                        parent_id, inherited, omitted, raw_inherited_by_id, reserve_tokens=reserve,
+                    )
+            if unit.metadata["tier"] == "L1":
+                content, used, truncated = unit.body, unit_tokens, False
+            else:
+                share = max(1, left // (len(selected_cards) - position))
+                content, used, truncated = _excerpt(unit.body, share)
+            left -= used
+            for parent_id in self._index.closure[ident]:
+                if self._index.units[parent_id].metadata["tier"] != "L1":
+                    _include_parent(parent_id, inherited, omitted, raw_inherited_by_id)
+            active_closure = all(
+                self._index.units[node].status == "active"
+                for node in [*self._index.closure[ident], ident]
+            )
+            base_row["excerpt"] = content
+            base_row["excerpt_truncated"] = truncated
+            base_row["inherited_rules"] = inherited
+            base_row["inheritance_excluded"] = omitted
+            base_row["ready_to_apply"] = bool(
+                base_row.get("match_status") == "matched"
+                and not omitted
+                and not truncated
+                and active_closure
+            )
+            merged_results.append(base_row)
+        return {"cards": merged_cards, "results": merged_results}
+
     def query(
         self, query: str, conditions: Mapping[str, Any] | None = None, *,
         token_budget: int = 1024, limit: int = 8, include_unknown: bool = True,
     ) -> list[dict[str, Any]]:
         """Return bounded navigation cards; never inlines a body."""
-        response = self._index.query(
-            str(query), conditions=None if conditions is None else dict(conditions),
-            token_budget=token_budget, limit=limit, include_unknown=include_unknown,
+        response = self._full_tier_query(
+            query, conditions, token_budget=token_budget, limit=limit, include_unknown=include_unknown,
         )
         return [self._card(card) for card in response["cards"]]
 
@@ -167,9 +303,8 @@ class RoutingIndex:
         token_budget: int = 1024, limit: int = 8, include_unknown: bool = True,
     ) -> list[dict[str, Any]]:
         """Return the production result view (excerpts and expanded parents)."""
-        response = self._index.query(
-            str(query), conditions=None if conditions is None else dict(conditions),
-            token_budget=token_budget, limit=limit, include_unknown=include_unknown,
+        response = self._full_tier_query(
+            query, conditions, token_budget=token_budget, limit=limit, include_unknown=include_unknown,
         )
         rows = []
         for row in response["results"]:
@@ -221,10 +356,11 @@ class RoutingIndex:
     ) -> dict[str, Any]:
         """Return complete closure units only: no truncated procedural body ever leaves."""
         requested_refs = list(seq(refs))
-        response = self._index.explain_closure(
-            requested_refs, conditions=None if conditions is None else dict(conditions),
-            known_refs=self.resolve_known_refs(known_refs), token_budget=token_budget,
-        )
+        with self._isolated_retrieval_env():
+            response = self._index.explain_closure(
+                requested_refs, conditions=None if conditions is None else dict(conditions),
+                known_refs=self.resolve_known_refs(known_refs), token_budget=token_budget,
+            )
         delivered = {entry["id"]: entry
                      for entry in [*response["requires"], *response["units"]]}
         unresolved_ids = {str(entry.get("id")) for entry in response["unresolved"]}

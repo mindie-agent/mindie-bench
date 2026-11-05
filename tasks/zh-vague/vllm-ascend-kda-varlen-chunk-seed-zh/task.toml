@@ -1,0 +1,29 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-kda-varlen-chunk-seed-zh"
+domain_category = "operator_correctness"
+difficulty = "hard"
+evidence = "verified"
+cluster = "kda-varlen-chunk-state"
+role = "seed"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "4c354e13a09eebec491ba1f652eb1801fa30b86a"
+issue = "stream-c-v3-seed"
+pair_id = "kda-varlen-chunk-state"
+groups = ["G2", "G3"]
+validation_scope = "CPU tensor verification of variable-length KDA prefill chunk state recurrence with tail-chunk boundary clamping and non-multiple-of-BT sequence isolation"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "no_hit"
+same_origin_task_hashes = []
+analogical_task_hashes = []
+target_files = ["vllm_ascend/ops/triton/kda/kda.py"]
+[budget]
+max_turns = 120
+max_npu_runs = 8
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "9936a1df5c94f3b0df5630fc3b7c1139110162a7"

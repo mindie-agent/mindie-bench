@@ -1,0 +1,37 @@
+diff --git a/vllm_ascend/attention/sfa_v1.py b/vllm_ascend/attention/sfa_v1.py
+index a3a398bf5..3effc9abb 100644
+--- a/vllm_ascend/attention/sfa_v1.py
++++ b/vllm_ascend/attention/sfa_v1.py
+@@ -364,17 +364,8 @@ class AscendSFAMetadataBuilder(MLACommonMetadataBuilder[AscendSFAMetadata]):
+         cum_query_lens = actual_seq_lengths_query[:num_reqs]
+         runtime_seq_lens = common_attn_metadata.seq_lens[:num_reqs]
+         actual_seq_lengths_key.zero_()
+-        if self.speculative_config is not None and num_reqs > 0 and num_actual_tokens > num_reqs:
+-            query_lens = (
+-                common_attn_metadata.query_start_loc[1 : num_reqs + 1]
+-                - common_attn_metadata.query_start_loc[:num_reqs]
+-            )
+-            expanded_seq_lens = torch.repeat_interleave(runtime_seq_lens, query_lens.long())[:num_actual_tokens]
+-            actual_seq_lengths_key[: expanded_seq_lens.shape[0]].copy_(expanded_seq_lens)
+-            seq_lens = actual_seq_lengths_key[: expanded_seq_lens.shape[0]]
+-        else:
+-            actual_seq_lengths_key[:num_reqs].copy_(runtime_seq_lens)
+-            seq_lens = actual_seq_lengths_key[:num_reqs]
++        actual_seq_lengths_key[:num_reqs].copy_(runtime_seq_lens)
++        seq_lens = actual_seq_lengths_key[:num_reqs]
+ 
+         # Prefer _seq_lens_cpu (always available, updated during draft
+         # iterations) over seq_lens_cpu (None in async spec decode mode).
+@@ -1312,12 +1303,6 @@ class AscendSFAImpl(MLAAttentionImpl):
+         actual_seq_lengths_key,
+         block_table=None,
+     ):
+-        if block_table is None:
+-            block_table = attn_metadata.block_table
+-        if getattr(attn_metadata, "attn_state", None) == AscendAttentionState.SpecDecoding:
+-            batch_size = block_table.shape[0]
+-            ql_nope = ql_nope.view(batch_size, -1, self.local_num_heads * self.kv_lora_rank)
+-            q_pe = q_pe.view(batch_size, -1, self.local_num_heads * self.qk_rope_head_dim)
+         return DeviceOperator.execute_sparse_flash_attention_process(
+             self,
+             ql_nope,

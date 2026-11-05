@@ -1,0 +1,54 @@
+diff --git a/vllm_ascend/ops/mla.py b/vllm_ascend/ops/mla.py
+index 5b572bea5..07a0acfd1 100644
+--- a/vllm_ascend/ops/mla.py
++++ b/vllm_ascend/ops/mla.py
+@@ -169,8 +169,8 @@ class AscendMultiHeadLatentAttention(MultiHeadLatentAttentionWrapper):
+                 (hidden_states.shape[0], hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
+             )
+ 
+-        # BUG: redundant fp32 cast roundtrip and clone before custom op dispatch
+-        hidden_states = hidden_states.to(torch.float32).contiguous().to(hidden_states.dtype).clone()
++        if not hidden_states.is_contiguous():
++            hidden_states = hidden_states.contiguous()
+         torch.ops.vllm.mla_forward(hidden_states, need_gather_q_kv, output, self.prefix)
+         output = output.view(-1, hidden_dim)
+         return output
+@@ -189,13 +189,9 @@ def mla_forward(
+     else:
+         attn_metadata = forward_context.attn_metadata
+     kv_cache = self.mla_attn.kv_cache
+-    # BUG: redundant fp32 cast roundtrip and staged output clone/copy_
+-    staged_hidden = hidden_states.to(torch.float32).to(hidden_states.dtype).clone()
+-    staged_output = output.to(torch.float32).to(output.dtype).clone()
+     self.mla_attn.impl.forward(
+-        self.mla_attn.layer_name, staged_hidden, kv_cache, attn_metadata, need_gather_q_kv, staged_output
++        self.mla_attn.layer_name, hidden_states, kv_cache, attn_metadata, need_gather_q_kv, output
+     )
+-    output.copy_(staged_output)
+     return
+ 
+ 
+diff --git a/vllm_ascend/worker/model_runner_v1.py b/vllm_ascend/worker/model_runner_v1.py
+index 20011a18e..97e6a87c2 100644
+--- a/vllm_ascend/worker/model_runner_v1.py
++++ b/vllm_ascend/worker/model_runner_v1.py
+@@ -3165,18 +3165,7 @@ class NPUModelRunner(GPUModelRunner):
+         common_attn_metadata: CommonAttentionMetadata,
+     ) -> CommonAttentionMetadata:
+         """Prepare per-group CommonAttentionMetadata for MLA decode step."""
+-        # BUG: deepcopy and synchronous D2H/H2D roundtrip + fp32 cast + clone on every decode step
+-        cm = deepcopy(common_attn_metadata)
+-        if cm.seq_lens is not None:
+-            seq_lens_list = cm.seq_lens.cpu().tolist()
+-            cm.seq_lens = torch.tensor(
+-                seq_lens_list, dtype=torch.float32, device=cm.seq_lens.device
+-            ).to(cm.seq_lens.dtype)
+-        if cm.block_table_tensor is not None:
+-            cm.block_table_tensor = cm.block_table_tensor.to(torch.float32).to(cm.block_table_tensor.dtype).clone()
+-        if cm.slot_mapping is not None:
+-            cm.slot_mapping = cm.slot_mapping.clone()
+-        return cm
++        return copy(common_attn_metadata)
+ 
+     def _should_build_dummy_attn_metadata(
+         self,

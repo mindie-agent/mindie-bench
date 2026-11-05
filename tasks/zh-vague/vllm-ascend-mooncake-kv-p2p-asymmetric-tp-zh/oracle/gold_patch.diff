@@ -1,0 +1,151 @@
+diff --git a/vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py b/vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py
+index 2e0298a7d..b2ff5f92f 100644
+--- a/vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py
++++ b/vllm_ascend/distributed/kv_transfer/kv_p2p/mooncake_connector.py
+@@ -184,6 +184,8 @@ class KVCacheTaskTracker:
+     def add_not_transfer_request(self, request_id: str):
+         with self.done_task_lock:
+             self.finished_requests.add(request_id)
++            self.reqs_to_process.discard(request_id)
++            self.delayed_free_requests.pop(request_id, None)
+ 
+     def update_done_task_count(self, request_id: str):
+         with self.done_task_lock:
+@@ -222,6 +224,24 @@ class KVCacheTaskTracker:
+     def _retrieve_expired_requests(self):
+         """Retrieve all expired delayed requests."""
+         expired_requests: set[str] = set()
++        # Free delayed requests if they exceed the timeout
++        current_time = time.time()
++        while self.delayed_free_requests:
++            request_id = next(iter(self.delayed_free_requests))
++            delay_start_time = self.delayed_free_requests[request_id]
++            if current_time - delay_start_time > envs.VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT:
++                self.delayed_free_requests.popitem(last=False)
++                self.reqs_to_process.discard(request_id)
++                expired_requests.add(request_id)
++                logger.error(
++                    "Force freed expired request: %s. "
++                    "Reason: Request exceeded timeout threshold (%s seconds). "
++                    "Action: Resources have been forcibly released to prevent memory leak.",
++                    request_id,
++                    envs.VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT,
++                )
++            else:
++                break
+         return expired_requests
+ 
+ 
+@@ -1953,6 +1973,9 @@ class MooncakeConnectorScheduler:
+             return False, None
+ 
+         if not params.get("do_remote_decode") or request.status != RequestStatus.FINISHED_LENGTH_CAPPED:
++            self._reqs_need_send.pop(request.request_id, None)
++            self._reqs_need_recv.pop(request.request_id, None)
++            self._reqs_in_batch.discard(request.request_id)
+             return False, None
+ 
+         num_prompt_blocks = math.ceil(len(request.prompt_token_ids) / self.block_size)
+@@ -2033,10 +2056,10 @@ class MooncakeConnectorWorker:
+     def __init__(self, vllm_config: VllmConfig, engine_id: str, kv_cache_config: KVCacheConfig):
+         self._get_prefill_decode_size(vllm_config)
+         os.environ["ASCEND_TRANSFER_TIMEOUT"] = str(get_transfer_timeout_value())
+-        if self._prefill_tp_size < self._decode_tp_size:
++        if self._prefill_tp_size % self._decode_tp_size != 0 and self._decode_tp_size % self._prefill_tp_size != 0:
+             raise ValueError(
+-                f"prefill_tp_size: {self._prefill_tp_size} must be greater than"
+-                f" or equal to the decode_tp_size: {self._decode_tp_size}"
++                f"prefill_tp_size: {self._prefill_tp_size} and decode_tp_size: {self._decode_tp_size} "
++                "must be divisible by each other"
+             )
+ 
+         # Metadata.
+@@ -2121,7 +2144,7 @@ class MooncakeConnectorWorker:
+         else:
+             num_d_block_heads = max(1, self.num_key_value_heads // self.tp_size)
+             num_p_block_heads = max(1, self.num_key_value_heads // self._prefill_tp_size)
+-            self.tp_num_need_pulls = num_d_block_heads // num_p_block_heads
++            self.tp_num_need_pulls = max(1, num_d_block_heads // num_p_block_heads)
+         self.local_remote_block_port_mapping: dict[str, list[list[int]] | None] = {}
+         self.remote_port_send_num: dict[str, dict[int, RemotePortInfo]] = {}
+ 
+@@ -3384,7 +3407,7 @@ class MooncakeConnectorWorker:
+         num_key_value_heads = self._get_attention_group_num_key_value_heads(group_spec)
+         num_d_block_heads = max(1, num_key_value_heads // decode_tp_size)
+         num_p_block_heads = max(1, num_key_value_heads // prefill_tp_size)
+-        return num_d_block_heads // num_p_block_heads
++        return max(1, num_d_block_heads // num_p_block_heads)
+ 
+     def _group_use_mla_rank_routing(self, group_spec: dict[str, Any]) -> bool:
+         # MiniMax M3 index caches inherit MLAAttentionSpec only to preserve
+@@ -3633,7 +3656,7 @@ class MooncakeConnectorWorker:
+         else:
+             num_d_block_heads = max(1, self.num_key_value_heads // self.tp_size)
+             num_p_block_heads = max(1, self.num_key_value_heads // prefill_tp_size)
+-            tp_num_need_pulls = num_d_block_heads // num_p_block_heads
++            tp_num_need_pulls = max(1, num_d_block_heads // num_p_block_heads)
+         return tp_num_need_pulls
+ 
+     def _get_remote_host_info_by_port(
+@@ -3703,11 +3726,35 @@ class MooncakeConnectorWorker:
+         use_mla: bool,
+     ) -> list[list[int]]:
+         tp_sampled_nums = []
+-        group_size = max(1, prefill_tp_size // self._decode_tp_size)
+-        for i in range(self._decode_tp_size):
+-            start = (i * group_size) % prefill_tp_size
+-            slice_ranks = tp_ori_data[start : start + group_size]
+-            tp_sampled_nums.append(slice_ranks.tolist())
++        if prefill_tp_size < self._decode_tp_size:
++            if prefill_tp_size > num_key_value_heads or use_mla or self.use_sparse:
++                eff_kv_heads = 1 if (use_mla or self.use_sparse) else max(1, num_key_value_heads)
++                num_p_groups = max(1, prefill_tp_size // eff_kv_heads)
++                tp_ori_2d = tp_ori_data.reshape(eff_kv_heads, num_p_groups)
++                for d_rank in range(self._decode_tp_size):
++                    head_idx = (d_rank * eff_kv_heads) // self._decode_tp_size
++                    rep_idx = rand_group_index[d_rank % len(rand_group_index)] % num_p_groups
++                    tp_sampled_nums.append([int(tp_ori_2d[head_idx, rep_idx])])
++            else:
++                for d_rank in range(self._decode_tp_size):
++                    p_rank = (d_rank * prefill_tp_size) // self._decode_tp_size
++                    tp_sampled_nums.append([int(tp_ori_data[p_rank])])
++            return tp_sampled_nums
++
++        # random split prefill tp list when prefill_tp_size >= decode_tp_size
++        if prefill_tp_size > num_key_value_heads or use_mla or self.use_sparse:
++            tp_ori_data = tp_ori_data.reshape(-1, num_groups)
++            chosen_group = tp_ori_data[:, [rand_group_index]]
++            flattened = chosen_group.reshape(-1).tolist()
++            tp_sampled_nums = [
++                flattened[i : i + tp_num_need_pulls] for i in range(0, len(flattened), tp_num_need_pulls)
++            ]
++        # non-random split
++        else:
++            group_size = prefill_tp_size // self._decode_tp_size
++            for i in range(self._decode_tp_size):
++                slice_ranks = tp_ori_data[i * group_size : (i + 1) * group_size]
++                tp_sampled_nums.append(slice_ranks.tolist())
+         return tp_sampled_nums
+ 
+     def _get_remote_ranks_for_req(
+@@ -3740,7 +3787,7 @@ class MooncakeConnectorWorker:
+                 )
+             )
+             return sampled_nums
+-        num_kv_head = num_key_value_heads
++        num_kv_head = max(1, num_key_value_heads)
+         ori_data = np.arange(prefill_tp_size * self._prefill_pp_size)
+         seed = string_to_int64_hash(req_id)
+         rand = random.Random(seed)
+@@ -3749,9 +3796,8 @@ class MooncakeConnectorWorker:
+         num_groups = max(
+             1, len(ori_data_2d[0]) // num_kv_head
+         )  # The number of redundant copies for each KV head within the PP stage
+-        rand_group_index = rand.sample(
+-            range(num_groups), (max(self._decode_tp_size // num_kv_head, 1))
+-        )  # random choose a group
++        sample_count = min(num_groups, max(self._decode_tp_size // num_kv_head, 1))
++        rand_group_index = rand.sample(range(num_groups), sample_count)  # random choose a group
+         all_results = [
+             self._get_remote_tp_ranks(
+                 ori_data_2d[pp_index],

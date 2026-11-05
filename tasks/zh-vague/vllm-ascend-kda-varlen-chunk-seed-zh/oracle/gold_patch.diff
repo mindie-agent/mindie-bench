@@ -1,0 +1,30 @@
+diff --git a/vllm_ascend/ops/triton/kda/kda.py b/vllm_ascend/ops/triton/kda/kda.py
+index 71b757a6c..ee188222a 100644
+--- a/vllm_ascend/ops/triton/kda/kda.py
++++ b/vllm_ascend/ops/triton/kda/kda.py
+@@ -1221,8 +1221,10 @@ def chunk_kda_varlen_prefill_recurrence(
+         num_chunks = cdiv(seq_len, chunk_size)
+         for chunk_idx in range(num_chunks):
+             c_start = bos + chunk_idx * chunk_size
+-            # BUG: fails to clamp c_end to eos, bleeding into sequence seq_idx + 1 on tail chunks
+-            c_end = min(c_start + chunk_size, T_total)
++            c_end = min(c_start + chunk_size, eos)
++            valid_len = c_end - c_start
++            if valid_len <= 0:
++                continue
+             chunk_states.append(h_state.clone())
+ 
+             k_c = k[0, c_start:c_end].to(torch.float32)
+@@ -1231,10 +1233,10 @@ def chunk_kda_varlen_prefill_recurrence(
+             beta_c = beta[0, c_start:c_end].to(torch.float32)
+ 
+             g_cum = torch.cumsum(g_c, dim=0)
+-            g_last = g_cum[-1]
++            g_last = g_cum[valid_len - 1]
+             h_running = h_state.clone()
+             v_delta_list: list[torch.Tensor] = []
+-            for t_idx in range(c_end - c_start):
++            for t_idx in range(valid_len):
+                 k_t = k_c[t_idx]
+                 v_t = v_c[t_idx]
+                 g_t = g_c[t_idx]

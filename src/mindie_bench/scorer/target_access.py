@@ -16,6 +16,7 @@ attempts, and remote job confirmations, then derives edit and validation timing.
 
 from __future__ import annotations
 
+import json
 import math
 import posixpath
 import re
@@ -452,20 +453,95 @@ def _validation_tail(trajectory):
 
 
 
-def _rsi_exploration_observations(knowledge_calls: list[ToolCall]) -> dict:
-    modes = []
-    explore_calls = []
+def _extract_shell_knowledge_query_args(command: str) -> list[dict]:
+    if "knowledge_query" not in command:
+        return []
+    out = []
+    decoder = json.JSONDecoder()
+    idx = 0
+    while True:
+        brace = command.find("{", idx)
+        if brace < 0:
+            break
+        try:
+            obj, end = decoder.raw_decode(command, brace)
+            if isinstance(obj, dict) and "query" in obj:
+                out.append(obj)
+                idx = end
+                continue
+        except Exception:
+            pass
+        idx = brace + 1
+    return out
+
+
+def _rsi_exploration_observations(
+    knowledge_calls: list[ToolCall],
+    broker_knowledge: dict | None = None,
+    knowledge_audit_records: list[dict] | None = None,
+) -> dict:
+    modes: list[str] = []
+    explore_calls: list[dict] = []
     seen_reuse = False
     transitioned = False
+
+    if isinstance(knowledge_audit_records, list) and knowledge_audit_records:
+        for idx, rec in enumerate(knowledge_audit_records):
+            if not isinstance(rec, dict) or rec.get("operation") not in (None, "query"):
+                continue
+            eff_mode = str(rec.get("effective_mode") or rec.get("mode") or "reuse")
+            modes.append(eff_mode)
+            if eff_mode == "reuse":
+                seen_reuse = True
+            elif eff_mode == "explore":
+                if seen_reuse:
+                    transitioned = True
+                ledger_ids = rec.get("ledger_run_ids")
+                explore_calls.append(
+                    dict(
+                        call_id=f"audit-query-{idx + 1}",
+                        tool="knowledge_query",
+                        turn=idx + 1,
+                        requested_mode=rec.get("requested_mode"),
+                        effective_mode=eff_mode,
+                        auto_switched_from_reuse=bool(rec.get("auto_switched_from_reuse", False)),
+                        has_bottleneck_summary=bool(rec.get("has_bottleneck_summary", False)),
+                        ledger_entries_count=len(ledger_ids) if isinstance(ledger_ids, list) else int(rec.get("observed_failed_attempts", 0)),
+                        mounted_l4_ids=list(rec.get("mounted_l4_ids") or []),
+                        native_subcontext=bool(rec.get("native_subcontext", False)),
+                    )
+                )
+        return dict(
+            basis="server_audit_log/1",
+            reuse_calls_count=sum(m == "reuse" for m in modes),
+            diagnose_calls_count=sum(m == "diagnose" for m in modes),
+            explore_calls_count=sum(m == "explore" for m in modes),
+            mode_sequence=modes,
+            transitioned_reuse_to_explore=transitioned,
+            explore_calls=explore_calls,
+        )
+
     for call in knowledge_calls:
-        if tool_name(call.name) not in {"knowledge_query", "query"}:
+        if call.is_error is True:
+            continue
+        tname = tool_name(call.name)
+        if tname not in {"knowledge_query", "query"}:
             continue
         args = call.arguments if isinstance(call.arguments, dict) else {}
-        mode = str(args.get("mode") or "reuse")
-        modes.append(mode)
-        if mode == "reuse":
+        req_mode = str(args.get("mode") or "reuse")
+        eff_mode = req_mode
+        out_text = getattr(call, "output", None)
+        if isinstance(out_text, str) and out_text.strip().startswith("{"):
+            try:
+                resp = json.loads(out_text)
+                if isinstance(resp, dict) and resp.get("mode") in {"reuse", "diagnose", "explore"}:
+                    eff_mode = str(resp["mode"])
+            except Exception:
+                pass
+        modes.append(eff_mode)
+        if eff_mode == "reuse":
             seen_reuse = True
-        elif mode == "explore":
+        elif eff_mode == "explore":
             if seen_reuse:
                 transitioned = True
             ledger = args.get("ledger_entries")
@@ -473,8 +549,10 @@ def _rsi_exploration_observations(knowledge_calls: list[ToolCall]) -> dict:
             explore_calls.append(
                 dict(
                     call_id=call.id,
-                    tool=tool_name(call.name),
+                    tool=tname,
                     turn=call.turn,
+                    requested_mode=req_mode,
+                    effective_mode=eff_mode,
                     goal=args.get("goal") or None,
                     has_bottleneck_summary=isinstance(bottleneck, dict) and bool(bottleneck),
                     ledger_entries_count=len(ledger) if isinstance(ledger, list) else 0,
@@ -482,6 +560,7 @@ def _rsi_exploration_observations(knowledge_calls: list[ToolCall]) -> dict:
                 )
             )
     return dict(
+        basis="tool_trajectory/1",
         reuse_calls_count=sum(m == "reuse" for m in modes),
         diagnose_calls_count=sum(m == "diagnose" for m in modes),
         explore_calls_count=sum(m == "explore" for m in modes),
@@ -500,6 +579,7 @@ def trajectory_metrics(
     tier: str,
     source_visibility: dict | None = None,
     broker_knowledge: dict | None = None,
+    knowledge_audit_records: list[dict] | None = None,
 ) -> tuple[dict, dict]:
     remote = [c for c in trajectory.calls if remote_execution(c)]
     all_remote = [
@@ -641,7 +721,9 @@ def trajectory_metrics(
         knowledge_explains_count=sum(
             tool_name(c.name) in {"knowledge_explain", "explain"} for c in knowledge
         ),
-        rsi_exploration=_rsi_exploration_observations(knowledge),
+        rsi_exploration=_rsi_exploration_observations(
+            trajectory.calls, broker_knowledge, knowledge_audit_records
+        ),
         knowledge_measurement=(
             dict(
                 basis=BROKER_KNOWLEDGE_BASIS,

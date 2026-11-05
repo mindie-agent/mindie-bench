@@ -1,0 +1,69 @@
+diff --git a/vllm_ascend/ascend_config.py b/vllm_ascend/ascend_config.py
+index 10cde8005..fcfc80412 100644
+--- a/vllm_ascend/ascend_config.py
++++ b/vllm_ascend/ascend_config.py
+@@ -878,13 +878,14 @@ class ProfilingChunkConfig:
+         """Compute maximum chunked-prefill token budget piggybacked onto a decode batch under TPOT SLA."""
+         if prefill_us_per_token <= 0 or align_block_size <= 0:
+             return 0
+-        # BUG: omits dp_barrier_wait_us from SLA headroom and clamps up to self.min_chunk
+-        headroom_us = float(tpot_sla_ms) * 1000.0 - float(decode_step_us)
++        headroom_us = float(tpot_sla_ms) * 1000.0 - (
++            float(decode_step_us) + float(dp_barrier_wait_us)
++        )
+         if headroom_us <= 0:
+             return 0
+         raw_budget = int(headroom_us // float(prefill_us_per_token))
+         cap_tokens = max(0, int(max_num_batched_tokens) - int(decode_tokens))
+-        bounded = max(self.min_chunk, min(raw_budget, cap_tokens))
++        bounded = min(raw_budget, cap_tokens)
+         return (bounded // int(align_block_size)) * int(align_block_size)
+ 
+ 
+@@ -1083,6 +1084,10 @@ class EplbConfig:
+             raise ValueError('eplb_heat_collection_stage must be one of ["all", "prefill", "decode"]')
+         if self.load_collection_phase not in ["all", "prefill", "decode"]:
+             raise ValueError('load_collection_phase must be one of ["all", "prefill", "decode"]')
++        if not isinstance(self.config["imbalance_trigger_ratio"], (int, float)) or float(
++            self.config["imbalance_trigger_ratio"]
++        ) < 1.0:
++            raise ValueError("imbalance_trigger_ratio must be a number >= 1.0")
+ 
+         logger.info("Dynamic EPLB is %s", self.config["dynamic_eplb"])
+         logger.info("The number of redundant experts is %s", self.config["num_redundant_experts"])
+diff --git a/vllm_ascend/eplb/eplb_updator.py b/vllm_ascend/eplb/eplb_updator.py
+index c10578513..45154f5e4 100644
+--- a/vllm_ascend/eplb/eplb_updator.py
++++ b/vllm_ascend/eplb/eplb_updator.py
+@@ -247,16 +247,15 @@ def evaluate_dp_barrier_skew(
+     if not dp_compute_us or not dp_tokens or len(dp_compute_us) != len(dp_tokens):
+         raise ValueError("dp_compute_us and dp_tokens must be non-empty sequences of equal length")
+     n = len(dp_compute_us)
+-    # BUG: uses mean across DP ranks instead of straggler max
+-    t_compute_max_us = sum(float(x) for x in dp_compute_us) / n
+-    t_alltoallv_sync_us = float(alltoallv_us_per_token) * (sum(int(t) for t in dp_tokens) / n)
++    t_compute_max_us = max(float(x) for x in dp_compute_us)
++    t_alltoallv_sync_us = float(alltoallv_us_per_token) * max(int(t) for t in dp_tokens)
+     t_sync_us = t_compute_max_us + t_alltoallv_sync_us
+     rank_totals = [
+         float(c) + float(alltoallv_us_per_token) * int(t)
+         for c, t in zip(dp_compute_us, dp_tokens)
+     ]
+     mean_rank_us = sum(rank_totals) / n
+-    dp_barrier_wait_us = 0.0
++    dp_barrier_wait_us = max(rank_totals) - mean_rank_us
+     return {
+         "t_compute_max_us": t_compute_max_us,
+         "t_alltoallv_sync_us": t_alltoallv_sync_us,
+@@ -285,8 +284,9 @@ def should_trigger_eplb_rebalance(
+     window_saving_us = float(rebalance_window_steps) * float(per_step_skew_saving_us)
+     migration_cost_us = float(migrated_experts) * float(d2d_transfer_us_per_expert)
+     net_benefit_us = window_saving_us - migration_cost_us
+-    # BUG: compares absolute difference max_load - mean_load against ratio threshold and ignores migration_cost_us
+-    should_rebalance = bool((max_load - mean_load) >= float(imbalance_trigger_ratio))
++    should_rebalance = bool(
++        imbalance_ratio >= float(imbalance_trigger_ratio) and net_benefit_us > 0.0
++    )
+     return {
+         "max_expert_load": max_load,
+         "mean_expert_load": mean_load,

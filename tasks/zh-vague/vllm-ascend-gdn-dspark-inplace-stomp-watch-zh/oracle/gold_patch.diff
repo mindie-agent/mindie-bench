@@ -1,0 +1,117 @@
+diff --git a/vllm_ascend/ops/gdn_attn_builder.py b/vllm_ascend/ops/gdn_attn_builder.py
+index b499837f4..0168d1a3e 100644
+--- a/vllm_ascend/ops/gdn_attn_builder.py
++++ b/vllm_ascend/ops/gdn_attn_builder.py
+@@ -104,11 +104,14 @@ def _build_actual_seq_lengths(
+     out: torch.Tensor | None = None,
+ ) -> torch.Tensor:
+     actual_seq_lengths = (
+-        query_start_loc[: num_sequences + 1] if out is None else out[: num_sequences + 1]
++        torch.empty_like(query_start_loc[: num_sequences + 1]) if out is None else out[: num_sequences + 1]
+     )
+-    diffs = query_start_loc[1 : num_sequences + 1] - query_start_loc[:num_sequences]
+     actual_seq_lengths[:1].copy_(query_start_loc[:1])
+-    actual_seq_lengths[1:].copy_(diffs)
++    torch.sub(
++        query_start_loc[1 : num_sequences + 1],
++        query_start_loc[:num_sequences],
++        out=actual_seq_lengths[1:],
++    )
+     return actual_seq_lengths
+ 
+ 
+@@ -352,17 +355,12 @@ class AscendGDNAttentionMetadataBuilder(GDNAttentionMetadataBuilder):
+             num_sequences = attn_metadata.spec_query_start_loc.size(0) - 1
+             actual_seq_lengths_buffer = self.spec_actual_seq_lengths
+         spec_num_rows = attn_metadata.spec_query_start_loc.size(0) - 1
+-        cache_indices = attn_metadata.spec_state_indices_tensor[:spec_num_rows]
+-        accepted_tokens = attn_metadata.num_accepted_tokens[:spec_num_rows]
+-        if cache_indices.dim() == 2 and accepted_tokens.numel() == spec_num_rows:
+-            step_cols = torch.arange(cache_indices.size(1), device=cache_indices.device).unsqueeze(0)
+-            cache_indices.masked_fill_(step_cols >= accepted_tokens.unsqueeze(1), NULL_BLOCK_ID)
+ 
+         attn_metadata.spec_decode_metadata = GDNSpecDecodeMetadata(
+             spec_causal_conv1d=GDNSpecCausalConv1dMetadata(
+                 query_start_loc=attn_metadata.spec_query_start_loc,
+-                cache_indices=cache_indices,
+-                num_accepted_tokens=accepted_tokens,
++                cache_indices=attn_metadata.spec_state_indices_tensor[:spec_num_rows],
++                num_accepted_tokens=attn_metadata.num_accepted_tokens[:spec_num_rows],
+             ),
+             actual_seq_lengths=_build_actual_seq_lengths(
+                 attn_metadata.spec_query_start_loc,
+@@ -507,14 +505,11 @@ class AscendGDNAttentionMetadataBuilder(GDNAttentionMetadataBuilder):
+                     dtype=torch.int32,
+                     device=query_start_loc.device,
+                 )
+-                if num_spec_decodes <= block_table_tensor.size(0):
+-                    spec_state_indices_tensor = block_table_tensor[:num_spec_decodes, : self.num_spec + 1]
+-                else:
+-                    spec_state_indices_tensor = torch.index_select(
+-                        block_table_tensor[:, : self.num_spec + 1],
+-                        0,
+-                        spec_sequence_indices,
+-                    )
++                spec_state_indices_tensor = torch.index_select(
++                    block_table_tensor[:, : self.num_spec + 1],
++                    0,
++                    spec_sequence_indices,
++                )
+                 non_spec_state_indices_tensor = None
+                 spec_query_start_loc = query_start_loc[: num_spec_decodes + 1]
+                 non_spec_query_start_loc = None
+@@ -530,14 +525,11 @@ class AscendGDNAttentionMetadataBuilder(GDNAttentionMetadataBuilder):
+                 non_spec_token_indx = index[:num_non_spec_tokens]
+                 spec_token_indx = index[num_non_spec_tokens:]
+ 
+-                if num_spec_decodes <= block_table_tensor.size(0):
+-                    spec_state_indices_tensor = block_table_tensor[:num_spec_decodes, : self.num_spec + 1]
+-                else:
+-                    spec_state_indices_tensor = torch.index_select(
+-                        block_table_tensor[:, : self.num_spec + 1],
+-                        0,
+-                        spec_sequence_indices,
+-                    )
++                spec_state_indices_tensor = torch.index_select(
++                    block_table_tensor[:, : self.num_spec + 1],
++                    0,
++                    spec_sequence_indices,
++                )
+                 non_spec_state_indices_tensor = torch.index_select(
+                     block_table_tensor[:, 0],
+                     0,
+diff --git a/vllm_ascend/spec_decode/dspark_proposer.py b/vllm_ascend/spec_decode/dspark_proposer.py
+index be0da2144..a0b86300c 100644
+--- a/vllm_ascend/spec_decode/dspark_proposer.py
++++ b/vllm_ascend/spec_decode/dspark_proposer.py
+@@ -246,7 +246,7 @@ class AscendDSparkProposer(AscendDflashProposer):
+         has_num_rejected = num_rejected_tokens_gpu is not None
+         primary_gid = getattr(self, "kv_cache_gid", 0)
+         self._per_group_block_table_buffers = {
+-            attn_group.kv_cache_group_id: self._per_group_block_tables[attn_group.kv_cache_group_id]
++            attn_group.kv_cache_group_id: self._per_group_block_tables[attn_group.kv_cache_group_id].clone()
+             for attn_group in self.draft_attn_groups
+         }
+         self._context_slot_mapping_buffers = None
+@@ -268,8 +268,6 @@ class AscendDSparkProposer(AscendDflashProposer):
+             gid_block_table = self._per_group_block_table_buffers.get(gid)
+             if gid_block_table is None:
+                 continue
+-            if gid_block_table.size(0) > batch_size:
+-                gid_block_table[batch_size:].fill_(-1)
+             kv_block_size = int(attn_group.kv_cache_spec.block_size)
+             copy_and_expand_dflash_and_dspark_inputs_kernel[
+                 (_compute_num_programs(self._dflash_num_context, num_query_total),)
+@@ -309,10 +307,10 @@ class AscendDSparkProposer(AscendDflashProposer):
+ 
+         effective_seq_lens = cad.seq_lens
+         if has_num_rejected:
+-            effective_seq_lens.sub_(num_rejected_tokens_gpu)
++            effective_seq_lens = effective_seq_lens - num_rejected_tokens_gpu
+ 
+         cad.query_start_loc = self.arange_dflash[: batch_size + 1] * self.num_query_per_req
+-        cad.seq_lens = effective_seq_lens.add_(self.num_query_per_req)
++        cad.seq_lens = effective_seq_lens + self.num_query_per_req
+         cad.query_start_loc_cpu = (
+             torch.from_numpy(self.token_arange_np[: batch_size + 1]).clone() * self.num_query_per_req
+         ).to(torch.int32)

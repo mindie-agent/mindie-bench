@@ -1,0 +1,25 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-profiler-straggler-and-hbm-reconcile-zh"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "007c436b7ee084ce27d352ec106b5d07f8435be1"
+issue = "component-value-v2-p1"
+validation_scope = "Multi-rank CANN msprof SQLite interval-union straggler attribution and non-additive PyTorch/CANN HBM memory reconciliation"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/profiling_config.py", "vllm_ascend/worker/worker.py"]
+[budget]
+max_turns = 50
+max_npu_runs = 6
+timeout_sec = 480
+verifier_timeout_sec = 120
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "d3f50c66e209229ea7fbae2f5b17f1698d211809"

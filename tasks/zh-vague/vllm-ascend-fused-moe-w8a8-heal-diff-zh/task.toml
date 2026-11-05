@@ -1,0 +1,24 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-fused-moe-w8a8-heal-diff-zh"
+domain_category = "operator_correctness"
+difficulty = "hard"
+evidence = "verified"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "b1bf5135d31e2c8387b35ac0e5e6962ba87cf851"
+issue = "v2-debugger-d3"
+validation_scope = "multi-layer MoE W8A8 dynamic quantization lockstep differential healing and fused_moe/moe_mlp.py operator verification"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+target_files = ["vllm_ascend/ops/fused_moe/moe_mlp.py"]
+[budget]
+max_turns = 60
+max_npu_runs = 12
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "4010f9046409696ca7faf38f81fd3679cc3a0986"

@@ -1,0 +1,27 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-observability-crash-redaction-and-outbox-zh"
+domain_category = "runtime_schedule"
+difficulty = "hard"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "368af05ed7a4c845c78ff8076915b4d5e168d69f"
+issue = "stream-c-dg1"
+groups = ["G0", "G1", "G2"]
+validation_scope = "CPU behavior verification of vllm-ascend crash log redaction (preserving CANN codes and relative vllm_ascend paths) and outbox TimeoutError uncertain state transitions"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+analogical_task_hashes = ["unit-vllm-ascend-diagnostics-plog-cascade-redaction-and-outbox-sop"]
+target_files = ["vllm_ascend/logger.py"]
+[budget]
+max_turns = 60
+max_npu_runs = 6
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "90b83da09efaad0de1d7fc0f6731b87fb17ebe77"

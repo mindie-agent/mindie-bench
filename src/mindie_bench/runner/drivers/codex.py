@@ -35,6 +35,7 @@ class CodexDriver:
             "project_root_markers = []",
             "[features]",
             "shell_snapshot = false",
+            "multi_agent = false",
             "[shell_environment_policy]",
             'inherit = "all"',
             f"set = {{ PATH = {json.dumps(profile.env['PATH'])} }}",

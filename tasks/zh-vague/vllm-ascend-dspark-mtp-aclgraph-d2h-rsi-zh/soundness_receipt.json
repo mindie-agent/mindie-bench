@@ -1,0 +1,164 @@
+{
+  "after_reward": 1.0,
+  "base_commit": "1223fea314cb6172900bd615c9940fcd2c658925",
+  "before_reward": 0.0,
+  "cases": {
+    "baseline": {
+      "elapsed_seconds": 0.65422,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "input_files": {
+        "vllm_ascend/worker/v2/spec_decode/dspark/speculator.py": "948239bf5d2453de568d7905098587580d07a19b0f7a7dc6c93da4aa8887ff83"
+      },
+      "input_sha256": "bdaf2ddf10daaacfc6ea032fe8490d79ec80b302e01d70bdad920eaa93dcff5e",
+      "reward": 0.0,
+      "verdict": {
+        "ablation_contract_verified": false,
+        "correctness_verified": false,
+        "error_type": "RuntimeError",
+        "failure_reason": "FIA TND contract violation: queryT (12) != last element of actualSequenceLengthQ (9)",
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 0.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "failed"
+      }
+    },
+    "gold": {
+      "elapsed_seconds": 0.656025,
+      "exit_code": 0,
+      "expected_reward": 1.0,
+      "input_files": {
+        "vllm_ascend/worker/v2/spec_decode/dspark/speculator.py": "a07816a68335166fbd85ddbdd5b753424de49d0ea0050f3a1a4760ff731f865a"
+      },
+      "input_sha256": "11e52714be8ac85c51dd446271365470327af27de85eff1ec5e0bccd3b78a021",
+      "reward": 1.0,
+      "verdict": {
+        "ablation_contract_verified": true,
+        "candidate_suite_type": "dict",
+        "correctness_verified": true,
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "observed_cpu_ablation": {
+          "full_candidate": {
+            "captured_step_d2h_syncs": 0,
+            "clone_ops": 0,
+            "draft_tokens_padded": 12,
+            "metadata_allocs_in_capture": 0,
+            "scalar_sync_ops": 0,
+            "status": "ok",
+            "target_tokens_padded": 16,
+            "updated_ok": true
+          },
+          "minus_bucket_alignment": {
+            "error": "FIA TND contract violation: queryT (12) != last element of actualSequenceLengthQ (9)",
+            "status": "error"
+          },
+          "minus_device_resident_accepted_tokens": {
+            "actual_seq_lengths_q": [
+              3,
+              6,
+              9,
+              12
+            ],
+            "captured_step_d2h_syncs": 2,
+            "clone_ops": 0,
+            "draft_tokens_padded": 12,
+            "metadata_allocs_in_capture": 0,
+            "scalar_sync_ops": 1,
+            "status": "ok",
+            "target_tokens_padded": 16,
+            "updated_ok": true
+          },
+          "minus_metadata_hoist": {
+            "actual_seq_lengths_q": [
+              3,
+              6,
+              9,
+              12
+            ],
+            "captured_step_d2h_syncs": 0,
+            "clone_ops": 1,
+            "draft_tokens_padded": 12,
+            "metadata_allocs_in_capture": 2,
+            "scalar_sync_ops": 0,
+            "status": "ok",
+            "target_tokens_padded": 16,
+            "updated_ok": true
+          }
+        },
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 1.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "completed"
+      }
+    },
+    "negative_control": {
+      "elapsed_seconds": 0.645837,
+      "exit_code": 1,
+      "expected_reward": 0.0,
+      "input_files": {
+        "vllm_ascend/worker/v2/spec_decode/dspark/speculator.py": "17d26e5a98883958988b06a30ae0a86e256dcdb831693caebe1a71e26a9ea273"
+      },
+      "input_sha256": "cb342d81fa1d18acafff829f4d25bda9718c23fad2ba29592ec405816cca7d8c",
+      "reward": 0.0,
+      "verdict": {
+        "ablation_contract_verified": false,
+        "candidate_suite_type": "dict",
+        "correctness_verified": true,
+        "error_type": "AssertionError",
+        "failure_reason": "minus_metadata_hoist did not exhibit metadata allocations/clones: {'scalar_sync_ops': 0, 'clone_ops': 0, 'draft_tokens_padded': 12, 'target_tokens_padded': 16, 'actual_seq_lengths_q': [3, 6, 9, 12], 'metadata_allocs_in_capture': 0, 'captured_step_d2h_syncs': 0, 'updated_ok': True, 'status': 'ok'}",
+        "latency_ms": null,
+        "measured_npu_speedup": null,
+        "measurement_source": null,
+        "native_kernel_bound": null,
+        "native_kernel_status": "unverified",
+        "npu_card_hours": null,
+        "operator_binding": "cpu_tensor_execution",
+        "performance_status": "unmeasured",
+        "reward": 0.0,
+        "speedup_ratio": null,
+        "tpot_ms": null,
+        "validation_scope": "controlled_cpu_tensor_and_ablation_contract",
+        "verification_status": "failed"
+      }
+    }
+  },
+  "errors": [],
+  "gold_patch_sha256": "70b7de231508fbfa6f9dec87e502f183731fb80b6af9a2b52ddba58f09c29be8",
+  "model_calls": 0,
+  "negative_control_reward": 0.0,
+  "post_fix": {
+    "exit_code": 0,
+    "reward": 1.0
+  },
+  "pre_fix": {
+    "exit_code": 1,
+    "reward": 0.0
+  },
+  "schema_version": "1.0",
+  "source_commit": "1223fea314cb6172900bd615c9940fcd2c658925",
+  "status": "completed",
+  "task_sha256": "32b513f8e6bfaa713c4f4584c765746110941b44bc3efa6e7487b9d52c53b399",
+  "tier": "l2",
+  "verifier_files": {
+    "test.sh": "fc940822c84a6498caed5914b6d17c8a092087ec18dc55e96267b6c01a5c92dd",
+    "verify.py": "25990fffc5edade9b65cb0eb88143f4cc682fbb6d190a8a2733f2e16d3ff3692"
+  },
+  "verifier_sha256": "86e75bc41f69a5c3688455892f67b95da0711a7a14ce584cb323a1a73bff6bee"
+}

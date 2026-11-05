@@ -143,6 +143,8 @@ def prepare(root, env, selected, corpus, *, domain_corpora=None, active_domain=N
                     ("profiler", "mindie-profiler"), ("sim", "mindie-sim"),
                     ("coordinator", "mindie-coordinator"),
                     ("debugger", "mindie-debugger"),
+                    ("npu-top", "npu-top"),
+                    ("diagnostics", "mindie-diagnostics"),
                 )
                 if (Path(python).parent / executable).is_file()
             },
@@ -233,6 +235,10 @@ class NativeProductService:
 
     def _start_one(self, engine_config: str, connection_path: str, label: str) -> tuple[subprocess.Popen, int]:
         info = self.info
+        workspace_dir = self.trial_dir / "workspace"
+        service_read_paths = [*self.read_paths]
+        if workspace_dir.exists():
+            service_read_paths.append(workspace_dir)
         command = native_command(
             [
                 info["runtime_python"],
@@ -243,7 +249,7 @@ class NativeProductService:
                 "--config",
                 engine_config,
             ],
-            read=self.read_paths,
+            read=service_read_paths,
             write=[self.profile.root],
             cwd=self.profile.root,
             policy_path=self.trial_dir / f"native-knowledge-service{label}.sb",
@@ -253,10 +259,13 @@ class NativeProductService:
         )
         stderr_file = (self.trial_dir / f"native-knowledge-service{label}.stderr").open("xb")
         self._stderr_files.append(stderr_file)
+        service_env = dict(self.profile.env)
+        if workspace_dir.exists():
+            service_env["MINDIE_BENCH_WORKSPACE"] = str(workspace_dir)
         proc = subprocess.Popen(
             command,
             cwd=self.profile.root,
-            env=self.profile.env,
+            env=service_env,
             stdout=stderr_file,
             stderr=subprocess.STDOUT,
             start_new_session=True,

@@ -83,11 +83,15 @@ def initialize(request):
             "mindie-publication-contract/2"
         )
         if graded:
+            import os
+
             from mindie_knowledge.graded.index import read_units
 
             units = read_units(corpus)
-            store.graded.install(units, source_identity=request["corpus_sha256"])
             count = len(units)
+            if os.environ.get("MINDIE_DISABLE_RSI_EXPLORE") == "1":
+                units = [u for u in units if u.metadata.get("tier") != "L4"]
+            store.graded.install(units, source_identity=request["corpus_sha256"])
         else:
             packages = []
             for task in sorted((corpus / "tasks").iterdir()):

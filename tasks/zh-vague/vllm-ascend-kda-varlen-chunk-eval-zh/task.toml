@@ -1,0 +1,29 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-kda-varlen-chunk-eval-zh"
+domain_category = "operator_correctness"
+difficulty = "hard"
+evidence = "verified"
+cluster = "kda-varlen-chunk-state"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "14b01ecf6bbb51709575756475127da8338f4ede"
+issue = "stream-c-v3-eval"
+pair_id = "kda-varlen-chunk-state"
+groups = ["G0", "G1", "G2", "G3"]
+validation_scope = "CPU tensor verification of variable-length KDA mixed prefill and decode continuation batch forward pass with tail-chunk boundary clamping and slot-mapped state continuation"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+analogical_task_hashes = []
+target_files = ["vllm_ascend/ops/triton/kda/kda.py"]
+[budget]
+max_turns = 120
+max_npu_runs = 8
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "4c354e13a09eebec491ba1f652eb1801fa30b86a"

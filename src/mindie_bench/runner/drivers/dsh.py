@@ -96,6 +96,7 @@ class DshDriver:
         self._turn = 1
         self._tokens = [0, 0, 0, 0]
         self._usage_seen = False
+        self._turn_usage_seen = False
         self._public_ids = set()
         self._base_command: tuple[str, ...] | None = None
         self._session_cwd: str | None = None
@@ -145,7 +146,7 @@ class DshDriver:
             status="available" if ready else "incomplete",
             session_id=identity,
             continuation_command=tuple(continuation) if continuation else None,
-            native_completed=self.result.native_completed,
+            native_completed=bool(ready),
             source="session_event",
             reason=None if ready else "completed native turn identity is unavailable",
             limitations=limitations,
@@ -161,11 +162,14 @@ class DshDriver:
         capture = self.native_session_capture()
         if not capture.capture_ready:
             raise ValueError("DSH capture requires a completed native session event")
+        completed_turn = (
+            self._completed_turn if self._completed_turn is not None else max(1, self._turn)
+        )
         return {
             "harness": "dsh",
             "session_id": capture.session_id,
-            "turn_id": str(self._completed_turn),
-            "completed": self.result.native_completed,
+            "turn_id": str(completed_turn),
+            "completed": True,
             "cwd": self._session_cwd,
             "continuation_command": list(capture.continuation_command or ()),
             "source": "headless_json_projection",
@@ -209,6 +213,7 @@ class DshDriver:
             if phase == "turn_start":
                 self.result.native_completed = False
                 self._completed_turn = None
+                self._turn_usage_seen = False
             elif phase == "step_end":
                 usage = event.get("usage")
                 if isinstance(usage, dict):
@@ -220,6 +225,7 @@ class DshDriver:
                     ]
                     if all(type(value) is int and value >= 0 for value in values):
                         self._usage_seen = True
+                        self._turn_usage_seen = True
                         for index, value in enumerate(values):
                             self._tokens[index] += value
             elif phase == "turn_end":
@@ -227,7 +233,11 @@ class DshDriver:
                 if isinstance(reason, dict) and reason.get("kind") == "completed":
                     self.result.native_completed = True
                     self.result.native_error = None
-                    self._completed_turn = turn if type(turn) is int and turn > 0 else None
+                    self._completed_turn = (
+                        turn
+                        if type(turn) is int and turn > 0
+                        else (self._turn if self._turn > 0 and self._turn_usage_seen else None)
+                    )
                 elif isinstance(reason, dict):
                     self.result.native_completed = False
                     self._completed_turn = None

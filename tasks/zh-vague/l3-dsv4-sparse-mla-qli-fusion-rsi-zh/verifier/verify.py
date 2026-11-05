@@ -308,21 +308,19 @@ try:
             full = execute(lambda values: mod.sparse_mla_decode_step(*values, **core), "full_candidate")
             assert is_full(full), f"Independent full-candidate tensor/handoff check failed: {full}"
             evidence["correctness_verified"] = True
+            assert has_ablation_suite, "Missing run_ablation_suite in sparse_mla_decode.py"
             capture.phase = "suite"
             direct_arm = None
-            if has_ablation_suite:
-                try:
-                    suite = invoke_suite(mod, "sparse", inputs, core, input_names)
-                    evidence["candidate_suite_type"] = type(suite).__name__
-                except (ImportError, NameError):
-                    raise
-                except Exception as exc:
-                    suite_error = exc
+            try:
+                suite = invoke_suite(mod, "sparse", inputs, core, input_names)
+                evidence["candidate_suite_type"] = type(suite).__name__
+            except (ImportError, NameError):
+                raise
+            except Exception as exc:
+                suite_error = exc
         selected = None
         failures = []
-        if not has_ablation_suite:
-            selected = {"entrypoint": "sparse_mla_decode_step", "full_candidate": full}
-        for entrypoint, controls in (capture.entries.items() if has_ablation_suite else ()):
+        for entrypoint, controls in capture.entries.items():
             values = list(controls.values())
             if len(values) < 4 or not any(c.is_default for c in values):
                 continue

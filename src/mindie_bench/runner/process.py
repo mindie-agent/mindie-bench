@@ -204,6 +204,10 @@ def stream_process(
                 # Flush before interpretation: malformed or unknown terminal
                 # events cannot erase already-observed native evidence.
                 text = chunk.decode("utf-8")
+                if text.startswith("Client.listResources() called"):
+                    err.write(chunk)
+                    err.flush()
+                    continue
                 raw.write(
                     json.dumps(dict(observed_sec=observed - started, native_line=text.rstrip("\n")))
                     + "\n"

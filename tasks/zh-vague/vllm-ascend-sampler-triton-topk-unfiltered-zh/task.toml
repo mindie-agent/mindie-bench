@@ -1,0 +1,27 @@
+schema_version = "1.0"
+[task]
+instance_id = "vllm-ascend-sampler-triton-topk-unfiltered-zh"
+domain_category = "operator_correctness"
+difficulty = "medium"
+evidence = "verified"
+role = "eval"
+[task.source]
+repository = "vllm-project/vllm-ascend"
+fix_commit = "5a2983d494dcaca3db5d3cd574be6b459a4567ea"
+issue = "stream-c-v2"
+groups = ["G0", "G1", "G2"]
+validation_scope = "CPU behavior verification of vllm-ascend top_k and top_p logits filtering with out-of-range k clamping/no-op and top-1 token retention when top-1 probability exceeds top_p"
+[mindie_knowledge]
+corpus_id = "ascend"
+knowledge_gradient = "near_exact"
+same_origin_task_hashes = []
+analogical_task_hashes = []
+target_files = ["vllm_ascend/sample/sampler.py"]
+[budget]
+max_turns = 60
+max_npu_runs = 6
+timeout_sec = 600
+verifier_timeout_sec = 180
+[environment.l2]
+repo_path = "/Users/maoxx241/code/vllm-ascend"
+base_commit = "4f3479d170c20c742b9d8b5bff5c1935bd3f86b7"
