@@ -152,9 +152,11 @@ def main() -> None:
         acc1 = torch.tensor([[1, 1, 0], [1, 0, 0], [1, 1, 1]], dtype=torch.int32)
         q1 = torch.randn((9, 64), dtype=torch.bfloat16)
         slots1 = torch.tensor([10, 11, 12, 20, 21, 22, 30, 31, 32], dtype=torch.int32)
+        seq1_in, acc1_in, q1_in, slots1_in = seq1.clone(), acc1.clone(), q1.clone(), slots1.clone()
         with DSparkTrace() as tr1:
-            upd1, m1 = _invoke_step(mod, seq1, acc1, q1, slots1)
+            upd1, m1 = _invoke_step(mod, seq1_in, acc1_in, q1_in, slots1_in)
         assert tr1.scalar_sync_ops == 0, f"Captured step executed {tr1.scalar_sync_ops} host .item()/.tolist() D2H syncs on batch=3"
+        assert tr1.clone_ops == 0, f"Captured step executed {tr1.clone_ops} tensor .clone() allocations on batch=3"
         assert upd1.tolist() == [19, 26, 16], f"Unexpected updated_seq_lens on batch=3: {upd1.tolist()}"
         assert m1.get("captured_step_d2h_syncs") == 0, f"m1 syncs={m1.get('captured_step_d2h_syncs')}"
         assert m1.get("metadata_allocs_in_capture") == 0, f"m1 metadata_allocs={m1.get('metadata_allocs_in_capture')}"
@@ -169,9 +171,11 @@ def main() -> None:
         acc2 = torch.tensor([[0, 0, 0], [1, 1, 1], [1, 0, 0], [1, 1, 0], [1, 0, 0]], dtype=torch.int32)
         q2 = torch.randn((15, 64), dtype=torch.bfloat16)
         slots2 = torch.arange(200, 215, dtype=torch.int32)
+        seq2_in, acc2_in, q2_in, slots2_in = seq2.clone(), acc2.clone(), q2.clone(), slots2.clone()
         with DSparkTrace() as tr2:
-            upd2, m2 = _invoke_step(mod, seq2, acc2, q2, slots2)
+            upd2, m2 = _invoke_step(mod, seq2_in, acc2_in, q2_in, slots2_in)
         assert tr2.scalar_sync_ops == 0, f"Captured step executed {tr2.scalar_sync_ops} host .item()/.tolist() D2H syncs on batch=5"
+        assert tr2.clone_ops == 0, f"Captured step executed {tr2.clone_ops} tensor .clone() allocations on batch=5"
         assert upd2.tolist() == [9, 23, 33, 45, 9], f"Unexpected updated_seq_lens on batch=5: {upd2.tolist()}"
         assert m2.get("captured_step_d2h_syncs") == 0, f"m2 syncs={m2.get('captured_step_d2h_syncs')}"
         assert m2.get("metadata_allocs_in_capture") == 0, f"m2 metadata_allocs={m2.get('metadata_allocs_in_capture')}"
@@ -201,8 +205,8 @@ def main() -> None:
 
         arm_traces: dict[str, dict[str, object]] = {
             "full_candidate": {
-                "scalar_sync_ops": tr1.scalar_sync_ops + tr2.scalar_sync_ops,
-                "clone_ops": tr1.clone_ops + tr2.clone_ops,
+                "scalar_sync_ops": tr1.scalar_sync_ops,
+                "clone_ops": tr1.clone_ops,
                 "draft_tokens_padded": m1.get("draft_tokens_padded"),
                 "target_tokens_padded": m1.get("target_tokens_padded"),
                 "metadata_allocs_in_capture": m1.get("metadata_allocs_in_capture", 0),
@@ -220,13 +224,17 @@ def main() -> None:
             ),
         ]:
             try:
+                seq_arm = seq1.clone()
+                acc_arm = acc1.clone()
+                q_arm = q1.clone()
+                slots_arm = slots1.clone()
                 with DSparkTrace() as tr_arm:
                     upd_arm, m_arm = _invoke_step(
                         mod,
-                        seq1.clone(),
-                        acc1.clone(),
-                        q1.clone(),
-                        slots1.clone(),
+                        seq_arm,
+                        acc_arm,
+                        q_arm,
+                        slots_arm,
                         **flags,
                     )
                 aq_arm = m_arm.get("actual_seq_lengths_q")
@@ -256,13 +264,17 @@ def main() -> None:
         ), f"minus_bucket_alignment did not exhibit bucket/TND mismatch: {b_arm}"
 
         h_arm = arm_traces["minus_metadata_hoist"]
-        assert h_arm.get("status") == "ok" and (
-            int(h_arm.get("metadata_allocs_in_capture", 0)) > 0 or int(h_arm.get("clone_ops", 0)) > 0
+        assert (
+            h_arm.get("status") == "ok"
+            and int(h_arm.get("metadata_allocs_in_capture", 0)) > int(m1.get("metadata_allocs_in_capture", 0))
+            and int(h_arm.get("clone_ops", 0)) > tr1.clone_ops
         ), f"minus_metadata_hoist did not exhibit metadata allocations/clones: {h_arm}"
 
         d_arm = arm_traces["minus_device_resident_accepted_tokens"]
-        assert d_arm.get("status") == "ok" and (
-            int(d_arm.get("captured_step_d2h_syncs", 0)) > 0 or int(d_arm.get("scalar_sync_ops", 0)) > 0
+        assert (
+            d_arm.get("status") == "ok"
+            and int(d_arm.get("captured_step_d2h_syncs", 0)) > int(m1.get("captured_step_d2h_syncs", 0))
+            and int(d_arm.get("scalar_sync_ops", 0)) > tr1.scalar_sync_ops
         ), f"minus_device_resident_accepted_tokens did not exhibit host D2H syncs: {d_arm}"
 
         evidence["observed_cpu_ablation"] = arm_traces

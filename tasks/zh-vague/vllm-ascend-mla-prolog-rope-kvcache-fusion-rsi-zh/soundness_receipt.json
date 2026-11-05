@@ -1,9 +1,9 @@
 {
   "after_reward": 1.0,
-  "base_commit": "fd7a20924a666a0dfad6206eb3a45ec2156d64b2",
+  "base_commit": "1223fea314cb6172900bd615c9940fcd2c658925",
   "before_reward": 0.0,
   "errors": [],
-  "gold_patch_sha256": "4b751b547ac5d8de5b0f0e1f954bb4102cc3a1394096938f0596d3986cf2e24b",
+  "gold_patch_sha256": "e0de5a60c892183aedb4d3056494041e219b7b1fe172ef19aa81f798d354d0b2",
   "model_calls": 0,
   "post_fix": {
     "exit_code": 0,
@@ -18,5 +18,9 @@
   "status": "completed",
   "task_sha256": "eecc4b184714cf35026c586c93017e12534cdc50721f3a2d08deb9608b5fc5bd",
   "tier": "l2",
-  "verifier_sha256": "bc446546c0e3a84ac746108b7deef90590c6d930d95799fad1fbce33ab06c74c"
+  "verifier_files": {
+    "test.sh": "8f2d6215455079516c6a1a197d2073131ef1c3c64b318f9a04c63e8355297c0a",
+    "verify.py": "8f29fdf3291ab89cd447d401250bbc23d2ded34360700e2cd4e71a0adee67054"
+  },
+  "verifier_sha256": "bd70c85748dd3809ac5130dd0d85d96974deed586a1b58663a89774242f247d9"
 }

@@ -1,6 +1,6 @@
 {
   "after_reward": 1.0,
-  "base_commit": "fd7a20924a666a0dfad6206eb3a45ec2156d64b2",
+  "base_commit": "1223fea314cb6172900bd615c9940fcd2c658925",
   "before_reward": 0.0,
   "cases": {
     "baseline": {
@@ -9,15 +9,15 @@
       "exit_code": 1,
       "expected_reward": 0.0,
       "input_files": {
-        "vllm_ascend/ops/spatial_group_norm_reduce.py": "d2aaa8278984532aee6921a0fe4c8886fd83ad49c0bdd622afe30c08cc4d431d"
+        "vllm_ascend/ops/spatial_group_norm_reduce.py": "d79c28b0b7563e3acb28c05d438f212b1a6d15a6b2795278fefe3897ff32d5dc"
       },
       "input_sha256": "c7058e41fe03b057aa64363eb2017292ad4e3764dcd3605b88f045fa6cd59019",
       "reward": 0.0,
       "stderr_path": "reports/human-corpus-eval-20261031/soundness/g4/triton-spatial-norm-dim-merge-rsi-zh/baseline.stderr",
       "stdout_path": "reports/human-corpus-eval-20261031/soundness/g4/triton-spatial-norm-dim-merge-rsi-zh/baseline.stdout",
       "verdict": {
-        "ablation_contract_verified": null,
-        "correctness_verified": null,
+        "ablation_contract_verified": false,
+        "correctness_verified": false,
         "error_type": "AssertionError",
         "failure_reason": "Numerical check failed on shape (2, 16, 16, 16): max_abs_err=0.046875",
         "latency_ms": null,
@@ -75,9 +75,7 @@
       "exit_code": 0,
       "expected_reward": 1.0,
       "input_files": {
-        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
-        "experiment-ledger.jsonl": "0fe46a8f22ace1880ba9bb8539c40d43a104d97e0e139529e678b018fdc833c4",
-        "vllm_ascend/ops/spatial_group_norm_reduce.py": "f5b88ba4229de6261405b3d127cd01822e6345007d986bad65938b066ee47240"
+        "vllm_ascend/ops/spatial_group_norm_reduce.py": "e43ab5561c80b7c5573cf5ad756059dcf3af4e1bea13c5c97a29f119ce1d640f"
       },
       "input_sha256": "7ff77d1e929a6e650117378296d1491f5e2719627cc84b19335b1f196dd61d8e",
       "reward": 1.0,
@@ -94,10 +92,16 @@
         "native_kernel_status": "unverified",
         "npu_card_hours": null,
         "observed_cpu_ablation": {
+          "bs_probe": [
+            16384,
+            8192,
+            4096,
+            512
+          ],
           "entrypoint": "spatial_group_norm_reduce",
           "full_candidate": {
             "bf16_arithmetic": 0,
-            "bf16_casts": 2,
+            "bf16_casts": 1,
             "control": {
               "args": [
                 4,
@@ -110,62 +114,65 @@
             "finite": true,
             "indexing_operations": 0,
             "max_abs_err": 0.0,
-            "reductions": 3,
-            "tensor_operations": 56
+            "reductions": 2,
+            "tensor_operations": 22
           },
           "minus_block_scaling": {
             "bf16_arithmetic": 0,
-            "bf16_casts": 2,
+            "bf16_casts": 1,
             "control": {
               "args": [
-                8
+                4,
+                1e-05
               ],
               "kwargs": {
-                "enable_block_scaling": false,
-                "enable_dim_merge": true,
-                "enable_multibuffer_cast_guard": true
+                "merge_hw": true,
+                "multibuffer_cast_guard": true,
+                "scale_block_size": false
               }
             },
             "correct": true,
             "default_path": false,
             "finite": true,
-            "indexing_operations": 8,
+            "indexing_operations": 4,
             "max_abs_err": 0.0,
-            "reductions": 3,
-            "tensor_operations": 91
+            "reductions": 8,
+            "tensor_operations": 47
           },
           "minus_dim_merge": {
             "bf16_arithmetic": 0,
-            "bf16_casts": 2,
+            "bf16_casts": 1,
             "control": {
               "args": [
-                8
+                4,
+                1e-05
               ],
               "kwargs": {
-                "enable_block_scaling": true,
-                "enable_dim_merge": false,
-                "enable_multibuffer_cast_guard": true
+                "merge_hw": false,
+                "multibuffer_cast_guard": true,
+                "scale_block_size": true
               }
             },
             "correct": true,
             "default_path": false,
             "finite": true,
-            "indexing_operations": 256,
+            "indexing_operations": 32,
             "max_abs_err": 0.0,
-            "reductions": 257,
-            "tensor_operations": 1073
+            "reductions": 64,
+            "tensor_operations": 215
           },
           "minus_multibuffer_cast_guard": {
-            "bf16_arithmetic": 0,
-            "bf16_casts": 4,
+            "bf16_arithmetic": 1,
+            "bf16_casts": 2,
             "control": {
               "args": [
-                8
+                4,
+                1e-05
               ],
               "kwargs": {
-                "enable_block_scaling": true,
-                "enable_dim_merge": true,
-                "enable_multibuffer_cast_guard": false
+                "merge_hw": true,
+                "multibuffer_cast_guard": false,
+                "scale_block_size": true
               }
             },
             "correct": false,
@@ -173,8 +180,8 @@
             "finite": true,
             "indexing_operations": 0,
             "max_abs_err": 0.03125,
-            "reductions": 3,
-            "tensor_operations": 60
+            "reductions": 2,
+            "tensor_operations": 25
           }
         },
         "operator_binding": "cpu_tensor_execution",
@@ -574,7 +581,7 @@
   },
   "errors": [],
   "execution_scope": "controlled_cpu_tensor_and_ablation_contract",
-  "gold_patch_sha256": "532ea34ce5aeccae77df1924e47ccdde57bcb237367d4c9b18ca0db2ed49776b",
+  "gold_patch_sha256": "5292c84fb8bd77495bdee303617a25b7f1f39ac1f982e5a6512ba0eb54e0856a",
   "helper_reward": 1.0,
   "measured_npu_speedup": null,
   "model_calls": 0,
@@ -599,7 +606,7 @@
   "verifier_files": {
     "runtime_controls.py": "d181cd55111a8cb8cf3945d2e62f2e56c2e10e96b16cf9c6369b867dac388eae",
     "test.sh": "e2e6d259669b20436fe1d564b5df5218b98ba9ae991cedd56f9d6f8a4c7ed641",
-    "verify.py": "b0df8e1a811432d3f801819bbefc02f9e588c731f9a156d3b0501cc4ef363f53"
+    "verify.py": "2885c289527ecc9769d443dd0b775bf2c00346077b9c22fe3a40ef5ba1ead259"
   },
-  "verifier_sha256": "d875a81a5233a905acb4d9661119f421458589bb19bd84ca0a10a131e7e9acae"
+  "verifier_sha256": "4c73ca9f53eec2552e3a3c0aacfced5521031925076c79943e33a394b46ad56b"
 }

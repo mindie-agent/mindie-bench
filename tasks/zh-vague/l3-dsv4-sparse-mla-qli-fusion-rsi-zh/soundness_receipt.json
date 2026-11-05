@@ -8,8 +8,7 @@
       "exit_code": 1,
       "expected_reward": 0.0,
       "input_files": {
-        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
-        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "76d82df14adfb41941cdc84ab269c902bfd97fbc30a35c2bca0bc77d59fa38fd"
+        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "a8a6780ffb86a2688c09601adaf27d00ee066ade4e9f5b6a88866a9e4e9ae1c9"
       },
       "input_sha256": "fa2dec833c7db5377fa2bfc4f892ee0e094b8ef120f1fc0b2744d825d54e5481",
       "reward": 0.0,
@@ -76,10 +75,7 @@
       "exit_code": 0,
       "expected_reward": 1.0,
       "input_files": {
-        "PROGRESS.md": "b436fa3c65b01c94f2e9f030b03ffe38879a1f1fb1b336c75fac01c1d40e2492",
-        "experiment-ledger.jsonl": "e499a28b03cb151a14a23f20369eb03ca8811d2c9139be8f88d6e53097ecc511",
-        "vllm_ascend/models/deepseek_v4/_ascend_qli_runtime.py": "710d2f498522ba416dde6c790c27124a4b30c7a97adb2322fddb534f270d4f05",
-        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "8fcd9ba48deb35cafd9f43386109e635a14466d4c05082b8de3133bbcc9158c9"
+        "vllm_ascend/models/deepseek_v4/sparse_mla_decode.py": "09987062e62ab6581c4ad1c9083831f5242f4a8e51771cd9af33a6592094a1e3"
       },
       "input_sha256": "ba63eb9387f20a60362849d5f9dcc893fead02abde9bb5c5d871ef8916705863",
       "reward": 1.0,
@@ -119,9 +115,9 @@
             "control": {
               "args": [],
               "kwargs": {
-                "enable_device_guard": false,
-                "enable_q_fusion": true,
-                "enable_view_alias": true
+                "alias_qli_views": true,
+                "device_topk_guard": false,
+                "fuse_q_qr_dequant": true
               }
             },
             "correct": false,
@@ -141,9 +137,9 @@
             "control": {
               "args": [],
               "kwargs": {
-                "enable_device_guard": true,
-                "enable_q_fusion": false,
-                "enable_view_alias": true
+                "alias_qli_views": true,
+                "device_topk_guard": true,
+                "fuse_q_qr_dequant": false
               }
             },
             "correct": true,
@@ -163,9 +159,9 @@
             "control": {
               "args": [],
               "kwargs": {
-                "enable_device_guard": true,
-                "enable_q_fusion": true,
-                "enable_view_alias": false
+                "alias_qli_views": false,
+                "device_topk_guard": true,
+                "fuse_q_qr_dequant": true
               }
             },
             "correct": true,
@@ -506,6 +502,7 @@
   },
   "errors": [],
   "execution_scope": "controlled_cpu_tensor_and_ablation_contract",
+  "gold_patch_sha256": "ddbb3b51a85c2587643daf6ca30ac91d36571298e327379a8453354f472256e9",
   "helper_reward": 1.0,
   "measured_npu_speedup": null,
   "model_calls": 0,
@@ -523,7 +520,7 @@
     "reference_cpu.py": "44d96bf018b2831d4149d9f35bce0000e5cc86a837fa8143dadae78483429fab",
     "runtime_controls.py": "d181cd55111a8cb8cf3945d2e62f2e56c2e10e96b16cf9c6369b867dac388eae",
     "test.sh": "e2e6d259669b20436fe1d564b5df5218b98ba9ae991cedd56f9d6f8a4c7ed641",
-    "verify.py": "d01ab7703f30ee3b54c7097c22939990646b1b5af37c9caee4642ee4b62ce377"
+    "verify.py": "1c487efb18bd4468a2cd94978fdc853d51d5557287a700fee2d48d11439d8b46"
   },
-  "verifier_sha256": "c18a5acc6d405e1d826bab1135b85a698ce4cd4ede9f22363ff37f219772a02f"
+  "verifier_sha256": "045bfcb2e0f34bf08fa52ce1f934a8ffdf075cdf1ef906110610de6a6aff5335"
 }
