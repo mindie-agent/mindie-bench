@@ -38,42 +38,38 @@ def sha256_file(path: Path) -> str:
 
 
 def tree_hash(root: Path, *, exclude: set[str] | None = None) -> str:
-    """Hash regular files under root. Unreadable directories or files raise.
+    """Hash regular files under root. Missing, unreadable, or uncertain trees raise.
 
-    A missing root hashes as an empty tree, matching the previous `rglob`
-    walk. An existing directory that cannot be listed is not treated as empty.
+    Do not use `os.walk`: it treats `DirEntry.is_dir()` `OSError` as a non-directory
+    and silently omits that subtree. Classify every entry with `lstat` and fail closed.
     """
     files = {}
     root = Path(root)
-    try:
-        mode = root.lstat().st_mode
-    except FileNotFoundError:
-        return digest({})
+    mode = root.lstat().st_mode
     if not stat.S_ISDIR(mode):
-        return digest({})
+        raise NotADirectoryError(root)
 
-    def fail(error):
-        raise error
-
-    for dirpath, dirnames, filenames in os.walk(root, onerror=fail, followlinks=False):
-        rel_dir = Path(dirpath).relative_to(root)
-        dirnames[:] = [
-            name
-            for name in sorted(dirnames)
-            if name != ".git" and not is_ignored_cache_path(rel_dir / name)
-        ]
-        for name in sorted(filenames):
-            rel = rel_dir / name
+    def visit(directory: Path) -> None:
+        with os.scandir(directory) as entries:
+            found = sorted(entries, key=lambda entry: entry.name)
+        for entry in found:
+            rel = Path(entry.path).relative_to(root)
+            if entry.name == ".git" or is_ignored_cache_path(rel):
+                continue
+            st = entry.stat(follow_symlinks=False)
+            if stat.S_ISLNK(st.st_mode):
+                continue
+            if stat.S_ISDIR(st.st_mode):
+                visit(Path(entry.path))
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                continue
             posix = rel.as_posix()
             if exclude and posix in exclude:
                 continue
-            if ".git" in rel.parts or is_ignored_cache_path(rel):
-                continue
-            path = Path(dirpath) / name
-            mode = path.lstat().st_mode
-            if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
-                continue
-            files[posix] = sha256_file(path)
+            files[posix] = sha256_file(Path(entry.path))
+
+    visit(root)
     return digest(files)
 
 

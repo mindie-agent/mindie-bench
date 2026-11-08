@@ -257,6 +257,7 @@ def case(tmp_path, _case_source_template):
     task_root = tmp_path / "task"
     (task_root / "verifier").mkdir(parents=True)
     (task_root / "oracle").mkdir()
+    (task_root / "environment").mkdir()
     (task_root / "instruction.md").write_text("mode=pass\n")
     (task_root / "oracle/replay_rules.json").write_text(
         json.dumps(

@@ -505,6 +505,16 @@ def test_unreadable_lineage_bytes_are_not_reported_as_changed(tmp_path, monkeypa
     assert "downstream_instruction_bytes_changed" not in downstream["reasons"]
 
 
+def test_missing_frozen_tree_is_not_reported_as_bytes_changed(tmp_path):
+    _, manifest = build_lineage(tmp_path)
+    manifest.frozen_corpus.locator = str(tmp_path / "missing-corpus")
+    missing = evaluate_p3_lineage(manifest, verify_artifacts=True)
+    assert any(
+        item.startswith("frozen_corpus_unreadable:FileNotFoundError:") for item in missing["reasons"]
+    )
+    assert "frozen_corpus_bytes_changed" not in missing["reasons"]
+
+
 def test_seed_root_bytes_are_reverified_and_changed_bytes_denied(tmp_path):
     root, manifest = build_lineage(tmp_path)
     binding = P3LineageBinding.prepare(manifest)
