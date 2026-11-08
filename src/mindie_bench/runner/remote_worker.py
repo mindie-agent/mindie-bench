@@ -1,8 +1,9 @@
 # [Role] Own the remote slot's PID/network/IPC namespace and stream process sessions.
 # [Invariants] Requests are bounded (96 MiB); owner EOF exits the namespace leader so
 #   bwrap reaps detached descendants; each stream has one writer and one identity.
-# [Timeouts & Locks] Inner command timeout is bounded by the caller; the outer worker
-#   applies caller timeout + 20s so post-timeout inventory and JSON flush complete.
+# [Timeouts & Locks] Business commands require a positive timeout. Inner
+#   subprocess timeout equals that limit; 20s after SIGTERM/SIGKILL is reserved
+#   for process-group drain before the JSON receipt is flushed.
 # [Side-Effect Policy] Executes only framed slot commands inside the isolated container
 #   namespace; writes no host files.
 
@@ -11,6 +12,7 @@ import json
 import os
 import queue
 import select
+import signal
 import subprocess
 import sys
 import threading
@@ -138,6 +140,7 @@ if os.environ.get("MINDIE_BENCH_COMPONENT_GUARD")=="1":
 print(json.dumps(ready), flush=True)
 while True:
     line=requests.get()
+    command_started=None
     try:
         if isinstance(line,dict):
             raise ValueError(line["frame_error"])
@@ -156,12 +159,38 @@ while True:
         elif request.get("control")=="exchange_stream":
             value=exchange_stream(request)
         else:
-            outer_timeout = float(request["timeout"]) + 20.0 if request.get("timeout") is not None else None
-            result = subprocess.run(["/bin/bash", "-c", request["command"]],
-                input=base64.b64decode(request["stdin_b64"]), stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, timeout=outer_timeout)
-            value = dict(exit_code=result.returncode, stdout_b64=base64.b64encode(result.stdout).decode(),
-                stderr_b64=base64.b64encode(result.stderr).decode())
+            command_started=False
+            timeout=request.get("timeout")
+            if (type(timeout) is bool or type(timeout) not in (int,float)
+                    or timeout!=timeout or timeout==float("inf") or timeout<=0):
+                raise ValueError("timeout must be a positive number")
+            limit=float(timeout)
+            stdin=base64.b64decode(request["stdin_b64"])
+            process=subprocess.Popen(["/bin/bash","-c",request["command"]],stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+            command_started=True
+            try:
+                stdout,stderr=process.communicate(stdin,timeout=limit)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid,signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    stdout,stderr=process.communicate(timeout=2)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid,signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    stdout,stderr=process.communicate(timeout=18)
+                value=dict(exit_code=process.poll(),stdout_b64=base64.b64encode(stdout or b"").decode(),
+                    stderr_b64=base64.b64encode(stderr or b"").decode(),timed_out=True)
+            else:
+                value=dict(exit_code=process.returncode,stdout_b64=base64.b64encode(stdout).decode(),
+                    stderr_b64=base64.b64encode(stderr).decode())
     except Exception as exc:
-        value = dict(error=type(exc).__name__, message=str(exc))
+        value=dict(error=type(exc).__name__, message=str(exc))
+        if command_started is not None:
+            value["started"]=command_started
     print(json.dumps(value), flush=True)

@@ -5,8 +5,9 @@ Hold the immutable specifications and receipts shared by the qualification gate
 runner and its sustained-ABBA / subgraph-module evaluators.
 
 [Invariants]
-- `completed`, `failed` and `unknown` are distinct; a timed-out command or an
-  indeterminate PID is never converted into success.
+- `completed`, `failed` and `unknown` are distinct. A local start error or a
+  reaped timeout is `failed`. `unknown` is only an unreaped process group or an
+  indeterminate external PID; never a missing local binary or unreadable lock.
 - Timeout arithmetic is validated before a specification can run.
 - Specs name hidden inputs by digest and never embed oracle contents.
 
@@ -118,10 +119,15 @@ class CommandReceipt:
     stderr: str = ""
     timed_out: bool = False
     error: str | None = None
+    started: bool = True
 
     @property
     def state(self) -> GateState:
-        if self.timed_out or self.exit_code is None:
+        if not self.started:
+            return GateState.FAILED
+        if self.timed_out:
+            return GateState.UNKNOWN if self.exit_code is None else GateState.FAILED
+        if self.exit_code is None:
             return GateState.UNKNOWN
         return GateState.COMPLETED if self.exit_code == 0 else GateState.FAILED
 

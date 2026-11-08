@@ -479,13 +479,27 @@ def _rsi_exploration_observations(
     knowledge_calls: list[ToolCall],
     broker_knowledge: dict | None = None,
     knowledge_audit_records: list[dict] | None = None,
+    knowledge_audit_error: str | None = None,
 ) -> dict:
     modes: list[str] = []
     explore_calls: list[dict] = []
     seen_reuse = False
     transitioned = False
 
-    if isinstance(knowledge_audit_records, list) and knowledge_audit_records:
+    if knowledge_audit_error:
+        unmeasured = dict.fromkeys(
+            (
+                "reuse_calls_count",
+                "diagnose_calls_count",
+                "explore_calls_count",
+                "mode_sequence",
+                "transitioned_reuse_to_explore",
+                "explore_calls",
+            )
+        )
+        return dict(basis="server_audit_log_unreadable/1", error=knowledge_audit_error, **unmeasured)
+
+    if isinstance(knowledge_audit_records, list):
         for idx, rec in enumerate(knowledge_audit_records):
             if not isinstance(rec, dict) or rec.get("operation") not in (None, "query"):
                 continue
@@ -580,6 +594,7 @@ def trajectory_metrics(
     source_visibility: dict | None = None,
     broker_knowledge: dict | None = None,
     knowledge_audit_records: list[dict] | None = None,
+    knowledge_audit_error: str | None = None,
 ) -> tuple[dict, dict]:
     remote = [c for c in trajectory.calls if remote_execution(c)]
     all_remote = [
@@ -722,7 +737,10 @@ def trajectory_metrics(
             tool_name(c.name) in {"knowledge_explain", "explain"} for c in knowledge
         ),
         rsi_exploration=_rsi_exploration_observations(
-            trajectory.calls, broker_knowledge, knowledge_audit_records
+            trajectory.calls,
+            broker_knowledge,
+            knowledge_audit_records,
+            knowledge_audit_error,
         ),
         knowledge_measurement=(
             dict(

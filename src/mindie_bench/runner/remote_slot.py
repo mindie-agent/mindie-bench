@@ -14,10 +14,12 @@ PID/network/IPC namespaces.
   native TP `sockaddr_un` Unix domain sockets never overflow the 104-byte path limit.
 
 [Timeouts & Locks]
-- Per-command worker timeout: `outer_timeout = float(request["timeout"]) + 20.0s` (`outer >= inner + 20s`),
-  reserving the private judge's 5s post-timeout inventory grace plus process-group drain.
-- Host-side `_request` pipe wait: `limit + 25.0s` (`outer_timeout + 5.0s`).
+- Per-command worker inner timeout equals the caller `timeout`; 20s after that is reserved
+  for SIGTERM (2s) then SIGKILL drain, so worker outer = `limit + 20s`.
+- Host-side `_request` pipe wait: `limit + 25.0s` (`kill_grace 20s + flush_grace 5s`).
 - Slot startup readiness wait: `40.0s`; slot teardown (`POSTFLIGHT` + NPU HBM/PID drain) wait: `40.0s`.
+- Confirmed pre-start worker errors (`started: False`) are ordinary failures and do not set
+  `operation_unknown`. Sticky unknown is only a lost pipe or a missing receipt.
 
 [Side-Effect Policy]
 - Acquires `flock -n` on `/tmp/mindie-bench-device-<id>.lock` (and optional `ComponentRuntime`
@@ -41,6 +43,7 @@ from pathlib import Path, PurePosixPath
 
 from mindie_bench.io import is_ignored_cache_path, safe_relative
 from mindie_bench.models import RemoteConfig, SourceEnvironment
+from mindie_bench.runner.process import subprocess_window_kwargs
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, PROJECTOR
 from mindie_bench.runner.termination import terminate_process_group
 
@@ -255,6 +258,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             stderr=self.stderr_file or subprocess.DEVNULL,
             start_new_session=True,
             bufsize=0,
+            **subprocess_window_kwargs(),
         )
         ready = self._read(40)
         if "cleanup" in ready:
@@ -328,6 +332,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         frame = (json.dumps(request) + "\n").encode()
         if len(frame) > 96 * 1024 * 1024:
             raise ValueError("remote request exceeds evidence bound")
+        lock_unknown = True
         try:
             self._send_frame(frame, deadline)
             result = self._read(max(0, deadline - time.monotonic()))
@@ -337,12 +342,18 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                 self.cleanup_receipt = result
                 raise RuntimeError("remote worker entered cleanup before its business acknowledgement")
             if "error" in result:
+                if result.get("started") is False:
+                    lock_unknown = False
+                    raise RuntimeError(
+                        f"remote command failed before start: {result['error']}: {result['message']}"
+                    )
                 raise RuntimeError(f"remote operation uncertain: {result['error']}: {result['message']}")
             if expected is not None and not expected(result):
                 raise RuntimeError("remote worker returned an invalid acknowledgement")
             return result
         except Exception:
-            self.operation_unknown = True
+            if lock_unknown:
+                self.operation_unknown = True
             raise
 
     def execute(self, command: str, stdin_b64: str = "", *, timeout: float | None = None) -> dict:

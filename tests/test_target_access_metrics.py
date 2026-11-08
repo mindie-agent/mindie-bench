@@ -329,6 +329,52 @@ def test_extended_expression_flags_do_not_turn_patterns_into_paths(command):
     assert unresolved == []
 
 
+def test_empty_or_unreadable_knowledge_audit_does_not_fall_back_to_trajectory(case):
+    reuse_call = call(
+        "k1",
+        name="knowledge_query",
+        turn=1,
+        start=1,
+        end=2,
+        query="SparseMLA QLI-v2",
+        mode="reuse",
+    )
+    explore_call = call(
+        "k2",
+        name="knowledge_query",
+        turn=2,
+        start=3,
+        end=4,
+        query="SparseMLA QLI-v2 mutator",
+        mode="explore",
+    )
+    _primary, empty = metrics(case, [reuse_call, explore_call])
+    empty_audit = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[],
+    )[1]["rsi_exploration"]
+    broken = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_error="/tmp/profile/knowledge_query_audit.jsonl: JSONDecodeError: boom",
+    )[1]["rsi_exploration"]
+    assert empty["rsi_exploration"]["basis"] == "tool_trajectory/1"
+    assert empty_audit["basis"] == "server_audit_log/1"
+    assert empty_audit["reuse_calls_count"] == 0
+    assert empty_audit["explore_calls_count"] == 0
+    assert broken["basis"] == "server_audit_log_unreadable/1"
+    assert broken["reuse_calls_count"] is None
+    assert broken["explore_calls_count"] is None
+    assert "JSONDecodeError" in broken["error"]
+
+
 def test_rsi_reuse_to_explore_observations_and_g4_group(case):
     from mindie_bench.models import Group
 

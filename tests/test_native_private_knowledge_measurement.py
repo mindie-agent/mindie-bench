@@ -154,3 +154,54 @@ def test_private_cli_coverage_survives_scoring_and_aggregation(
         assert mixed["queries_total"] is None
         assert mixed["explains_total"] is None
         assert mixed["query_count_observed_attempts"] == 1
+
+
+def test_corrupt_knowledge_audit_is_a_scoring_error_and_does_not_use_trajectory(case, tmp_path):
+    driver = CodexDriver()
+    named = dict(
+        id="named_0",
+        type="mcp_tool_call",
+        server="knowledge",
+        tool="knowledge_query",
+        arguments={"query": "invariant", "mode": "explore"},
+    )
+    driver.consume({"type": "item.started", "item": named}, 1, 1)
+    driver.consume({"type": "item.completed", "item": dict(named, status="completed")}, 2, 1)
+    driver.consume(
+        dict(type="turn.completed", usage=dict(
+            input_tokens=10, cached_input_tokens=0, output_tokens=1
+        )),
+        3,
+        1,
+    )
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "knowledge_query_audit.jsonl").write_text("{not-json\n", encoding="utf-8")
+    errors = []
+    result = score_trial_trajectory(
+        driver=driver,
+        gateway=None,
+        result=None,
+        trajectory=Trajectory(),
+        config=case["config"],
+        environment=None,
+        task=case["spec"],
+        trial_dir=tmp_path,
+        task_root=case["task"],
+        wall_clock=3,
+        tier="l2",
+        fingerprint={},
+        errors=errors,
+        primary={},
+        auxiliary={},
+        primary_verdict=TerminalStatus.PASS,
+        status=TerminalStatus.PASS,
+        reason=None,
+    )
+    assert errors
+    assert errors[0]["stage"] == "scoring"
+    assert "knowledge_query_audit unreadable" in errors[0]["message"]
+    obs = result["auxiliary"]["rsi_exploration"]
+    assert obs["basis"] == "server_audit_log_unreadable/1"
+    assert obs["explore_calls_count"] is None
+    assert obs["reuse_calls_count"] is None

@@ -43,6 +43,8 @@ import tomllib
 import uuid
 from pathlib import Path
 
+from mindie_bench.runner.process import subprocess_window_kwargs
+
 PACKAGES = {
     "coordinator": "mindie-coordinator",
     "npu-top": "npu-top",
@@ -326,6 +328,7 @@ class ComponentRuntime:
                 stderr=subprocess.PIPE,
                 start_new_session=True,
                 pass_fds=(read_fd,),
+                **subprocess_window_kwargs(),
                 env={
                     **os.environ,
                     "REMOTE_DEV_SSH_MUX_DIR": str(self.artifact_dir / "component-ssh-mux"),

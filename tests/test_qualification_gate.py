@@ -204,8 +204,57 @@ def test_g0_missing_contract_or_timeout_stays_visible(tmp_path):
             stage_budgets={"contract": 1.0, "artifacts": 1.0},
         )
     )
-    assert timed.state is GateState.UNKNOWN
+    assert timed.state is GateState.FAILED
     assert timed.stages[0].evidence["timed_out"] is True
+    assert timed.stages[0].evidence["exit_code"] is not None
+
+
+def test_missing_local_binary_and_reaped_timeout_are_failed_not_unknown():
+    missing = run_local_command(GateCommand(("/no/such/mindie-gate-bin",), timeout_sec=1))
+    assert missing.started is False
+    assert missing.state is GateState.FAILED
+    assert missing.exit_code is None
+    assert "2" in (missing.error or "")
+
+
+def test_unreadable_and_unparseable_debug_locks_are_failed_not_unknown(tmp_path):
+    class UnreadableLockReader:
+        def exists(self, path):
+            return True
+
+        def read_bytes(self, path):
+            raise OSError(13, "Permission denied", path)
+
+    blocked = QualificationGateRunner(reader=UnreadableLockReader()).inspect_debug_locks(
+        ["/tmp/mindie-debug.pid"]
+    )
+    assert blocked[0].state is GateState.FAILED
+    assert "unreadable" in blocked[0].detail
+    assert "13" in blocked[0].detail
+
+    lock = tmp_path / "debug.pid"
+    lock.write_text("owner=not-a-pid\n")
+    parsed = QualificationGateRunner().inspect_debug_locks([str(lock)])
+    assert parsed[0].state is GateState.FAILED
+    assert "no parseable PID" in parsed[0].detail
+    assert "not-a-pid" in parsed[0].detail
+
+
+def test_run_local_command_forwards_windows_console_flags(monkeypatch):
+    from mindie_bench.runner import qualification_gate as gate
+
+    monkeypatch.setattr(gate, "subprocess_window_kwargs", lambda: {"creationflags": 0x08000000})
+    seen = {}
+
+    def fake_popen(*args, **kwargs):
+        seen.update(kwargs)
+        raise FileNotFoundError(2, "No such file", "/no/such/bin")
+
+    monkeypatch.setattr(gate.subprocess, "Popen", fake_popen)
+    receipt = run_local_command(GateCommand(("/no/such/bin",), timeout_sec=1))
+    assert seen["creationflags"] == 0x08000000
+    assert receipt.state is GateState.FAILED
+    assert receipt.started is False
 
 
 def test_g0_without_native_artifacts_is_unknown_not_a_silent_success():
