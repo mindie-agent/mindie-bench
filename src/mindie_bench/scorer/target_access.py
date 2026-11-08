@@ -486,22 +486,33 @@ def _rsi_exploration_observations(
     seen_reuse = False
     transitioned = False
 
-    if knowledge_audit_error:
-        unmeasured = dict.fromkeys(
-            (
-                "reuse_calls_count",
-                "diagnose_calls_count",
-                "explore_calls_count",
-                "mode_sequence",
-                "transitioned_reuse_to_explore",
-                "explore_calls",
-            )
+    unmeasured = dict.fromkeys(
+        (
+            "reuse_calls_count",
+            "diagnose_calls_count",
+            "explore_calls_count",
+            "mode_sequence",
+            "transitioned_reuse_to_explore",
+            "explore_calls",
         )
+    )
+    if knowledge_audit_error:
         return dict(basis="server_audit_log_unreadable/1", error=knowledge_audit_error, **unmeasured)
 
     if isinstance(knowledge_audit_records, list):
+        invalid = [
+            f"{idx}:{type(rec).__name__}"
+            for idx, rec in enumerate(knowledge_audit_records)
+            if not isinstance(rec, dict)
+        ]
+        if invalid:
+            return dict(
+                basis="server_audit_log_unreadable/1",
+                error="knowledge audit records are not objects: " + ",".join(invalid),
+                **unmeasured,
+            )
         for idx, rec in enumerate(knowledge_audit_records):
-            if not isinstance(rec, dict) or rec.get("operation") not in (None, "query"):
+            if rec.get("operation") not in (None, "query"):
                 continue
             eff_mode = str(rec.get("effective_mode") or rec.get("mode") or "reuse")
             modes.append(eff_mode)

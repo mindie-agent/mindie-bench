@@ -43,8 +43,6 @@ import tomllib
 import uuid
 from pathlib import Path
 
-from mindie_bench.runner.process import subprocess_window_kwargs
-
 PACKAGES = {
     "coordinator": "mindie-coordinator",
     "npu-top": "npu-top",
@@ -302,6 +300,8 @@ class ComponentRuntime:
     def _call(self, component, action, **payload):
         if threading.current_thread() is self.monitor and self.stop.is_set():
             raise _MonitorStopped()
+        from mindie_bench.runner.process import subprocess_window_kwargs
+
         request = dict(
             action=action,
             source_paths=self.config.get("python_paths", {}).get(component, []),

@@ -12,7 +12,8 @@ budget, and receipt construction once the verifier outcome is known.
   zero C6 calls and never changes the verified business verdict.
 [Timeouts & Locks]
 - Pure in-memory scoring plus bounded gateway settlement inspection; no waits
-  or locks are acquired here.
+  or locks are acquired here. A scoring `TimeoutError` is recorded and returned
+  so the caller can still run cleanup and write `trial_receipt.json`.
 [Side-Effect Policy]
 - Writes only the trial's `source_visibility.json`, `broker_knowledge.json`,
   `trajectory.json`, and immutable `trial_receipt.json`.
@@ -159,8 +160,6 @@ def score_trial_trajectory(
                     for line in audit_path.read_text(encoding="utf-8").splitlines()
                     if line.strip()
                 ]
-            except TimeoutError:
-                raise
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
                 knowledge_audit_error = f"{audit_path}: {type(exc).__name__}: {exc}"
                 errors.append(
@@ -213,8 +212,6 @@ def score_trial_trajectory(
             else:
                 primary["cost_complete"] = False
             primary["cost_complete"] = primary["cost_complete"] and metering["complete"]
-    except TimeoutError:
-        raise
     except Exception as exc:
         errors.append(dict(stage="scoring", type=type(exc).__name__, message=str(exc)))
         if primary_verdict is not None:

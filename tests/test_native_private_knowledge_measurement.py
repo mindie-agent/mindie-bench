@@ -205,3 +205,112 @@ def test_corrupt_knowledge_audit_is_a_scoring_error_and_does_not_use_trajectory(
     assert obs["basis"] == "server_audit_log_unreadable/1"
     assert obs["explore_calls_count"] is None
     assert obs["reuse_calls_count"] is None
+
+
+def test_malformed_audit_objects_are_unreadable_not_zero_counts(case, tmp_path):
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "knowledge_query_audit.jsonl").write_text('"not-an-object"\n3\nnull\n', encoding="utf-8")
+    errors = []
+    result = score_trial_trajectory(
+        driver=CodexDriver(),
+        gateway=None,
+        result=None,
+        trajectory=Trajectory(),
+        config=case["config"],
+        environment=None,
+        task=case["spec"],
+        trial_dir=tmp_path,
+        task_root=case["task"],
+        wall_clock=3,
+        tier="l3",
+        fingerprint={},
+        errors=errors,
+        primary={},
+        auxiliary={},
+        primary_verdict=TerminalStatus.PASS,
+        status=TerminalStatus.PASS,
+        reason=None,
+    )
+    obs = result["auxiliary"]["rsi_exploration"]
+    assert obs["basis"] == "server_audit_log_unreadable/1"
+    assert obs["reuse_calls_count"] is None
+    assert obs["explore_calls_count"] is None
+    assert "not objects" in obs["error"]
+    assert not errors
+
+
+def test_audit_read_timeout_is_recorded_and_does_not_raise(case, tmp_path, monkeypatch):
+    from pathlib import Path as PathType
+
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "knowledge_query_audit.jsonl").write_text("{}\n", encoding="utf-8")
+    real_read = PathType.read_text
+
+    def timed_out(self, *args, **kwargs):
+        if self.name == "knowledge_query_audit.jsonl":
+            raise TimeoutError("audit read timed out")
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(PathType, "read_text", timed_out)
+    errors = []
+    result = score_trial_trajectory(
+        driver=CodexDriver(),
+        gateway=None,
+        result=None,
+        trajectory=Trajectory(),
+        config=case["config"],
+        environment=None,
+        task=case["spec"],
+        trial_dir=tmp_path,
+        task_root=case["task"],
+        wall_clock=3,
+        tier="l3",
+        fingerprint={},
+        errors=errors,
+        primary={"resolved": True, "reward": 1.0},
+        auxiliary={},
+        primary_verdict=TerminalStatus.PASS,
+        status=TerminalStatus.PASS,
+        reason=None,
+    )
+    assert result["status"] is TerminalStatus.PASS
+    assert result["primary"]["resolved"] is True
+    assert any("knowledge_query_audit unreadable" in error["message"] for error in errors)
+    obs = result["auxiliary"]["rsi_exploration"]
+    assert obs["basis"] == "server_audit_log_unreadable/1"
+    assert obs["reuse_calls_count"] is None
+
+
+def test_scoring_timeout_is_recorded_and_does_not_raise(case, tmp_path, monkeypatch):
+    from mindie_bench.runner import trial_finalize
+
+    def boom(*args, **kwargs):
+        raise TimeoutError("trajectory scoring timed out")
+
+    monkeypatch.setattr(trial_finalize, "trajectory_metrics", boom)
+    errors = []
+    result = score_trial_trajectory(
+        driver=CodexDriver(),
+        gateway=None,
+        result=None,
+        trajectory=Trajectory(),
+        config=case["config"],
+        environment=None,
+        task=case["spec"],
+        trial_dir=tmp_path,
+        task_root=case["task"],
+        wall_clock=3,
+        tier="l2",
+        fingerprint={},
+        errors=errors,
+        primary={"resolved": True, "reward": 1.0},
+        auxiliary={},
+        primary_verdict=TerminalStatus.PASS,
+        status=TerminalStatus.PASS,
+        reason=None,
+    )
+    assert result["status"] is TerminalStatus.PASS
+    assert result["primary"]["resolved"] is True
+    assert any(error["stage"] == "scoring" and error["type"] == "TimeoutError" for error in errors)
