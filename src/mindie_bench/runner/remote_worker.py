@@ -3,7 +3,8 @@
 #   bwrap reaps detached descendants; each stream has one writer and one identity.
 # [Timeouts & Locks] Business commands require a positive timeout. Inner
 #   subprocess timeout equals that limit; 20s after SIGTERM/SIGKILL is reserved
-#   for process-group drain before the JSON receipt is flushed.
+#   for process-group drain. A timed_out receipt is emitted only after the
+#   process group is gone; a surviving group is an error with started=True.
 # [Side-Effect Policy] Executes only framed slot commands inside the isolated container
 #   namespace; writes no host files.
 
@@ -56,13 +57,14 @@ def write_stream(state):
     except Exception as exc:
         with state["lock"]:
             state["write_error"]=type(exc).__name__+": "+str(exc)
-def open_stream(command):
+def open_stream(command, launched):
     if not isinstance(command,str) or len(command.encode())>1024*1024:
         raise ValueError("invalid remote stream command")
     if len(streams)>=32:
         raise ValueError("remote stream process bound exceeded")
     process=subprocess.Popen(["/bin/bash","-c",command],stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,stderr=subprocess.PIPE,bufsize=0)
+    launched.append(True)
     state=dict(process=process,input=queue.Queue(maxsize=32),lock=threading.Lock(),
         pending=0,eof=False,write_error=None,pipes={})
     for name in ["stdout","stderr"]:
@@ -155,7 +157,12 @@ while True:
             print(json.dumps({"quiesced":True}),flush=True)
             continue
         if request.get("control")=="open_stream":
-            value=open_stream(request["command"])
+            launched=[]
+            try:
+                value=open_stream(request["command"], launched)
+            except Exception:
+                command_started=bool(launched)
+                raise
         elif request.get("control")=="exchange_stream":
             value=exchange_stream(request)
         else:
@@ -169,21 +176,35 @@ while True:
             process=subprocess.Popen(["/bin/bash","-c",request["command"]],stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
             command_started=True
+            def group_alive():
+                try:
+                    os.killpg(process.pid,0)
+                    return True
+                except ProcessLookupError:
+                    return False
             try:
                 stdout,stderr=process.communicate(stdin,timeout=limit)
             except subprocess.TimeoutExpired:
+                stdout=stderr=b""
                 try:
                     os.killpg(process.pid,signal.SIGTERM)
                 except ProcessLookupError:
                     pass
                 try:
                     stdout,stderr=process.communicate(timeout=2)
-                except subprocess.TimeoutExpired:
+                except subprocess.TimeoutExpired as expired:
+                    stdout,stderr=expired.stdout or b"", expired.stderr or b""
+                if group_alive() or process.poll() is None:
                     try:
                         os.killpg(process.pid,signal.SIGKILL)
                     except ProcessLookupError:
                         pass
-                    stdout,stderr=process.communicate(timeout=18)
+                    try:
+                        stdout,stderr=process.communicate(timeout=18)
+                    except subprocess.TimeoutExpired as expired:
+                        stdout,stderr=expired.stdout or b"", expired.stderr or b""
+                    if group_alive() or process.poll() is None:
+                        raise TimeoutError("owned process group survived SIGTERM and SIGKILL")
                 value=dict(exit_code=process.poll(),stdout_b64=base64.b64encode(stdout or b"").decode(),
                     stderr_b64=base64.b64encode(stderr or b"").decode(),timed_out=True)
             else:

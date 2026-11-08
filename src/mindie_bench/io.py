@@ -1,5 +1,6 @@
 # [Role] Provides strict deterministic hashing, JSON, and safe-path artifact helpers.
-# [Invariants] Fail closed: missing or uncertain evidence is never reported as success.
+# [Invariants] Fail closed: missing, unreadable, or uncertain evidence is never
+#   hashed as a partial tree or reported as success.
 # [Timeouts & Locks] Callers bound external waits; no unbounded process or lock wait is owned here.
 # [Side-Effect Policy] Writes only explicitly owned artifacts; no network or host user-directory mutation.
 
@@ -10,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 from pathlib import Path
 
 IGNORED_CACHE_PARTS = frozenset({"__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache"})
@@ -36,15 +38,42 @@ def sha256_file(path: Path) -> str:
 
 
 def tree_hash(root: Path, *, exclude: set[str] | None = None) -> str:
+    """Hash regular files under root. Unreadable directories or files raise.
+
+    A missing root hashes as an empty tree, matching the previous `rglob`
+    walk. An existing directory that cannot be listed is not treated as empty.
+    """
     files = {}
-    for path in sorted(root.rglob("*")):
-        rel = path.relative_to(root)
-        if exclude and rel.as_posix() in exclude:
-            continue
-        if ".git" in rel.parts or is_ignored_cache_path(rel):
-            continue
-        if path.is_file() and not path.is_symlink():
-            files[rel.as_posix()] = sha256_file(path)
+    root = Path(root)
+    try:
+        mode = root.lstat().st_mode
+    except FileNotFoundError:
+        return digest({})
+    if not stat.S_ISDIR(mode):
+        return digest({})
+
+    def fail(error):
+        raise error
+
+    for dirpath, dirnames, filenames in os.walk(root, onerror=fail, followlinks=False):
+        rel_dir = Path(dirpath).relative_to(root)
+        dirnames[:] = [
+            name
+            for name in sorted(dirnames)
+            if name != ".git" and not is_ignored_cache_path(rel_dir / name)
+        ]
+        for name in sorted(filenames):
+            rel = rel_dir / name
+            posix = rel.as_posix()
+            if exclude and posix in exclude:
+                continue
+            if ".git" in rel.parts or is_ignored_cache_path(rel):
+                continue
+            path = Path(dirpath) / name
+            mode = path.lstat().st_mode
+            if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+                continue
+            files[posix] = sha256_file(path)
     return digest(files)
 
 

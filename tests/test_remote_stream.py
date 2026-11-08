@@ -182,6 +182,33 @@ print("\\nREAD="+str(len(data)),flush=True)
     assert code == 0
 
 
+def test_invalid_stream_launch_is_prestart_and_does_not_lock_the_slot(worker_slot):
+    slot = worker_slot()
+    with pytest.raises(RuntimeError, match="failed before start: ValueError"):
+        slot.open_stream("x" * (1024 * 1024 + 1))
+    assert slot.operation_unknown is False
+    assert slot.execute("true")["exit_code"] == 0
+
+
+def test_timeout_reaps_sigterm_ignoring_child_and_keeps_the_slot_usable(worker_slot, tmp_path):
+    slot = worker_slot()
+    pid_file = tmp_path / "child.pid"
+    script = (
+        "import os, pathlib, signal, time\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+        "time.sleep(30)\n"
+    )
+    result = slot.execute(shlex.join([sys.executable, "-I", "-c", script]), timeout=1.0)
+    assert result.get("timed_out") is True
+    assert slot.operation_unknown is False
+    assert pid_file.is_file(), "timed-out child never recorded its pid"
+    pid = int(pid_file.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+    assert slot.execute("true")["exit_code"] == 0
+
+
 def test_missing_timeout_is_a_prestart_failure_and_does_not_lock_the_slot(worker_slot):
     slot = worker_slot()
     with pytest.raises(RuntimeError, match="failed before start: ValueError"):

@@ -6,7 +6,9 @@ through the owned HTTP/Unix gateway and append-only broker journal.
 
 [Invariants]
 - No model/remote retries: duplicate paid requests and unknown effects reject
-  admission. NPU test budgets are charged before remote execution, not uploads.
+  admission. Confirmed pre-start remote refusals (`RemotePreStartError`) stay
+  ordinary failures and never set `unknown`. NPU test budgets are charged
+  before remote execution, not uploads.
 - One-shot remote results are durable before delivery; a broken client pipe
   preserves `external_effects="completed"` for a confirmed completed result.
 - Model handlers alone close HTTP connection/response state; settlement shuts down
@@ -43,7 +45,12 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from mindie_bench.io import read_json, safe_relative
-from mindie_bench.models import HarnessConfig, TaskSpec, UnknownExternalEffects
+from mindie_bench.models import (
+    HarnessConfig,
+    RemotePreStartError,
+    TaskSpec,
+    UnknownExternalEffects,
+)
 from mindie_bench.runner.gateway_model_proxy import (
     MODEL_SETTLEMENT_GRACE_SEC,
     RemoteBudgetExhausted,
@@ -190,6 +197,8 @@ class Gateway(AbstractContextManager):
                 self.remote_test_calls += int(test_run)
             try:
                 result = self.remote.open_stream(command)
+            except RemotePreStartError:
+                raise
             except Exception as exc:
                 self.unknown = True
                 self.record("remote_unknown", action=action, error=type(exc).__name__, message=str(exc))

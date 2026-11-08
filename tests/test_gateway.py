@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from mindie_bench.models import HarnessConfig
+from mindie_bench.models import HarnessConfig, RemotePreStartError
 from mindie_bench.runner.gateway import Gateway
 
 
@@ -308,6 +308,46 @@ def test_stream_rpc_admission_precedes_forwarding_and_ignores_worker_source(case
             exchange(request.replace(b'"id": 2', b'"id": 3'))
         assert failure.value.code == 429
         assert len(exchanges) == 3
+
+
+def test_prestart_failures_through_gateway_do_not_become_unknown(case):
+    class Remote:
+        def execute(self, command, stdin):
+            if command == "prestart-fail":
+                raise RemotePreStartError(
+                    "remote command failed before start: ValueError: timeout must be a positive number"
+                )
+            return {"stdout_b64": "", "stderr_b64": "", "exit_code": 0}
+
+        def open_stream(self, command):
+            if command == "prestart-stream":
+                raise RemotePreStartError(
+                    "remote command failed before start: ValueError: invalid remote stream command"
+                )
+            return {"stream_id": "owned"}
+
+    with Gateway(
+        case["config"].harness,
+        case["spec"],
+        case["task"],
+        case["repo"],
+        case["root"] / "journal",
+        remote=Remote(),
+    ) as gateway:
+        with pytest.raises(urllib.error.HTTPError) as ssh:
+            post(gateway.url, "/bench/ssh", {"command": "prestart-fail", "stdin_b64": ""})
+        assert ssh.value.code == 400
+        assert gateway.unknown is False
+        with post(gateway.url, "/bench/ssh", {"command": "write after prestart", "stdin_b64": ""}):
+            pass
+        with pytest.raises(urllib.error.HTTPError) as stream:
+            post(gateway.url, "/bench/ssh-stream", {"action": "open", "command": "prestart-stream"})
+        assert stream.value.code == 400
+        assert gateway.unknown is False
+        with post(gateway.url, "/bench/ssh-stream", {"action": "open", "command": "worker"}):
+            pass
+        assert gateway.unknown is False
+        assert gateway.remote_unknown is False
 
 
 def test_unknown_stream_blocks_even_a_distinct_later_ssh_request(case):

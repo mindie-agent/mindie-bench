@@ -2,11 +2,12 @@ import hashlib
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from mindie_bench.io import read_json, safe_relative, tree_hash, write_json
+from mindie_bench.io import digest, read_json, safe_relative, tree_hash, write_json
 from mindie_bench.models import Group, GroupConfig, MCPServer
 from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profile, filtered_corpus
 from mindie_bench.runner.verifier import parse_verifier
@@ -113,6 +114,30 @@ def test_structured_verifier(reward, code):
 def test_verifier_infrastructure_is_not_agent_failure(output, code):
     with pytest.raises((ValueError, ValidationError)):
         parse_verifier(code, output)
+
+
+def test_tree_hash_fails_closed_on_unreadable_directory(tmp_path, monkeypatch):
+    import os
+
+    root = tmp_path / "tree"
+    (root / "visible").mkdir(parents=True)
+    (root / "visible" / "ok.txt").write_text("ok\n", encoding="utf-8")
+    blocked = root / "secret"
+    blocked.mkdir()
+    (blocked / "hidden.txt").write_text("hidden\n", encoding="utf-8")
+    expected = tree_hash(root / "visible")
+    real_scandir = os.scandir
+
+    def scandir(path):
+        if Path(path).resolve() == blocked.resolve():
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    with pytest.raises(PermissionError):
+        tree_hash(root)
+    assert tree_hash(root / "visible") == expected
+    assert tree_hash(tmp_path / "missing-tree") == digest({})
 
 
 def test_filter_physically_excludes_origin_and_indexes(corpus, tmp_path):

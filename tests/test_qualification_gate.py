@@ -209,6 +209,23 @@ def test_g0_missing_contract_or_timeout_stays_visible(tmp_path):
     assert timed.stages[0].evidence["exit_code"] is not None
 
 
+def test_local_timeout_reaps_sigterm_ignoring_child():
+    receipt = run_local_command(
+        GateCommand(
+            (
+                sys.executable,
+                "-c",
+                "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)",
+            ),
+            timeout_sec=0.4,
+        )
+    )
+    assert receipt.timed_out is True
+    assert receipt.state is GateState.FAILED
+    assert receipt.exit_code is not None
+    assert receipt.error is None
+
+
 def test_missing_local_binary_and_reaped_timeout_are_failed_not_unknown():
     missing = run_local_command(GateCommand(("/no/such/mindie-gate-bin",), timeout_sec=1))
     assert missing.started is False
