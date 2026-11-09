@@ -6,6 +6,7 @@ import threading
 from types import SimpleNamespace
 
 from mindie_bench.runner import process as process_module
+from mindie_bench.runner.process import subprocess_window_kwargs
 
 
 def gateway():
@@ -122,3 +123,37 @@ def test_native_relative_observation_uses_the_recorded_monotonic_origin(tmp_path
     origin = result.started_monotonic_sec
     assert origin is not None
     assert origin <= native_clock <= origin + elapsed <= origin + result.elapsed
+
+
+def test_subprocess_window_kwargs_hide_windows_console(monkeypatch):
+    monkeypatch.setattr(process_module.os, "name", "nt")
+    monkeypatch.setattr(process_module.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    assert subprocess_window_kwargs() == {"creationflags": 0x08000000}
+    monkeypatch.setattr(process_module.os, "name", "posix")
+    assert subprocess_window_kwargs() == {}
+
+
+def test_stream_process_forwards_windows_console_flags(tmp_path, monkeypatch):
+    monkeypatch.setattr(process_module, "subprocess_window_kwargs", lambda: {"creationflags": 0x08000000})
+    seen = {}
+
+    def start(*args, **kwargs):
+        seen.update(kwargs)
+        raise FileNotFoundError(2, "No such file", "missing")
+
+    monkeypatch.setattr(process_module.subprocess, "Popen", start)
+    result = process_module.stream_process(
+        [sys.executable, "-I", "-c", "pass"],
+        env=dict(os.environ),
+        cwd=tmp_path,
+        prompt="x",
+        output=tmp_path / "events.jsonl",
+        stderr=tmp_path / "stderr",
+        timeout=1,
+        max_bytes=1024,
+        consume=lambda *args: None,
+        gateway=gateway(),
+    )
+    assert seen["creationflags"] == 0x08000000
+    assert result.started is False
+    assert result.errors

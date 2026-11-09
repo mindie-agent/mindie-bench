@@ -19,6 +19,8 @@ across `G0`..`G3` and `l2`/`l3` tiers:
 - Gateway model & remote settlement grace: `30.0s` before `remote.quiesce()` and verifier launch.
 - Verifier inner budget: `task.budget.verifier_timeout_sec` (remote worker outer budget `+10.0s`).
 - `device_condition` coordinates non-overlapping NPU device slice allocation across concurrent `l3` cells.
+- Scoring exceptions inside `run_trial` `finally` are recorded and must not skip remote/slot
+  cleanup or `trial_receipt.json`.
 
 [Side-Effect Policy]
 - Writes immutable trial artifacts (`attempt_started.json`, `native_events.jsonl`, `broker.jsonl`,
@@ -565,26 +567,36 @@ def run_trial(
         auxiliary["capture_wall_clock_sec"] = (
             time.monotonic() - capture_started if capture_started is not None else None
         )
-        scored = score_trial_trajectory(
-            driver=driver,
-            gateway=gateway,
-            result=result,
-            trajectory=trajectory,
-            config=config,
-            environment=environment,
-            task=task,
-            trial_dir=trial_dir,
-            task_root=task_root,
-            wall_clock=wall_clock,
-            tier=tier,
-            fingerprint=fingerprint,
-            errors=errors,
-            primary=primary,
-            auxiliary=auxiliary,
-            primary_verdict=primary_verdict,
-            status=status,
-            reason=reason,
-        )
+        try:
+            scored = score_trial_trajectory(
+                driver=driver,
+                gateway=gateway,
+                result=result,
+                trajectory=trajectory,
+                config=config,
+                environment=environment,
+                task=task,
+                trial_dir=trial_dir,
+                task_root=task_root,
+                wall_clock=wall_clock,
+                tier=tier,
+                fingerprint=fingerprint,
+                errors=errors,
+                primary=primary,
+                auxiliary=auxiliary,
+                primary_verdict=primary_verdict,
+                status=status,
+                reason=reason,
+            )
+        except Exception as exc:
+            errors.append(dict(stage="scoring", type=type(exc).__name__, message=str(exc)))
+            scored = dict(
+                trajectory=trajectory,
+                primary=primary,
+                auxiliary=auxiliary,
+                status=status,
+                reason=reason,
+            )
         trajectory = scored["trajectory"]
         primary = scored["primary"]
         auxiliary = scored["auxiliary"]

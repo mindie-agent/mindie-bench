@@ -10,7 +10,6 @@ from mindie_bench.runner.worktree_slot import WorktreeSlot
 
 def test_local_inventory_compares_against_provided_public_inputs(case):
     public = case["task"] / "environment"
-    public.mkdir()
     for name in ["unchanged.py", "deleted.py", "edited.py"]:
         (public / name).write_text("public input\n")
     slot = WorktreeSlot(case["spec"].environment["l2"], case["root"] / "local-slot", case["task"])

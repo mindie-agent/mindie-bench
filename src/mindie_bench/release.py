@@ -28,6 +28,7 @@ from mindie_bench.release_contract import (
     ReleaseManifest,
     ReleaseSuite,
 )
+from mindie_bench.runner.process import subprocess_window_kwargs
 from mindie_bench.runner.termination import terminate_process_group
 
 
@@ -75,6 +76,7 @@ def _execute(command, *, repo, env, destination, timeout):
             process = subprocess.Popen(
                 command, cwd=repo, env=env, stdout=out, stderr=err,
                 start_new_session=os.name == "posix",
+                **subprocess_window_kwargs(),
             )
         except TimeoutError:
             raise
@@ -94,6 +96,7 @@ def _execute(command, *, repo, env, destination, timeout):
                 subprocess.run(
                     ["taskkill", "/PID", str(process.pid), "/T", "/F"],
                     stdout=err, stderr=err, timeout=5, check=True,
+                    **subprocess_window_kwargs(),
                 )
             process.wait(timeout=5)
     return returncode, timed_out, time.perf_counter() - started

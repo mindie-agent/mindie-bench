@@ -47,6 +47,7 @@ from mindie_bench.runner.p3_lineage import (
     P3StageObservation,
     P3Target,
     budget_ledger_mismatches,
+    evaluate_p3_lineage,
 )
 from mindie_bench.runner.p3_receipts import parse_capture_receipts
 from mindie_bench.runner.product_executor import ProductExecutionBinding, ProductExecutor
@@ -463,6 +464,55 @@ def test_execute_product_matrix_rechecks_changed_capture_before_caller_executor(
     with pytest.raises(ValueError, match="P3 lineage admission failed"):
         execute_product_matrix(plan, lambda cell: calls.append(cell))
     assert calls == []
+
+
+def test_unreadable_lineage_bytes_are_not_reported_as_changed(tmp_path, monkeypatch):
+    import os
+
+    root, manifest = build_lineage(tmp_path)
+    seed_blocked = Path(manifest.seed.seed_root_locator) / "blocked-tree"
+    seed_blocked.mkdir()
+    (seed_blocked / "hidden.txt").write_text("seed-secret\n", encoding="utf-8")
+    frozen_blocked = Path(manifest.frozen_corpus.locator) / "blocked-tree"
+    frozen_blocked.mkdir()
+    (frozen_blocked / "hidden.txt").write_text("corpus-secret\n", encoding="utf-8")
+    blocked = {seed_blocked.resolve(), frozen_blocked.resolve()}
+    real_scandir = os.scandir
+
+    def scandir(path):
+        if Path(path).resolve() in blocked:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    seed = evaluate_p3_lineage(manifest, verify_artifacts=True)
+    assert any(item.startswith("seed_task_unreadable:PermissionError:13") for item in seed["reasons"])
+    assert "seed_task_bytes_changed" not in seed["reasons"]
+    assert any(
+        item.startswith("frozen_corpus_unreadable:PermissionError:13") for item in seed["reasons"]
+    )
+    assert "frozen_corpus_bytes_changed" not in seed["reasons"]
+
+    monkeypatch.undo()
+    heldout = tmp_path / "heldout-task"
+    heldout.mkdir()
+    (heldout / "instruction.md").symlink_to("/no/such/mindie-instruction.md")
+    downstream = evaluate_p3_lineage(manifest, task_root=heldout, verify_artifacts=False)
+    assert any(
+        item.startswith("downstream_instruction_unreadable:FileNotFoundError:")
+        for item in downstream["reasons"]
+    )
+    assert "downstream_instruction_bytes_changed" not in downstream["reasons"]
+
+
+def test_missing_frozen_tree_is_not_reported_as_bytes_changed(tmp_path):
+    _, manifest = build_lineage(tmp_path)
+    manifest.frozen_corpus.locator = str(tmp_path / "missing-corpus")
+    missing = evaluate_p3_lineage(manifest, verify_artifacts=True)
+    assert any(
+        item.startswith("frozen_corpus_unreadable:FileNotFoundError:") for item in missing["reasons"]
+    )
+    assert "frozen_corpus_bytes_changed" not in missing["reasons"]
 
 
 def test_seed_root_bytes_are_reverified_and_changed_bytes_denied(tmp_path):

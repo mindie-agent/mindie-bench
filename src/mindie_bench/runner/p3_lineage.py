@@ -73,6 +73,19 @@ from mindie_bench.runner.p3_receipts import (
 
 _MAX_RECEIPT_BYTES = 4 * 1024 * 1024
 
+def _digest_or_unreadable(producer, role: str, reasons: list[str]) -> str | None:
+    try:
+        return producer()
+    except TimeoutError:
+        raise
+    except OSError as exc:
+        reasons.append(f"{role}_unreadable:{type(exc).__name__}:{exc.errno}")
+        return None
+    except ValueError as exc:
+        reasons.append(f"{role}_invalid:{type(exc).__name__}")
+        return None
+
+
 def _hash_file(path: Path, *, max_bytes: int | None = None) -> str:
     hasher = hashlib.sha256()
     read = 0
@@ -160,29 +173,18 @@ def _check_seed_root(seed: P3SeedRun, reasons: list[str], evidence: list[dict]) 
         return
     if task.task.instance_id != seed.task_id:
         reasons.append("seed_root_task_id_mismatch")
-    try:
-        actual_task = task_hash(root)
-    except TimeoutError:
-        raise
-    except OSError:
-        actual_task = ""
-    if actual_task != seed.task_sha256:
+    actual_task = _digest_or_unreadable(lambda: task_hash(root), "seed_task", reasons)
+    if actual_task is not None and actual_task != seed.task_sha256:
         reasons.append("seed_task_bytes_changed")
-    try:
-        actual_instruction = _hash_file(root / "instruction.md")
-    except TimeoutError:
-        raise
-    except OSError:
-        actual_instruction = ""
-    if actual_instruction != seed.instruction_sha256:
+    actual_instruction = _digest_or_unreadable(
+        lambda: _hash_file(root / "instruction.md"), "seed_instruction", reasons
+    )
+    if actual_instruction is not None and actual_instruction != seed.instruction_sha256:
         reasons.append("seed_instruction_bytes_changed")
-    try:
-        actual_oracle = freeze_oracle(root, task.oracle).sha256
-    except TimeoutError:
-        raise
-    except (OSError, ValueError):
-        actual_oracle = ""
-    if actual_oracle != seed.oracle_sha256:
+    actual_oracle = _digest_or_unreadable(
+        lambda: freeze_oracle(root, task.oracle).sha256, "seed_oracle", reasons
+    )
+    if actual_oracle is not None and actual_oracle != seed.oracle_sha256:
         reasons.append("seed_oracle_bytes_changed")
     evidence.append(
         {
@@ -559,21 +561,20 @@ def evaluate_p3_lineage(
             if len(splits) > 1:
                 reasons.append(f"split_manifest_cross_split_{field}:{value}")
     if task_root is not None:
-        try:
-            actual_task = task_hash(Path(task_root))
-        except TimeoutError:
-            raise
-        except OSError:
-            actual_task = ""
-        if actual_task != manifest.downstream.task_sha256:
+        actual_task = _digest_or_unreadable(
+            lambda: task_hash(Path(task_root)), "downstream_task", reasons
+        )
+        if actual_task is not None and actual_task != manifest.downstream.task_sha256:
             reasons.append("downstream_task_bytes_changed")
-        try:
-            actual_instruction = _hash_file(Path(task_root) / "instruction.md")
-        except TimeoutError:
-            raise
-        except OSError:
-            actual_instruction = ""
-        if actual_instruction != manifest.downstream.instruction_sha256:
+        actual_instruction = _digest_or_unreadable(
+            lambda: _hash_file(Path(task_root) / "instruction.md"),
+            "downstream_instruction",
+            reasons,
+        )
+        if (
+            actual_instruction is not None
+            and actual_instruction != manifest.downstream.instruction_sha256
+        ):
             reasons.append("downstream_instruction_bytes_changed")
     evidence = _check_structural_chain(manifest, seed or {}, heldout or {}, reasons, limitations)
     if seed is not None:
@@ -588,13 +589,12 @@ def evaluate_p3_lineage(
     receipt_check = {}
     if verify_artifacts:
         receipt_check = _check_receipts(manifest, reasons, limitations, evidence)
-        try:
-            observed_tree = tree_hash(Path(manifest.frozen_corpus.locator))
-        except TimeoutError:
-            raise
-        except OSError:
-            observed_tree = ""
-        if observed_tree != manifest.frozen_corpus.tree_sha256:
+        observed_tree = _digest_or_unreadable(
+            lambda: tree_hash(Path(manifest.frozen_corpus.locator)),
+            "frozen_corpus",
+            reasons,
+        )
+        if observed_tree is not None and observed_tree != manifest.frozen_corpus.tree_sha256:
             reasons.append("frozen_corpus_bytes_changed")
         evidence.append({"role": "frozen_corpus", "locator": manifest.frozen_corpus.locator, "sha256": manifest.frozen_corpus.tree_sha256, "verified": observed_tree == manifest.frozen_corpus.tree_sha256})
     else:

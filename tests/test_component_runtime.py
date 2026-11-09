@@ -3,10 +3,12 @@ import io
 import json
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from mindie_bench.integrations import component_runtime as component_runtime_module
 from mindie_bench.integrations.component_runtime import (
     HOST_OBSERVATION,
     ComponentCallError,
@@ -604,3 +606,16 @@ def test_worker_guard_receipt_is_actual_process_identity_without_npu(tmp_path):
         process.wait(timeout=5)
         for stream in [process.stdin, process.stdout, process.stderr]:
             stream.close()
+
+
+def test_component_helper_loads_under_an_interpreter_without_mindie_bench():
+    helper = Path(component_runtime_module.__file__).resolve()
+    proc = subprocess.run(
+        [sys.executable, "-S", "-B", str(helper)],
+        input=b'{"action":"unsupported","source_paths":[]}',
+        capture_output=True,
+        timeout=10,
+    )
+    assert b"No module named 'mindie_bench'" not in proc.stderr
+    assert proc.returncode != 0
+    assert b"unsupported component adapter action" in proc.stderr

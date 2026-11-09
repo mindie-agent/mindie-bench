@@ -329,6 +329,134 @@ def test_extended_expression_flags_do_not_turn_patterns_into_paths(command):
     assert unresolved == []
 
 
+def test_empty_or_unreadable_knowledge_audit_does_not_fall_back_to_trajectory(case):
+    reuse_call = call(
+        "k1",
+        name="knowledge_query",
+        turn=1,
+        start=1,
+        end=2,
+        query="SparseMLA QLI-v2",
+        mode="reuse",
+    )
+    explore_call = call(
+        "k2",
+        name="knowledge_query",
+        turn=2,
+        start=3,
+        end=4,
+        query="SparseMLA QLI-v2 mutator",
+        mode="explore",
+    )
+    _primary, empty = metrics(case, [reuse_call, explore_call])
+    empty_audit = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[],
+    )[1]["rsi_exploration"]
+    broken = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_error="/tmp/profile/knowledge_query_audit.jsonl: JSONDecodeError: boom",
+    )[1]["rsi_exploration"]
+    assert empty["rsi_exploration"]["basis"] == "tool_trajectory/1"
+    assert empty_audit["basis"] == "server_audit_log/1"
+    assert empty_audit["reuse_calls_count"] == 0
+    assert empty_audit["explore_calls_count"] == 0
+    assert broken["basis"] == "server_audit_log_unreadable/1"
+    assert broken["reuse_calls_count"] is None
+    assert broken["explore_calls_count"] is None
+    assert "JSONDecodeError" in broken["error"]
+    malformed = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=["not-an-object", 3, None],
+    )[1]["rsi_exploration"]
+    assert malformed["basis"] == "server_audit_log_unreadable/1"
+    assert malformed["reuse_calls_count"] is None
+    assert malformed["explore_calls_count"] is None
+    assert "not objects" in malformed["error"]
+    empty_object = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[{}],
+    )[1]["rsi_exploration"]
+    missing_mode = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[{"operation": "query"}],
+    )[1]["rsi_exploration"]
+    bogus_mode = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[{"effective_mode": "bogus"}],
+    )[1]["rsi_exploration"]
+    mixed = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[{"mode": "reuse"}, {}],
+    )[1]["rsi_exploration"]
+    measured = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[{"mode": "reuse"}, {"effective_mode": "explore"}],
+    )[1]["rsi_exploration"]
+    for obs in (empty_object, missing_mode, bogus_mode, mixed):
+        assert obs["basis"] == "server_audit_log_unreadable/1"
+        assert obs["reuse_calls_count"] is None
+        assert obs["explore_calls_count"] is None
+    assert "unusable mode" in empty_object["error"]
+    assert measured["basis"] == "server_audit_log/1"
+    assert measured["reuse_calls_count"] == 1
+    assert measured["explore_calls_count"] == 1
+    for records in (
+        [{"effective_mode": [], "mode": "reuse"}],
+        [{"effective_mode": {}, "mode": "reuse"}],
+        [{"effective_mode": {"k": 1}}],
+        [{"mode": ["reuse"]}],
+        [{"effective_mode": False, "mode": "reuse"}],
+        [{"effective_mode": 0, "mode": "reuse"}],
+        [{"effective_mode": "reuse", "mode": []}],
+        [{"effective_mode": "reuse", "mode": {}}],
+        [{"effective_mode": "reuse", "mode": ["explore"]}],
+    ):
+        typed = trajectory_metrics(
+            Trajectory(calls=[reuse_call, explore_call]),
+            case["spec"].model_copy(deep=True),
+            case["config"].harness,
+            20,
+            tier="l3",
+            knowledge_audit_records=records,
+        )[1]["rsi_exploration"]
+        assert typed["basis"] == "server_audit_log_unreadable/1"
+        assert typed["reuse_calls_count"] is None
+        assert typed["explore_calls_count"] is None
+
+
 def test_rsi_reuse_to_explore_observations_and_g4_group(case):
     from mindie_bench.models import Group
 

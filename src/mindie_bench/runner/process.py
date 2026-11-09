@@ -39,6 +39,13 @@ from pathlib import Path
 from mindie_bench.runner.termination import terminate_process_group
 
 
+def subprocess_window_kwargs() -> dict[str, int]:
+    """Hide the Windows console for background subprocesses (P1.5)."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": subprocess.CREATE_NO_WINDOW}
+
+
 @dataclass
 class ProcessResult:
     returncode: int | None = None
@@ -84,6 +91,7 @@ def stream_process(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 start_new_session=True,
+                **subprocess_window_kwargs(),
             )
         else:
             process = subprocess.Popen(
@@ -95,6 +103,7 @@ def stream_process(
                 stderr=subprocess.PIPE,
                 start_new_session=True,
                 pass_fds=(read_fd,),
+                **subprocess_window_kwargs(),
             )
             os.close(read_fd)
             read_fd = -1

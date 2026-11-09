@@ -3,6 +3,8 @@
 [Role] Forward SSH and knowledge RPC to the runner's local broker.
 [Invariants] Broker requests stay local regardless of enterprise proxy settings.
 [Timeouts & Locks] Each broker request retains its bounded 3600-second timeout.
+  A worker `timed_out` receipt is never a command success, including SIGTERM
+  that exits 0.
 [Side-Effect Policy] Submit once; the parent owns execution and receipt accounting.
 """
 
@@ -99,7 +101,12 @@ def main():
     result = _post(gateway, "/bench/ssh", payload)
     sys.stdout.buffer.write(base64.b64decode(result["stdout_b64"]))
     sys.stderr.buffer.write(base64.b64decode(result["stderr_b64"]))
-    return result["exit_code"]
+    exit_code = result.get("exit_code")
+    if result.get("timed_out") is True and (type(exit_code) is not int or exit_code == 0):
+        return 124
+    if type(exit_code) is not int:
+        raise ValueError("SSH command returned an invalid exit code")
+    return exit_code
 
 
 if __name__ == "__main__":

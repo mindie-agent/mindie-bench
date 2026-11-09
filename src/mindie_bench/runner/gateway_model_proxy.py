@@ -28,7 +28,7 @@ import ssl
 import time
 
 from mindie_bench.io import write_json
-from mindie_bench.models import UnknownExternalEffects
+from mindie_bench.models import RemotePreStartError, UnknownExternalEffects
 from mindie_bench.runner.provider_transport import provider_connection
 from mindie_bench.runner.usage import UsageMeter
 from mindie_bench.scorer.command_observations import is_recognized_npu_command
@@ -226,6 +226,8 @@ def model_proxy_handler(gateway):
                         result = gateway.ssh_stream(request)
                     except RemoteBudgetExhausted as exc:
                         return self.reject(429, str(exc))
+                    except RemotePreStartError as exc:
+                        return self.reject(400, str(exc))
                     except UnknownExternalEffects:
                         return self.reject(502, "remote stream has unknown effects; no retry")
                     pure_poll = (
@@ -268,6 +270,8 @@ def model_proxy_handler(gateway):
                     started = time.monotonic()
                     try:
                         result = gateway.remote.execute(command, stdin_b64)
+                    except RemotePreStartError as exc:
+                        return self.reject(400, str(exc))
                     except Exception as exc:
                         gateway.unknown = True
                         gateway.record("remote_unknown", error=type(exc).__name__, message=str(exc))

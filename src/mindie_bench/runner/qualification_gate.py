@@ -6,8 +6,8 @@ sustained-ABBA and producer-consumer verification receipts so an optimization
 agent does not hand-write build, symbol, graph-capture or timing glue.
 
 [Invariants]
-- Every receipt is `completed`, `failed` or `unknown`; a timeout, malformed
-  artifact or unconfirmed PID is never reported as success or as a business fix.
+- Every receipt is `completed`, `failed` or `unknown`. Local start errors and
+  reaped timeouts are `failed`; `unknown` is an unreaped group or external PID.
 - G0 reads native manifests, AICore objects, paired AICPU registrations,
   generated JSON and unresolved-symbol evidence; it never infers a kernel from
   a filename alone.
@@ -44,6 +44,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
+from mindie_bench.runner.process import subprocess_window_kwargs
 from mindie_bench.runner.qualification_gate_models import (
     SCHEMA,
     AbbaSample,
@@ -145,11 +146,14 @@ def run_local_command(command: GateCommand) -> CommandReceipt:
             text=True,
             errors="replace",
             start_new_session=True,
+            **subprocess_window_kwargs(),
         )
     except TimeoutError:
         raise
     except OSError as error:
-        return CommandReceipt(command.argv, None, error=f"{type(error).__name__}: {error}")
+        return CommandReceipt(
+            command.argv, None, error=f"{type(error).__name__}:{error.errno}:{error}", started=False
+        )
     try:
         stdout, stderr = process.communicate(timeout=float(command.timeout_sec))
     except subprocess.TimeoutExpired:
@@ -488,11 +492,11 @@ class QualificationGateRunner:
                                   purpose=f"ldd -r {target}")
             receipt = self.executor(command)
             unresolved = UNRESOLVED.findall(receipt.stdout + "\n" + receipt.stderr)
-            if receipt.timed_out or receipt.exit_code is None:
+            if receipt.state is not GateState.COMPLETED and not unresolved:
                 stages.append(
                     StageReceipt(
                         "ldd",
-                        GateState.UNKNOWN,
+                        receipt.state,
                         receipt.error or f"ldd -r did not complete: {target}",
                         {"target": target},
                     )
@@ -562,8 +566,8 @@ class QualificationGateRunner:
                         path,
                         None,
                         None,
-                        GateState.UNKNOWN,
-                        f"debug lock unreadable: {type(error).__name__}",
+                        GateState.FAILED,
+                        f"debug lock unreadable: {type(error).__name__}:{error.errno}:{error}",
                     )
                 )
                 continue
@@ -579,8 +583,8 @@ class QualificationGateRunner:
                         path,
                         None,
                         pgid,
-                        GateState.UNKNOWN,
-                        "debug lock has no parseable PID; ownership is indeterminate",
+                        GateState.FAILED,
+                        f"debug lock has no parseable PID: {text[:200]!r}",
                     )
                 )
                 continue

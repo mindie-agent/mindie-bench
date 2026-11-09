@@ -2,6 +2,7 @@ import hashlib
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -113,6 +114,126 @@ def test_structured_verifier(reward, code):
 def test_verifier_infrastructure_is_not_agent_failure(output, code):
     with pytest.raises((ValueError, ValidationError)):
         parse_verifier(code, output)
+
+
+class _DirEntryProxy:
+    def __init__(self, entry, *, blocked, fail_is_dir=False, fail_stat=False):
+        self._entry = entry
+        self._blocked = blocked
+        self._fail_is_dir = fail_is_dir
+        self._fail_stat = fail_stat
+        self.name = entry.name
+        self.path = entry.path
+
+    def _blocked_path(self) -> bool:
+        return Path(self.path).resolve() == self._blocked
+
+    def is_dir(self, *, follow_symlinks=True):
+        if self._fail_is_dir and self._blocked_path():
+            raise PermissionError(13, "Permission denied", self.path)
+        return self._entry.is_dir(follow_symlinks=follow_symlinks)
+
+    def is_symlink(self):
+        return self._entry.is_symlink()
+
+    def stat(self, *, follow_symlinks=True):
+        if self._fail_stat and self._blocked_path() and not follow_symlinks:
+            raise PermissionError(13, "Permission denied", self.path)
+        return self._entry.stat(follow_symlinks=follow_symlinks)
+
+
+class _ScandirProxy:
+    def __init__(self, inner, *, blocked, fail_is_dir=False, fail_stat=False):
+        self._inner = inner
+        self._blocked = blocked
+        self._fail_is_dir = fail_is_dir
+        self._fail_stat = fail_stat
+
+    def __enter__(self):
+        self._inner.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        return self._inner.__exit__(*args)
+
+    def __iter__(self):
+        for entry in self._inner:
+            yield _DirEntryProxy(
+                entry,
+                blocked=self._blocked,
+                fail_is_dir=self._fail_is_dir,
+                fail_stat=self._fail_stat,
+            )
+
+
+def _tree_with_secret(tmp_path):
+    root = tmp_path / "tree"
+    root.mkdir()
+    (root / "ok.txt").write_text("ok\n", encoding="utf-8")
+    secret = root / "secret"
+    secret.mkdir()
+    (secret / "hidden.txt").write_text("hidden\n", encoding="utf-8")
+    partial = tmp_path / "partial"
+    partial.mkdir()
+    (partial / "ok.txt").write_text("ok\n", encoding="utf-8")
+    return root, secret, tree_hash(root), tree_hash(partial)
+
+
+def test_tree_hash_fails_closed_on_unreadable_directory(tmp_path, monkeypatch):
+    import os
+
+    root, secret, full_hash, partial_hash = _tree_with_secret(tmp_path)
+    real_scandir = os.scandir
+
+    def scandir(path):
+        if Path(path).resolve() == secret.resolve():
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    with pytest.raises(PermissionError):
+        tree_hash(root)
+    assert full_hash != partial_hash
+
+
+def test_missing_tree_root_is_not_an_empty_hash(tmp_path):
+    from mindie_bench.io import digest
+
+    missing = tmp_path / "missing-tree"
+    empty = tmp_path / "empty-tree"
+    empty.mkdir()
+    with pytest.raises(FileNotFoundError):
+        tree_hash(missing)
+    assert tree_hash(empty) == digest({})
+
+
+def test_direntry_is_dir_failure_does_not_emit_a_partial_tree_hash(tmp_path, monkeypatch):
+    import os
+
+    root, secret, full_hash, partial_hash = _tree_with_secret(tmp_path)
+    real_scandir = os.scandir
+
+    def scandir(path):
+        return _ScandirProxy(real_scandir(path), blocked=secret.resolve(), fail_is_dir=True)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    assert tree_hash(root) == full_hash
+    assert tree_hash(root) != partial_hash
+
+
+def test_direntry_stat_failure_does_not_emit_a_partial_tree_hash(tmp_path, monkeypatch):
+    import os
+
+    root, secret, full_hash, partial_hash = _tree_with_secret(tmp_path)
+    real_scandir = os.scandir
+
+    def scandir(path):
+        return _ScandirProxy(real_scandir(path), blocked=secret.resolve(), fail_stat=True)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    with pytest.raises(PermissionError):
+        tree_hash(root)
+    assert full_hash != partial_hash
 
 
 def test_filter_physically_excludes_origin_and_indexes(corpus, tmp_path):

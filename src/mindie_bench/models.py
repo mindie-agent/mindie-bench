@@ -260,6 +260,10 @@ class UnknownExternalEffects(RuntimeError):
     """A model/remote write may have happened; automatic repetition is forbidden."""
 
 
+class RemotePreStartError(RuntimeError):
+    """The remote worker refused a command before creating a process."""
+
+
 class NativeDSHPlugin(StrictModel):
     package_path: str
     runtime_python: str

@@ -182,6 +182,61 @@ print("\\nREAD="+str(len(data)),flush=True)
     assert code == 0
 
 
+def test_invalid_stream_launch_is_prestart_and_does_not_lock_the_slot(worker_slot):
+    slot = worker_slot()
+    with pytest.raises(RuntimeError, match="failed before start: ValueError"):
+        slot.open_stream("x" * (1024 * 1024 + 1))
+    assert slot.operation_unknown is False
+    assert slot.execute("true")["exit_code"] == 0
+
+
+def test_timeout_reaps_sigterm_ignoring_child_and_keeps_the_slot_usable(worker_slot, tmp_path):
+    slot = worker_slot()
+    pid_file = tmp_path / "child.pid"
+    script = (
+        "import os, pathlib, signal, time\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+        "time.sleep(30)\n"
+    )
+    result = slot.execute(shlex.join([sys.executable, "-I", "-c", script]), timeout=1.0)
+    assert result.get("timed_out") is True
+    assert slot.operation_unknown is False
+    assert pid_file.is_file(), "timed-out child never recorded its pid"
+    pid = int(pid_file.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+    assert slot.execute("true")["exit_code"] == 0
+
+
+def test_missing_timeout_is_a_prestart_failure_and_does_not_lock_the_slot(worker_slot):
+    slot = worker_slot()
+    with pytest.raises(RuntimeError, match="failed before start: ValueError"):
+        slot._request(dict(command="true", stdin_b64=""), 5)
+    assert slot.operation_unknown is False
+    assert slot.execute("true")["exit_code"] == 0
+
+
+def test_timeout_sigterm_zero_exit_is_not_command_success(worker_slot):
+    slot = worker_slot()
+    result = slot.execute("trap 'exit 0' TERM; sleep 30", timeout=0.3)
+    assert result.get("timed_out") is True
+    assert result["exit_code"] != 0
+    assert slot.operation_unknown is False
+    assert slot.execute("true")["exit_code"] == 0
+
+
+def test_worker_times_out_at_limit_and_keeps_the_slot_usable(worker_slot):
+    slot = worker_slot()
+    started = time.monotonic()
+    result = slot.execute("sleep 30", timeout=0.3)
+    elapsed = time.monotonic() - started
+    assert result.get("timed_out") is True
+    assert slot.operation_unknown is False
+    assert elapsed < 8
+    assert slot.execute("true")["exit_code"] == 0
+
+
 def test_worker_stream_error_blocks_execute_quiesce_and_stream_writes(worker_slot):
     slot = worker_slot()
     with pytest.raises(RuntimeError, match="remote operation uncertain: KeyError"):

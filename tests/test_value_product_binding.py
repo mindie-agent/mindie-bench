@@ -230,3 +230,22 @@ def test_real_product_execution_binding_context_projects_and_binds(tmp_path, cas
     assert report["cohorts"]["real-binding-cohort"]["matrix"]["groups"]["P0_bare_host"]["denominator"]["observed"] == 1
     assert not report["release_gate"]
     assert any(reason.startswith("missing_required_cell") for reason in report["blocking_reasons"])
+
+
+def test_missing_optional_environment_is_absent_not_an_empty_tree_hash(case):
+    task = TaskSpec.load(case["task"])
+    task_id = task.task.instance_id
+    present = derive_inputs(
+        {task_id: case["task"]}, case["config"], "l2", knowledge_cutoff="2026-10-01"
+    )
+    env = case["task"] / "environment"
+    env.rmdir()
+    absent = derive_inputs(
+        {task_id: case["task"]}, case["config"], "l2", knowledge_cutoff="2026-10-01"
+    )
+    assert present["conditions"]["input_digest"] != absent["conditions"]["input_digest"]
+    env.mkdir()
+    restored = derive_inputs(
+        {task_id: case["task"]}, case["config"], "l2", knowledge_cutoff="2026-10-01"
+    )
+    assert restored["conditions"]["input_digest"] == present["conditions"]["input_digest"]

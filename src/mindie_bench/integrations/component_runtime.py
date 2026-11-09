@@ -300,6 +300,8 @@ class ComponentRuntime:
     def _call(self, component, action, **payload):
         if threading.current_thread() is self.monitor and self.stop.is_set():
             raise _MonitorStopped()
+        from mindie_bench.runner.process import subprocess_window_kwargs
+
         request = dict(
             action=action,
             source_paths=self.config.get("python_paths", {}).get(component, []),
@@ -326,6 +328,7 @@ class ComponentRuntime:
                 stderr=subprocess.PIPE,
                 start_new_session=True,
                 pass_fds=(read_fd,),
+                **subprocess_window_kwargs(),
                 env={
                     **os.environ,
                     "REMOTE_DEV_SSH_MUX_DIR": str(self.artifact_dir / "component-ssh-mux"),
