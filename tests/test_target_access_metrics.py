@@ -440,6 +440,9 @@ def test_empty_or_unreadable_knowledge_audit_does_not_fall_back_to_trajectory(ca
         [{"mode": ["reuse"]}],
         [{"effective_mode": False, "mode": "reuse"}],
         [{"effective_mode": 0, "mode": "reuse"}],
+        [{"effective_mode": "reuse", "mode": []}],
+        [{"effective_mode": "reuse", "mode": {}}],
+        [{"effective_mode": "reuse", "mode": ["explore"]}],
     ):
         typed = trajectory_metrics(
             Trajectory(calls=[reuse_call, explore_call]),

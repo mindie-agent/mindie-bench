@@ -80,9 +80,11 @@ def derive_inputs(
         starts[task_id] = {"base_commit": environment.base_commit, "git_tree": git.stdout.strip()}
         oracle = freeze_oracle(root, task.oracle)
         oracles[task_id] = oracle.sha256
+        env = root / "environment"
         inputs[task_id] = {
             "instruction_sha256": sha(root / "instruction.md"),
-            "public_environment_sha256": tree_hash(root / "environment"),
+            # Optional public inputs: a missing directory is not an empty-tree hash.
+            "public_environment_sha256": tree_hash(env) if env.exists() else None,
             "knowledge_conditions": task.mindie_knowledge.model_dump(mode="json"),
         }
         task_rows[task_id] = {
