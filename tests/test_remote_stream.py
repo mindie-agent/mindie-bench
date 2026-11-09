@@ -217,6 +217,15 @@ def test_missing_timeout_is_a_prestart_failure_and_does_not_lock_the_slot(worker
     assert slot.execute("true")["exit_code"] == 0
 
 
+def test_timeout_sigterm_zero_exit_is_not_command_success(worker_slot):
+    slot = worker_slot()
+    result = slot.execute("trap 'exit 0' TERM; sleep 30", timeout=0.3)
+    assert result.get("timed_out") is True
+    assert result["exit_code"] != 0
+    assert slot.operation_unknown is False
+    assert slot.execute("true")["exit_code"] == 0
+
+
 def test_worker_times_out_at_limit_and_keeps_the_slot_usable(worker_slot):
     slot = worker_slot()
     started = time.monotonic()

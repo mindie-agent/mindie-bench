@@ -433,6 +433,25 @@ def test_empty_or_unreadable_knowledge_audit_does_not_fall_back_to_trajectory(ca
     assert measured["basis"] == "server_audit_log/1"
     assert measured["reuse_calls_count"] == 1
     assert measured["explore_calls_count"] == 1
+    for records in (
+        [{"effective_mode": [], "mode": "reuse"}],
+        [{"effective_mode": {}, "mode": "reuse"}],
+        [{"effective_mode": {"k": 1}}],
+        [{"mode": ["reuse"]}],
+        [{"effective_mode": False, "mode": "reuse"}],
+        [{"effective_mode": 0, "mode": "reuse"}],
+    ):
+        typed = trajectory_metrics(
+            Trajectory(calls=[reuse_call, explore_call]),
+            case["spec"].model_copy(deep=True),
+            case["config"].harness,
+            20,
+            tier="l3",
+            knowledge_audit_records=records,
+        )[1]["rsi_exploration"]
+        assert typed["basis"] == "server_audit_log_unreadable/1"
+        assert typed["reuse_calls_count"] is None
+        assert typed["explore_calls_count"] is None
 
 
 def test_rsi_reuse_to_explore_observations_and_g4_group(case):

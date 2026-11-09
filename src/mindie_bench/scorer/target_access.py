@@ -514,8 +514,13 @@ def _rsi_exploration_observations(
         for idx, rec in enumerate(knowledge_audit_records):
             if rec.get("operation") not in (None, "query"):
                 continue
-            eff_mode = rec.get("effective_mode") or rec.get("mode")
-            if eff_mode not in {"reuse", "diagnose", "explore"}:
+            if "effective_mode" in rec:
+                eff_mode = rec.get("effective_mode")
+            elif "mode" in rec:
+                eff_mode = rec.get("mode")
+            else:
+                eff_mode = None
+            if not isinstance(eff_mode, str) or eff_mode not in {"reuse", "diagnose", "explore"}:
                 return dict(
                     basis="server_audit_log_unreadable/1",
                     error=f"knowledge audit record {idx} has unusable mode {eff_mode!r}",

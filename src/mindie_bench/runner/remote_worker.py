@@ -5,6 +5,7 @@
 #   subprocess timeout equals that limit; 20s after SIGTERM/SIGKILL is reserved
 #   for process-group drain. A timed_out receipt is emitted only after the
 #   process group is gone; a surviving group is an error with started=True.
+#   SIGTERM that exits 0 is still timed_out and reports exit_code 124, never success.
 # [Side-Effect Policy] Executes only framed slot commands inside the isolated container
 #   namespace; writes no host files.
 
@@ -205,7 +206,10 @@ while True:
                         stdout,stderr=expired.stdout or b"", expired.stderr or b""
                     if group_alive() or process.poll() is None:
                         raise TimeoutError("owned process group survived SIGTERM and SIGKILL")
-                value=dict(exit_code=process.poll(),stdout_b64=base64.b64encode(stdout or b"").decode(),
+                code=process.poll()
+                if code==0:
+                    code=124
+                value=dict(exit_code=code,stdout_b64=base64.b64encode(stdout or b"").decode(),
                     stderr_b64=base64.b64encode(stderr or b"").decode(),timed_out=True)
             else:
                 value=dict(exit_code=process.returncode,stdout_b64=base64.b64encode(stdout).decode(),

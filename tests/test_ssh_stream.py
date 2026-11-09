@@ -147,3 +147,22 @@ def test_one_shot_keeps_original_bounded_stdin_protocol():
         assert stdout == b"done\n"
         assert stderr == b"diagnostic\n"
         assert len(requests) == 1
+
+
+def test_one_shot_timeout_zero_exit_is_not_success():
+    def respond(path, request):
+        assert path == "/bench/ssh"
+        return 200, {
+            "stdout_b64": encoded(b""),
+            "stderr_b64": encoded(b"killed\n"),
+            "exit_code": 0,
+            "timed_out": True,
+        }
+
+    with broker(respond) as (url, requests):
+        process = launch(url, stream=False)
+        stdout, stderr = process.communicate(input=b"", timeout=5)
+        assert process.returncode == 124
+        assert stdout == b""
+        assert stderr == b"killed\n"
+        assert len(requests) == 1
