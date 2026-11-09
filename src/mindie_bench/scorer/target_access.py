@@ -514,14 +514,36 @@ def _rsi_exploration_observations(
         for idx, rec in enumerate(knowledge_audit_records):
             if rec.get("operation") not in (None, "query"):
                 continue
-            eff_mode = str(rec.get("effective_mode") or rec.get("mode") or "reuse")
+            eff_mode = rec.get("effective_mode") or rec.get("mode")
+            if eff_mode not in {"reuse", "diagnose", "explore"}:
+                return dict(
+                    basis="server_audit_log_unreadable/1",
+                    error=f"knowledge audit record {idx} has unusable mode {eff_mode!r}",
+                    **unmeasured,
+                )
             modes.append(eff_mode)
             if eff_mode == "reuse":
                 seen_reuse = True
             elif eff_mode == "explore":
                 if seen_reuse:
                     transitioned = True
-                ledger_ids = rec.get("ledger_run_ids")
+                try:
+                    ledger_ids = rec.get("ledger_run_ids")
+                    if ledger_ids is None:
+                        ledger_entries_count = int(rec.get("observed_failed_attempts", 0))
+                    elif isinstance(ledger_ids, list):
+                        ledger_entries_count = len(ledger_ids)
+                    else:
+                        raise TypeError("ledger_run_ids")
+                    mounted = rec.get("mounted_l4_ids") or []
+                    if not isinstance(mounted, list):
+                        raise TypeError("mounted_l4_ids")
+                except (TypeError, ValueError) as exc:
+                    return dict(
+                        basis="server_audit_log_unreadable/1",
+                        error=f"knowledge audit record {idx}: {type(exc).__name__}: {exc}",
+                        **unmeasured,
+                    )
                 explore_calls.append(
                     dict(
                         call_id=f"audit-query-{idx + 1}",
@@ -531,8 +553,8 @@ def _rsi_exploration_observations(
                         effective_mode=eff_mode,
                         auto_switched_from_reuse=bool(rec.get("auto_switched_from_reuse", False)),
                         has_bottleneck_summary=bool(rec.get("has_bottleneck_summary", False)),
-                        ledger_entries_count=len(ledger_ids) if isinstance(ledger_ids, list) else int(rec.get("observed_failed_attempts", 0)),
-                        mounted_l4_ids=list(rec.get("mounted_l4_ids") or []),
+                        ledger_entries_count=ledger_entries_count,
+                        mounted_l4_ids=list(mounted),
                         native_subcontext=bool(rec.get("native_subcontext", False)),
                     )
                 )

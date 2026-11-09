@@ -240,6 +240,39 @@ def test_malformed_audit_objects_are_unreadable_not_zero_counts(case, tmp_path):
     assert not errors
 
 
+def test_malformed_audit_dict_records_are_unreadable_not_zero_counts(case, tmp_path):
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "knowledge_query_audit.jsonl").write_text("{}\n{\"operation\":\"query\"}\n", encoding="utf-8")
+    errors = []
+    result = score_trial_trajectory(
+        driver=CodexDriver(),
+        gateway=None,
+        result=None,
+        trajectory=Trajectory(),
+        config=case["config"],
+        environment=None,
+        task=case["spec"],
+        trial_dir=tmp_path,
+        task_root=case["task"],
+        wall_clock=3,
+        tier="l3",
+        fingerprint={},
+        errors=errors,
+        primary={},
+        auxiliary={},
+        primary_verdict=TerminalStatus.PASS,
+        status=TerminalStatus.PASS,
+        reason=None,
+    )
+    obs = result["auxiliary"]["rsi_exploration"]
+    assert obs["basis"] == "server_audit_log_unreadable/1"
+    assert obs["reuse_calls_count"] is None
+    assert obs["explore_calls_count"] is None
+    assert "unusable mode" in obs["error"]
+    assert not errors
+
+
 def test_audit_read_timeout_is_recorded_and_does_not_raise(case, tmp_path, monkeypatch):
     from pathlib import Path as PathType
 

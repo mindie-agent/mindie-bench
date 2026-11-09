@@ -385,6 +385,54 @@ def test_empty_or_unreadable_knowledge_audit_does_not_fall_back_to_trajectory(ca
     assert malformed["reuse_calls_count"] is None
     assert malformed["explore_calls_count"] is None
     assert "not objects" in malformed["error"]
+    empty_object = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[{}],
+    )[1]["rsi_exploration"]
+    missing_mode = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[{"operation": "query"}],
+    )[1]["rsi_exploration"]
+    bogus_mode = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[{"effective_mode": "bogus"}],
+    )[1]["rsi_exploration"]
+    mixed = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[{"mode": "reuse"}, {}],
+    )[1]["rsi_exploration"]
+    measured = trajectory_metrics(
+        Trajectory(calls=[reuse_call, explore_call]),
+        case["spec"].model_copy(deep=True),
+        case["config"].harness,
+        20,
+        tier="l3",
+        knowledge_audit_records=[{"mode": "reuse"}, {"effective_mode": "explore"}],
+    )[1]["rsi_exploration"]
+    for obs in (empty_object, missing_mode, bogus_mode, mixed):
+        assert obs["basis"] == "server_audit_log_unreadable/1"
+        assert obs["reuse_calls_count"] is None
+        assert obs["explore_calls_count"] is None
+    assert "unusable mode" in empty_object["error"]
+    assert measured["basis"] == "server_audit_log/1"
+    assert measured["reuse_calls_count"] == 1
+    assert measured["explore_calls_count"] == 1
 
 
 def test_rsi_reuse_to_explore_observations_and_g4_group(case):
