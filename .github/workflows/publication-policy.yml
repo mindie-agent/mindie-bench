@@ -3,6 +3,7 @@ name: deployed-publication-policy
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_call:
 
 permissions:
@@ -18,7 +19,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: mindie-agent/mindie-bench
-          ref: main
+          ref: ${{ github.repository == 'mindie-agent/mindie-bench' && github.sha || 'main' }}
           path: release-tool
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
