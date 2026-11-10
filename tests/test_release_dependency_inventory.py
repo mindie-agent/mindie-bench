@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+from importlib import metadata
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / ".github/scripts/check_release_dependencies.py"
@@ -25,3 +26,10 @@ def test_same_local_source_cannot_masquerade_as_a_formal_dependency():
     result = inventory("mindie-agent/sim")
     assert result.returncode != 0
     assert "mindie-bench dependency has no official immutable installation receipt" in result.stderr
+
+
+def test_released_consumer_process_api_reads_the_actual_local_candidate_version():
+    from mindie_knowledge.component_runtime import read_versions
+
+    assert read_versions(sys.executable, ["mindie-bench"]) == {
+        "mindie-bench": metadata.version("mindie-bench")}
