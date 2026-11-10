@@ -65,6 +65,7 @@ def publish(api, directory, *, consumer, version, revision):
     if release is not None and not release["draft"]:
         verify_remote(api, release, consumer=consumer, version=version, revision=revision)
         return dict(status="already_published", tag=tag, revision=revision)
+    api.require_new_version(version)
     expected_marker = marker(revision)
     if release is None:
         body_file = local.get("release-notes.md", local["benchmark-results.md"])

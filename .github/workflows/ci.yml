@@ -25,11 +25,6 @@ jobs:
         run: bash .github/scripts/setup_linux_sandbox.sh
       - run: uv sync --locked --all-extras
       - run: uv run ruff check .
-      - name: Verify deployed publication boundary
-        if: github.repository == 'mindie-agent/mindie-bench'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python .github/scripts/release_policy.py --repository "$GITHUB_REPOSITORY"
       - run: uv run pytest -m "not live_npu" --basetemp=/tmp/mb-ci
       - run: uv run mindie-bench demo --output reports/ci-synthetic
       - name: Measure scorer release workload

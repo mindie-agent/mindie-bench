@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import time
 
@@ -33,8 +34,9 @@ def main() -> None:
     parser.add_argument("--repository", required=True)
     args = parser.parse_args()
     script = args.consumer + "/mindie_knowledge/runtime_inventory.py"
+    flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
     result = subprocess.run([args.python, "-I", script], capture_output=True,
-                            check=True, timeout=20)
+                            check=True, timeout=20, **flags)
     installed = json.loads(result.stdout)
     deadline = time.monotonic() + 300
     for name, repository in COMPONENTS.items():

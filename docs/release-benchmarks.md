@@ -12,7 +12,7 @@ in the release's `SHA256SUMS` as `upgrade-acceptance.json`.
 
 Repository administrators install the server-side boundary with
 `python .github/scripts/release_policy.py --repository mindie-agent/<repository> --apply`.
-The version-tag creation rules allow only a per-repository deploy key stored in
+Tag creation rules cover all tag names and allow only a per-repository deploy key stored in
 the `mindie-release` environment, which permits main-branch deployments only.
 Tag update/deletion rules have no bypass actors, main requires the CI aggregate and PR checklist, and
 immutable releases lock the published artifacts. The publisher verifies this

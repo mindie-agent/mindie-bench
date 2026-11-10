@@ -19,7 +19,7 @@ CHECKLIST = "Verify LF Line Endings & Pre-PR Design Principles Checklist"
 
 
 def rulesets():
-    conditions = {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}}
+    conditions = {"ref_name": {"include": ["~ALL"], "exclude": []}}
     return [
         dict(name="mindie-release-create", target="tag", enforcement="active",
              conditions=conditions, rules=[{"type": "creation"}],
@@ -116,7 +116,9 @@ def verify_ci(api, revision):
         if row["head_branch"] == "main":
             if row["path"] not in latest or row["id"] > latest[row["path"]]["id"]:
                 latest[row["path"]] = row
-    if not latest or any(row["status"] != "completed" or row["conclusion"] != "success"
+    if ".github/workflows/publication-policy.yml" not in latest:
+        raise ValueError("the source has no main-branch deployed-policy verification")
+    if any(row["status"] != "completed" or row["conclusion"] != "success"
                          for row in latest.values()):
         raise ValueError("all main-branch CI workflows must finish successfully before release")
 
@@ -126,9 +128,13 @@ def main():
     parser.add_argument("--repository", required=True)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--revision")
+    parser.add_argument("--ci-only", action="store_true")
     args = parser.parse_args()
     api = GitHub(args.repository)
-    result = apply(api) if args.apply else verify(api)
+    if args.ci_only and (args.apply or not args.revision):
+        parser.error("--ci-only requires --revision and cannot change policy")
+    result = ({"verification": "source-ci"} if args.ci_only
+              else apply(api) if args.apply else verify(api))
     if args.revision:
         verify_ci(api, args.revision)
         result["source_ci"] = "passed"

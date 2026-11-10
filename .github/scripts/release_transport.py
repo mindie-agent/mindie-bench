@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -115,3 +116,18 @@ class GitHub:
     def create_tag(self, version, revision):
         from release_key import create_tag
         create_tag(self, version, revision)
+
+    def require_new_version(self, version):
+        requested = tuple(map(int, version.split(".")))
+        for page in range(1, 11):
+            rows = self.api(f"{self.prefix}/releases?per_page=100&page={page}")
+            for row in rows:
+                if row["draft"] or row["prerelease"]:
+                    continue
+                tag = row["tag_name"].removeprefix("v")
+                if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", tag):
+                    if tuple(map(int, tag.split("."))) >= requested:
+                        raise ValueError("a new publication must advance the highest formal version")
+            if len(rows) < 100:
+                return
+        raise ValueError("formal version verification exceeded its page budget")

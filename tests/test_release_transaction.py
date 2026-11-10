@@ -58,6 +58,8 @@ class ReleaseAPI:
         return copy.deepcopy(self.current)
 
     def api(self, path):
+        if "/releases?" in path:
+            return []
         if "/git/ref/" in path:
             file = "ref.json"
         elif "/git/tags/" in path:
@@ -99,6 +101,9 @@ class ReleaseAPI:
     def create_tag(self, version, revision):
         assert self.current["draft"]
         self.events.append("create-tag")
+
+    def require_new_version(self, version):
+        sys.modules["release_transport"].GitHub.require_new_version(self, version)
 
     def drop(self, stage):
         if self.disconnect == stage:
@@ -199,3 +204,13 @@ def test_a_network_failure_is_not_permission_to_create_another_release(monkeypat
                         subprocess.CompletedProcess(argv, 1, b"", b"connection reset"))
     with pytest.raises(RuntimeError, match="connection reset"):
         transport.GitHub("mindie-agent/knowledge").release("v0.13.2")
+
+
+def test_late_publication_of_an_older_version_cannot_replace_latest(bundle):
+    api = ReleaseAPI()
+    original = api.api
+    api.api = lambda path: ([dict(tag_name="v0.13.3", draft=False, prerelease=False)]
+                            if "/releases?" in path else original(path))
+    with pytest.raises(ValueError, match="advance the highest formal version"):
+        invoke(api, bundle)
+    assert not api.events

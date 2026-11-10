@@ -134,10 +134,10 @@ jobs:
           repository: mindie-agent/knowledge
           ref: ac4a89e993c89deba5a4a629e1cd89d61e57c843
           path: release-consumer
-      - name: Require enforced publication policy and passing source CI
+      - name: Require all protected-main source CI to have passed
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python ../release-tool/.github/scripts/release_policy.py --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA"
+        run: python ../release-tool/.github/scripts/release_policy.py --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA" --ci-only
       - name: Install the exact candidate dependencies
         env:
           SETUP_COMMAND: ${{ inputs.setup-command }}
