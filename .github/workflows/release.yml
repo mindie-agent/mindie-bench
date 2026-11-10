@@ -1,18 +1,19 @@
 name: release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
+  actions: read
+  checks: read
+  deployments: read
 
 jobs:
   release:
     uses: ./.github/workflows/publish-release.yml
     with:
       release-notes-path: docs/releases/mindie-bench-0.4.7.md
-      benchmark-ref: ${{ github.sha }}
       setup-command: |
         uv sync --locked --all-extras
       test-command: |

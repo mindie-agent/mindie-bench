@@ -6,6 +6,12 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  deployments: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   contracts:
@@ -45,3 +51,13 @@ jobs:
         with:
           name: synthetic-failure-${{ matrix.os }}
           path: reports/ci-synthetic/
+
+  release-ready:
+    name: release-ready
+    needs: contracts
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: python -c 'import json,os; assert all(job["result"] == "success" for job in json.loads(os.environ["RESULTS"]).values()), "required CI failed or was skipped"'

@@ -1,0 +1,29 @@
+name: deployed-publication-policy
+
+on:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: write
+  actions: read
+  deployments: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: main
+          path: release-tool
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: candidate
+      - name: Verify the real server publication boundary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python release-tool/.github/scripts/release_policy.py --repository "$GITHUB_REPOSITORY" --entry candidate

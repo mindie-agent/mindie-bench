@@ -4,9 +4,10 @@ on:
   workflow_call:
     inputs:
       benchmark-ref:
-        description: Exact mindie-bench commit for the validator and benchmark runner
+        description: Legacy input; callers must use the protected-main controller without a frozen tool pin
         type: string
-        required: true
+        required: false
+        default: ""
       version-files:
         description: Newline-separated TOML or JSON manifests that must match the tag
         type: string
@@ -39,9 +40,12 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  checks: read
+  deployments: read
 
 concurrency:
-  group: publish-${{ github.repository }}-${{ github.ref }}
+  group: publish-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -53,6 +57,7 @@ jobs:
         working-directory: candidate
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tool-ref: ${{ steps.controller.outputs.revision }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -68,18 +73,27 @@ jobs:
         id: version
         env:
           VERSION_FILES: ${{ inputs.version-files }}
-          BENCHMARK_REF: ${{ inputs.benchmark-ref }}
+          LEGACY_BENCHMARK_REF: ${{ inputs.benchmark-ref }}
           RELEASE_NOTES_PATH: ${{ inputs.release-notes-path }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           python - <<'PY'
           import json, os, pathlib, re, subprocess, tomllib
-          tag = os.environ["GITHUB_REF_NAME"]
-          assert os.environ["GITHUB_REF_TYPE"] == "tag", "formal releases require an existing tag"
-          assert re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag), "formal releases require vMAJOR.MINOR.PATCH"
-          assert re.fullmatch(r"[0-9a-f]{40}", os.environ["BENCHMARK_REF"]), "release tools require an exact commit"
-          version = tag[1:]
+          assert os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch", "use the protected main release workflow"
+          assert os.environ["GITHUB_REF_TYPE"] == "branch"
+          assert os.environ["GITHUB_REF_NAME"] == os.environ["DEFAULT_BRANCH"], "only default-branch sources can publish"
+          assert not os.environ["LEGACY_BENCHMARK_REF"], "the protected-main controller resolves one immutable tool revision per run"
+          if os.environ["GITHUB_REPOSITORY"] != "mindie-agent/mindie-bench":
+              declaration = pathlib.Path(".github/workflows/release.yml").read_text()
+              assert re.search(r"uses:\s*mindie-agent/mindie-bench/\.github/workflows/publish-release\.yml@main\s*$",
+                               declaration, re.M), "the release entry must follow the protected-main publisher"
           files = os.environ["VERSION_FILES"].splitlines()
           assert files, "at least one version manifest is required"
+          first = pathlib.Path(files[0])
+          version = (tomllib.loads(first.read_text())["project"]["version"] if first.suffix == ".toml"
+                     else json.loads(first.read_text())["version"])
+          assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version)
+          tag = "v" + version
           for filename in files:
               path = pathlib.Path(filename)
               if path.suffix == ".toml":
@@ -119,17 +133,37 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: mindie-agent/mindie-bench
-          ref: ${{ inputs.benchmark-ref }}
+          ref: main
           path: release-tool
+      - name: Lock the reviewed controller revision for this entire run
+        id: controller
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          revision=$(git -C ../release-tool rev-parse HEAD)
+          python ../release-tool/.github/scripts/release_policy.py --repository mindie-agent/mindie-bench --revision "$revision" --ci-only
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/knowledge
+          ref: 3c478a19b5542b38520c7f98b87a07f37e305021
+          path: release-consumer
+      - name: Require all protected-main source CI to have passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ../release-tool/.github/scripts/release_policy.py --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA" --ci-only
       - name: Install the exact candidate dependencies
         env:
           SETUP_COMMAND: ${{ inputs.setup-command }}
         run: bash -e -o pipefail -c "$SETUP_COMMAND"
       - name: Require formal first-party dependency releases
+        timeout-minutes: 6
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_PYTHON: ${{ inputs.python }}
-        run: '"$CANDIDATE_PYTHON" ../release-tool/.github/scripts/check_release_dependencies.py'
+        run: |
+          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/check_release_dependencies.py \
+            --python "$CANDIDATE_PYTHON" --consumer ../release-consumer --repository "$GITHUB_REPOSITORY"
       - name: Run local component contracts
         env:
           TEST_COMMAND: ${{ inputs.test-command }}
@@ -140,20 +174,39 @@ jobs:
     uses: ./.github/workflows/release-benchmark.yml
     with:
       version: ${{ needs.candidate.outputs.version }}
-      benchmark-ref: ${{ inputs.benchmark-ref }}
+      benchmark-ref: ${{ needs.candidate.outputs.tool-ref }}
       setup-command: ${{ inputs.setup-command }}
       python: ${{ inputs.python }}
 
   publish:
     needs: [candidate, benchmark]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    environment: mindie-release
+    timeout-minutes: 85
+    defaults:
+      run:
+        working-directory: candidate
     permissions:
       contents: write
+      actions: read
+      checks: read
+      deployments: read
     env:
       RELEASE_VERSION: ${{ needs.candidate.outputs.version }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: candidate
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: ${{ needs.candidate.outputs.tool-ref }}
+          path: release-tool
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/knowledge
+          ref: 3c478a19b5542b38520c7f98b87a07f37e305021
+          path: release-consumer
       - name: Select artifact staging directory
         run: echo "RELEASE_ASSETS_DIR=$RUNNER_TEMP/release-assets" >> "$GITHUB_ENV"
       - uses: astral-sh/setup-uv@v6
@@ -164,13 +217,16 @@ jobs:
         with:
           node-version: '22'
       - name: Install the candidate runtime
+        timeout-minutes: 10
         env:
           SETUP_COMMAND: ${{ inputs.setup-command }}
         run: bash -e -o pipefail -c "$SETUP_COMMAND"
       - name: Build release deliverables
+        timeout-minutes: 10
         env:
           BUILD_COMMAND: ${{ inputs.build-command }}
         run: |
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
           mkdir -p "$RELEASE_ASSETS_DIR"
           bash -e -o pipefail -c "$BUILD_COMMAND"
           test -n "$(find "$RELEASE_ASSETS_DIR" -maxdepth 1 -type f -print -quit)"
@@ -181,7 +237,7 @@ jobs:
       - name: Verify benchmark provenance and prepare complete checksums
         env:
           RELEASE_NOTES_PATH: ${{ inputs.release-notes-path }}
-          BENCHMARK_REF: ${{ inputs.benchmark-ref }}
+          BENCHMARK_REF: ${{ needs.candidate.outputs.tool-ref }}
         run: |
           (cd "$RELEASE_ASSETS_DIR" && sha256sum -c benchmark-SHA256SUMS)
           python - <<'PY'
@@ -213,18 +269,40 @@ jobs:
                          if path.is_file() and not path.name.startswith(".") and path.name != "SHA256SUMS")
           (assets / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in files))
           PY
-      - name: Confirm tag still identifies the measured source
-        run: |
-          git fetch --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/release-check/candidate"
-          test "$(git rev-parse 'refs/release-check/candidate^{commit}')" = "$GITHUB_SHA"
-      - name: Create formal release with benchmark evidence
+      - name: Upgrade from a released runtime with the unmodified old updater
+        timeout-minutes: 20
         env:
-          RELEASE_NOTES_PATH: ${{ inputs.release-notes-path }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes=(--generate-notes --notes-file "$RELEASE_ASSETS_DIR/benchmark-results.md")
-          if [ -n "$RELEASE_NOTES_PATH" ]; then
-            notes=(--notes-file "$RELEASE_ASSETS_DIR/release-notes.md")
-          fi
-          gh release create "$GITHUB_REF_NAME" "$RELEASE_ASSETS_DIR"/* \
-            --verify-tag --target "$GITHUB_SHA" --title "$GITHUB_REF_NAME" "${notes[@]}"
+          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/upgrade_acceptance.py \
+            --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
+            --consumer ../release-consumer --policy ../release-tool/release-policy.json \
+            --source . --root "$RUNNER_TEMP/old-client-upgrade" --assets "$RELEASE_ASSETS_DIR" \
+            --output "$RELEASE_ASSETS_DIR/upgrade-acceptance.json"
+          (cd "$RELEASE_ASSETS_DIR" && sha256sum upgrade-acceptance.json >> SHA256SUMS)
+      - name: Publish verified draft and verify the public result
+        timeout-minutes: 12
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MINDIE_RELEASE_DEPLOY_KEY: ${{ secrets.MINDIE_RELEASE_DEPLOY_KEY }}
+        run: |
+          python ../release-tool/.github/scripts/release_policy.py --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA"
+          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/publish_release.py \
+            --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
+            --consumer ../release-consumer --assets "$RELEASE_ASSETS_DIR"
+      - name: Verify normal public discovery and upgrade after publication
+        timeout-minutes: 20
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/upgrade_acceptance.py \
+            --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
+            --consumer ../release-consumer --policy ../release-tool/release-policy.json --source . \
+            --root "$RUNNER_TEMP/public-client-upgrade" --output "$RUNNER_TEMP/public-upgrade.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-upgrade-evidence
+          path: |
+            ${{ env.RELEASE_ASSETS_DIR }}/upgrade-acceptance.json
+            ${{ runner.temp }}/public-upgrade.json
