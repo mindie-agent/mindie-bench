@@ -4,7 +4,7 @@
 the unmodified published consumer. No mocked selector, in-place install or user
 profile participates. The only prospective transport is the explicitly staged release.
 [Timeouts & Locks] One 1200s workflow step encloses 210s baseline setup, 120s
-discovery, 600s generation build, eight 20s CLI probes and readback/cleanup.
+discovery, 600s generation build, nine 20s CLI probes and readback/cleanup.
 [Side-Effect Policy] Creates only the supplied isolated acceptance directory.
 """
 from __future__ import annotations
@@ -101,11 +101,10 @@ def accept(args):
     native_tree = entry.get("kind") == "native_tree"
     requirements = ([] if native_tree else [
         f"{package} @ git+https://github.com/{args.repository}@{entry['revision']}"])
-    if package not in components:
-        requirements.extend(
-            f"{row['package']} @ git+https://github.com/{repo}@{row['revision']}"
-            for repo, row in policy["repositories"].items()
-            if row["package"] in components and row["package"] != "mindie-bench")
+    requirements.extend(
+        f"{row['package']} @ git+https://github.com/{repo}@{row['revision']}"
+        for repo, row in policy["repositories"].items()
+        if row["package"] in components and row["package"] not in {"mindie-bench", package})
     run(["uv", "pip", "install", "--python", python, "--override", overrides, *requirements],
         timeout=180)
     installed = read_inventory(python)
@@ -158,7 +157,7 @@ def accept(args):
         consumer_revision=consumer_revision,
         consumer_validator_sha256=hashlib.sha256(
             (Path(args.consumer) / "mindie_knowledge/component_releases.py").read_bytes()).hexdigest(),
-        scope="released_component_updater", transport="staged_candidate" if assets else "public_release",
+        scope="all_shared_components", transport="staged_candidate" if assets else "public_release",
         baseline=installed, selected=selected["runtime"], installed=actual,
         installed_revision=args.revision,
         generation=Path(artifact["generation"]).name,

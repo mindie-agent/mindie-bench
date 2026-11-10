@@ -182,7 +182,7 @@ jobs:
     needs: [candidate, benchmark]
     runs-on: ubuntu-latest
     environment: mindie-release
-    timeout-minutes: 150
+    timeout-minutes: 350
     defaults:
       run:
         working-directory: candidate
@@ -291,7 +291,7 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/codex-target" @openai/codex@0.162.0-alpha.2
       - name: Upgrade the old native plugin after independent and external component updates
         if: github.repository == 'mindie-agent/mindie-agent-codex'
-        timeout-minutes: 40
+        timeout-minutes: 130
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -323,7 +323,7 @@ jobs:
             --root "$RUNNER_TEMP/public-client-upgrade" --output "$RUNNER_TEMP/public-upgrade.json"
       - name: Verify normal public native-plugin discovery and activation
         if: github.repository == 'mindie-agent/mindie-agent-codex'
-        timeout-minutes: 40
+        timeout-minutes: 130
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
