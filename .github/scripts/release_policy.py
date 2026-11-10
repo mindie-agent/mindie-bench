@@ -45,10 +45,14 @@ def rulesets():
     ]
 
 
-def verify(api):
-    immutable = api.api(f"{api.prefix}/immutable-releases")
-    if immutable.get("enabled") is not True:
-        raise ValueError("immutable releases must be enabled before publication")
+def verify(api, *, workflow=False):
+    # GitHub does not grant Actions tokens Administration:read. Deployment
+    # audits inspect that setting; the publisher verifies the actual immutable
+    # public release. Runner audits never claim to have read an admin setting.
+    if not workflow:
+        immutable = api.api(f"{api.prefix}/immutable-releases")
+        if immutable.get("enabled") is not True:
+            raise ValueError("immutable releases must be enabled before publication")
     summaries = api.api(f"{api.prefix}/rulesets")
     actual = {row["name"]: api.api(f"{api.prefix}/rulesets/{row['id']}")
               for row in summaries if row["name"].startswith("mindie-release-")}
@@ -69,7 +73,8 @@ def verify(api):
         f"{api.prefix}/environments/{ENVIRONMENT}/deployment-branch-policies")["branch_policies"]
     if len(policies) != 1 or policies[0]["name"] != "main" or policies[0]["type"] != "branch":
         raise ValueError("the release deploy key must be restricted to main")
-    return dict(immutable_releases=True, tag_creation="main-only-deploy-key",
+    return dict(immutable_releases="publish-readback-required" if workflow else True,
+                tag_creation="main-only-deploy-key",
                 tag_mutation="denied")
 
 
@@ -144,12 +149,16 @@ def main():
     parser.add_argument("--revision")
     parser.add_argument("--ci-only", action="store_true")
     parser.add_argument("--entry")
+    parser.add_argument("--workflow", action="store_true",
+                        help="audit runner-readable controls; publication must read back immutability")
     args = parser.parse_args()
     api = GitHub(args.repository)
     if args.ci_only and (args.apply or not args.revision):
         parser.error("--ci-only requires --revision and cannot change policy")
+    if args.workflow and (args.apply or args.ci_only):
+        parser.error("--workflow is a separate read-only runner policy audit")
     result = ({"verification": "source-ci"} if args.ci_only
-              else apply(api) if args.apply else verify(api))
+              else apply(api) if args.apply else verify(api, workflow=args.workflow))
     if args.revision:
         verify_ci(api, args.revision)
         result["source_ci"] = "passed"
