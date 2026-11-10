@@ -12,6 +12,8 @@ permissions:
 jobs:
   release:
     uses: ./.github/workflows/publish-release.yml
+    secrets:
+      MINDIE_RELEASE_DEPLOY_KEY: ${{ secrets.MINDIE_RELEASE_DEPLOY_KEY }}
     with:
       release-notes-path: docs/releases/mindie-bench-0.4.7.md
       setup-command: |

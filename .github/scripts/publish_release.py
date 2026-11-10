@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 
@@ -22,24 +23,25 @@ def marker(revision):
     return f"<!-- mindie-release-source:{revision} -->"
 
 
-def owned_draft(api, tag, revision):
-    release = api.release(tag)
+def owned_draft(api, tag, revision, release_id):
+    release = api.api(f"{api.prefix}/releases/{release_id}")
     if (release is None or not release["draft"]
+            or release.get("tag_name") != tag
             or release.get("target_commitish") != revision
             or marker(revision) not in release.get("body", "")):
         raise ValueError("existing draft is not owned by this source transaction")
     return release
 
 
-def remove_private_asset(api, tag, revision, asset_id):
-    owned_draft(api, tag, revision)
+def remove_private_asset(api, tag, revision, release_id, asset_id):
+    owned_draft(api, tag, revision, release_id)
     try:
         api.delete_asset(asset_id)
     except Exception:
-        observed = owned_draft(api, tag, revision)
+        observed = owned_draft(api, tag, revision, release_id)
         if any(row["id"] == asset_id for row in observed["assets"]):
             raise
-    observed = owned_draft(api, tag, revision)
+    observed = owned_draft(api, tag, revision, release_id)
     if any(row["id"] == asset_id for row in observed["assets"]):
         raise ValueError("private asset deletion was not observed")
 
@@ -100,12 +102,13 @@ def publish(api, directory, *, consumer, version, revision):
             release = api.release(tag)
             if release is None:
                 raise
-    release = owned_draft(api, tag, revision)
+    release_id = release["id"]
+    release = owned_draft(api, tag, revision, release_id)
     for row in release["assets"]:
         if row["name"] not in local:
-            remove_private_asset(api, tag, revision, row["id"])
+            remove_private_asset(api, tag, revision, release_id, row["id"])
     for path in files:
-        release = owned_draft(api, tag, revision)
+        release = owned_draft(api, tag, revision, release_id)
         existing = next((row for row in release["assets"] if row["name"] == path.name), None)
         if existing is not None:
             with path.open("rb") as stream:
@@ -114,27 +117,27 @@ def publish(api, directory, *, consumer, version, revision):
                 continue
             # Reports may legitimately change when a failed run repeats the
             # same source. Only this transaction's still-private draft changes.
-            remove_private_asset(api, tag, revision, existing["id"])
+            remove_private_asset(api, tag, revision, release_id, existing["id"])
         try:
-            api.upload(tag, path)
+            api.upload(release_id, path)
         except Exception:
-            observed = api.release(tag)
+            observed = owned_draft(api, tag, revision, release_id)
             existing = next((row for row in observed["assets"] if row["name"] == path.name), None)
             if existing is None:
                 raise
             with path.open("rb") as stream:
                 if api.asset_digest(existing) != hashlib.file_digest(stream, "sha256").hexdigest():
                     raise
-    release = api.release(tag)
+    release = owned_draft(api, tag, revision, release_id)
     verify_remote(api, release, consumer=consumer, version=version, revision=revision)
     api.create_tag(version, revision)
     try:
         api.publish(release["id"])
     except Exception:
-        observed = api.release(tag)
+        observed = api.api(f"{api.prefix}/releases/{release_id}")
         if observed is None or observed["draft"]:
             raise
-    observed = api.release(tag)
+    observed = api.api(f"{api.prefix}/releases/{release_id}")
     if observed is None or observed["draft"]:
         raise ValueError("formal publication was not observed")
     verify_remote(api, observed, consumer=consumer, version=version, revision=revision)
@@ -150,6 +153,9 @@ def main():
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.revision):
         parser.error("--revision must identify the tested commit")
+    from release_key import SECRET
+    if not os.environ.get(SECRET):
+        raise ValueError("the main-only release deploy key is unavailable")
     print(json.dumps(publish(GitHub(args.repository), args.assets, consumer=args.consumer,
                              version=args.version, revision=args.revision), sort_keys=True))
 

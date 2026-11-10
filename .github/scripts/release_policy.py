@@ -28,6 +28,10 @@ def verify_entry(source, repository):
         raise ValueError("the release entry must use the current protected-main publisher")
     if re.search(r"^\s+benchmark-ref:", text, re.M):
         raise ValueError("a caller-maintained benchmark pin would bypass controller updates")
+    if not re.search(
+            r"^\s+MINDIE_RELEASE_DEPLOY_KEY:\s*\$\{\{\s*secrets\.MINDIE_RELEASE_DEPLOY_KEY\s*\}\}\s*$",
+            text, re.M):
+        raise ValueError("the release caller must explicitly forward its environment deploy key")
     if not re.search(r"^on:\s*\n\s+workflow_dispatch:", text, re.M):
         raise ValueError("the standard release entry must start from main workflow dispatch")
 
