@@ -14,7 +14,6 @@ jobs:
     uses: ./.github/workflows/publish-release.yml
     with:
       release-notes-path: docs/releases/mindie-bench-0.4.7.md
-      benchmark-ref: ${{ github.sha }}
       setup-command: |
         uv sync --locked --all-extras
       test-command: |

@@ -10,12 +10,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+from pathlib import Path
 
 from release_key import ENVIRONMENT, configure
 from release_transport import GitHub
 
 ACTION_APP = 15368
 CHECKLIST = "Verify LF Line Endings & Pre-PR Design Principles Checklist"
+
+
+def verify_entry(source, repository):
+    text = (Path(source) / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    target = (r"\./\.github/workflows/publish-release\.yml" if repository == "mindie-agent/mindie-bench"
+              else r"mindie-agent/mindie-bench/\.github/workflows/publish-release\.yml@main")
+    if not re.search(r"^\s+uses:\s*" + target + r"\s*$", text, re.M):
+        raise ValueError("the release entry must use the current protected-main publisher")
+    if re.search(r"^\s+benchmark-ref:", text, re.M):
+        raise ValueError("a caller-maintained benchmark pin would bypass controller updates")
+    if not re.search(r"^on:\s*\n\s+workflow_dispatch:", text, re.M):
+        raise ValueError("the standard release entry must start from main workflow dispatch")
 
 
 def rulesets():
@@ -129,6 +143,7 @@ def main():
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--revision")
     parser.add_argument("--ci-only", action="store_true")
+    parser.add_argument("--entry")
     args = parser.parse_args()
     api = GitHub(args.repository)
     if args.ci_only and (args.apply or not args.revision):
@@ -138,6 +153,9 @@ def main():
     if args.revision:
         verify_ci(api, args.revision)
         result["source_ci"] = "passed"
+    if args.entry:
+        verify_entry(args.entry, args.repository)
+        result["release_entry"] = "passed"
     print(json.dumps(result, sort_keys=True))
 
 

@@ -4,9 +4,10 @@ on:
   workflow_call:
     inputs:
       benchmark-ref:
-        description: Exact mindie-bench commit for the validator and benchmark runner
+        description: Legacy input; callers must use the protected-main controller without a frozen tool pin
         type: string
-        required: true
+        required: false
+        default: ""
       version-files:
         description: Newline-separated TOML or JSON manifests that must match the tag
         type: string
@@ -56,6 +57,7 @@ jobs:
         working-directory: candidate
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tool-ref: ${{ steps.controller.outputs.revision }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -71,7 +73,7 @@ jobs:
         id: version
         env:
           VERSION_FILES: ${{ inputs.version-files }}
-          BENCHMARK_REF: ${{ inputs.benchmark-ref }}
+          LEGACY_BENCHMARK_REF: ${{ inputs.benchmark-ref }}
           RELEASE_NOTES_PATH: ${{ inputs.release-notes-path }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -80,7 +82,11 @@ jobs:
           assert os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch", "use the protected main release workflow"
           assert os.environ["GITHUB_REF_TYPE"] == "branch"
           assert os.environ["GITHUB_REF_NAME"] == os.environ["DEFAULT_BRANCH"], "only default-branch sources can publish"
-          assert re.fullmatch(r"[0-9a-f]{40}", os.environ["BENCHMARK_REF"]), "release tools require an exact commit"
+          assert not os.environ["LEGACY_BENCHMARK_REF"], "the protected-main controller resolves one immutable tool revision per run"
+          if os.environ["GITHUB_REPOSITORY"] != "mindie-agent/mindie-bench":
+              declaration = pathlib.Path(".github/workflows/release.yml").read_text()
+              assert re.search(r"uses:\s*mindie-agent/mindie-bench/\.github/workflows/publish-release\.yml@main\s*$",
+                               declaration, re.M), "the release entry must follow the protected-main publisher"
           files = os.environ["VERSION_FILES"].splitlines()
           assert files, "at least one version manifest is required"
           first = pathlib.Path(files[0])
@@ -127,8 +133,16 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: mindie-agent/mindie-bench
-          ref: ${{ inputs.benchmark-ref }}
+          ref: main
           path: release-tool
+      - name: Lock the reviewed controller revision for this entire run
+        id: controller
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          revision=$(git -C ../release-tool rev-parse HEAD)
+          python ../release-tool/.github/scripts/release_policy.py --repository mindie-agent/mindie-bench --revision "$revision" --ci-only
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: mindie-agent/knowledge
@@ -160,7 +174,7 @@ jobs:
     uses: ./.github/workflows/release-benchmark.yml
     with:
       version: ${{ needs.candidate.outputs.version }}
-      benchmark-ref: ${{ inputs.benchmark-ref }}
+      benchmark-ref: ${{ needs.candidate.outputs.tool-ref }}
       setup-command: ${{ inputs.setup-command }}
       python: ${{ inputs.python }}
 
@@ -186,7 +200,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: mindie-agent/mindie-bench
-          ref: ${{ inputs.benchmark-ref }}
+          ref: ${{ needs.candidate.outputs.tool-ref }}
           path: release-tool
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -223,7 +237,7 @@ jobs:
       - name: Verify benchmark provenance and prepare complete checksums
         env:
           RELEASE_NOTES_PATH: ${{ inputs.release-notes-path }}
-          BENCHMARK_REF: ${{ inputs.benchmark-ref }}
+          BENCHMARK_REF: ${{ needs.candidate.outputs.tool-ref }}
         run: |
           (cd "$RELEASE_ASSETS_DIR" && sha256sum -c benchmark-SHA256SUMS)
           python - <<'PY'

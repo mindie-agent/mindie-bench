@@ -10,6 +10,11 @@ the tag and immutable Release. A second upgrade uses the normal public feed.
 Both upgrade reports are retained by the workflow; the staged report is included
 in the release's `SHA256SUMS` as `upgrade-acceptance.json`.
 
+Callers follow `publish-release.yml@main` on the protected controller repository.
+Each run resolves its reviewed, CI-passed controller to one immutable commit and
+uses that exact commit for dependency checks, benchmark execution and publication.
+There is no second caller-maintained tool pin that can leave a new gate unused.
+
 Repository administrators install the server-side boundary with
 `python .github/scripts/release_policy.py --repository mindie-agent/<repository> --apply`.
 Tag creation rules cover all tag names and allow only a per-repository deploy key stored in
