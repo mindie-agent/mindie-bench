@@ -4,6 +4,12 @@
 
 `mindie-bench 0.4.7` introduces the **Ascend 950DT (A5)** end-to-end RSI automatic promotion (`reuse -> explore`) and Stop-hook `graded-c6` distillation A/B benchmark suite (`track-RSI-E2E-v4`), enforces strict single-variable parity and `MINDIE_DISABLE_RSI_EXPLORE=1` physical isolation between `G2` and `G4`, and hardens macOS process-group cleanup (`PermissionError`) and DSH `max_turns` completion receipt handling.
 
+## Publication and Automatic Updates
+
+Code repositories publish from protected `main`, locking one controller commit for the transaction. First-party dependencies pass the published old client's complete validator. Packages, benchmarks, checksums and real generation-upgrade evidence are uploaded to a private draft and downloaded for verification before the dedicated environment key creates the exact source tag and exposes an immutable Release. A fresh old client repeats the upgrade through normal public discovery afterward.
+
+Each publication upgrades the full eight-component baseline; partial evidence cannot authorize publication. Codex additionally starts from formal `0.1.23`, independently upgrades components, binds external component commands, rejects a stale CAS, then recovers through real native startup and MCP discovery while preserving installed version floors and an explicitly disabled Stop hook. Staged and public evidence remain separate; latest-by-default selection is unchanged. The performance experiments that follow retain their original measurement scope and are not new experiments for these controller changes.
+
 ## Highlights
 
 - **Ascend 950DT (A5) End-to-End RSI A/B Task Suite (`tasks/zh-vague/*-rsi-zh`)**:
