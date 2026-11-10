@@ -99,6 +99,7 @@ def publish(api, directory, *, consumer, version, revision):
                     raise
     release = api.release(tag)
     verify_remote(api, release, consumer=consumer, version=version, revision=revision)
+    api.create_tag(version, revision)
     try:
         api.publish(release["id"])
     except Exception:

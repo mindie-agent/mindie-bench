@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 
+from release_key import ENVIRONMENT, configure
 from release_transport import GitHub
 
 ACTION_APP = 15368
@@ -22,7 +23,7 @@ def rulesets():
     return [
         dict(name="mindie-release-create", target="tag", enforcement="active",
              conditions=conditions, rules=[{"type": "creation"}],
-             bypass_actors=[dict(actor_type="Integration", actor_id=ACTION_APP,
+             bypass_actors=[dict(actor_type="DeployKey", actor_id=None,
                                  bypass_mode="always")]),
         dict(name="mindie-release-immutable-tags", target="tag", enforcement="active",
              conditions=conditions, rules=[{"type": "update"}, {"type": "deletion"}],
@@ -37,16 +38,29 @@ def verify(api):
     summaries = api.api(f"{api.prefix}/rulesets")
     actual = {row["name"]: api.api(f"{api.prefix}/rulesets/{row['id']}")
               for row in summaries if row["name"].startswith("mindie-release-")}
+    actors = actual.get("mindie-release-create", {}).get("bypass_actors", [])
+    if (len(actors) != 1 or actors[0].get("actor_type") != "DeployKey"
+            or actors[0].get("actor_id") is not None):
+        raise ValueError("version tags require the dedicated deploy-key identity")
     for expected in rulesets():
         row = actual.get(expected["name"], {})
         for key in ("target", "enforcement", "conditions", "rules", "bypass_actors"):
             if row.get(key) != expected[key]:
                 raise ValueError(f"publication policy is missing or differs: {expected['name']} {key}")
-    return dict(immutable_releases=True, tag_creation="github-actions",
+    environment = api.api(f"{api.prefix}/environments/{ENVIRONMENT}")
+    if environment.get("deployment_branch_policy") != {
+            "protected_branches": False, "custom_branch_policies": True}:
+        raise ValueError("the release key environment is not restricted by branch policy")
+    policies = api.api(
+        f"{api.prefix}/environments/{ENVIRONMENT}/deployment-branch-policies")["branch_policies"]
+    if len(policies) != 1 or policies[0]["name"] != "main" or policies[0]["type"] != "branch":
+        raise ValueError("the release deploy key must be restricted to main")
+    return dict(immutable_releases=True, tag_creation="main-only-deploy-key",
                 tag_mutation="denied")
 
 
 def apply(api):
+    configure(api)
     summaries = api.api(f"{api.prefix}/rulesets")
     actual = {row["name"]: row for row in summaries}
     for rule in rulesets():
@@ -95,6 +109,16 @@ def verify_ci(api, revision):
         newest = max(candidates, key=lambda row: row["id"])
         if newest["status"] != "completed" or newest["conclusion"] != "success":
             raise ValueError(f"source CI did not pass: {name}")
+    runs = api.api(
+        f"{api.prefix}/actions/runs?head_sha={revision}&event=push&per_page=100")["workflow_runs"]
+    latest = {}
+    for row in runs:
+        if row["head_branch"] == "main":
+            if row["path"] not in latest or row["id"] > latest[row["path"]]["id"]:
+                latest[row["path"]] = row
+    if not latest or any(row["status"] != "completed" or row["conclusion"] != "success"
+                         for row in latest.values()):
+        raise ValueError("all main-branch CI workflows must finish successfully before release")
 
 
 def main():

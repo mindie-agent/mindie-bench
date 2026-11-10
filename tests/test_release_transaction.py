@@ -96,6 +96,10 @@ class ReleaseAPI:
         self.drop("publish")
         return self.release(self.current["tag_name"])
 
+    def create_tag(self, version, revision):
+        assert self.current["draft"]
+        self.events.append("create-tag")
+
     def drop(self, stage):
         if self.disconnect == stage:
             self.disconnect = None

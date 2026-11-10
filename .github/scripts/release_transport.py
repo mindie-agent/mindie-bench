@@ -34,7 +34,17 @@ class GitHub:
             stderr=subprocess.PIPE, timeout=self.remaining(timeout), check=False, **flags,
         )
         if result.returncode:
-            raise RuntimeError(result.stderr.decode("utf-8", errors="replace")[-4000:])
+            detail = result.stderr.decode("utf-8", errors="replace")[-2000:]
+            if output is None and result.stdout:
+                try:
+                    response = json.loads(result.stdout)
+                except ValueError:
+                    response = None
+                if isinstance(response, dict):
+                    detail += "\n" + json.dumps({
+                        key: response[key] for key in ("message", "errors", "status")
+                        if key in response}, ensure_ascii=True)[:2000]
+            raise RuntimeError(detail)
         return result.stdout
 
     def api(self, path, *, method="GET", data=None):
@@ -101,3 +111,7 @@ class GitHub:
     def publish(self, release_id):
         return self.api(f"{self.prefix}/releases/{release_id}", method="PATCH",
                         data={"draft": False, "prerelease": False, "make_latest": "true"})
+
+    def create_tag(self, version, revision):
+        from release_key import create_tag
+        create_tag(self, version, revision)

@@ -163,6 +163,7 @@ jobs:
   publish:
     needs: [candidate, benchmark]
     runs-on: ubuntu-latest
+    environment: mindie-release
     timeout-minutes: 85
     defaults:
       run:
@@ -262,6 +263,7 @@ jobs:
         timeout-minutes: 12
         env:
           GH_TOKEN: ${{ github.token }}
+          MINDIE_RELEASE_DEPLOY_KEY: ${{ secrets.MINDIE_RELEASE_DEPLOY_KEY }}
         run: |
           python ../release-tool/.github/scripts/release_policy.py --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA"
           uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/publish_release.py \
