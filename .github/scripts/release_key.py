@@ -8,6 +8,8 @@ creates the exact tested tag; it never force-pushes or moves an existing tag.
 """
 from __future__ import annotations
 
+import argparse
+import json
 import os
 import shlex
 import subprocess
@@ -69,12 +71,29 @@ def create_tag(api, version, revision):
                 or existing["object"].get("sha") != revision):
             raise ValueError("existing release tag differs from the tested source")
         return
+    try:
+        _push(api, revision, "refs/tags/" + tag, dry_run=False)
+    except (RuntimeError, subprocess.TimeoutExpired):
+        observed = api.api(f"{api.prefix}/git/matching-refs/tags/{tag}")
+        if not any(row["ref"] == "refs/tags/" + tag
+                   and row["object"].get("sha") == revision for row in observed):
+            raise
+
+
+def check_key(api, revision):
+    """Exercise the same SSH credential without creating a tag or branch."""
+    _push(api, revision, "refs/tags/vmindie-credential-check-" + revision, dry_run=True)
+
+
+def _push(api, revision, reference, *, dry_run):
     secret = os.environ.get(SECRET)
     if not secret:
         raise ValueError("the main-only release deploy key is unavailable")
     with tempfile.TemporaryDirectory(prefix="mindie-release-push-") as directory:
         private, hosts = Path(directory) / "key", Path(directory) / "known_hosts"
-        private.write_text(secret, encoding="ascii", newline="\n")
+        # gh secret set trims trailing stdin whitespace; OpenSSH requires this LF.
+        private.write_text(secret.replace("\r\n", "\n").rstrip("\n") + "\n",
+                           encoding="ascii", newline="\n")
         private.chmod(0o600)
         hosts.write_text("".join("github.com " + key + "\n"
                                  for key in api.api("meta")["ssh_keys"]),
@@ -85,12 +104,24 @@ def create_tag(api, version, revision):
             "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile=" + hosts.as_posix()])
         environment.pop(SECRET, None)
         flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+        command = ["git", "push"]
+        if dry_run:
+            command.append("--dry-run")
         result = subprocess.run(
-            ["git", "push", "git@github.com:" + api.repository + ".git",
-             revision + ":refs/tags/" + tag], env=environment, capture_output=True,
+            [*command, "git@github.com:" + api.repository + ".git",
+             revision + ":" + reference], env=environment, capture_output=True,
             timeout=api.remaining(90), check=False, **flags)
         if result.returncode:
-            observed = api.api(f"{api.prefix}/git/matching-refs/tags/{tag}")
-            if not any(row["ref"] == "refs/tags/" + tag
-                       and row["object"].get("sha") == revision for row in observed):
-                raise RuntimeError("release tag push failed; no matching remote tag was observed")
+            detail = result.stderr.decode("utf-8", errors="replace").strip()
+            detail = detail.replace(secret, "<redacted release key>")
+            raise RuntimeError(f"release SSH push exited {result.returncode}: {detail[-4000:]}")
+
+
+if __name__ == "__main__":
+    from release_transport import GitHub
+    parser = argparse.ArgumentParser(description="Check the release SSH credential without writes")
+    parser.add_argument("--repository", required=True)
+    parser.add_argument("--revision", required=True)
+    args = parser.parse_args()
+    check_key(GitHub(args.repository, budget=150), args.revision)
+    print(json.dumps(dict(status="checked", repository=args.repository, dry_run=True)))
