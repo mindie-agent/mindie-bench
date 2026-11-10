@@ -2,6 +2,10 @@ name: reusable-publish-release
 
 on:
   workflow_call:
+    secrets:
+      MINDIE_RELEASE_DEPLOY_KEY:
+        description: Main-only environment key, explicitly forwarded by the caller
+        required: true
     inputs:
       benchmark-ref:
         description: Legacy input; callers must use the protected-main controller without a frozen tool pin
@@ -49,7 +53,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  credentials:
+    runs-on: ubuntu-latest
+    environment: mindie-release
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - name: Require the main-only release credential before long tests
+        env:
+          MINDIE_RELEASE_DEPLOY_KEY: ${{ secrets.MINDIE_RELEASE_DEPLOY_KEY }}
+        run: python -c 'import os; assert os.environ.get("MINDIE_RELEASE_DEPLOY_KEY"), "the main-only release deploy key is unavailable; the caller must explicitly forward its environment secret"'
+
   candidate:
+    needs: credentials
     runs-on: ubuntu-latest
     timeout-minutes: 75
     defaults:
