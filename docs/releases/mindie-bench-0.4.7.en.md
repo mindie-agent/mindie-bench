@@ -10,6 +10,8 @@ Code repositories publish from protected `main`, locking one controller commit f
 
 Each publication upgrades the full eight-component baseline; partial evidence cannot authorize publication. Codex additionally starts from formal `0.1.23`, independently upgrades components, binds external component commands, rejects a stale CAS, then recovers through real native startup and MCP discovery while preserving installed version floors and an explicitly disabled Stop hook. Staged and public evidence remain separate; latest-by-default selection is unchanged. The performance experiments that follow retain their original measurement scope and are not new experiments for these controller changes.
 
+The optional `knowledge` dependency now pins the exact formal `0.13.14` source, replacing a `0.13.13` version whose commit differed from its formal tag. Upgrade acceptance and publication validation install the complete declared runtime of the published old consumer, and public upgrades repeat in a separate clean job.
+
 ## Highlights
 
 - **Ascend 950DT (A5) End-to-End RSI A/B Task Suite (`tasks/zh-vague/*-rsi-zh`)**:
