@@ -51,7 +51,7 @@ concurrency:
 jobs:
   candidate:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     defaults:
       run:
         working-directory: candidate
@@ -153,18 +153,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python ../release-tool/.github/scripts/release_policy.py --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA" --ci-only
       - name: Install the exact candidate dependencies
+        timeout-minutes: 10
         env:
           SETUP_COMMAND: ${{ inputs.setup-command }}
         run: bash -e -o pipefail -c "$SETUP_COMMAND"
       - name: Require formal first-party dependency releases
-        timeout-minutes: 6
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_PYTHON: ${{ inputs.python }}
         run: |
-          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/check_release_dependencies.py \
+          uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/check_release_dependencies.py \
             --python "$CANDIDATE_PYTHON" --consumer ../release-consumer --repository "$GITHUB_REPOSITORY"
       - name: Run local component contracts
+        timeout-minutes: 30
         env:
           TEST_COMMAND: ${{ inputs.test-command }}
         run: bash -e -o pipefail -c "$TEST_COMMAND"
@@ -182,7 +184,7 @@ jobs:
     needs: [candidate, benchmark]
     runs-on: ubuntu-latest
     environment: mindie-release
-    timeout-minutes: 150
+    timeout-minutes: 240
     defaults:
       run:
         working-directory: candidate
@@ -267,14 +269,18 @@ jobs:
           # Match the public upload glob; uv build also creates a private .gitignore.
           files = sorted(path for path in assets.iterdir()
                          if path.is_file() and not path.name.startswith(".") and path.name != "SHA256SUMS")
-          (assets / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in files))
+          sums = []
+          for path in files:
+              with path.open("rb") as stream:
+                  sums.append(f"{hashlib.file_digest(stream, 'sha256').hexdigest()}  {path.name}\n")
+          (assets / "SHA256SUMS").write_text("".join(sums))
           PY
       - name: Upgrade from a released runtime with the unmodified old updater
-        timeout-minutes: 20
+        timeout-minutes: 25
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/upgrade_acceptance.py \
+          uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/upgrade_acceptance.py \
             --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
             --consumer ../release-consumer --policy ../release-tool/release-policy.json \
             --source . --root "$RUNNER_TEMP/old-client-upgrade" --assets "$RELEASE_ASSETS_DIR" \
@@ -286,16 +292,17 @@ jobs:
           node-version: '22'
       - name: Install the two real native hosts for old-client acceptance
         if: github.repository == 'mindie-agent/mindie-agent-codex'
+        timeout-minutes: 10
         run: |
           npm install --prefix "$RUNNER_TEMP/codex-legacy" @openai/codex@0.162.1
           npm install --prefix "$RUNNER_TEMP/codex-target" @openai/codex@0.162.0-alpha.2
       - name: Upgrade the old native plugin after independent and external component updates
         if: github.repository == 'mindie-agent/mindie-agent-codex'
-        timeout-minutes: 40
+        timeout-minutes: 130
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/native_upgrade_acceptance.py accept \
+          uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/native_upgrade_acceptance.py accept \
             --root "$RUNNER_TEMP/staged-native-upgrade" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
             --baseline-host "$RUNNER_TEMP/codex-legacy/node_modules/.bin/codex" \
             --target-host "$RUNNER_TEMP/codex-target/node_modules/.bin/codex" \
@@ -303,35 +310,15 @@ jobs:
             --output "$RELEASE_ASSETS_DIR/native-upgrade-acceptance.json"
           (cd "$RELEASE_ASSETS_DIR" && sha256sum native-upgrade-acceptance.json >> SHA256SUMS)
       - name: Publish verified draft and verify the public result
-        timeout-minutes: 12
+        timeout-minutes: 20
         env:
           GH_TOKEN: ${{ github.token }}
           MINDIE_RELEASE_DEPLOY_KEY: ${{ secrets.MINDIE_RELEASE_DEPLOY_KEY }}
         run: |
           python ../release-tool/.github/scripts/release_policy.py --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA" --workflow
-          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/publish_release.py \
+          uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/publish_release.py \
             --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
             --consumer ../release-consumer --assets "$RELEASE_ASSETS_DIR"
-      - name: Verify normal public discovery and upgrade after publication
-        timeout-minutes: 20
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/upgrade_acceptance.py \
-            --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
-            --consumer ../release-consumer --policy ../release-tool/release-policy.json --source . \
-            --root "$RUNNER_TEMP/public-client-upgrade" --output "$RUNNER_TEMP/public-upgrade.json"
-      - name: Verify normal public native-plugin discovery and activation
-        if: github.repository == 'mindie-agent/mindie-agent-codex'
-        timeout-minutes: 40
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/native_upgrade_acceptance.py accept \
-            --root "$RUNNER_TEMP/public-native-upgrade" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
-            --baseline-host "$RUNNER_TEMP/codex-legacy/node_modules/.bin/codex" \
-            --target-host "$RUNNER_TEMP/codex-target/node_modules/.bin/codex" \
-            --output "$RUNNER_TEMP/public-native-upgrade.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -339,5 +326,69 @@ jobs:
           path: |
             ${{ env.RELEASE_ASSETS_DIR }}/upgrade-acceptance.json
             ${{ env.RELEASE_ASSETS_DIR }}/native-upgrade-acceptance.json
+
+  verify-public:
+    needs: [candidate, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 190
+    defaults:
+      run:
+        working-directory: candidate
+    permissions:
+      contents: read
+    env:
+      RELEASE_VERSION: ${{ needs.candidate.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: candidate
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: ${{ needs.candidate.outputs.tool-ref }}
+          path: release-tool
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/knowledge
+          ref: 3c478a19b5542b38520c7f98b87a07f37e305021
+          path: release-consumer
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - name: Verify normal public discovery and upgrade after publication
+        timeout-minutes: 25
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/upgrade_acceptance.py \
+            --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
+            --consumer ../release-consumer --policy ../release-tool/release-policy.json --source . \
+            --root "$RUNNER_TEMP/public-client-upgrade" --output "$RUNNER_TEMP/public-upgrade.json"
+      - if: github.repository == 'mindie-agent/mindie-agent-codex'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install the native hosts in the clean public-verification job
+        if: github.repository == 'mindie-agent/mindie-agent-codex'
+        timeout-minutes: 10
+        run: |
+          npm install --prefix "$RUNNER_TEMP/codex-legacy" @openai/codex@0.162.1
+          npm install --prefix "$RUNNER_TEMP/codex-target" @openai/codex@0.162.0-alpha.2
+      - name: Verify normal public native-plugin discovery and activation
+        if: github.repository == 'mindie-agent/mindie-agent-codex'
+        timeout-minutes: 130
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/native_upgrade_acceptance.py accept \
+            --root "$RUNNER_TEMP/public-native-upgrade" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
+            --baseline-host "$RUNNER_TEMP/codex-legacy/node_modules/.bin/codex" \
+            --target-host "$RUNNER_TEMP/codex-target/node_modules/.bin/codex" \
+            --output "$RUNNER_TEMP/public-native-upgrade.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-public-upgrade-evidence
+          path: |
             ${{ runner.temp }}/public-upgrade.json
             ${{ runner.temp }}/public-native-upgrade.json

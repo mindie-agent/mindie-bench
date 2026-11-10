@@ -60,8 +60,14 @@ def main() -> None:
         return
     if not args.python or not args.consumer:
         parser.error("dependency validation requires --python and --consumer")
-    from consumer_contract import verify_dependency
+    from consumer_contract import load_consumer, verify_dependency
 
+    load_consumer(args.consumer)
+    from mindie_knowledge.component_runtime import read_versions
+
+    candidate = next((name for name, repo in COMPONENTS.items() if repo == args.repository),
+                     "mindie-knowledge")
+    read_versions(args.python, [candidate])
     flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
     result = subprocess.run([
         args.python, "-I", str(Path(__file__).resolve()),
