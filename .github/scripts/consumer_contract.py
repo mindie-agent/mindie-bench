@@ -89,6 +89,7 @@ def validate_evidence(repository, version, revision, assets, read):
     if (upgrade.get("schema") != "mindie-upgrade-acceptance/1"
             or upgrade.get("status") != "passed" or upgrade.get("repository") != repository
             or upgrade.get("version") != version or upgrade.get("revision") != revision
+            or upgrade.get("scope") != "all_shared_components"
             or not upgrade.get("consumer_revision")
             or upgrade.get("installed_revision") != revision):
         raise ValueError("old-client upgrade evidence does not authorize this publication")
