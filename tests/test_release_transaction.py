@@ -53,6 +53,7 @@ class ReleaseAPI:
         self.events = []
         self.disconnect = None
         self.corrupt = None
+        self.serial = 0
 
     def release(self, tag):
         return copy.deepcopy(self.current)
@@ -79,9 +80,18 @@ class ReleaseAPI:
         assert self.current["draft"], "upload exposed partial public assets"
         self.events.append("upload:" + path.name)
         self.payloads[path.name] = path.read_bytes()
+        self.serial += 1
         self.current["assets"].append(dict(
-            id=len(self.payloads), name=path.name, size=path.stat().st_size, state="uploaded"))
+            id=self.serial, name=path.name, size=path.stat().st_size, state="uploaded"))
         self.drop("upload")
+
+    def delete_asset(self, asset_id):
+        assert self.current["draft"], "a public artifact was changed"
+        row = next(row for row in self.current["assets"] if row["id"] == asset_id)
+        self.events.append("delete:" + row["name"])
+        del self.payloads[row["name"]]
+        self.current["assets"].remove(row)
+        self.drop("delete")
 
     def asset(self, row):
         return self.payloads[row["name"]]
@@ -178,6 +188,27 @@ def test_corrupt_uploaded_package_prevents_publication(bundle):
     with pytest.raises(ValueError, match="artifact digest mismatch"):
         invoke(api, bundle)
     assert api.current["draft"] and "publish" not in api.events
+
+
+@pytest.mark.parametrize("lost_delete_response", [False, True])
+def test_retry_refreshes_only_the_owned_private_draft_and_reconciles_deletion(
+        bundle, lost_delete_response):
+    api = ReleaseAPI()
+    api.corrupt = "mindie_knowledge-0.13.2-py3-none-any.whl"
+    with pytest.raises(ValueError, match="artifact digest mismatch"):
+        invoke(api, bundle)
+    path = bundle / "upgrade-acceptance.json"
+    report = json.loads(path.read_bytes())
+    report["retry_measurement"] = "new successful run of the same source"
+    path.write_text(json.dumps(report))
+    write_sums(bundle)
+    api.corrupt = None
+    api.disconnect = "delete" if lost_delete_response else None
+    assert invoke(api, bundle)["status"] == "published"
+    assert api.events.count("create-draft") == api.events.count("publish") == 1
+    assert api.events.count("delete:upgrade-acceptance.json") == 1
+    assert api.payloads["upgrade-acceptance.json"] == path.read_bytes()
+    assert len(api.current["assets"]) == len(api.payloads) == len(list(bundle.iterdir()))
 
 
 def test_missing_sdist_is_rejected_by_the_unmodified_consumer(bundle):

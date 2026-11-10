@@ -22,6 +22,28 @@ def marker(revision):
     return f"<!-- mindie-release-source:{revision} -->"
 
 
+def owned_draft(api, tag, revision):
+    release = api.release(tag)
+    if (release is None or not release["draft"]
+            or release.get("target_commitish") != revision
+            or marker(revision) not in release.get("body", "")):
+        raise ValueError("existing draft is not owned by this source transaction")
+    return release
+
+
+def remove_private_asset(api, tag, revision, asset_id):
+    owned_draft(api, tag, revision)
+    try:
+        api.delete_asset(asset_id)
+    except Exception:
+        observed = owned_draft(api, tag, revision)
+        if any(row["id"] == asset_id for row in observed["assets"]):
+            raise
+    observed = owned_draft(api, tag, revision)
+    if any(row["id"] == asset_id for row in observed["assets"]):
+        raise ValueError("private asset deletion was not observed")
+
+
 def verify_remote(api, release, *, consumer, version, revision):
     if release["tag_name"] != "v" + version or release.get("prerelease"):
         raise ValueError("release identity differs from the candidate")
@@ -64,6 +86,8 @@ def publish(api, directory, *, consumer, version, revision):
     release = api.release(tag)
     if release is not None and not release["draft"]:
         verify_remote(api, release, consumer=consumer, version=version, revision=revision)
+        if release.get("immutable") is not True:
+            raise ValueError("the existing public release is not immutable")
         return dict(status="already_published", tag=tag, revision=revision)
     api.require_new_version(version)
     expected_marker = marker(revision)
@@ -76,18 +100,21 @@ def publish(api, directory, *, consumer, version, revision):
             release = api.release(tag)
             if release is None:
                 raise
-    if (not release["draft"] or release.get("target_commitish") != revision
-            or expected_marker not in release.get("body", "")):
-        raise ValueError("existing draft is not owned by this source transaction")
+    release = owned_draft(api, tag, revision)
+    for row in release["assets"]:
+        if row["name"] not in local:
+            remove_private_asset(api, tag, revision, row["id"])
     for path in files:
-        release = api.release(tag)
+        release = owned_draft(api, tag, revision)
         existing = next((row for row in release["assets"] if row["name"] == path.name), None)
         if existing is not None:
             with path.open("rb") as stream:
                 expected = hashlib.file_digest(stream, "sha256").hexdigest()
-            if api.asset_digest(existing) != expected:
-                raise ValueError(f"existing draft artifact differs: {path.name}")
-            continue
+            if existing.get("state") == "uploaded" and api.asset_digest(existing) == expected:
+                continue
+            # Reports may legitimately change when a failed run repeats the
+            # same source. Only this transaction's still-private draft changes.
+            remove_private_asset(api, tag, revision, existing["id"])
         try:
             api.upload(tag, path)
         except Exception:
