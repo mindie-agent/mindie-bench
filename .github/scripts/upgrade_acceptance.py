@@ -105,7 +105,7 @@ def accept(args):
         requirements.extend(
             f"{row['package']} @ git+https://github.com/{repo}@{row['revision']}"
             for repo, row in policy["repositories"].items()
-            if row["package"] in components and row["package"] not in {"mindie-bench", "npu-top"})
+            if row["package"] in components and row["package"] != "mindie-bench")
     run(["uv", "pip", "install", "--python", python, "--override", overrides, *requirements],
         timeout=180)
     installed = read_inventory(python)

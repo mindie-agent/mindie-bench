@@ -9,6 +9,10 @@ permissions:
   actions: read
   deployments: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   contracts:
     strategy:
