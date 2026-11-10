@@ -109,6 +109,9 @@ class GitHub:
     def upload(self, tag, path):
         self.run(["release", "upload", tag, str(path), "--repo", self.repository], timeout=120)
 
+    def delete_asset(self, asset_id):
+        self.api(f"{self.prefix}/releases/assets/{asset_id}", method="DELETE")
+
     def publish(self, release_id):
         return self.api(f"{self.prefix}/releases/{release_id}", method="PATCH",
                         data={"draft": False, "prerelease": False, "make_latest": "true"})
