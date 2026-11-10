@@ -108,6 +108,12 @@ def accept(args):
     run(["uv", "pip", "install", "--python", python, "--override", overrides, *requirements],
         timeout=180)
     installed = read_inventory(python)
+    required = set(components) - {"mindie-bench"}
+    if package in components:
+        required.add(package)
+    if not required <= installed.keys():
+        raise ValueError("the released baseline omits shared components: "
+                         + ", ".join(sorted(required - installed.keys())))
     catalog = CandidateCatalog(cache=root / "release-cache", budget=120)
     selected = discover(python, {}, catalog=catalog, force=True)
     distribution = package if package not in components and not native_tree else None
