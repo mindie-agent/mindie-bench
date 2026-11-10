@@ -267,7 +267,11 @@ jobs:
           # Match the public upload glob; uv build also creates a private .gitignore.
           files = sorted(path for path in assets.iterdir()
                          if path.is_file() and not path.name.startswith(".") and path.name != "SHA256SUMS")
-          (assets / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in files))
+          sums = []
+          for path in files:
+              with path.open("rb") as stream:
+                  sums.append(f"{hashlib.file_digest(stream, 'sha256').hexdigest()}  {path.name}\n")
+          (assets / "SHA256SUMS").write_text("".join(sums))
           PY
       - name: Upgrade from a released runtime with the unmodified old updater
         timeout-minutes: 20
