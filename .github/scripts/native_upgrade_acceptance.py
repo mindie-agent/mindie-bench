@@ -3,8 +3,9 @@
 [Invariants] Native installation, component discovery/build and idle activation
 are production code. Staging changes only the plugin release-list transport.
 Independent component floors, external commands and explicit hook disable survive.
-[Timeouts & Locks] The workflow grants 40 minutes; each install/build/native API
-call keeps its own bounded production budget and the profile is exclusively owned.
+[Timeouts & Locks] The workflow grants 130 minutes for baseline/native installs,
+1860s bootstrap, 180s setup, 2160s component staging, 20s inventory, 2700s
+upgrade, 180s native readback and cleanup. The profile is exclusively owned.
 [Side-Effect Policy] Writes only the supplied isolated native acceptance profile.
 """
 from __future__ import annotations
@@ -46,6 +47,9 @@ def environment(root, host):
     )
     for name in ("CODEX_THREAD_ID", "CODEX_APP_RUNTIME_CLI_PATH"):
         env.pop(name, None)
+    if os.name == "nt":
+        env.update(GIT_CONFIG_COUNT="3", GIT_CONFIG_KEY_2="http.sslBackend",
+                   GIT_CONFIG_VALUE_2="schannel")
     (root / "diagnostics-disabled.json").write_text(json.dumps({
         "schema": "mindie.diagnostics.reporting.v1", "purpose": "tool_fault_reporting",
         "decision": "disabled", "repository": "mindie-agent/mindie-agent-codex",
@@ -74,8 +78,12 @@ def baseline(args, env):
             "install", "--knowledge-python", runtime["python"],
             "--config", env["MINDIE_AGENT_CONFIG"], "--root", args.root / "knowledge",
             "--no-public-feed"], env, timeout=180)
-    child(["seed", "--source", source, "--root", args.root,
-           "--baseline-host", args.baseline_host], env, python=runtime["python"], timeout=1500)
+    seed_args = ["seed", "--source", source, "--root", args.root,
+                 "--baseline-host", args.baseline_host, "--target-host", args.target_host,
+                 "--version", args.version, "--revision", args.revision]
+    if args.metadata:
+        seed_args.extend(["--metadata", args.metadata])
+    child(seed_args, env, python=runtime["python"], timeout=2160)
 
 
 def seed(args):
@@ -103,6 +111,11 @@ def seed(args):
     if current["python"] == before["python"] or not current.get("component_release"):
         raise ValueError("independent component generation was not activated")
     inventory = read_inventory(current["python"])
+    stage_args = ["stage-native", "--root", args.root, "--target-host", args.target_host,
+                  "--version", args.version, "--revision", args.revision]
+    if args.metadata:
+        stage_args.extend(["--metadata", args.metadata])
+    child(stage_args, dict(os.environ), python=current["python"], timeout=600)
     overrides = args.root / "external-overrides.txt"
     overrides.write_text("".join(
         f"{name} @ git+https://github.com/{row['repository']}@{row['revision']}\n"
@@ -127,6 +140,49 @@ def seed(args):
                           external_components=["sim", "profiler"], stop_enabled=False)))
 
 
+def stage_native(args):
+    config = Path(os.environ["MINDIE_AGENT_CONFIG"])
+    adapter = json.loads(config.read_text(encoding="utf-8"))
+    sys.path.insert(0, adapter["runtime_scripts"])
+    from harness_update import _native_install, harness_version, installed
+    from mindie_knowledge.releases import select_release
+    from mindie_knowledge.releases_io import fetch_releases, verify_release_source
+    from native_context import environment as native_environment
+    from release_activation import _atomic
+    from session_gate import runtime_binding
+    from update_lock import update_lock
+    from update_trigger import directory
+
+    env = dict(os.environ, CODEX_APP_RUNTIME_CLI_PATH=str(args.target_host))
+    env.update(native_environment(adapter))
+    before = installed(env["MINDIE_CODEX_BIN"], env)
+    if args.metadata:
+        metadata = json.loads(args.metadata.read_text(encoding="utf-8"))
+    else:
+        selected = select_release(
+            fetch_releases("mindie-agent/mindie-agent-codex", minimum_version=before["version"]),
+            repository="mindie-agent/mindie-agent-codex", harness_name="codex",
+            harness_version=harness_version(env["MINDIE_CODEX_BIN"], env),
+            installed_version=before["version"])
+        if selected["status"] != "candidate":
+            raise ValueError("normal public discovery did not select a newer native release")
+        metadata = selected["candidate"]["metadata"]
+    metadata = verify_release_source(metadata, repository="mindie-agent/mindie-agent-codex",
+                                     harness_name="codex")
+    if metadata["version"] != args.version or metadata["source"]["sha"] != args.revision:
+        raise ValueError("native staging did not select the tested immutable source")
+    root = directory(config)
+    pending = _native_install(env["MINDIE_CODEX_BIN"], env, root, metadata, before)
+    # Persist the normal pre-build snapshot, then let the caller change its
+    # external commands. No activation writer has been started at this point.
+    with update_lock(config):
+        pending["activation"] = dict(
+            status="not_started",
+            expected_binding=runtime_binding(json.loads(config.read_text(encoding="utf-8"))))
+        _atomic(root / "native.json", pending)
+    print(json.dumps(dict(status="installed", version=args.version, activation_started=False)))
+
+
 def upgrade(args):
     config = Path(os.environ["MINDIE_AGENT_CONFIG"])
     before = json.loads(config.read_text(encoding="utf-8"))
@@ -141,8 +197,11 @@ def upgrade(args):
                  metadata=metadata)]
     from harness_update import check
     result = check(config, force=True)
-    if result["status"] != "active":
-        raise ValueError(f"legacy native upgrade did not activate: {result}")
+    if not (result["status"] == "deferred" and result.get("reason") == "installation_changed"
+            and result.get("execution") == "not_started"):
+        raise ValueError(f"legacy native upgrade did not reject its stale preparation snapshot: {result}")
+    if json.loads(config.read_text(encoding="utf-8")) != before:
+        raise ValueError("the rejected stale native attempt changed canonical configuration")
     print(json.dumps(result))
 
 
@@ -154,13 +213,6 @@ def verify(args):
     from mindie_knowledge.component_runtime import read_inventory
     from native_hooks import NativeHooks
 
-    source = Path(current["runtime_scripts"]).parent
-    manifest = json.loads((source / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
-    if manifest["version"] != args.version:
-        raise ValueError("the activated native plugin is not the candidate")
-    for name, python, _module in managed_commands(current).values():
-        if str(python) != str(current["python"]):
-            raise ValueError(f"external component was not rebound into the verified generation: {name}")
     with NativeHooks(str(args.target_host), dict(os.environ)) as api:
         hooks = api.hooks()
         if len(hooks) != 5 or next(row for row in hooks if row["eventName"] == "stop")["enabled"]:
@@ -173,6 +225,14 @@ def verify(args):
         if ("remote_probe" not in remote["tools"] or "diagnostics_status" not in tools["tools"]
                 or any("knowledge_" in name for row in rows for name in row["tools"])):
             raise ValueError("fresh native MCP discovery differs from the public contract")
+    current = json.loads(config.read_text(encoding="utf-8"))
+    source = Path(current["runtime_scripts"]).parent
+    manifest = json.loads((source / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
+    if manifest["version"] != args.version:
+        raise ValueError("native startup did not activate the candidate after stale CAS rejection")
+    for name, python, _module in managed_commands(current).values():
+        if str(python) != str(current["python"]):
+            raise ValueError(f"external component was not rebound into the verified generation: {name}")
     print(json.dumps(dict(installed=read_inventory(current["python"]),
                           disabled_stop_preserved=True, external_components_rebound=True,
                           native_plugin=args.version, remote_tools=len(remote["tools"]),
@@ -185,12 +245,13 @@ def accept(args):
     baseline(args, env)
     config = Path(env["MINDIE_AGENT_CONFIG"])
     before = json.loads(config.read_text(encoding="utf-8"))
-    baseline_inventory = child(["inventory", "--root", args.root], env, python=before["python"])
+    baseline_inventory = child(["inventory", "--root", args.root], env,
+                               python=before["python"], timeout=20)
     env["CODEX_APP_RUNTIME_CLI_PATH"] = str(args.target_host)
     argv = ["upgrade", "--root", args.root, "--version", args.version]
     if args.metadata:
         argv.extend(["--metadata", args.metadata])
-    child(argv, env, python=before["python"], timeout=2100)
+    child(argv, env, python=before["python"], timeout=2700)
     current = json.loads(config.read_text(encoding="utf-8"))
     report = child(["verify", "--root", args.root, "--version", args.version,
                     "--target-host", args.target_host], env, python=current["python"], timeout=180)
@@ -204,6 +265,7 @@ def accept(args):
         repository="mindie-agent/mindie-agent-codex", version=args.version,
         revision=args.revision, baseline_plugin="0.1.23", baseline=baseline_inventory,
         scope="native_codex_old_client",
+        stale_snapshot_rejected=True, native_startup_recovered=True,
         transport="staged_candidate" if args.metadata else "public_release",
     )
     args.output.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n",
@@ -212,7 +274,8 @@ def accept(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("accept", "bootstrap", "seed", "upgrade", "verify", "inventory"))
+    parser.add_argument("mode", choices=(
+        "accept", "bootstrap", "seed", "stage-native", "upgrade", "verify", "inventory"))
     parser.add_argument("--root", type=Path, required=True)
     for name in ("source", "baseline-host", "target-host", "metadata", "output"):
         parser.add_argument("--" + name, type=Path)
@@ -229,7 +292,8 @@ def main():
         from mindie_knowledge.component_runtime import read_inventory
         print(json.dumps(read_inventory(config["python"])))
     else:
-        {"accept": accept, "seed": seed, "upgrade": upgrade, "verify": verify}[args.mode](args)
+        {"accept": accept, "seed": seed, "stage-native": stage_native,
+         "upgrade": upgrade, "verify": verify}[args.mode](args)
 
 
 if __name__ == "__main__":

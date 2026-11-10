@@ -89,6 +89,7 @@ def validate_evidence(repository, version, revision, assets, read):
     if (upgrade.get("schema") != "mindie-upgrade-acceptance/1"
             or upgrade.get("status") != "passed" or upgrade.get("repository") != repository
             or upgrade.get("version") != version or upgrade.get("revision") != revision
+            or upgrade.get("scope") != "all_shared_components"
             or not upgrade.get("consumer_revision")
             or upgrade.get("installed_revision") != revision):
         raise ValueError("old-client upgrade evidence does not authorize this publication")
@@ -100,7 +101,9 @@ def validate_evidence(repository, version, revision, assets, read):
                 or native.get("scope") != "native_codex_old_client"
                 or native.get("baseline_plugin") != "0.1.23"
                 or native.get("external_components_rebound") is not True
-                or native.get("disabled_stop_preserved") is not True):
+                or native.get("disabled_stop_preserved") is not True
+                or native.get("stale_snapshot_rejected") is not True
+                or native.get("native_startup_recovered") is not True):
             raise ValueError("real native old-client upgrade evidence is required")
     return sums
 

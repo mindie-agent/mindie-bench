@@ -30,7 +30,7 @@ def bundle(tmp_path):
     (tmp_path / "mindie_knowledge-0.13.2-py3-none-any.whl").write_bytes(b"wheel payload")
     (tmp_path / "mindie_knowledge-0.13.2.tar.gz").write_bytes(b"sdist payload")
     (tmp_path / "upgrade-acceptance.json").write_text(json.dumps(dict(
-        schema="mindie-upgrade-acceptance/1", status="passed",
+        schema="mindie-upgrade-acceptance/1", status="passed", scope="all_shared_components",
         repository="mindie-agent/knowledge", version=VERSION, revision=REVISION,
         installed_revision=REVISION, consumer_revision="ac4a89e993c89deba5a4a629e1cd89d61e57c843",
     )))
@@ -175,6 +175,18 @@ def test_lost_response_reconciles_the_effect_instead_of_replaying_it(bundle, sta
 
 def test_a_failed_upgrade_never_creates_a_draft_or_tag(bundle):
     (bundle / "upgrade-acceptance.json").write_text('{"status":"failed"}')
+    write_sums(bundle)
+    api = ReleaseAPI()
+    with pytest.raises(ValueError, match="old-client upgrade evidence"):
+        invoke(api, bundle)
+    assert not api.events and api.current is None
+
+
+def test_partial_component_acceptance_cannot_authorize_full_publication(bundle):
+    path = bundle / "upgrade-acceptance.json"
+    report = json.loads(path.read_bytes())
+    report["scope"] = "released_component_updater"
+    path.write_text(json.dumps(report))
     write_sums(bundle)
     api = ReleaseAPI()
     with pytest.raises(ValueError, match="old-client upgrade evidence"):
