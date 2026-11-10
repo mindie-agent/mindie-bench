@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from urllib.parse import quote
 
 from consumer_contract import load_consumer
 from release_transport import GitHub
@@ -41,6 +42,20 @@ def run(argv, *, timeout, cwd=None):
     if result.returncode:
         raise RuntimeError(result.stderr.decode("utf-8", errors="replace")[-6000:])
     return result.stdout
+
+
+def baseline_requirement(repository, entry):
+    url = f"git+https://github.com/{repository}@{entry['revision']}"
+    project = entry.get("project", ".")
+    if project != ".":
+        url += "#subdirectory=" + quote(project, safe="/")
+    return f"{entry['package']} @ {url}"
+
+
+def baseline_install_command(python, overrides, requirements):
+    # The candidate's uv settings must not replace the published baseline pins.
+    return ["uv", "--no-config", "pip", "install", "--python", python,
+            "--override", overrides, *requirements]
 
 
 def accept(args):
@@ -91,22 +106,20 @@ def accept(args):
             return super().asset(name, tag, filename)
 
     current = root / "current"
-    run(["uv", "venv", "--python", sys.executable, current], timeout=30)
+    run(["uv", "--no-config", "venv", "--python", sys.executable, current], timeout=30)
     python = current / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     overrides = root / "baseline-overrides.txt"
     overrides.write_text("".join(
-        f"{row['package']} @ git+https://github.com/{repo}@{row['revision']}\n"
+        baseline_requirement(repo, row) + "\n"
         for repo, row in policy["repositories"].items() if row["package"] in components),
         encoding="utf-8", newline="\n")
     native_tree = entry.get("kind") == "native_tree"
-    requirements = ([] if native_tree else [
-        f"{package} @ git+https://github.com/{args.repository}@{entry['revision']}"])
+    requirements = [] if native_tree else [baseline_requirement(args.repository, entry)]
     requirements.extend(
-        f"{row['package']} @ git+https://github.com/{repo}@{row['revision']}"
+        baseline_requirement(repo, row)
         for repo, row in policy["repositories"].items()
         if row["package"] in components and row["package"] not in {"mindie-bench", package})
-    run(["uv", "pip", "install", "--python", python, "--override", overrides, *requirements],
-        timeout=180)
+    run(baseline_install_command(python, overrides, requirements), timeout=180)
     installed = read_inventory(python)
     required = set(components) - {"mindie-bench"}
     if package in components:
