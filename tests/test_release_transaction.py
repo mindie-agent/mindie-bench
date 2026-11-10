@@ -222,3 +222,24 @@ def test_late_publication_of_an_older_version_cannot_replace_latest(bundle):
     with pytest.raises(ValueError, match="advance the highest formal version"):
         invoke(api, bundle)
     assert not api.events
+
+
+def test_runner_audit_uses_the_actual_non_admin_ruleset_view():
+    import release_policy
+
+    rows = json.loads((FIXTURE / "public-rulesets.json").read_bytes())
+
+    class PublicAPI:
+        prefix = "repos/mindie-agent/mindie-bench"
+
+        def api(self, path):
+            return rows[path]
+
+    assert release_policy.verify(PublicAPI(), workflow=True)["tag_creation"] == "restricted"
+    with pytest.raises(KeyError, match="immutable-releases"):
+        release_policy.verify(PublicAPI())
+    create = next(row for row in rows.values()
+                  if isinstance(row, dict) and row.get("name") == "mindie-release-create")
+    create["enforcement"] = "disabled"
+    with pytest.raises(ValueError, match="publication policy is missing or differs"):
+        release_policy.verify(PublicAPI(), workflow=True)

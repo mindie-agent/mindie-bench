@@ -1,0 +1,109 @@
+{
+  "repos/mindie-agent/mindie-bench/rulesets": [
+    {
+      "id": 26931292,
+      "name": "mindie-release-create",
+      "target": "tag",
+      "source_type": "Repository",
+      "source": "mindie-agent/mindie-bench",
+      "enforcement": "active",
+      "node_id": "RRS_lACqUmVwb3NpdG9yec5U3HFPzgGa8Fw",
+      "_links": {
+        "self": {
+          "href": "https://api.github.com/repos/mindie-agent/mindie-bench/rulesets/26931292"
+        },
+        "html": {
+          "href": "https://github.com/mindie-agent/mindie-bench/rules/26931292"
+        }
+      },
+      "created_at": "2026-11-10T09:49:53.635Z",
+      "updated_at": "2026-11-10T10:08:59.978Z"
+    },
+    {
+      "id": 26931295,
+      "name": "mindie-release-immutable-tags",
+      "target": "tag",
+      "source_type": "Repository",
+      "source": "mindie-agent/mindie-bench",
+      "enforcement": "active",
+      "node_id": "RRS_lACqUmVwb3NpdG9yec5U3HFPzgGa8F8",
+      "_links": {
+        "self": {
+          "href": "https://api.github.com/repos/mindie-agent/mindie-bench/rulesets/26931295"
+        },
+        "html": {
+          "href": "https://github.com/mindie-agent/mindie-bench/rules/26931295"
+        }
+      },
+      "created_at": "2026-11-10T09:49:54.927Z",
+      "updated_at": "2026-11-10T10:09:01.312Z"
+    }
+  ],
+  "repos/mindie-agent/mindie-bench/rulesets/26931292": {
+    "id": 26931292,
+    "name": "mindie-release-create",
+    "target": "tag",
+    "source_type": "Repository",
+    "source": "mindie-agent/mindie-bench",
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": {
+        "exclude": [],
+        "include": [
+          "~ALL"
+        ]
+      }
+    },
+    "rules": [
+      {
+        "type": "creation"
+      }
+    ],
+    "node_id": "RRS_lACqUmVwb3NpdG9yec5U3HFPzgGa8Fw",
+    "created_at": "2026-11-10T09:49:53.635Z",
+    "updated_at": "2026-11-10T10:08:59.978Z",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/mindie-agent/mindie-bench/rulesets/26931292"
+      },
+      "html": {
+        "href": "https://github.com/mindie-agent/mindie-bench/rules/26931292"
+      }
+    }
+  },
+  "repos/mindie-agent/mindie-bench/rulesets/26931295": {
+    "id": 26931295,
+    "name": "mindie-release-immutable-tags",
+    "target": "tag",
+    "source_type": "Repository",
+    "source": "mindie-agent/mindie-bench",
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": {
+        "exclude": [],
+        "include": [
+          "~ALL"
+        ]
+      }
+    },
+    "rules": [
+      {
+        "type": "update"
+      },
+      {
+        "type": "deletion"
+      }
+    ],
+    "node_id": "RRS_lACqUmVwb3NpdG9yec5U3HFPzgGa8F8",
+    "created_at": "2026-11-10T09:49:54.927Z",
+    "updated_at": "2026-11-10T10:09:01.312Z",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/mindie-agent/mindie-bench/rulesets/26931295"
+      },
+      "html": {
+        "href": "https://github.com/mindie-agent/mindie-bench/rules/26931295"
+      }
+    }
+  }
+}

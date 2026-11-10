@@ -56,15 +56,21 @@ def verify(api, *, workflow=False):
     summaries = api.api(f"{api.prefix}/rulesets")
     actual = {row["name"]: api.api(f"{api.prefix}/rulesets/{row['id']}")
               for row in summaries if row["name"].startswith("mindie-release-")}
-    actors = actual.get("mindie-release-create", {}).get("bypass_actors", [])
-    if (len(actors) != 1 or actors[0].get("actor_type") != "DeployKey"
-            or actors[0].get("actor_id") is not None):
-        raise ValueError("version tags require the dedicated deploy-key identity")
     for expected in rulesets():
         row = actual.get(expected["name"], {})
-        for key in ("target", "enforcement", "conditions", "rules", "bypass_actors"):
+        # GitHub omits bypass identities from non-administrator responses.
+        # Compare public rules here; the administrator deployment audit also
+        # verifies identities and private environment settings below.
+        keys = ("target", "enforcement", "conditions", "rules")
+        if not workflow:
+            keys += ("bypass_actors",)
+        for key in keys:
             if row.get(key) != expected[key]:
                 raise ValueError(f"publication policy is missing or differs: {expected['name']} {key}")
+    if workflow:
+        return dict(tag_creation="restricted", tag_mutation="restricted",
+                    private_policy="administrator-deployment-audit",
+                    immutable_releases="publish-readback-required")
     environment = api.api(f"{api.prefix}/environments/{ENVIRONMENT}")
     if environment.get("deployment_branch_policy") != {
             "protected_branches": False, "custom_branch_policies": True}:
@@ -73,8 +79,7 @@ def verify(api, *, workflow=False):
         f"{api.prefix}/environments/{ENVIRONMENT}/deployment-branch-policies")["branch_policies"]
     if len(policies) != 1 or policies[0]["name"] != "main" or policies[0]["type"] != "branch":
         raise ValueError("the release deploy key must be restricted to main")
-    return dict(immutable_releases="publish-readback-required" if workflow else True,
-                tag_creation="main-only-deploy-key",
+    return dict(immutable_releases=True, tag_creation="main-only-deploy-key",
                 tag_mutation="denied")
 
 
