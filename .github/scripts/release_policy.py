@@ -54,12 +54,33 @@ def apply(api):
         path = f"{api.prefix}/rulesets" + (f"/{existing['id']}" if existing else "")
         api.api(path, method="PUT" if existing else "POST", data=rule)
     api.api(f"{api.prefix}/immutable-releases", method="PUT")
+    branch = api.api(f"{api.prefix}/branches/main")
+    previous = (api.api(f"{api.prefix}/branches/main/protection")
+                if branch.get("protected") else {})
+    checks = (previous.get("required_status_checks") or {}).get("checks", [])
+    checks = [row for row in checks if row["context"] not in {"release-ready", CHECKLIST}]
+    checks.extend(dict(context=name, app_id=ACTION_APP) for name in ("release-ready", CHECKLIST))
+    reviews = previous.get("required_pull_request_reviews") or {}
+    review_settings = {key: reviews[key] for key in (
+        "dismiss_stale_reviews", "require_code_owner_reviews",
+        "required_approving_review_count", "require_last_push_approval") if key in reviews}
+    review_settings.setdefault("required_approving_review_count", 0)
+    restrictions = previous.get("restrictions")
+    if restrictions:
+        restrictions = {
+            "users": [row["login"] for row in restrictions.get("users", [])],
+            "teams": [row["slug"] for row in restrictions.get("teams", [])],
+            "apps": [row["slug"] for row in restrictions.get("apps", [])],
+        }
     protection = dict(
-        required_status_checks=dict(strict=True, contexts=["release-ready", CHECKLIST]),
-        enforce_admins=True,
-        required_pull_request_reviews=dict(required_approving_review_count=0),
-        restrictions=None,
+        required_status_checks=dict(strict=True, checks=checks), enforce_admins=True,
+        required_pull_request_reviews=review_settings, restrictions=restrictions,
     )
+    for name in ("required_linear_history", "required_conversation_resolution",
+                 "allow_force_pushes", "allow_deletions", "block_creations",
+                 "lock_branch", "allow_fork_syncing"):
+        if name in previous:
+            protection[name] = previous[name]["enabled"]
     api.api(f"{api.prefix}/branches/main/protection", method="PUT", data=protection)
     return verify(api)
 
