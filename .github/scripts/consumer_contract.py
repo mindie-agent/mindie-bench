@@ -93,8 +93,8 @@ def validate_evidence(repository, version, revision, assets, read):
     return sums
 
 
-def verify_dependency(consumer, repository, version, revision):
-    api = GitHub(repository)
+def verify_dependency(consumer, repository, version, revision, *, budget=120):
+    api = GitHub(repository, budget=budget)
     release = api.release("v" + version)
     if release is None:
         raise ValueError(f"dependency is not published: {repository} v{version}")

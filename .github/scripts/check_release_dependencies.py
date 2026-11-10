@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import time
 
 from consumer_contract import verify_dependency
 
@@ -35,11 +36,16 @@ def main() -> None:
     result = subprocess.run([args.python, "-I", script], capture_output=True,
                             check=True, timeout=20)
     installed = json.loads(result.stdout)
+    deadline = time.monotonic() + 300
     for name, repository in COMPONENTS.items():
         if repository == args.repository or name not in installed:
             continue
         row = installed[name]
-        verify_dependency(args.consumer, repository, row["version"], row["revision"])
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("first-party dependency verification budget exhausted")
+        verify_dependency(args.consumer, repository, row["version"], row["revision"],
+                          budget=remaining)
         print(f"{repository} v{row['version']} {row['revision']}: published consumer verified")
 
 

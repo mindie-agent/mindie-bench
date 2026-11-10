@@ -5,6 +5,9 @@ on:
 
 permissions:
   contents: write
+  actions: read
+  checks: read
+  deployments: read
 
 jobs:
   release:

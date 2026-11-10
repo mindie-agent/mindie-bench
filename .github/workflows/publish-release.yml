@@ -39,6 +39,9 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  checks: read
+  deployments: read
 
 concurrency:
   group: publish-${{ github.repository }}
@@ -140,6 +143,7 @@ jobs:
           SETUP_COMMAND: ${{ inputs.setup-command }}
         run: bash -e -o pipefail -c "$SETUP_COMMAND"
       - name: Require formal first-party dependency releases
+        timeout-minutes: 6
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_PYTHON: ${{ inputs.python }}
@@ -170,6 +174,9 @@ jobs:
         working-directory: candidate
     permissions:
       contents: write
+      actions: read
+      checks: read
+      deployments: read
     env:
       RELEASE_VERSION: ${{ needs.candidate.outputs.version }}
     steps:
