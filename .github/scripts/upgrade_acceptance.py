@@ -52,6 +52,12 @@ def baseline_requirement(repository, entry):
     return f"{entry['package']} @ {url}"
 
 
+def baseline_install_command(python, overrides, requirements):
+    # The candidate's uv settings must not replace the published baseline pins.
+    return ["uv", "--no-config", "pip", "install", "--python", python,
+            "--override", overrides, *requirements]
+
+
 def accept(args):
     root = Path(args.root).resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -100,7 +106,7 @@ def accept(args):
             return super().asset(name, tag, filename)
 
     current = root / "current"
-    run(["uv", "venv", "--python", sys.executable, current], timeout=30)
+    run(["uv", "--no-config", "venv", "--python", sys.executable, current], timeout=30)
     python = current / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     overrides = root / "baseline-overrides.txt"
     overrides.write_text("".join(
@@ -113,8 +119,7 @@ def accept(args):
         baseline_requirement(repo, row)
         for repo, row in policy["repositories"].items()
         if row["package"] in components and row["package"] not in {"mindie-bench", package})
-    run(["uv", "pip", "install", "--python", python, "--override", overrides, *requirements],
-        timeout=180)
+    run(baseline_install_command(python, overrides, requirements), timeout=180)
     installed = read_inventory(python)
     required = set(components) - {"mindie-bench"}
     if package in components:

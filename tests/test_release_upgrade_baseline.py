@@ -1,13 +1,14 @@
 """Resolve a released Python subproject through the actual Git and uv tools."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
-from upgrade_acceptance import baseline_requirement
+from upgrade_acceptance import baseline_install_command, baseline_requirement
 
 
 def test_old_adapter_baseline_resolves_its_nested_python_project(tmp_path, monkeypatch):
@@ -48,5 +49,14 @@ def test_old_adapter_baseline_resolves_its_nested_python_project(tmp_path, monke
     requirement = baseline_requirement(repository, dict(
         package="released-layout-fixture", revision=revision, project=project,
     ))
-    run("uv", "pip", "install", "--dry-run", "--no-index", "--no-deps",
-        "--python", sys.executable, requirement, cwd=tmp_path)
+    overrides = tmp_path / "baseline.txt"
+    overrides.write_text(requirement + "\n", encoding="utf-8", newline="\n")
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    wrong = f"released-layout-fixture @ {(tmp_path / 'unpublished').as_uri()}"
+    (candidate / "pyproject.toml").write_text(
+        "[tool.uv]\noverride-dependencies = " + json.dumps([wrong]) + "\n",
+        encoding="utf-8", newline="\n",
+    )
+    command = baseline_install_command(sys.executable, overrides, [requirement])
+    run(*map(str, command), "--dry-run", "--no-index", "--no-deps", cwd=candidate)
