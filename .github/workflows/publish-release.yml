@@ -56,14 +56,26 @@ jobs:
   credentials:
     runs-on: ubuntu-latest
     environment: mindie-release
-    timeout-minutes: 2
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - name: Require the main-only release credential before long tests
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: candidate
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: main
+          path: release-tool
+      - name: Check the real main-only SSH credential before long tests
+        working-directory: candidate
         env:
+          GH_TOKEN: ${{ github.token }}
           MINDIE_RELEASE_DEPLOY_KEY: ${{ secrets.MINDIE_RELEASE_DEPLOY_KEY }}
-        run: python -c 'import os; assert os.environ.get("MINDIE_RELEASE_DEPLOY_KEY"), "the main-only release deploy key is unavailable; the caller must explicitly forward its environment secret"'
+        run: |
+          python ../release-tool/.github/scripts/release_key.py \
+            --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA"
 
   candidate:
     needs: credentials
