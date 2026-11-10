@@ -146,7 +146,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: mindie-agent/knowledge
-          ref: ac4a89e993c89deba5a4a629e1cd89d61e57c843
+          ref: 3c478a19b5542b38520c7f98b87a07f37e305021
           path: release-consumer
       - name: Require all protected-main source CI to have passed
         env:
@@ -205,7 +205,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: mindie-agent/knowledge
-          ref: ac4a89e993c89deba5a4a629e1cd89d61e57c843
+          ref: 3c478a19b5542b38520c7f98b87a07f37e305021
           path: release-consumer
       - name: Select artifact staging directory
         run: echo "RELEASE_ASSETS_DIR=$RUNNER_TEMP/release-assets" >> "$GITHUB_ENV"

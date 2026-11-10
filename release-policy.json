@@ -1,7 +1,6 @@
 {
   "schema": "mindie-release-policy/1",
-  "consumer_revision": "ac4a89e993c89deba5a4a629e1cd89d61e57c843",
-  "consumer_floor_revision": "3c478a19b5542b38520c7f98b87a07f37e305021",
+  "consumer_revision": "3c478a19b5542b38520c7f98b87a07f37e305021",
   "repositories": {
     "mindie-agent/diagnostics": {
       "package": "mindie-diagnostics",
