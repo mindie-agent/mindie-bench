@@ -5,6 +5,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -59,6 +60,8 @@ class ReleaseAPI:
         return copy.deepcopy(self.current)
 
     def api(self, path):
+        if self.current is not None and path == f"{self.prefix}/releases/{self.current['id']}":
+            return copy.deepcopy(self.current)
         if "/releases?" in path:
             return []
         if "/git/ref/" in path:
@@ -74,10 +77,11 @@ class ReleaseAPI:
         self.current = dict(id=1, tag_name=tag, target_commitish=revision, body=body,
                             draft=True, prerelease=False, immutable=False, assets=[])
         self.drop("create")
-        return self.release(tag)
+        return copy.deepcopy(self.current)
 
-    def upload(self, tag, path):
+    def upload(self, release_id, path):
         assert self.current["draft"], "upload exposed partial public assets"
+        assert self.current["id"] == release_id
         self.events.append("upload:" + path.name)
         self.payloads[path.name] = path.read_bytes()
         self.serial += 1
@@ -133,6 +137,31 @@ def test_complete_bundle_is_verified_with_the_real_consumer_before_it_becomes_pu
     before = list(api.events)
     assert invoke(api, bundle)["status"] == "already_published"
     assert api.events == before
+
+
+def test_untagged_private_draft_uses_its_created_id_when_tag_lookup_is_not_visible(bundle):
+    class UntaggedDraftAPI(ReleaseAPI):
+        def release(self, tag):
+            if self.current and self.current["draft"]:
+                return None
+            return super().release(tag)
+
+    api = UntaggedDraftAPI()
+    assert invoke(api, bundle)["status"] == "published"
+    assert api.events.count("create-draft") == api.events.count("publish") == 1
+
+
+def test_cli_without_forwarded_key_fails_before_any_draft_transaction(bundle):
+    env = dict(os.environ)
+    env.pop("MINDIE_RELEASE_DEPLOY_KEY", None)
+    flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+    result = subprocess.run([
+        sys.executable, str(SCRIPTS / "publish_release.py"),
+        "--repository", "mindie-agent/knowledge", "--version", VERSION,
+        "--revision", REVISION, "--assets", str(bundle), "--consumer", str(CONSUMER),
+    ], env=env, capture_output=True, text=True, check=False, timeout=10, **flags)
+    assert result.returncode != 0
+    assert "main-only release deploy key is unavailable" in result.stderr
 
 
 @pytest.mark.parametrize("stage", ["create", "upload", "publish"])
@@ -274,3 +303,23 @@ def test_runner_audit_uses_the_actual_non_admin_ruleset_view():
     create["enforcement"] = "disabled"
     with pytest.raises(ValueError, match="publication policy is missing or differs"):
         release_policy.verify(PublicAPI(), workflow=True)
+
+
+def test_release_entry_requires_forwarding_the_environment_key(tmp_path):
+    import release_policy
+
+    workflows = tmp_path / ".github/workflows"
+    workflows.mkdir(parents=True)
+    path = workflows / "release.yml"
+    declaration = (
+        "on:\n  workflow_dispatch:\njobs:\n  release:\n"
+        "    uses: mindie-agent/mindie-bench/.github/workflows/publish-release.yml@main\n"
+    )
+    path.write_text(declaration, encoding="utf-8", newline="\n")
+    with pytest.raises(ValueError, match="explicitly forward"):
+        release_policy.verify_entry(tmp_path, "mindie-agent/sim")
+    path.write_text(
+        declaration + "    secrets:\n"
+        "      MINDIE_RELEASE_DEPLOY_KEY: ${{ secrets.MINDIE_RELEASE_DEPLOY_KEY }}\n",
+        encoding="utf-8", newline="\n")
+    release_policy.verify_entry(tmp_path, "mindie-agent/sim")

@@ -14,6 +14,7 @@ import re
 import subprocess
 import tempfile
 import time
+from urllib.parse import quote
 
 
 class GitHub:
@@ -106,8 +107,11 @@ class GitHub:
             "body": body, "draft": True, "prerelease": False,
         })
 
-    def upload(self, tag, path):
-        self.run(["release", "upload", tag, str(path), "--repo", self.repository], timeout=120)
+    def upload(self, release_id, path):
+        endpoint = (f"https://uploads.github.com/{self.prefix}/releases/{release_id}"
+                    f"/assets?name={quote(path.name)}")
+        self.run(["api", endpoint, "--method", "POST", "-H",
+                  "Content-Type: application/octet-stream", "--input", str(path)], timeout=120)
 
     def delete_asset(self, asset_id):
         self.api(f"{self.prefix}/releases/assets/{asset_id}", method="DELETE")
