@@ -1,0 +1,87 @@
+{
+  "schema": "mindie-release-policy/1",
+  "consumer_revision": "ac4a89e993c89deba5a4a629e1cd89d61e57c843",
+  "consumer_floor_revision": "3c478a19b5542b38520c7f98b87a07f37e305021",
+  "repositories": {
+    "mindie-agent/diagnostics": {
+      "package": "mindie-diagnostics",
+      "version": "0.5.8",
+      "revision": "40ce12019354c26ef9006c0d4abc6ffade96afbd"
+    },
+    "mindie-agent/debugger": {
+      "package": "mindie-debugger",
+      "version": "0.1.0",
+      "revision": "e9406b2b178335190d5cb59dff4d6985894497ba"
+    },
+    "mindie-agent/profiler": {
+      "package": "mindie-profiler",
+      "version": "0.5.6",
+      "revision": "79d97e75bff7351b0472b93c03b072c1cf47f5e7"
+    },
+    "mindie-agent/sim": {
+      "package": "mindie-sim",
+      "version": "0.9.4",
+      "revision": "6f1d5a871a7b1ef20ff7a8cab33aaf4637fb3f66"
+    },
+    "mindie-agent/npu-top": {
+      "package": "npu-top",
+      "version": "0.3.1",
+      "revision": "8f0cb3ec66393812e90e118cd73704070c6027a2"
+    },
+    "mindie-agent/remote-dev": {
+      "package": "remote-dev",
+      "version": "0.11.6",
+      "revision": "991ef7863b2b208f94f54a29db4ac5be50884ea3"
+    },
+    "mindie-agent/knowledge": {
+      "package": "mindie-knowledge",
+      "version": "0.13.14",
+      "revision": "ac4a89e993c89deba5a4a629e1cd89d61e57c843"
+    },
+    "mindie-agent/coordinator": {
+      "package": "mindie-coordinator",
+      "version": "0.7.5",
+      "revision": "819b0deb7bea994d4dff9c009200a48dd9300cc4"
+    },
+    "mindie-agent/mindie-agent-codex": {
+      "package": "mindie-agent-codex",
+      "version": "0.1.21",
+      "revision": "b77035bdd3ca1de0d7ac41c6a5d654205a3136bd",
+      "project": "plugins/mindie-agent"
+    },
+    "mindie-agent/mindie-agent-cc": {
+      "package": "mindie-agent-cc",
+      "version": "0.1.17",
+      "revision": "dc2ab3558fee8b22cdc111d8bdebec1472619f9a"
+    },
+    "mindie-agent/mindie-agent-kimi": {
+      "package": "mindie-agent-kimi",
+      "version": "0.1.17",
+      "revision": "ce0589d8a6a07cca66a23677b2cd77bb8ee8cb50",
+      "kind": "native_tree"
+    },
+    "mindie-agent/mindie-agent-dsh": {
+      "package": "mindie-agent-dsh",
+      "version": "0.1.16",
+      "revision": "bf02b5938623a00461e2db0c8119b3a95a4be937",
+      "kind": "native_tree"
+    },
+    "mindie-agent/mindie-agent-agy": {
+      "package": "mindie-agent-agy",
+      "version": "0.1.8",
+      "revision": "ed3d756e5460b0b57e4d1679c171b3f5f1256230",
+      "kind": "native_tree"
+    },
+    "mindie-agent/mindie-agent-wb": {
+      "package": "mindie-agent-wb",
+      "version": "0.1.8",
+      "revision": "4bde6b66c9e490ddcb6add0220b2b8ab9a07ad8e",
+      "kind": "native_tree"
+    },
+    "mindie-agent/mindie-bench": {
+      "package": "mindie-bench",
+      "version": "0.4.6",
+      "revision": "c7d0c8a4969b3816925c0405931ae17e28ce7a34"
+    }
+  }
+}

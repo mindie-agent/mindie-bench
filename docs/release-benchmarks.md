@@ -1,5 +1,23 @@
 # Benchmarks on every release
 
+New component and plugin releases start with
+`gh workflow run release.yml --repo mindie-agent/<repository> --ref main`
+after the version-change PR and its `release-ready` CI have passed. Do not create
+a version tag or a public Release separately. The reusable publisher builds and
+validates a draft, executes the unmodified released component updater from an
+isolated baseline, downloads and hashes every uploaded artifact, then publishes
+the tag and immutable Release. A second upgrade uses the normal public feed.
+Both upgrade reports are retained by the workflow; the staged report is included
+in the release's `SHA256SUMS` as `upgrade-acceptance.json`.
+
+Repository administrators install the server-side boundary with
+`python .github/scripts/release_policy.py --repository mindie-agent/<repository> --apply`.
+The version-tag creation rules allow GitHub Actions, tag update/deletion rules
+have no bypass actors, main requires the CI aggregate and PR checklist, and
+immutable releases lock the published artifacts. The publisher verifies this
+configuration before any release write. Administrators can change repository
+policy; a normal account's direct version-tag creation cannot bypass active rules.
+
 Every component and native plugin owns a small `benchmarks/release.json` suite and
 its workload script. `mindie-bench release-run` executes those workloads against
 the candidate checkout and writes these public assets:
