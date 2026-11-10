@@ -143,6 +143,14 @@ def test_a_failed_upgrade_never_creates_a_draft_or_tag(bundle):
     assert not api.events and api.current is None
 
 
+def test_shared_component_evidence_cannot_publish_a_native_plugin(bundle):
+    api = ReleaseAPI()
+    api.repository = "mindie-agent/mindie-agent-codex"
+    with pytest.raises(ValueError, match="missing benchmark or real upgrade evidence"):
+        invoke(api, bundle)
+    assert not api.events and api.current is None
+
+
 def test_an_incomplete_existing_formal_release_is_not_overwritten_or_reported_successful(bundle):
     api = ReleaseAPI()
     api.current = dict(id=1, tag_name="v" + VERSION, draft=False, prerelease=False,

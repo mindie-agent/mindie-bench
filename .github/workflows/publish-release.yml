@@ -182,7 +182,7 @@ jobs:
     needs: [candidate, benchmark]
     runs-on: ubuntu-latest
     environment: mindie-release
-    timeout-minutes: 85
+    timeout-minutes: 150
     defaults:
       run:
         working-directory: candidate
@@ -280,13 +280,35 @@ jobs:
             --source . --root "$RUNNER_TEMP/old-client-upgrade" --assets "$RELEASE_ASSETS_DIR" \
             --output "$RELEASE_ASSETS_DIR/upgrade-acceptance.json"
           (cd "$RELEASE_ASSETS_DIR" && sha256sum upgrade-acceptance.json >> SHA256SUMS)
+      - if: github.repository == 'mindie-agent/mindie-agent-codex'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install the two real native hosts for old-client acceptance
+        if: github.repository == 'mindie-agent/mindie-agent-codex'
+        run: |
+          npm install --prefix "$RUNNER_TEMP/codex-legacy" @openai/codex@0.162.1
+          npm install --prefix "$RUNNER_TEMP/codex-target" @openai/codex@0.162.0-alpha.2
+      - name: Upgrade the old native plugin after independent and external component updates
+        if: github.repository == 'mindie-agent/mindie-agent-codex'
+        timeout-minutes: 40
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/native_upgrade_acceptance.py accept \
+            --root "$RUNNER_TEMP/staged-native-upgrade" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
+            --baseline-host "$RUNNER_TEMP/codex-legacy/node_modules/.bin/codex" \
+            --target-host "$RUNNER_TEMP/codex-target/node_modules/.bin/codex" \
+            --metadata "$RELEASE_ASSETS_DIR/mindie-plugin-release.json" \
+            --output "$RELEASE_ASSETS_DIR/native-upgrade-acceptance.json"
+          (cd "$RELEASE_ASSETS_DIR" && sha256sum native-upgrade-acceptance.json >> SHA256SUMS)
       - name: Publish verified draft and verify the public result
         timeout-minutes: 12
         env:
           GH_TOKEN: ${{ github.token }}
           MINDIE_RELEASE_DEPLOY_KEY: ${{ secrets.MINDIE_RELEASE_DEPLOY_KEY }}
         run: |
-          python ../release-tool/.github/scripts/release_policy.py --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA"
+          python ../release-tool/.github/scripts/release_policy.py --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA" --workflow
           uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/publish_release.py \
             --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
             --consumer ../release-consumer --assets "$RELEASE_ASSETS_DIR"
@@ -299,10 +321,23 @@ jobs:
             --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
             --consumer ../release-consumer --policy ../release-tool/release-policy.json --source . \
             --root "$RUNNER_TEMP/public-client-upgrade" --output "$RUNNER_TEMP/public-upgrade.json"
+      - name: Verify normal public native-plugin discovery and activation
+        if: github.repository == 'mindie-agent/mindie-agent-codex'
+        timeout-minutes: 40
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --no-project --with semantic-version==2.10.0 python ../release-tool/.github/scripts/native_upgrade_acceptance.py accept \
+            --root "$RUNNER_TEMP/public-native-upgrade" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
+            --baseline-host "$RUNNER_TEMP/codex-legacy/node_modules/.bin/codex" \
+            --target-host "$RUNNER_TEMP/codex-target/node_modules/.bin/codex" \
+            --output "$RUNNER_TEMP/public-native-upgrade.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: release-upgrade-evidence
           path: |
             ${{ env.RELEASE_ASSETS_DIR }}/upgrade-acceptance.json
+            ${{ env.RELEASE_ASSETS_DIR }}/native-upgrade-acceptance.json
             ${{ runner.temp }}/public-upgrade.json
+            ${{ runner.temp }}/public-native-upgrade.json

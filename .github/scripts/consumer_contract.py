@@ -67,6 +67,8 @@ def validate_evidence(repository, version, revision, assets, read):
     names = {row["name"] for row in assets}
     required = {"SHA256SUMS", "benchmark-results.json", "benchmark-results.md",
                 "benchmark-SHA256SUMS", "upgrade-acceptance.json"}
+    if repository == "mindie-agent/mindie-agent-codex":
+        required.add("native-upgrade-acceptance.json")
     if not required <= names:
         raise ValueError("release is missing benchmark or real upgrade evidence")
     sums = parse_sums(read("SHA256SUMS"))
@@ -90,6 +92,16 @@ def validate_evidence(repository, version, revision, assets, read):
             or not upgrade.get("consumer_revision")
             or upgrade.get("installed_revision") != revision):
         raise ValueError("old-client upgrade evidence does not authorize this publication")
+    if repository == "mindie-agent/mindie-agent-codex":
+        native = json.loads(read("native-upgrade-acceptance.json"))
+        if (native.get("schema") != "mindie-native-upgrade-acceptance/1"
+                or native.get("status") != "passed" or native.get("repository") != repository
+                or native.get("version") != version or native.get("revision") != revision
+                or native.get("scope") != "native_codex_old_client"
+                or native.get("baseline_plugin") != "0.1.23"
+                or native.get("external_components_rebound") is not True
+                or native.get("disabled_stop_preserved") is not True):
+            raise ValueError("real native old-client upgrade evidence is required")
     return sums
 
 
