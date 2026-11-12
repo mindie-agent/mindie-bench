@@ -1,0 +1,215 @@
+{
+  "schema": "mindie-harness-compatibility/1",
+  "harness": "claude-code",
+  "supported": [
+    {
+      "minimum": "2.1.269",
+      "maximum": "2.999.999",
+      "maximum_inclusive": true,
+      "include_prerelease": true
+    }
+  ],
+  "used_interfaces": [
+    "plugin.marketplace",
+    "plugin.installation-record",
+    "session.init-only",
+    "hooks.command-payload",
+    "hooks.fork-attribution",
+    "hooks.user-warning",
+    "mcp.stdio",
+    "summary.structured-output",
+    "settings.marketplace-policy"
+  ],
+  "interface_registry": {
+    "plugin.marketplace": {
+      "supported": [
+        {
+          "minimum": "2.1.269",
+          "maximum": "2.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/release_update.py:install_selected"
+      ],
+      "test_ids": [
+        "tests/test_release_update.py::test_native_checkout_must_match_selected_sha_before_install"
+      ],
+      "evidence_refs": [
+        "docs/harness-interface-evidence.md"
+      ]
+    },
+    "plugin.installation-record": {
+      "supported": [
+        {
+          "minimum": "2.1.269",
+          "maximum": "2.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/release_update.py:installed_plugin"
+      ],
+      "test_ids": [
+        "tests/test_release_update.py::test_unknown_native_effect_is_not_replayed_even_if_target_matches"
+      ],
+      "evidence_refs": [
+        "docs/harness-interface-evidence.md"
+      ]
+    },
+    "session.init-only": {
+      "supported": [
+        {
+          "minimum": "2.1.269",
+          "maximum": "2.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/bootstrap.py:main",
+        "scripts/setup.py:prepare_binding"
+      ],
+      "test_ids": [
+        "tests/test_setup_install.py::test_cold_setup_publishes_fixed_binding_without_an_update_selector"
+      ],
+      "evidence_refs": [
+        "docs/harness-interface-evidence.md"
+      ]
+    },
+    "hooks.command-payload": {
+      "supported": [
+        {
+          "minimum": "2.1.269",
+          "maximum": "2.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/bridge.py:handle_stop",
+        "scripts/bridge.py:handle_pretool",
+        "scripts/bridge.py:handle_expansion"
+      ],
+      "test_ids": [
+        "tests/test_launch_entry.py::test_missing_config_and_explicit_off_stay_quiet"
+      ],
+      "evidence_refs": [
+        "docs/harness-interface-evidence.md"
+      ]
+    },
+    "hooks.user-warning": {
+      "supported": [
+        {
+          "minimum": "2.1.269",
+          "maximum": "2.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/mindie_launch.py:_hook_warning"
+      ],
+      "test_ids": [
+        "tests/test_launch_entry.py::test_invalid_community_is_not_explicit_off"
+      ],
+      "evidence_refs": [
+        "docs/harness-interface-evidence.md"
+      ]
+    },
+    "mcp.stdio": {
+      "supported": [
+        {
+          "minimum": "2.1.269",
+          "maximum": "2.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/mindie_launch.py:_mcp"
+      ],
+      "test_ids": [
+        "tests/test_front_control.py::FrontControlTests::test_cancel_keeps_ping_responsive_and_preserves_original_job"
+      ],
+      "evidence_refs": [
+        "docs/harness-interface-evidence.md"
+      ]
+    },
+    "summary.structured-output": {
+      "supported": [
+        {
+          "minimum": "2.1.269",
+          "maximum": "2.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/organizer.py:_invoke_native",
+        "scripts/organizer.py:_parse_native_stream",
+        "scripts/organizer.py:_parse_native_result"
+      ],
+      "test_ids": [
+        "tests/test_organizer.py::WorkerEnvelopeTests.test_structured_output_is_authoritative_over_prose",
+        "tests/test_organizer.py::WorkerEnvelopeTests.test_structured_tool_result_event_is_not_an_extra_model_call",
+        "tests/test_organizer.py::WorkerEnvelopeTests.test_native_structured_correction_preserves_accumulated_usage_in_one_invocation",
+        "tests/test_organizer.py::WorkerEnvelopeTests.test_terminal_limits_keep_distinct_safe_diagnostics_and_one_call",
+        "tests/test_organizer.py::WorkerEnvelopeTests.test_missing_structured_output_does_not_repair_fenced_prose",
+        "tests/test_organizer.py::WorkerEnvelopeTests.test_native_validation_stream_retains_only_schema_owned_error_labels",
+        "tests/test_organizer.py::WorkerEnvelopeTests.test_duplicate_or_trailing_native_terminal_is_rejected",
+        "tests/test_organizer.py::WorkerEnvelopeTests.test_stream_transport_budget_is_separate_from_final_metadata_budget",
+        "tests/test_organizer.py::WorkerEnvelopeTests.test_one_batch_one_call_and_prompt_carries_only_public_blocks"
+      ],
+      "evidence_refs": [
+        "docs/harness-interface-evidence.md"
+      ]
+    },
+    "settings.marketplace-policy": {
+      "supported": [
+        {
+          "minimum": "2.1.269",
+          "maximum": "2.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/release_update.py:disable_unfiltered_updates",
+        "scripts/release_update.py:_declare_ref"
+      ],
+      "test_ids": [
+        "tests/test_release_update.py::test_native_first_install_policy_preserves_exact_source_and_other_choices",
+        "tests/test_release_update.py::test_native_source_declaration_preserves_other_settings_and_explicit_off"
+      ],
+      "evidence_refs": [
+        "docs/harness-interface-evidence.md"
+      ]
+    },
+    "hooks.fork-attribution": {
+      "supported": [
+        {
+          "minimum": "2.1.269",
+          "maximum": "2.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/transcript.py:capture_source",
+        "scripts/maintenance.py:session_start",
+        "scripts/bridge.py:handle_stop"
+      ],
+      "test_ids": [
+        "tests/test_fork_capture.py::test_fork_start_excludes_large_inherited_history_and_preserves_resume",
+        "tests/test_fork_capture.py::test_active_fork_binding_still_requires_its_native_queue_and_profile",
+        "tests/test_launch_entry.py::test_session_start_forwards_native_fork_payload_to_selected_maintenance"
+      ],
+      "evidence_refs": [
+        "docs/harness-interface-evidence.md"
+      ]
+    }
+  }
+}

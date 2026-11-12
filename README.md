@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="./docs/releases/mindie-bench-0.4.7.md"><img src="https://img.shields.io/badge/release-v0.4.7-7045F5.svg" alt="Release v0.4.7"></a>
+  <a href="./docs/releases/mindie-bench-0.4.8.md"><img src="https://img.shields.io/badge/release-v0.4.8-7045F5.svg" alt="Release v0.4.8"></a>
   <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/Interface-CLI%20%7C%20Python%20API%20%7C%20HF%20Parquet-00ADD8" alt="CLI | Python API | HF Parquet">
   <img src="https://img.shields.io/badge/Target-Ascend%20NPU%20(A2%20910B%20%7C%20A3%20910C%20%7C%20A5%20950DT)-FF6B00" alt="Ascend NPU A2/A3/A5">
@@ -26,7 +26,7 @@
 
 做 AI Infra 编程助手或 Agent 插件时，最怕陷入“拿几个顺手 Case 自嗨”的陷阱：换个环境就跑不通、把测试集答案漏进上下文、只看加速比却把数值精度改坏了，或者把网络抖动/容器崩溃静默算进业务失败。
 
-`mindie-bench`（包名 `mindie_bench`，当前正式版本 [`v0.4.7`](./docs/releases/mindie-bench-0.4.7.md)）是 MindIE Agent 生态的**独立评测驱动器与常驻昇腾 NPU 基准测试套件**。它固定宿主客户端（Claude Code / Codex / Kimi Code / DSH / AGY / OpenClaw）、底层大模型、任务快照与预算上限，通过严格的对照实验回答核心问题：**加了远端工具、昇腾领域知识库、跨任务经验飞轮与开放探索模式之后，Agent 在真实昇腾工程任务上的完成率（Completion Rate）和端到端总交付成本（Total Cost）究竟提升了多少？**
+`mindie-bench`（包名 `mindie_bench`，当前正式版本 [`v0.4.8`](./docs/releases/mindie-bench-0.4.8.md)）是 MindIE Agent 生态的**独立评测驱动器与常驻昇腾 NPU 基准测试套件**。它固定宿主客户端（Claude Code / Codex / Kimi Code / DSH / AGY / OpenClaw）、底层大模型、任务快照与预算上限，通过严格的对照实验回答核心问题：**加了远端工具、昇腾领域知识库、跨任务经验飞轮与开放探索模式之后，Agent 在真实昇腾工程任务上的完成率（Completion Rate）和端到端总交付成本（Total Cost）究竟提升了多少？**
 
 - **物理隔离的宿主沙箱（Isolated Host Runner）**：每次 Trial 在全新的 `HOME` / `XDG` 目录、独立 Shell 临时目录及操作系统级沙箱（macOS Seatbelt / Linux `bubblewrap`）中启动宿主 CLI；答案测试集（`oracle_tests/`）在启动前打包密封到沙箱外部（`oracle.bundle` + SHA-256 清单），模型 API 密钥由父进程 `MeteringGateway` 代理持有，彻底杜绝偷看测试集与凭据泄露。
 - **20 个行为级判分任务与精度/性能双重门禁（Behavioral Oracles & Gate Runner）**：全量 20 个基准任务的判分器（Oracle）均在真实子进程中导入候选代码并验证修复后的动态运行时行为，通过 **109 项三态与辅助变体对照**（`base` 必败、`negative_control` 必败、`gold` 必过）。性能优化任务必须同时通过**独立数值精度校验、ACLGraph 图捕获、显存预算、留一法消融与热态服务吞吐/Roofline HAP 加速门禁**——单靠牺牲精度换来的“伪加速”一律判败。
@@ -60,19 +60,19 @@ flowchart TB
 <details>
 <summary>🤖 <b>AI Agent 自动安装与使用协议（Instructions for AI Agents）</b></summary>
 
-如果你是收到上述指令的 AI Agent，请按以下步骤为当前用户完成 `mindie-bench`（当前正式版本 `v0.4.7`）的安装与本地验证：
+如果你是收到上述指令的 AI Agent，请按以下步骤为当前用户完成 `mindie-bench`（当前正式版本 `v0.4.8`）的安装与本地验证：
 
 1. **检查基础依赖**：确认本机具备 Python `>= 3.11` 与 `uv`（若需执行离线知识库重放，可附加安装 `[knowledge]` 扩展；若需导出 Parquet 数据集，可附加安装 `[export]` 扩展）。
 2. **安装命令行与开发环境**：
    - 克隆仓库并按锁文件同步全量环境（推荐用于运行基准任务集）：
      ```bash
-     git clone --branch v0.4.7 https://github.com/mindie-agent/mindie-bench.git
+     git clone --branch v0.4.8 https://github.com/mindie-agent/mindie-bench.git
      cd mindie-bench
      uv sync --locked --all-extras
      ```
    - 或直接将 CLI 安装为全局工具：
      ```bash
-     uv tool install "git+https://github.com/mindie-agent/mindie-bench@v0.4.7"
+     uv tool install "git+https://github.com/mindie-agent/mindie-bench@v0.4.8"
      ```
 3. **运行零模型冒烟演示与校验**：
    ```bash
@@ -80,7 +80,7 @@ flowchart TB
    uv run mindie-bench demo --output /tmp/mindie-bench-demo
    uv run mindie-bench score --input /tmp/mindie-bench-demo/run
    ```
-4. **告知用户**：提示用户 `mindie-bench v0.4.7` 已就绪；在启动真实模型或真机 NPU 评测前，应先运行 `mindie-bench validate` 与 `mindie-bench soundness` 完成前置契约校验。
+4. **告知用户**：提示用户 `mindie-bench v0.4.8` 已就绪；在启动真实模型或真机 NPU 评测前，应先运行 `mindie-bench validate` 与 `mindie-bench soundness` 完成前置契约校验。
 
 </details>
 
@@ -239,6 +239,7 @@ mindie-bench/
 
 | 文档主题 | 链接 |
 | --- | --- |
+| **`v0.4.8` 发布说明（六端插件发行元数据自动生成与发布前校验）** | [docs/releases/mindie-bench-0.4.8.md](./docs/releases/mindie-bench-0.4.8.md) · [English](./docs/releases/mindie-bench-0.4.8.en.md) |
 | **`v0.4.7` 发布说明（Ascend 950DT 端到端 RSI 自动晋升与 C6 沉淀 A/B 基准套件、单一变量门禁与 DSH `max_turns` 收据加固）** | [docs/releases/mindie-bench-0.4.7.md](./docs/releases/mindie-bench-0.4.7.md) · [English](./docs/releases/mindie-bench-0.4.7.en.md) |
 | **`v0.4.6` 发布说明（`mindie_debugger` 故障与精度评测对齐、口语化题面套件、策略采纳观测与行为判分加固）** | [docs/releases/mindie-bench-0.4.6.md](./docs/releases/mindie-bench-0.4.6.md) · [English](./docs/releases/mindie-bench-0.4.6.en.md) |
 | **`v0.4.5` 发布说明（原生知识评测接入、Shell 临时目录隔离与缺测统计修正）** | [docs/releases/mindie-bench-0.4.5.md](./docs/releases/mindie-bench-0.4.5.md) · [English](./docs/releases/mindie-bench-0.4.5.en.md) |

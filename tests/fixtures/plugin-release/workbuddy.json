@@ -1,0 +1,178 @@
+{
+  "schema": "mindie-harness-compatibility/1",
+  "harness": "workbuddy",
+  "supported": [
+    {
+      "minimum": "1.0.0",
+      "maximum": "9.99.99",
+      "maximum_inclusive": true,
+      "include_prerelease": true
+    }
+  ],
+  "used_interfaces": [
+    "plugin.manifest",
+    "hooks.session-start",
+    "hooks.user-prompt-submit",
+    "hooks.pre-tool-use",
+    "hooks.stop",
+    "mcp.stdio",
+    "transcript.session-store-jsonl",
+    "summary.structured-output"
+  ],
+  "interface_registry": {
+    "plugin.manifest": {
+      "supported": [
+        {
+          "minimum": "1.0.0",
+          "maximum": "9.99.99",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "plugins/mindie-agent/plugin.json",
+        "plugins/mindie-agent/.codebuddy-plugin/plugin.json"
+      ],
+      "test_ids": [
+        "tests/test_wb_plugin.py::test_plugin_manifests_and_connector_mcp_layout"
+      ],
+      "evidence_refs": [
+        "README.md"
+      ]
+    },
+    "hooks.session-start": {
+      "supported": [
+        {
+          "minimum": "1.0.0",
+          "maximum": "9.99.99",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "plugins/mindie-agent/scripts/bridge.py:handle_session_start"
+      ],
+      "test_ids": [
+        "tests/test_wb_lifecycle.py::test_passive_session_start_and_ordinary_prompt_stay_quiet"
+      ],
+      "evidence_refs": [
+        "README.md"
+      ]
+    },
+    "hooks.user-prompt-submit": {
+      "supported": [
+        {
+          "minimum": "1.0.0",
+          "maximum": "9.99.99",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "plugins/mindie-agent/scripts/bridge.py:handle_user_prompt_submit"
+      ],
+      "test_ids": [
+        "tests/test_wb_lifecycle.py::test_explicit_mindie_agent_gesture_activates_and_deactivates_lease"
+      ],
+      "evidence_refs": [
+        "README.md"
+      ]
+    },
+    "hooks.pre-tool-use": {
+      "supported": [
+        {
+          "minimum": "1.0.0",
+          "maximum": "9.99.99",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "plugins/mindie-agent/scripts/bridge.py:handle_pre_tool_use"
+      ],
+      "test_ids": [
+        "tests/test_wb_lifecycle.py::test_pre_tool_use_binds_mcp_call_and_rejects_replay"
+      ],
+      "evidence_refs": [
+        "README.md"
+      ]
+    },
+    "hooks.stop": {
+      "supported": [
+        {
+          "minimum": "1.0.0",
+          "maximum": "9.99.99",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "plugins/mindie-agent/scripts/bridge.py:handle_stop"
+      ],
+      "test_ids": [
+        "tests/test_wb_lifecycle.py::test_stop_never_forces_continuation_and_requires_manual_lease"
+      ],
+      "evidence_refs": [
+        "README.md"
+      ]
+    },
+    "mcp.stdio": {
+      "supported": [
+        {
+          "minimum": "1.0.0",
+          "maximum": "9.99.99",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "plugins/mindie-agent/scripts/mcp_server.py:serve"
+      ],
+      "test_ids": [
+        "tests/test_wb_mcp_and_knowledge.py::test_complete_mcp_tool_surfaces_exposed",
+        "tests/test_wb_mcp_and_knowledge.py::test_receipt_honesty_preserves_succeeded_remote_result_on_local_sqlite_error"
+      ],
+      "evidence_refs": [
+        "README.md"
+      ]
+    },
+    "transcript.session-store-jsonl": {
+      "supported": [
+        {
+          "minimum": "1.0.0",
+          "maximum": "9.99.99",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "plugins/mindie-agent/scripts/wb_transcript.py:read_material"
+      ],
+      "test_ids": [
+        "tests/test_wb_transcript.py::test_transcript_extracts_public_messages_from_workbuddy_session_store"
+      ],
+      "evidence_refs": [
+        "README.md"
+      ]
+    },
+    "summary.structured-output": {
+      "supported": [
+        {
+          "minimum": "1.0.0",
+          "maximum": "9.99.99",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "plugins/mindie-agent/scripts/organizer.py:main"
+      ],
+      "test_ids": [
+        "tests/test_wb_organizer_and_update.py::test_organizer_emits_valid_summary_outcome_and_never_retries_unknown"
+      ],
+      "evidence_refs": [
+        "README.md"
+      ]
+    }
+  }
+}

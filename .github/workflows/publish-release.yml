@@ -261,6 +261,12 @@ jobs:
           mkdir -p "$RELEASE_ASSETS_DIR"
           bash -e -o pipefail -c "$BUILD_COMMAND"
           test -n "$(find "$RELEASE_ASSETS_DIR" -maxdepth 1 -type f -print -quit)"
+      - name: Automatically prepare native plugin release metadata
+        timeout-minutes: 6
+        run: |
+          uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/prepare_plugin_metadata.py \
+            --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
+            --consumer ../release-consumer --source . --assets "$RELEASE_ASSETS_DIR"
       - uses: actions/download-artifact@v4
         with:
           name: release-benchmarks
