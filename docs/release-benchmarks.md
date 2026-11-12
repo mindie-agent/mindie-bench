@@ -15,6 +15,17 @@ Each run resolves its reviewed, CI-passed controller to one immutable commit and
 uses that exact commit for dependency checks, benchmark execution and publication.
 There is no second caller-maintained tool pin that can leave a new gate unused.
 
+For all six native plugins, the shared publisher automatically prepares
+`mindie-plugin-release.json` after building packages and before checksums,
+upgrade acceptance or draft creation. It uses the verified package version,
+exact candidate commit and that commit's canonical `harness-compatibility.json`
+(under `plugins/mindie-agent/` for Codex). The pinned released consumer supplies
+the repository registry, source layouts and schema validator. Missing metadata
+is generated; existing metadata must match, and valid existing bytes are
+preserved. A missing, legacy or modified compatibility declaration fails locally
+before any release write. Callers need no separate metadata-generation command.
+Shared components do not publish this native plugin asset.
+
 Repository administrators install the server-side boundary with
 `python .github/scripts/release_policy.py --repository mindie-agent/<repository> --apply`.
 Tag creation rules cover all tag names and allow only a per-repository deploy key stored in

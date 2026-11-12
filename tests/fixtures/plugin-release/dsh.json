@@ -1,0 +1,262 @@
+{
+  "schema": "mindie-harness-compatibility/1",
+  "harness": "dsh",
+  "supported": [
+    {
+      "minimum": "0.2.0-rc.2",
+      "maximum": "0.999.999",
+      "maximum_inclusive": true,
+      "include_prerelease": true
+    }
+  ],
+  "used_interfaces": [
+    "bundle-patch",
+    "skill-filesystem",
+    "mcp-stdio",
+    "host-tools",
+    "agent-turn-stopping",
+    "agent-route",
+    "llm-stream",
+    "session-v4-transcript",
+    "cordis-child-plugin",
+    "generation-pointer",
+    "github-release-api",
+    "uv-runtime"
+  ],
+  "interface_registry": {
+    "bundle-patch": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "cordis.patch.yml"
+      ],
+      "test_ids": [
+        "tests/test_contract.py"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    },
+    "skill-filesystem": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "cordis.patch.yml"
+      ],
+      "test_ids": [
+        "tests/test_contract.py",
+        "tests/test_manual_entry_host.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    },
+    "mcp-stdio": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "cordis.patch.yml"
+      ],
+      "test_ids": [
+        "tests/test_component_mcp.py",
+        "tests/test_remote_isolation.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    },
+    "host-tools": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host3.mjs"
+      ],
+      "test_ids": [
+        "tests/test_manual_entry_host.mjs",
+        "tests/test_summary_host.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    },
+    "agent-turn-stopping": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host3.mjs"
+      ],
+      "test_ids": [
+        "tests/test_summary_host.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    },
+    "agent-route": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host3.mjs"
+      ],
+      "test_ids": [
+        "tests/test_summary_endpoint.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    },
+    "llm-stream": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host3.mjs"
+      ],
+      "test_ids": [
+        "tests/test_summary_endpoint.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    },
+    "session-v4-transcript": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/dsh_transcript.py"
+      ],
+      "test_ids": [
+        "tests/test_dsh_transcript.py"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    },
+    "cordis-child-plugin": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host.mjs"
+      ],
+      "test_ids": [
+        "tests/test_generation_launcher.mjs"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    },
+    "generation-pointer": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "host.mjs",
+        "scripts/updater.py"
+      ],
+      "test_ids": [
+        "tests/test_generation_launcher.mjs",
+        "tests/test_native_update.py"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    },
+    "github-release-api": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "scripts/updater.py"
+      ],
+      "test_ids": [
+        "tests/test_updater.py"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    },
+    "uv-runtime": {
+      "supported": [
+        {
+          "minimum": "0.2.0-rc.2",
+          "maximum": "0.999.999",
+          "maximum_inclusive": true,
+          "include_prerelease": true
+        }
+      ],
+      "code_paths": [
+        "cordis.patch.yml",
+        "scripts/setup.py"
+      ],
+      "test_ids": [
+        "tests/test_setup_budget.py"
+      ],
+      "evidence_refs": [
+        "docs/verification.md"
+      ]
+    }
+  }
+}
