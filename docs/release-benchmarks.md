@@ -15,7 +15,7 @@ Each run resolves its reviewed, CI-passed controller to one immutable commit and
 uses that exact commit for dependency checks, benchmark execution and publication.
 There is no second caller-maintained tool pin that can leave a new gate unused.
 
-For all six native plugins, the shared publisher automatically prepares
+For all seven native plugins, the shared publisher automatically prepares
 `mindie-plugin-release.json` after building packages and before checksums,
 upgrade acceptance or draft creation. It uses the verified package version,
 exact candidate commit and that commit's canonical `harness-compatibility.json`

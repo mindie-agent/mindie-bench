@@ -77,6 +77,12 @@
       "revision": "4bde6b66c9e490ddcb6add0220b2b8ab9a07ad8e",
       "kind": "native_tree"
     },
+    "mindie-agent/mindie-agent-oc": {
+      "package": "mindie-agent-oc",
+      "version": "0.1.0",
+      "revision": "c500a45166221d1d536cf6f0bee9d2e2bf924e89",
+      "kind": "native_tree"
+    },
     "mindie-agent/mindie-bench": {
       "package": "mindie-bench",
       "version": "0.4.6",

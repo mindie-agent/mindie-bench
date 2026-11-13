@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
+from consumer_contract import load_consumer
 from prepare_plugin_metadata import prepare
 
 FIXTURES = Path(__file__).with_name("fixtures") / "plugin-release"
@@ -47,6 +48,7 @@ def commit(source, declaration, payload):
 
 
 def candidate(source, tmp_path, harness="workbuddy", payload=None):
+    load_consumer(CONSUMER)
     from mindie_knowledge.releases import REPOSITORIES
     from mindie_knowledge.releases_io import _COMPATIBILITY_PATHS
     declaration = _COMPATIBILITY_PATHS[harness]
@@ -58,7 +60,7 @@ def candidate(source, tmp_path, harness="workbuddy", payload=None):
 
 
 @pytest.mark.parametrize("harness", [
-    "codex", "claude-code", "kimi-code", "dsh", "antigravity", "workbuddy",
+    "codex", "claude-code", "kimi-code", "dsh", "antigravity", "workbuddy", "opencode",
 ])
 def test_each_native_layout_generates_an_asset_the_old_selector_accepts(
         source, tmp_path, harness):

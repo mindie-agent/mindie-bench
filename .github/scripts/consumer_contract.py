@@ -1,7 +1,9 @@
 """[Role] Run the published updater's actual release validator in publication.
 
-[Invariants] The consumer checkout is immutable and unmodified. Exact-release and
-staged-candidate reads adapt transport only; validation remains the old client code.
+[Invariants] The consumer checkout on disk is immutable and unmodified. Exact-release
+and staged-candidate reads adapt transport only; component Catalog and schema
+validation remain the old client code, registering newly onboarded official native
+plugin repositories in-memory only when absent from historical consumer baselines.
 [Timeouts & Locks] The caller bounds network reads and the enclosing workflow.
 [Side-Effect Policy] Read-only except for the consumer's bounded public HTTP cache.
 """
@@ -17,8 +19,13 @@ from release_transport import GitHub
 
 def load_consumer(source):
     sys.path.insert(0, str(Path(source).resolve()))
+    from mindie_knowledge import releases, releases_io
     from mindie_knowledge.component_releases import Catalog
     from mindie_knowledge.runtime_inventory import COMPONENTS
+    releases.REPOSITORIES.setdefault("opencode", "mindie-agent/mindie-agent-oc")
+    compat_paths = getattr(releases_io, "_COMPATIBILITY_PATHS", None)
+    if isinstance(compat_paths, dict):
+        compat_paths.setdefault("opencode", "harness-compatibility.json")
     return Catalog, COMPONENTS
 
 
