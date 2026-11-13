@@ -1,7 +1,7 @@
 """[Role] Prepare native plugin metadata for every shared release publication.
 
-[Invariants] The unmodified released consumer defines repository identities,
-source layouts and compatibility validation. Metadata names the checked-out
+[Invariants] Repository identities, source layouts and compatibility validation
+come from load_consumer against the released consumer. Metadata names the checked-out
 commit and its unchanged declaration; existing incorrect assets fail visibly.
 [Timeouts & Locks] Each local Git read is bounded to 10 seconds; no locks.
 [Side-Effect Policy] Writes only a missing asset in the external staging directory.
