@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -11,13 +12,13 @@ from mindie_bench.runner.worktree_slot import WorktreeSlot
 def test_local_inventory_compares_against_provided_public_inputs(case):
     public = case["task"] / "environment"
     for name in ["unchanged.py", "deleted.py", "edited.py"]:
-        (public / name).write_text("public input\n")
+        (public / name).write_text("public input\n", encoding="utf-8", newline="\n")
     slot = WorktreeSlot(case["spec"].environment["l2"], case["root"] / "local-slot", case["task"])
     workspace = slot.prepare()
     try:
         (workspace / "deleted.py").unlink()
-        (workspace / "edited.py").write_text("edited input\n")
-        (workspace / "module.py").write_text("VALUE = 2\n")
+        (workspace / "edited.py").write_text("edited input\n", encoding="utf-8", newline="\n")
+        (workspace / "module.py").write_text("VALUE = 2\n", encoding="utf-8", newline="\n")
         assert slot.snapshot_patch(case["root"]) == ["deleted.py", "edited.py", "module.py"]
     finally:
         slot.cleanup()
@@ -26,9 +27,13 @@ def test_local_inventory_compares_against_provided_public_inputs(case):
 def test_actual_postflight_inventories_remote_source_and_new_files(case, monkeypatch, capsys):
     slot = WorktreeSlot(case["spec"].environment["l2"], case["root"] / "remote-slot", case["task"])
     workspace = slot.prepare()
-    (workspace / "module.py").write_text("VALUE = 2\n")
-    unusual = "new helper\nwith space.py"
-    (workspace / unusual).write_text("VALUE = 3\n")
+    (workspace / "module.py").write_text("VALUE = 2\n", encoding="utf-8", newline="\n")
+    unusual = (
+        "new helper 'with' [space] & $quote.py"
+        if os.name == "nt"
+        else "new helper\nwith space.py"
+    )
+    (workspace / unusual).write_text("VALUE = 3\n", encoding="utf-8", newline="\n")
     (workspace / ".bench-home").mkdir()
     (workspace / ".bench-home/temporary").write_text("not business source")
     original_path, original_run = pathlib.Path, subprocess.run

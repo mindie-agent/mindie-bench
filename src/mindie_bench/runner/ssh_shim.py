@@ -8,14 +8,17 @@
 [Side-Effect Policy] Submit once; the parent owns execution and receipt accounting.
 """
 
+from __future__ import annotations
+
 import base64
 import json
 import os
-import select
 import sys
 import time
 import urllib.error
 import urllib.request
+
+from mindie_bench.runner.host_platform import PipeReader
 
 
 def _post(gateway, path, payload):
@@ -36,14 +39,15 @@ def _post(gateway, path, payload):
 def _stream(gateway, command):
     opened = _post(gateway, "/bench/ssh-stream", dict(action="open", command=command))
     stream_id = opened["stream_id"]
+    stdin_reader = PipeReader(sys.stdin.fileno())
     eof = False
     while True:
         data = b""
         close_input = False
         if not eof:
-            readable, _, _ = select.select([sys.stdin.fileno()], [], [], 0.05)
-            if readable:
-                data = os.read(sys.stdin.fileno(), 65536)
+            timed_out, chunk = stdin_reader.read_chunk(0.05)
+            if not timed_out:
+                data = chunk
                 eof = not data
                 close_input = eof
         else:
@@ -66,6 +70,30 @@ def _stream(gateway, command):
             if type(exit_code) is not int:
                 raise ValueError("SSH stream returned an invalid exit code")
             return exit_code
+
+
+def _read_oneshot_stdin(limit: int = 8 * 1024 * 1024, *, wait_for_start: bool = False) -> bytes:
+    reader = PipeReader(sys.stdin.fileno())
+    timed_out, first = reader.read_chunk(3600.0 if wait_for_start else 0.2)
+    if timed_out:
+        if wait_for_start:
+            raise TimeoutError("SSH stdin timed out before initial bytes")
+        return b""
+    if not first:
+        return b""
+    buf = bytearray(first)
+    if len(buf) > limit:
+        raise ValueError("SSH stdin exceeds 8 MiB bound; refusing truncated submission")
+    while True:
+        timed_out, chunk = reader.read_chunk(3600.0)
+        if timed_out:
+            raise TimeoutError("SSH stdin stalled before EOF; refusing truncated submission")
+        if not chunk:
+            break
+        buf.extend(chunk)
+        if len(buf) > limit:
+            raise ValueError("SSH stdin exceeds 8 MiB bound; refusing truncated submission")
+    return bytes(buf)
 
 
 def main():
@@ -95,8 +123,7 @@ def main():
     if stdin_null or sys.stdin.isatty():
         stdin = b""
     else:
-        readable, _, _ = select.select([sys.stdin.fileno()], [], [], 0.2)
-        stdin = sys.stdin.buffer.read(8 * 1024 * 1024) if readable else b""
+        stdin = _read_oneshot_stdin(wait_for_start=(command == "bash -s"))
     payload = dict(command=command, stdin_b64=base64.b64encode(stdin).decode())
     result = _post(gateway, "/bench/ssh", payload)
     sys.stdout.buffer.write(base64.b64decode(result["stdout_b64"]))

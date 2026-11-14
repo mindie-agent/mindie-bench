@@ -9,10 +9,27 @@ the same granted files, never a broader parent or an unsandboxed fallback.
 from __future__ import annotations
 
 import json
+import os
 import platform
+import re
 import shutil
 import sys
 from pathlib import Path
+
+_WSL_MOUNT_RE = re.compile(r"^/mnt/[a-zA-Z](?:/|$)")
+
+
+def _which_native(cmd: str) -> str | None:
+    """Stdlib-only lookup so `runpy.run_path(sandbox.__file__)` works in bare venvs."""
+    entries = [
+        entry
+        for entry in os.environ.get("PATH", "").split(os.pathsep)
+        if entry and (os.name == "nt" or not _WSL_MOUNT_RE.match(os.path.normpath(entry)))
+    ]
+    found = shutil.which(cmd, path=os.pathsep.join(entries))
+    if not found or (os.name != "nt" and (_WSL_MOUNT_RE.match(found) or found.lower().endswith(".exe"))):
+        return None
+    return found
 
 
 def native_command(
@@ -31,7 +48,7 @@ def native_command(
 ) -> list[str]:
     system = platform.system()
     if system == "Darwin":
-        executable = shutil.which("sandbox-exec")
+        executable = _which_native("sandbox-exec")
         if not executable:
             raise RuntimeError("macOS sandbox-exec is unavailable; refusing an unisolated trial")
         # File metadata is observable, but neither personal data nor oracle
@@ -85,10 +102,10 @@ def native_command(
             # loopback listener ports. Outbound grants remain exact known ports.
             lines.append('(allow network-bind (local ip "localhost:*"))')
             lines.append('(allow network-inbound (local ip "localhost:*"))')
-        policy_path.write_text("\n".join(lines) + "\n")
+        policy_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return [executable, "-f", str(policy_path), *command]
     if system == "Linux":
-        executable = shutil.which("bwrap")
+        executable = _which_native("bwrap")
         if not executable:
             raise RuntimeError("Linux bubblewrap is unavailable; refusing an unisolated trial")
         args = [
@@ -141,7 +158,8 @@ def native_command(
                     "write": [str(p) for p in write],
                 }
             )
-            + "\n"
+            + "\n",
+            encoding="utf-8",
         )
         return list(command)
     raise RuntimeError(

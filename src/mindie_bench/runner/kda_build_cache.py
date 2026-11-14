@@ -27,7 +27,7 @@ def current_sources(root):
 receipt_path, csrc, cache_dir = pathlib.Path("../build-receipt.json"), pathlib.Path("csrc"), None
 if receipt_path.is_file() and csrc.is_dir():
     try:
-        rec = json.loads(receipt_path.read_text())
+        rec = json.loads(receipt_path.read_text(encoding="utf-8"))
         if (rec.get("schema") == "mindie-bench-kda-source-build/1" and rec.get("status") == "prepared"
                 and current_sources(csrc) == rec.get("source_files_sha256")):
             identity = {"source_files_sha256": rec["source_files_sha256"],
@@ -35,10 +35,11 @@ if receipt_path.is_file() and csrc.is_dir():
                         "generic_dependency": rec.get("generic_dependency"),
                         "command": rec.get("command"), "args": sys.argv[1:]}
             key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
-            cache_dir = pathlib.Path(os.environ["HOME"]) / "cache" / "kda_build_out" / key
+            home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or str(pathlib.Path.home())
+            cache_dir = pathlib.Path(home) / "cache" / "kda_build_out" / key
             manifest_path = cache_dir / "manifest.json"
             if manifest_path.is_file():
-                manifest = json.loads(manifest_path.read_text())
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 cached_pkg = cache_dir / manifest["name"]
                 if cached_pkg.is_file() and sha256(cached_pkg) == manifest["sha256"]:
                     build_out = csrc / "build_out"
@@ -49,7 +50,9 @@ if receipt_path.is_file() and csrc.is_dir():
         raise
     except Exception:
         cache_dir = None
-res = subprocess.run(["/bin/bash", *sys.argv[1:]], timeout=60)
+bash_bin = "/bin/bash" if pathlib.Path("/bin/bash").is_file() else (shutil.which("bash") or "bash")
+win_kw = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+res = subprocess.run([bash_bin, *sys.argv[1:]], timeout=60, **win_kw)
 if res.returncode == 0 and cache_dir is not None:
     try:
         pkgs = list((csrc / "build_out").glob("*.run"))
@@ -58,7 +61,10 @@ if res.returncode == 0 and cache_dir is not None:
             tmp_dir = cache_dir.with_suffix(".tmp-" + str(os.getpid()))
             tmp_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(pkg, tmp_dir / pkg.name)
-            (tmp_dir / "manifest.json").write_text(json.dumps({"name": pkg.name, "sha256": sha256(pkg)}))
+            (tmp_dir / "manifest.json").write_text(
+                json.dumps({"name": pkg.name, "sha256": sha256(pkg)}),
+                encoding="utf-8",
+            )
             if not cache_dir.exists():
                 tmp_dir.rename(cache_dir)
             else:

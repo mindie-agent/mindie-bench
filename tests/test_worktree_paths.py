@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import threading
@@ -60,7 +61,7 @@ def test_interrupted_git_add_retains_cleanup_of_its_real_owned_worktree(case, mo
 
     def interrupt_after_materialization(command, **kwargs):
         result = original(command, **kwargs)
-        if command[3:5] == ["worktree", "add"]:
+        if "worktree" in command and command[command.index("worktree") : command.index("worktree") + 2] == ["worktree", "add"]:
             raise subprocess.TimeoutExpired(command, kwargs["timeout"])
         return result
 
@@ -68,16 +69,19 @@ def test_interrupted_git_add_retains_cleanup_of_its_real_owned_worktree(case, mo
     with pytest.raises(subprocess.TimeoutExpired):
         slot.prepare()
     assert slot.created is True
-    assert (slot.destination / "module.py").read_text() == "VALUE = 1\n"
+    assert (slot.destination / "module.py").read_text(encoding="utf-8") == "VALUE = 1\n"
     slot.deadline = time.monotonic() + 2
     slot.cleanup()
     assert not slot.destination.exists()
+    from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
+
     listing = original(
-        ["git", "-C", str(case["repo"]), "worktree", "list", "--porcelain"],
-        check=True, capture_output=True, text=True, timeout=2,
+        [which_native("git") or "git", "-C", str(case["repo"]), "worktree", "list", "--porcelain"],
+        check=True, capture_output=True, text=True, encoding="utf-8", timeout=2,
+        **subprocess_window_kwargs(),
     ).stdout
     assert str(slot.destination) not in listing
-    assert (case["repo"] / "module.py").read_text() == "VALUE = 1\n"
+    assert (case["repo"] / "module.py").read_text(encoding="utf-8") == "VALUE = 1\n"
 
 
 @pytest.mark.parametrize("same_repository", [True, False])
@@ -98,8 +102,9 @@ def test_concurrent_worktree_metadata_edits_are_scoped_to_the_source_repo(
     run = subprocess.run
 
     def observe(command, *args, **kwargs):
-        if command[3:5] == ["worktree", "add"]:
-            if command[6] == str(slots[0].destination):
+        if "worktree" in command and command[command.index("worktree") : command.index("worktree") + 2] == ["worktree", "add"]:
+            wt_idx = command.index("worktree")
+            if os.path.normcase(command[wt_idx + 3]) == os.path.normcase(str(slots[0].destination)):
                 entered.set()
                 assert release.wait(5), "test did not release the first Git operation"
             else:
@@ -170,7 +175,9 @@ def test_soundness_api_accepts_relative_task_and_output_paths(case, monkeypatch)
 
     (case["task"] / "oracle/gold_patch.diff").write_text(
         "diff --git a/module.py b/module.py\n--- a/module.py\n+++ b/module.py\n"
-        "@@ -1 +1 @@\n-VALUE = 1\n+VALUE = 2\n"
+        "@@ -1 +1 @@\n-VALUE = 1\n+VALUE = 2\n",
+        encoding="utf-8",
+        newline="\n",
     )
     monkeypatch.chdir(case["root"])
     proof = check_soundness(Path("task"), case["config"], tier="l2", output=Path("soundness"))

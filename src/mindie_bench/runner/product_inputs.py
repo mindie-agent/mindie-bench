@@ -14,6 +14,7 @@ from pathlib import Path
 from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.io import digest, task_hash, tree_hash
 from mindie_bench.models import ExperimentConfig, Group, TaskSpec
+from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
 from mindie_bench.runner.matrix_contracts import BudgetEnvelope, MatchingConditions
 from mindie_bench.runner.native_product import runtime_identity
 from mindie_bench.runner.phase_budget import product_phase_budget
@@ -71,11 +72,13 @@ def derive_inputs(
         if not repo_path.is_absolute() and (root / repo_path).exists():
             repo_path = (root / repo_path).resolve(strict=True)
         git = subprocess.run(
-            ["git", "-C", str(repo_path), "rev-parse", environment.base_commit + "^{tree}"],
+            [which_native("git") or "git", "-C", str(repo_path), "rev-parse", environment.base_commit + "^{tree}"],
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=10,
+            **subprocess_window_kwargs(),
         )
         starts[task_id] = {"base_commit": environment.base_commit, "git_tree": git.stdout.strip()}
         oracle = freeze_oracle(root, task.oracle)

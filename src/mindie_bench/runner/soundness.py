@@ -16,6 +16,7 @@ from pathlib import Path
 from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.io import task_hash, write_json
 from mindie_bench.models import Group, TaskSpec
+from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
 from mindie_bench.runner.profile_builder import build_profile
 from mindie_bench.runner.remote_slot import RemoteSlot
 from mindie_bench.runner.trial_preflight import runtime_paths
@@ -112,13 +113,15 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
             if applied["exit_code"] != 0:
                 raise RuntimeError("gold patch did not apply in the remote slot")
         else:
+            git_exe = which_native("git") or "git"
             subprocess.run(
-                ["git", "apply", "--no-index", str(patch.resolve())],
+                [git_exe, "-c", "core.autocrlf=false", "apply", "--no-index", str(patch.resolve())],
                 cwd=workspace,
                 env=dict(profile.env, GIT_CEILING_DIRECTORIES=str(workspace.parent)),
                 check=True,
                 capture_output=True,
                 timeout=20,
+                **subprocess_window_kwargs(),
             )
         after = verify("after")
         proof["after_reward"] = after.reward
@@ -160,13 +163,15 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
     if promote:
         manifest = task_root / "task.toml"
         text, count = re.subn(
-            r'(?m)^evidence\s*=\s*"candidate"\s*$', 'evidence = "verified"', manifest.read_text()
+            r'(?m)^evidence\s*=\s*"candidate"\s*$',
+            'evidence = "verified"',
+            manifest.read_text(encoding="utf-8"),
         )
         if count != 1:
             raise ValueError(
                 "promotion requires an explicit, unique task.evidence=candidate declaration"
             )
-        manifest.write_text(text)
+        manifest.write_text(text, encoding="utf-8", newline="\n")
     proof["task_sha256"] = task_hash(task_root)
     write_json(task_root / "soundness_receipt.json", proof)
     return proof

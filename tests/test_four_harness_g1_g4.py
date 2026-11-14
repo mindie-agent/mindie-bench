@@ -93,11 +93,12 @@ def _write_model_catalog(path: Path, slug: str) -> Path:
 
 
 def _make_harness_executable(tmp_path: Path, harness_name: str) -> Path:
+    from mindie_bench.runner.host_platform import write_executable_shim
+
     bin_dir = tmp_path / f"bin-{harness_name}"
     bin_dir.mkdir(exist_ok=True)
     if harness_name == "dsh":
         script = (
-            f"#!{sys.executable} -I\n"
             "import json, os, pathlib, sys\n"
             "if '--version' in sys.argv:\n"
             "    print('dsh-fixture 1.0')\n"
@@ -105,28 +106,18 @@ def _make_harness_executable(tmp_path: Path, harness_name: str) -> Path:
             "if '--dump-config' in sys.argv:\n"
             "    pdir = pathlib.Path(os.environ['DSH_PROFILE_DIR'])\n"
             "    pdir.mkdir(parents=True, exist_ok=True)\n"
-            "    (pdir / 'package.json').write_text(json.dumps({'name': 'bench'}))\n"
+            "    (pdir / 'package.json').write_text(json.dumps({'name': 'bench'}), encoding='utf-8')\n"
             "    print(json.dumps({'status': 'ok'}))\n"
             "    raise SystemExit(0)\n"
         )
     else:
         script = (
-            f"#!{sys.executable} -I\n"
             "import sys\n"
             "if '--version' in sys.argv:\n"
             f"    print('{harness_name}-fixture 1.0')\n"
             "    raise SystemExit(0)\n"
         )
-    if os.name == "nt":
-        py_script = bin_dir / f"{harness_name}_fixture.py"
-        py_script.write_text(script)
-        exe = bin_dir / f"{harness_name}.cmd"
-        exe.write_text(f'@"{sys.executable}" -I "{py_script}" %*\n')
-        return exe
-    exe = bin_dir / harness_name
-    exe.write_text(script)
-    exe.chmod(0o700)
-    return exe
+    return write_executable_shim(bin_dir, harness_name, script)
 
 
 @pytest.mark.parametrize("harness_name", ["codex", "claude-code", "kimi", "dsh"])

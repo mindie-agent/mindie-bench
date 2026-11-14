@@ -30,20 +30,13 @@ import os
 import queue
 import select
 import subprocess
-import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from mindie_bench.runner.termination import terminate_process_group
-
-
-def subprocess_window_kwargs() -> dict[str, int]:
-    """Hide the Windows console for background subprocesses (P1.5)."""
-    if os.name != "nt":
-        return {}
-    return {"creationflags": subprocess.CREATE_NO_WINDOW}
+from mindie_bench.runner.host_platform import subprocess_window_kwargs
+from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
 
 @dataclass
@@ -71,7 +64,7 @@ def stream_process(
     cancelled=None,
 ) -> ProcessResult:
     result = ProcessResult()
-    read_fd, owner_fd = os.pipe()
+    close_owner = lambda: None  # noqa: E731
     process = None
     readers = []
     events = queue.Queue(maxsize=32)
@@ -80,33 +73,15 @@ def stream_process(
     started = time.monotonic()
     result.started_monotonic_sec = started
     try:
-        if os.name == "nt":
-            os.close(read_fd)
-            read_fd = -1
-            process = subprocess.Popen(
-                command,
-                cwd=cwd,
-                env=env,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=True,
-                **subprocess_window_kwargs(),
-            )
-        else:
-            process = subprocess.Popen(
-                [sys.executable, "-I", "-m", "mindie_bench.runner.owner", str(read_fd), *command],
-                cwd=cwd,
-                env=env,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=True,
-                pass_fds=(read_fd,),
-                **subprocess_window_kwargs(),
-            )
-            os.close(read_fd)
-            read_fd = -1
+        process, close_owner = spawn_owned_popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            **subprocess_window_kwargs(),
+        )
         result.started = True
 
         def enqueue(value):
@@ -235,10 +210,6 @@ def stream_process(
     finally:
         readers_stopped.set()
         result.elapsed = time.monotonic() - started
-        # Closing the only owner writer kills the entire owned POSIX group,
-        # even when its leader has already exited but descendants remain.
-        if read_fd >= 0:
-            os.close(read_fd)
         if process:
             try:
                 code = terminate_process_group(process, term_wait=2, kill_wait=5)
@@ -252,5 +223,5 @@ def stream_process(
                 thread.join(timeout=1)
             for stream in [process.stdin, process.stdout, process.stderr]:
                 stream.close()
-        os.close(owner_fd)
+        close_owner()
     return result

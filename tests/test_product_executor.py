@@ -1,12 +1,12 @@
 import json
 import platform
-import shutil
 
 import pytest
 
 from mindie_bench.io import digest, write_json
 from mindie_bench.models import CorpusConfig, Group, TaskSpec
 from mindie_bench.runner import product_executor as product_executor_module
+from mindie_bench.runner.host_platform import which_native
 from mindie_bench.runner.matrix import (
     BudgetEnvelope,
     MatchingConditions,
@@ -72,7 +72,7 @@ def setup_product(case, tmp_path):
 
 @pytest.mark.skipif(
     platform.system() not in {"Darwin", "Linux"}
-    or (platform.system() == "Linux" and not shutil.which("bwrap")),
+    or (platform.system() == "Linux" and not which_native("bwrap")),
     reason="native sandbox required",
 )
 def test_product_identity_is_bound_before_real_process_and_survives_receipt(case, tmp_path):

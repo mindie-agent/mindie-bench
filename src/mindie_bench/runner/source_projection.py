@@ -7,17 +7,21 @@
 
 from pathlib import Path
 
+from mindie_bench.runner.host_platform import rmtree_force
+
 HARNESS_CONFIG_PATHS = (".claude", ".codex", ".dsh", ".kimi", ".gemini", ".agents", ".mcp.json")
 
 PROJECTOR = r"""
-import pathlib,shutil,sys
+import os,pathlib,shutil,stat,sys
+def _ro(fn,p,_e):
+    os.chmod(p,stat.S_IWRITE|stat.S_IREAD); fn(p)
 root=pathlib.Path(sys.argv[1])
 for name in %r:
     path=root/name
     if path.is_symlink() or path.is_file():
         path.unlink()
     elif path.is_dir():
-        shutil.rmtree(path)
+        shutil.rmtree(path,onerror=_ro)
 """ % (HARNESS_CONFIG_PATHS,)
 
 
@@ -26,11 +30,9 @@ def diff_paths() -> list[str]:
 
 
 def project_source(root: Path):
-    import shutil
-
     for name in HARNESS_CONFIG_PATHS:
         path = root / name
         if path.is_symlink() or path.is_file():
             path.unlink()
         elif path.is_dir():
-            shutil.rmtree(path)
+            rmtree_force(path)

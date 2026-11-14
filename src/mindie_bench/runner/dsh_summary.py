@@ -15,17 +15,18 @@ import contextlib
 import hashlib
 import json
 import queue
-import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 
 import yaml
 
+from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
 from mindie_bench.runner.sandbox import native_command
-from mindie_bench.runner.termination import terminate_process_group
+from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
 
 def _rows(text):
@@ -70,8 +71,10 @@ def prepare(profile, harness, plugin):
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
         check=True,
+        **subprocess_window_kwargs(),
     )
     rows = _rows(initialized.stdout)
     patch = [{"id": row["id"], "disabled": True} for row in rows if _forbidden(row["id"])]
@@ -110,15 +113,17 @@ def prepare(profile, harness, plugin):
         .replace("__BENCH_GATEWAY__", "!!js process.env.MINDIE_BENCH_GATEWAY + '/v1'")
         .replace("__BENCH_SUMMARY_PORT__", "!!js Number(process.env.MINDIE_BENCH_SUMMARY_PORT)")
     )
-    (selected / "cordis.patch.yml").write_text(text)
+    (selected / "cordis.patch.yml").write_text(text, encoding="utf-8", newline="\n")
     effective = subprocess.run(
         [*command, "--dump-config"],
         cwd=root,
         env=dict(env, MINDIE_BENCH_SUMMARY_PORT="0"),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
         check=True,
+        **subprocess_window_kwargs(),
     )
     active = [row["id"] for row in _rows(effective.stdout) if not row.get("disabled")]
     if any(_forbidden(name) for name in active):
@@ -156,7 +161,7 @@ class SummaryHost:
         self.profile, self.read_paths = profile, read_paths
         self.gateway_port, self.gateway_socket = gateway_port, gateway_socket
         self.frames = queue.Queue()
-        self.process = self.errors = None
+        self.process = self.errors = self._close_owner = None
         self.receipt = {"session_prompt_sent": False, "model_calls_during_initialization": 0}
 
     def _request(self, identifier, method, params=None, *, timeout=30):
@@ -182,7 +187,7 @@ class SummaryHost:
         raise TimeoutError(f"DSH SDK {method} deadline expired")
 
     def __enter__(self):
-        if shutil.which("sandbox-exec") is None and shutil.which("bwrap") is None:
+        if which_native("sandbox-exec") is None and which_native("bwrap") is None:
             raise ValueError(
                 "DSH G3 summary host requires an available OS sandbox backend "
                 "(sandbox-exec or bwrap)"
@@ -213,18 +218,23 @@ class SummaryHost:
             gateway_socket=self.gateway_socket,
             loopback_listener_port=self.port,
         )
-        self.errors = (root / "sdk.stderr").open("w")
+        self.errors = (root / "sdk.stderr").open("w", encoding="utf-8", newline="\n")
         try:
-            self.process = subprocess.Popen(
-                command,
+            popen_kw = dict(
                 cwd=root,
                 env=self.env,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=self.errors,
                 text=True,
-                start_new_session=True,
+                encoding="utf-8",
             )
+            if sys.platform == "win32":
+                self.process, self._close_owner = spawn_owned_popen(command, **popen_kw)
+            else:
+                self.process = subprocess.Popen(
+                    command, start_new_session=True, **popen_kw, **subprocess_window_kwargs()
+                )
 
             def read():
                 try:
@@ -250,7 +260,7 @@ class SummaryHost:
             deadline = time.monotonic() + 10
             while not endpoint.exists() and self.process.poll() is None and time.monotonic() < deadline:
                 time.sleep(0.02)
-            actual = json.loads(endpoint.read_text())
+            actual = json.loads(endpoint.read_text(encoding="utf-8"))
             if (actual.get("mode"), actual.get("provider"), actual.get("model"), actual.get("url")) != (
                 "summary-only",
                 "bench",
@@ -294,6 +304,9 @@ class SummaryHost:
                     terminate_process_group(self.process, term_wait=2, kill_wait=5)
                 except TimeoutError as cleanup:
                     self.errors.write(f"summary host termination failed: {cleanup}\n")
+            if self._close_owner is not None:
+                self._close_owner()
+                self._close_owner = None
             if self.errors is not None:
                 self.errors.close()
 

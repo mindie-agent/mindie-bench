@@ -347,24 +347,25 @@ def model_proxy_handler(gateway):
                         headers["anthropic-beta"] = self.headers["anthropic-beta"]
                 transport_stage = "connect"
                 stage_started, stage_durations = {}, dict.fromkeys(_TRANSPORT_STAGES)
-                stage_started["connect"] = time.monotonic()
+                stage_started["connect"] = time.perf_counter()
                 # Count only complete socket writes. A failed sendall leaves its
                 # chunk's delivery unknown; never report that as "not sent".
                 wire = {"written": 0, "pending": 0, "complete": False}
                 tls_observation = dict.fromkeys(
                     ("tls_version", "tls_cipher", "tls_alpn", "peer_ip", "peer_port", "peer_scope")
                 )
+                response = None
                 try:
                     connection.connect()
                     transport = connection.sock
                     tls_observation = _tls_transport_observation(transport)
-                    stage_durations["connect"] = time.monotonic() - stage_started["connect"]
+                    stage_durations["connect"] = time.perf_counter() - stage_started["connect"]
                     with gateway.lock:
                         gateway.connections[connection] = transport
                         if gateway.closed or gateway.model_settlement_expired:
                             raise TimeoutError("model settlement deadline expired before submission")
                     transport_stage = "submit"
-                    stage_started["submit"] = time.monotonic()
+                    stage_started["submit"] = time.perf_counter()
                     unmodified_send = getattr(connection, "send", None)
                     if callable(unmodified_send):
 
@@ -377,12 +378,12 @@ def model_proxy_handler(gateway):
                         connection.send = counting_send
                     connection.request("POST", target, body=body, headers=headers)
                     wire["complete"] = True
-                    stage_durations["submit"] = time.monotonic() - stage_started["submit"]
+                    stage_durations["submit"] = time.perf_counter() - stage_started["submit"]
                     transport_stage = "response_headers"
-                    stage_started["response_headers"] = time.monotonic()
+                    stage_started["response_headers"] = time.perf_counter()
                     response = connection.getresponse()
                     stage_durations["response_headers"] = (
-                        time.monotonic() - stage_started["response_headers"]
+                        time.perf_counter() - stage_started["response_headers"]
                     )
                     if response.status >= 400:
                         if response.status in {400, 401, 403, 404, 422}:
@@ -411,7 +412,7 @@ def model_proxy_handler(gateway):
                     except (TimeoutError, OSError) as exc:
                         delivery_failed(exc)
                     transport_stage = "response_body"
-                    stage_started["response_body"] = time.monotonic()
+                    stage_started["response_body"] = time.perf_counter()
                     while True:
                         if delivery_deadline is not None:
                             remaining = delivery_deadline - time.monotonic()
@@ -445,7 +446,7 @@ def model_proxy_handler(gateway):
                     # silent success or retry.
                     gateway.unknown = True
                     stage_durations[transport_stage] = (
-                        time.monotonic() - stage_started[transport_stage]
+                        time.perf_counter() - stage_started[transport_stage]
                         if transport_stage in stage_started
                         else None
                     )
@@ -485,6 +486,8 @@ def model_proxy_handler(gateway):
                         ordinal=ordinal,
                         tokens=gateway.usage_meters[ordinal].tokens.model_dump(),
                     )
+                    if response is not None:
+                        response.close()
                     connection.close()
                     with gateway.lock:
                         gateway.connections.pop(connection, None)

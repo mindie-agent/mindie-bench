@@ -12,6 +12,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
+from conftest import noop_true
 
 from mindie_bench.models import HarnessConfig
 from mindie_bench.runner.gateway import Gateway
@@ -104,7 +105,7 @@ def gateway_for(case, monkeypatch, url):
     monkeypatch.setenv("BENCH_MOCK_KEY", "zero-paid-loopback")
     harness = HarnessConfig(
         name="codex",
-        executable="/usr/bin/true",
+        executable=str(noop_true()),
         expected_version="mock",
         model="mock",
         provider_url=url,

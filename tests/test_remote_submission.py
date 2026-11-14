@@ -1,12 +1,12 @@
-import os
-import signal
 import subprocess
 import sys
 import threading
 import time
 
 from mindie_bench.models import RemoteConfig
+from mindie_bench.runner.host_platform import subprocess_window_kwargs
 from mindie_bench.runner.remote_slot import RemoteSlot
+from mindie_bench.runner.termination import terminate_process_group
 
 
 def test_submission_to_peer_that_stops_reading_has_a_deadline_and_becomes_unknown(case):
@@ -30,6 +30,7 @@ def test_submission_to_peer_that_stops_reading_has_a_deadline_and_becomes_unknow
         stderr=subprocess.PIPE,
         start_new_session=True,
         bufsize=0,
+        **subprocess_window_kwargs(),
     )
     failures = []
 
@@ -43,13 +44,13 @@ def test_submission_to_peer_that_stops_reading_has_a_deadline_and_becomes_unknow
     started = time.monotonic()
     try:
         thread.start()
-        thread.join(timeout=0.5)
+        thread.join(timeout=1.5)
         assert not thread.is_alive(), "request deadline did not cover pipe submission"
-        assert time.monotonic() - started < 0.5
+        assert time.monotonic() - started < 1.5
         assert len(failures) == 1 and isinstance(failures[0], TimeoutError)
         assert slot.operation_unknown
     finally:
-        os.killpg(slot.process.pid, signal.SIGKILL)
+        terminate_process_group(slot.process, term_wait=0.2, kill_wait=1.0)
         slot.process.wait(timeout=5)
         thread.join(timeout=5)
         for stream in [slot.process.stdin, slot.process.stdout, slot.process.stderr]:

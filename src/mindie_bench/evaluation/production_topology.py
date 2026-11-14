@@ -593,7 +593,7 @@ def load_production_benchmark_task(root: str | Path) -> ProductionBenchmarkTask:
     from mindie_bench.models import TaskSpec
 
     path = Path(root)
-    raw = tomllib.loads((path / "task.toml").read_text())
+    raw = tomllib.loads((path / "task.toml").read_text(encoding="utf-8"))
     task = TaskSpec.model_validate(raw)
     environment = task.environment.get("l3") or next(iter(task.environment.values()))
     if environment.topology_scale is None or environment.placement is None:
@@ -618,7 +618,7 @@ def load_production_benchmark_task(root: str | Path) -> ProductionBenchmarkTask:
         ]
     ).strip()
     instruction = path / "instruction.md"
-    if not instruction.is_file() or not instruction.read_text().strip():
+    if not instruction.is_file() or not instruction.read_text(encoding="utf-8").strip():
         raise ValueError(f"{path} is missing a non-empty instruction.md")
     return ProductionBenchmarkTask(
         root=path,

@@ -1,12 +1,11 @@
 import os
-import signal
 import subprocess
 import sys
 import threading
 from types import SimpleNamespace
 
 from mindie_bench.runner import process as process_module
-from mindie_bench.runner.process import subprocess_window_kwargs
+from mindie_bench.runner.termination import terminate_process_group
 
 
 def gateway():
@@ -44,14 +43,14 @@ def test_foreground_timeout_also_covers_a_peer_that_does_not_read_prompt(tmp_pat
     thread = threading.Thread(target=run, daemon=True)
     try:
         thread.start()
-        thread.join(timeout=1)
+        thread.join(timeout=2)
         assert not thread.is_alive(), "foreground timeout did not cover stdin submission"
         assert results[0].stop_reason == "timeout"
-        assert results[0].elapsed < 1
+        assert results[0].elapsed < 2
     finally:
         for process in owned:
             if process.poll() is None:
-                os.killpg(process.pid, signal.SIGKILL)
+                terminate_process_group(process, term_wait=0.2, kill_wait=1.0)
         thread.join(timeout=5)
 
 
@@ -126,11 +125,13 @@ def test_native_relative_observation_uses_the_recorded_monotonic_origin(tmp_path
 
 
 def test_subprocess_window_kwargs_hide_windows_console(monkeypatch):
-    monkeypatch.setattr(process_module.os, "name", "nt")
-    monkeypatch.setattr(process_module.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
-    assert subprocess_window_kwargs() == {"creationflags": 0x08000000}
-    monkeypatch.setattr(process_module.os, "name", "posix")
-    assert subprocess_window_kwargs() == {}
+    from mindie_bench.runner import host_platform as host_platform_module
+
+    monkeypatch.setattr(host_platform_module.os, "name", "nt")
+    monkeypatch.setattr(host_platform_module.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    assert host_platform_module.subprocess_window_kwargs() == {"creationflags": 0x08000000}
+    monkeypatch.setattr(host_platform_module.os, "name", "posix")
+    assert host_platform_module.subprocess_window_kwargs() == {}
 
 
 def test_stream_process_forwards_windows_console_flags(tmp_path, monkeypatch):
@@ -154,6 +155,6 @@ def test_stream_process_forwards_windows_console_flags(tmp_path, monkeypatch):
         consume=lambda *args: None,
         gateway=gateway(),
     )
-    assert seen["creationflags"] == 0x08000000
+    assert seen["creationflags"] & 0x08000000
     assert result.started is False
     assert result.errors

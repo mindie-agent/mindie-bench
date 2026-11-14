@@ -31,7 +31,9 @@ class GradedConsumer:
             incoming = []
             for path, _ in units(corpus).values():
                 incoming.append(
-                    GradedUnit.from_text(path.read_text(), path.relative_to(corpus).as_posix())
+                    GradedUnit.from_text(
+                        path.read_text(encoding="utf-8"), path.relative_to(corpus).as_posix()
+                    )
                 )
             self.store.graded.install(incoming, source_identity=tree_hash(corpus))
         except BaseException as error:

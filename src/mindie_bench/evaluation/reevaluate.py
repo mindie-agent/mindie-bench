@@ -24,7 +24,14 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mindie_bench.runner.termination import terminate_process_group
+from mindie_bench.runner.host_platform import (
+    resolve_git_bash,
+    rmtree_force,
+    subprocess_window_kwargs,
+    which_native,
+    write_command_alias,
+)
+from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 from mindie_bench.runner.verifier import parse_verifier
 
 AFFECTED_SCOPES = {
@@ -73,15 +80,47 @@ def restore_candidate(row: dict, receipt: dict, task: Path, workspace: Path) -> 
         spec = tomllib.loads((task / "task.toml").read_text(encoding="utf-8"))
         environment = spec["environment"][row["tier"]]
         base = receipt["environment_fingerprint"]["base_commit"]
-        with tempfile.TemporaryDirectory(prefix="mindie-reevaluate-archive-") as temp_dir:
+        git_exe = which_native("git") or "git"
+        with tempfile.TemporaryDirectory(
+            prefix="mindie-reevaluate-archive-", ignore_cleanup_errors=True
+        ) as temp_dir:
             archive_path = Path(temp_dir) / "archive.tar"
-            subprocess.run(["git", "-C", environment["repo_path"], "archive", "-o", str(archive_path), base],
-                           stderr=subprocess.PIPE, check=True, timeout=30)
+            try:
+                subprocess.run(
+                    [
+                        git_exe,
+                        "-C",
+                        environment["repo_path"],
+                        "-c",
+                        "core.autocrlf=false",
+                        "archive",
+                        "-o",
+                        str(archive_path),
+                        base,
+                    ],
+                    stderr=subprocess.PIPE,
+                    check=True,
+                    timeout=30,
+                    **subprocess_window_kwargs(),
+                )
+            except subprocess.CalledProcessError as exc:
+                detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
+                raise RuntimeError(f"git archive exited {exc.returncode}: {detail}") from exc
             with tarfile.open(archive_path) as source:
                 source.extractall(workspace, filter="data")
         if patch_bytes:
-            subprocess.run(["git", "apply", "--no-index", "--binary", str(patch_path)],
-                           cwd=workspace, check=True, capture_output=True, timeout=30)
+            try:
+                subprocess.run(
+                    [git_exe, "-c", "core.autocrlf=false", "apply", "--no-index", "--binary", str(patch_path)],
+                    cwd=workspace,
+                    check=True,
+                    capture_output=True,
+                    timeout=30,
+                    **subprocess_window_kwargs(),
+                )
+            except subprocess.CalledProcessError as exc:
+                detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
+                raise RuntimeError(f"git apply exited {exc.returncode}: {detail}") from exc
         for name, encoded in cleanup["untracked"].items():
             target = workspace / name
             if not target.resolve().is_relative_to(workspace.resolve()):
@@ -102,19 +141,41 @@ def restore_candidate(row: dict, receipt: dict, task: Path, workspace: Path) -> 
 
 def run_verifier(task: Path, workspace: Path, output: Path, python: Path, timeout: float) -> dict:
     before = verifier_identity(task)
-    env = dict(os.environ, MINDIE_BENCH_WORKSPACE=workspace.as_posix(),
-               MINDIE_BENCH_PYTHON=python.as_posix(), MINDIE_BENCH_CPU_PYTHON=python.as_posix(),
-               PYTHONDONTWRITEBYTECODE="1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1")
+    env = dict(
+        os.environ,
+        MINDIE_BENCH_WORKSPACE=workspace.as_posix(),
+        MINDIE_BENCH_PYTHON=python.as_posix(),
+        MINDIE_BENCH_CPU_PYTHON=python.as_posix(),
+        PYTHONDONTWRITEBYTECODE="1",
+        PYTHONUTF8="1",
+        OMP_NUM_THREADS="1",
+        MKL_NUM_THREADS="1",
+    )
+    if os.name == "nt" and not which_native("python3", path=env.get("PATH")):
+        shim_dir = output / "bin"
+        write_command_alias(shim_dir, "python3", [str(python), "-X", "utf8"])
+        env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "")
+    bash_bin = resolve_git_bash(env)
     started = time.monotonic()
     timed_out = False
     with (output / "stdout.txt").open("wb") as stdout, (output / "stderr.txt").open("wb") as stderr:
-        process = subprocess.Popen(["bash", (task / "verifier/test.sh").as_posix()], cwd=workspace,
-                                   env=env, stdout=stdout, stderr=stderr, start_new_session=True)
+        process, close_owner = spawn_owned_popen(
+            [bash_bin, (task / "verifier/test.sh").as_posix()],
+            cwd=workspace,
+            env=env,
+            stdout=stdout,
+            stderr=stderr,
+        )
         try:
-            process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            terminate_process_group(process)
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                terminate_process_group(process)
+            else:
+                terminate_process_group(process, term_wait=0.2, kill_wait=5.0)
+        finally:
+            close_owner()
     result = {"status": "not_evaluated", "reward": None, "failure_category": None,
               "failure_reason": None, "returncode": process.returncode,
               "elapsed_sec": time.monotonic() - started, "timeout_sec": timeout,
@@ -232,18 +293,22 @@ def reevaluate(inventory: Path, tasks: Path, output: Path, python: Path,
         if selected:
             trial_output = output / item["trial_id"]
             trial_output.mkdir()
+            workspace = Path(tempfile.mkdtemp(prefix="mindie-reevaluate-"))
             try:
                 if receipt_hash != item["receipt_sha256"]:
                     raise ValueError("receipt hash differs from audited source")
-                with tempfile.TemporaryDirectory(prefix="mindie-reevaluate-") as directory:
-                    workspace = Path(directory)
-                    row["candidate_source"] = restore_candidate(item, receipt, task, workspace)
-                    row["reevaluation"] = run_verifier(
-                        task, workspace, trial_output, task_pythons.get(item["task_id"], python), timeout)
+                row["candidate_source"] = restore_candidate(item, receipt, task, workspace)
+                row["reevaluation"] = run_verifier(
+                    task, workspace, trial_output, task_pythons.get(item["task_id"], python), timeout)
             except Exception as exc:
                 row["reevaluation"] = {"status": "not_evaluated", "reward": None,
                                        "failure_category": "artifact_or_execution_error",
                                        "failure_reason": f"{type(exc).__name__}: {exc}"}
+            finally:
+                try:
+                    rmtree_force(workspace)
+                except OSError:
+                    pass
             print(item["trial_id"], row["reevaluation"]["reward"],
                   row["reevaluation"]["failure_category"], flush=True)
         row["original_receipt_unchanged"] = receipt_hash == sha256(source)

@@ -61,7 +61,7 @@ class KimiDriver:
             raise ValueError("kimi profile is missing its owned KIMI_CODE_HOME")
         if not config.model_catalog_path:
             raise ValueError("the kimi driver requires an explicit model catalog")
-        catalog = json.loads((profile.root / "model-catalog.json").read_text())
+        catalog = json.loads((profile.root / "model-catalog.json").read_text(encoding="utf-8"))
         entries = [entry for entry in catalog["models"] if entry.get("slug") == config.model]
         if len(entries) != 1:
             raise ValueError("kimi model catalog must contain exactly one entry for the pinned model")
@@ -126,14 +126,16 @@ class KimiDriver:
         ]
         if effort:
             lines += ["", "[thinking]", "enabled = true", f"effort = {json.dumps(effort)}"]
-        (home / "config.toml").write_text("\n".join(lines) + "\n")
+        (home / "config.toml").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         # bind_mcp_transport has already injected PATH and the gateway URL into
         # the shared mcp.json; the owned copy adds only explicit MCP timeouts.
-        servers = json.loads((profile.root / "mcp.json").read_text())["mcpServers"]
+        servers = json.loads((profile.root / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]
         for server in servers.values():
             server.setdefault("startupTimeoutMs", MCP_STARTUP_TIMEOUT_MS)
             server.setdefault("toolTimeoutMs", MCP_TOOL_TIMEOUT_MS)
-        (home / "mcp.json").write_text(json.dumps({"mcpServers": servers}, indent=1) + "\n")
+        (home / "mcp.json").write_text(
+            json.dumps({"mcpServers": servers}, indent=1) + "\n", encoding="utf-8", newline="\n"
+        )
         # --skills-dir replaces auto-discovery entirely, so benchmark skills are
         # the only ones offered; an empty owned dir keeps G0/G1 deterministic.
         skills = profile.root / "skills"
@@ -232,11 +234,25 @@ def main() -> int:
         print(f"kimi prompt is not valid UTF-8: {exc}", file=sys.stderr)
         return 2
     try:
+        if os.name == "nt":
+            import subprocess
+
+            from mindie_bench.runner.host_platform import subprocess_window_kwargs
+
+            completed = subprocess.run(
+                [executable, "-p", prompt, *args],
+                stdin=subprocess.DEVNULL,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+                check=False,
+                **subprocess_window_kwargs(),
+            )
+            return completed.returncode
         os.execv(executable, [executable, "-p", prompt, *args])
     except TimeoutError:
         raise
     except OSError as exc:
-        # Includes E2BIG when the prompt exceeds the platform per-argument limit.
+        # Includes E2BIG/WinError 206 when the prompt exceeds the platform per-argument limit.
         print(f"kimi adapter failed to exec {executable}: {exc}", file=sys.stderr)
         return 2
 

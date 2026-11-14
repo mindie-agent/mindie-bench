@@ -214,7 +214,7 @@ def _revision(ref: Any) -> int | None:
 def _domain(corpus: Path) -> str:
     contract = corpus / "publication-contract.json"
     if contract.is_file():
-        value = json.loads(contract.read_text())
+        value = json.loads(contract.read_text(encoding="utf-8"))
         if isinstance(value.get("domain"), str):
             return value["domain"]
     return "bench-knowledge"

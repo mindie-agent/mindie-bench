@@ -22,6 +22,11 @@ from pathlib import Path
 
 from mindie_bench.io import is_ignored_cache_path
 from mindie_bench.models import SourceEnvironment
+from mindie_bench.runner.host_platform import (
+    is_wsl_interop_path,
+    subprocess_window_kwargs,
+    which_native,
+)
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, diff_paths, project_source
 
 _METADATA_LOCKS = {}
@@ -42,12 +47,15 @@ class WorktreeSlot:
         self.task_root = task_root.resolve(strict=True)
         self.created = False
         self.public_files = {}
+        self.git_exe = which_native("git") or "git"
         admin = subprocess.run(
-            ["git", "-C", str(self.repo), "rev-parse", "--git-common-dir"],
+            [self.git_exe, "-C", str(self.repo), "rev-parse", "--git-common-dir"],
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=self.remaining_timeout(30),
+            **subprocess_window_kwargs(),
         ).stdout.strip()
         self.admin_path = (self.repo / admin).resolve()
         with _LOCK_REGISTRY:
@@ -70,25 +78,40 @@ class WorktreeSlot:
         return remaining
 
     def worktree_command(self, *arguments):
+        extra = (
+            ["-c", "core.autocrlf=false", "-c", "core.fileMode=false", "-c", "core.longpaths=true"]
+            if os.name == "nt" or is_wsl_interop_path(self.repo) or is_wsl_interop_path(self.destination)
+            else []
+        )
         try:
             subprocess.run(
-                ["git", "-C", str(self.repo), "worktree", *arguments],
+                [
+                    self.git_exe,
+                    "-C",
+                    str(self.repo),
+                    *extra,
+                    "worktree",
+                    *arguments,
+                ],
                 check=True,
                 capture_output=True,
                 timeout=self.remaining_timeout(30),
+                **subprocess_window_kwargs(),
             )
         except subprocess.CalledProcessError as exc:
             raise RuntimeError(
-                f"git worktree {arguments[0]} failed: {exc.stderr.decode(errors='replace').strip()}"
+                f"git worktree {arguments[0]} failed: {exc.stderr.decode('utf-8', errors='replace').strip()}"
             ) from exc
 
     def prepare(self) -> Path:
         actual = subprocess.run(
-            ["git", "-C", str(self.repo), "rev-parse", self.environment.base_commit + "^{commit}"],
+            [self.git_exe, "-C", str(self.repo), "rev-parse", self.environment.base_commit + "^{commit}"],
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=self.remaining_timeout(60),
+            **subprocess_window_kwargs(),
         ).stdout.strip()
         if actual != self.environment.base_commit:
             raise ValueError("base revision did not resolve to exact declared commit")
@@ -144,14 +167,15 @@ class WorktreeSlot:
     def reattach_metadata(self):
         with self.metadata_edit():
             matches = []
+            expected_git = os.path.normcase(str((self.destination / ".git").resolve()))
             for entry in (self.admin_path / "worktrees").iterdir():
                 self.remaining_timeout(30)
                 try:
-                    target = (entry / "gitdir").read_text().strip()
+                    target = (entry / "gitdir").read_text(encoding="utf-8").strip()
                 except FileNotFoundError:
                     # Other Git processes do not participate in this runner's lock.
                     continue
-                if Path(target).resolve() == (self.destination / ".git").resolve():
+                if os.path.normcase(str(Path(target).resolve())) == expected_git:
                     matches.append(entry)
             if len(matches) != 1:
                 raise RuntimeError("cannot identify owned worktree metadata for cleanup")
@@ -160,17 +184,32 @@ class WorktreeSlot:
                 gitfile.unlink()
             if gitfile.exists():
                 raise RuntimeError("agent-created .git directory retained for inspection")
-            gitfile.write_text(f"gitdir: {matches[0]}\n")
+            gitfile.write_text(f"gitdir: {matches[0].as_posix()}\n", encoding="utf-8")
 
     def snapshot_patch(self, output: Path) -> list[str]:
         self.reattach_metadata()
         try:
-            command = ["git", "-c", "core.fsmonitor=false", "-C", str(self.destination)]
+            command = [
+                self.git_exe,
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "core.fileMode=false",
+                "-c",
+                "core.quotepath=false",
+                "-c",
+                "core.autocrlf=false",
+                "-c",
+                "core.longpaths=true",
+                "-C",
+                str(self.destination),
+            ]
             patch = subprocess.run(
                 [*command, "diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD", *diff_paths()],
                 check=True,
                 capture_output=True,
                 timeout=self.remaining_timeout(60),
+                **subprocess_window_kwargs(),
             ).stdout
             (output / "final_patch.diff").write_bytes(patch)
             changed = subprocess.run(
@@ -186,13 +225,16 @@ class WorktreeSlot:
                 check=True,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=self.remaining_timeout(60),
+                **subprocess_window_kwargs(),
             ).stdout.splitlines()
             untracked = subprocess.run(
                 [*command, "ls-files", "--others", "--exclude-standard", "-z", *diff_paths()],
                 check=True,
                 capture_output=True,
                 timeout=self.remaining_timeout(60),
+                **subprocess_window_kwargs(),
             ).stdout.split(b"\0")
             modified = set(
                 changed

@@ -3,12 +3,25 @@ from __future__ import annotations
 import hashlib
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
+from mindie_bench.runner.host_platform import resolve_git_bash, subprocess_window_kwargs
+
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _bash_env(extra: dict[str, str]) -> dict[str, str]:
+    py_dir = str(Path(sys.executable).parent)
+    cur_path = os.environ.get("PATH", "")
+    return {
+        **os.environ,
+        "PATH": f"{py_dir}{os.pathsep}{cur_path}" if cur_path else py_dir,
+        **extra,
+    }
 
 
 def workflow():
@@ -35,25 +48,29 @@ def workspace(tmp_path: Path) -> Path:
 def run_suite_step(tmp_path: Path, value_path: str | None) -> tuple[subprocess.CompletedProcess, dict]:
     root = workspace(tmp_path)
     output = tmp_path / "github-output"
-    output.write_text("")
-    env = {
-        **os.environ,
-        "GITHUB_WORKSPACE": str(root),
-        "RUNNER_TEMP": str(tmp_path / "runner"),
-        "GITHUB_OUTPUT": str(output),
-        "VALUE_SUITE_PATH": value_path or "",
-    }
+    output.write_text("", encoding="utf-8")
+    env = _bash_env(
+        {
+            "GITHUB_WORKSPACE": str(root),
+            "RUNNER_TEMP": str(tmp_path / "runner"),
+            "GITHUB_OUTPUT": str(output),
+            "VALUE_SUITE_PATH": value_path or "",
+        }
+    )
     (tmp_path / "runner").mkdir()
     result = subprocess.run(
-        ["bash", "-c", suite_step()["run"]],
+        [resolve_git_bash(env), "-c", suite_step()["run"]],
         cwd=root,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
+        **subprocess_window_kwargs(),
     )
     outputs = {}
-    for line in output.read_text().splitlines():
+    for line in output.read_text(encoding="utf-8").splitlines():
         if "=" in line:
             key, value = line.split("=", 1)
             outputs[key] = value
@@ -123,7 +140,14 @@ def test_patch_publication_keeps_milestone_value_acceptance_mandatory(tmp_path, 
     (docs / (version + ".md")).write_text("Release fixture\n")
     (docs / version / "benchmark-manifest.json").write_text("{}\n")
     def git(*args):
-        return subprocess.check_output(["git", "-C", str(tmp_path), *args], text=True, timeout=5).strip()
+        return subprocess.check_output(
+            ["git", "-C", str(tmp_path), *args],
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+            **subprocess_window_kwargs(),
+        ).strip()
+
     git("init", "-q")
     git("config", "user.email", "test@example.invalid")
     git("config", "user.name", "Release test")
@@ -134,12 +158,28 @@ def test_patch_publication_keeps_milestone_value_acceptance_mandatory(tmp_path, 
     steps = workflow()["jobs"]["publish"]["steps"]
     gate = next(step for step in steps if step.get("id") == "product")
     output = tmp_path.parent / (tag + "-outputs")
-    result = subprocess.run(["bash", "-c", gate["run"]], cwd=tmp_path,
-        env={**os.environ, "GITHUB_REF_NAME": tag, "GITHUB_REF_TYPE": "tag",
-             "GITHUB_SHA": revision, "BENCHMARK_REF": revision,
-             "RELEASE_KIND": "patch", "VALUE_SUITE_PATH": "",
-             "GITHUB_OUTPUT": str(output)},
-        text=True, capture_output=True, timeout=10)
+    env = _bash_env(
+        {
+            "GITHUB_REF_NAME": tag,
+            "GITHUB_REF_TYPE": "tag",
+            "GITHUB_SHA": revision,
+            "BENCHMARK_REF": revision,
+            "RELEASE_KIND": "patch",
+            "VALUE_SUITE_PATH": "",
+            "GITHUB_OUTPUT": str(output),
+        }
+    )
+    result = subprocess.run(
+        [resolve_git_bash(env), "-c", gate["run"]],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        timeout=10,
+        **subprocess_window_kwargs(),
+    )
     assert (result.returncode == 0) is accepted, result.stderr
     if accepted:
         assert output.read_text().strip() == "version=" + version

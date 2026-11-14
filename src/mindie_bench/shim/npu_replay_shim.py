@@ -14,9 +14,12 @@ import urllib.request
 
 
 def main():
+    cmd_name = os.path.basename(sys.argv[0])
+    if os.name == "nt" and cmd_name.lower().endswith(".exe"):
+        cmd_name = cmd_name[:-4]
     request = urllib.request.Request(
         os.environ["MINDIE_BENCH_GATEWAY"] + "/bench/replay",
-        data=json.dumps({"argv": [os.path.basename(sys.argv[0]), *sys.argv[1:]]}).encode(),
+        data=json.dumps({"argv": [cmd_name, *sys.argv[1:]]}).encode(),
         headers={"Content-Type": "application/json"},
     )
     try:
@@ -28,8 +31,10 @@ def main():
     except (OSError, ValueError, urllib.error.HTTPError) as exc:
         print(f"replay infrastructure error: {type(exc).__name__}", file=sys.stderr)
         return 125
-    sys.stdout.write(result["stdout"])
-    sys.stderr.write(result["stderr"])
+    sys.stdout.buffer.write(result["stdout"].encode("utf-8"))
+    sys.stdout.buffer.flush()
+    sys.stderr.buffer.write(result["stderr"].encode("utf-8"))
+    sys.stderr.buffer.flush()
     return result["exit_code"]
 
 

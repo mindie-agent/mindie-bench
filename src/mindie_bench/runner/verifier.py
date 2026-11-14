@@ -32,9 +32,9 @@ import json
 import os
 import secrets
 import shlex
-import shutil
 import signal
 import subprocess
+import sys
 import time
 import tomllib
 from pathlib import Path
@@ -58,7 +58,18 @@ from mindie_bench.models import (
     UnknownExternalEffects,
     VerifierResult,
 )
+from mindie_bench.runner.host_platform import (
+    resolve_git_bash,
+    subprocess_window_kwargs,
+    which_native,
+    write_command_alias,
+)
 from mindie_bench.runner.sandbox import native_command
+from mindie_bench.runner.termination import (
+    _win_taskkill_tree,
+    spawn_owned_popen,
+    terminate_process_group,
+)
 
 
 def _local_group_running(group: int) -> bool:
@@ -77,13 +88,25 @@ def _local_group_running(group: int) -> bool:
 def _drain_local_judge(process: subprocess.Popen) -> tuple[bytes, bytes]:
     """TERM, then KILL the owned group, and prove it has no running members."""
     if os.name != "posix":
+        kill_error = None
         try:
-            process.kill()
-        except TimeoutError:
+            if getattr(process, "_win_job_handle", None):
+                terminate_process_group(process, term_wait=0.15, kill_wait=1.0)
+            else:
+                if sys.platform == "win32":
+                    _win_taskkill_tree(getattr(process, "pid", None))
+                process.kill()
+        except BaseException as exc:
+            kill_error = exc
             raise
-        except OSError:
-            pass
-        return process.communicate(timeout=2)
+        finally:
+            try:
+                output = process.communicate(timeout=2)
+                process._drained_output = output
+            except BaseException:
+                if kill_error is None:
+                    raise
+        return output
     running = True
     try:
         try:
@@ -117,11 +140,29 @@ def _drain_local_judge(process: subprocess.Popen) -> tuple[bytes, bytes]:
     return output
 
 
+_STDLIB_POPEN = subprocess.Popen
+
+
 def _run_local_judge(command, *, cwd, env, timeout):
-    process = subprocess.Popen(
-        command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        start_new_session=True,
-    )
+    if sys.platform == "win32" and os.name == "nt":
+        process, close_owner = spawn_owned_popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    else:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            **subprocess_window_kwargs(),
+        )
+        close_owner = lambda: None  # noqa: E731
     try:
         stdout, stderr = process.communicate(timeout=timeout)
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
@@ -129,6 +170,10 @@ def _run_local_judge(command, *, cwd, env, timeout):
         try:
             stdout, stderr = _drain_local_judge(process)
         except Exception as cleanup_error:
+            if isinstance(error, subprocess.TimeoutExpired):
+                drained = getattr(process, "_drained_output", None)
+                if drained is not None:
+                    error.stdout, error.stderr = drained
             raise UnknownExternalEffects(
                 f"local verifier cleanup could not be confirmed: {cleanup_error}"
             ) from error
@@ -136,6 +181,7 @@ def _run_local_judge(command, *, cwd, env, timeout):
             error.stdout, error.stderr = stdout, stderr
         raise
     finally:
+        close_owner()
         process.stdout.close()
         process.stderr.close()
 
@@ -234,7 +280,9 @@ def local_verifier(
     inference_contract: InferenceContract | None = None,
 ) -> tuple[VerifierResult, dict]:
     if (task_root / "task.toml").is_file():
-        task = TaskSpec.model_validate(tomllib.loads((task_root / "task.toml").read_text()))
+        task = TaskSpec.model_validate(
+            tomllib.loads((task_root / "task.toml").read_text(encoding="utf-8"))
+        )
         oracle_contract = oracle_contract if oracle_contract is not None else task.oracle
         performance_contract = (
             performance_contract if performance_contract is not None else task.performance
@@ -267,6 +315,7 @@ def local_verifier(
         MINDIE_BENCH_ORACLE_SHA256=manifest.sha256,
         MINDIE_BENCH_ORACLE_ROOT=str(task_root.resolve()),
         PYTHONDONTWRITEBYTECODE="1",
+        PYTHONUTF8="1",
     )
     extra_verifier_reads = []
     for env_key in ("MINDIE_BENCH_PYTHON", "MINDIE_BENCH_CPU_PYTHON"):
@@ -281,6 +330,13 @@ def local_verifier(
                         py_path.resolve(strict=True).parent.parent,
                     ]
                 )
+    if sys.platform == "win32" and not which_native("python3", path=env.get("PATH")):
+        shim_dir = profile.root / "bin"
+        py_target = env.get("MINDIE_BENCH_PYTHON") or env.get("MINDIE_BENCH_CPU_PYTHON") or sys.executable
+        write_command_alias(shim_dir, "python3", [py_target, "-X", "utf8"])
+        prefix = str(shim_dir) + os.pathsep
+        if not env.get("PATH", "").startswith(prefix):
+            env["PATH"] = prefix + env.get("PATH", "")
     default_cpu_rt = Path("/tmp/mindie-bench-cpu-runtime-20261022")
     if default_cpu_rt.is_dir():
         extra_verifier_reads.append(default_cpu_rt.resolve(strict=True))
@@ -327,11 +383,7 @@ def local_verifier(
             probe_record = {"name": probe.name, "returncode": result.returncode}
             oracle_record["probes"].append(probe_record)
             probe_record.update(check_probe(probe.name, result.returncode, result.stdout, probe))
-        bash_bin = (
-            "/bin/bash"
-            if Path("/bin/bash").exists()
-            else (shutil.which("bash", path=env.get("PATH")) or shutil.which("bash") or "/bin/bash")
-        )
+        bash_bin = resolve_git_bash(env)
         result = execute([bash_bin, str(task_root / "verifier/test.sh")], "verifier")
         record["returncode"] = result.returncode
         value = parse_verifier(

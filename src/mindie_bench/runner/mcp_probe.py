@@ -24,23 +24,23 @@ from __future__ import annotations
 
 import json
 import os
-import select
 import subprocess
-import sys
 import time
 
 from mindie_bench import __version__
 from mindie_bench.io import digest
 from mindie_bench.runner import graded_view
+from mindie_bench.runner.host_platform import PipeReader, subprocess_window_kwargs
 from mindie_bench.runner.sandbox import native_command
-from mindie_bench.runner.termination import terminate_process_group
+from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
 _STEP_TIMEOUT_SECONDS = float(os.environ.get("MINDIE_BENCH_MCP_PROBE_TIMEOUT_SECONDS", "15.0"))
 
 
-def close_probe(process, timeout: float | None = None):
+def close_probe(process, timeout: float | None = None, *, reader: PipeReader | None = None):
     """EOF lets a stdio relay close its independently owned backend session."""
     failure: BaseException | None = None
+    budget = _STEP_TIMEOUT_SECONDS if timeout is None else timeout
 
     def record_cleanup(exc: BaseException, label: str) -> None:
         nonlocal failure
@@ -50,7 +50,22 @@ def close_probe(process, timeout: float | None = None):
             failure.add_note(f"MCP preflight {label} also failed: {exc}")
 
     try:
-        process.communicate(timeout=_STEP_TIMEOUT_SECONDS if timeout is None else timeout)
+        if reader is None:
+            process.communicate(timeout=budget)
+        else:
+            deadline = time.monotonic() + budget
+            if process.stdin is not None and not process.stdin.closed:
+                process.stdin.close()
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(process.args, budget)
+                timed_out, chunk = reader.read_chunk(remaining)
+                if timed_out:
+                    raise subprocess.TimeoutExpired(process.args, budget)
+                if not chunk:
+                    break
+            process.wait(timeout=max(0.05, deadline - time.monotonic()))
         if process.returncode:
             raise RuntimeError(f"MCP preflight exited with code {process.returncode}")
     except BaseException as error:
@@ -61,7 +76,10 @@ def close_probe(process, timeout: float | None = None):
         except BaseException as cleanup:
             record_cleanup(cleanup, "forced cleanup")
         try:
-            process.communicate(timeout=5)
+            if reader is None:
+                process.communicate(timeout=5)
+            else:
+                process.wait(timeout=5)
         except BaseException as cleanup:
             record_cleanup(cleanup, "forced cleanup")
         for stream in (process.stdin, process.stdout):
@@ -78,7 +96,7 @@ def probe_servers(profile, group_config, read_paths, trial_dir, gateway):
     observed = {}
     if not group_config:
         return observed
-    configured = json.loads((profile.root / "mcp.json").read_text())["mcpServers"]
+    configured = json.loads((profile.root / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]
     for name, spec in group_config.mcp_servers.items():
         server = configured[name]
         command = native_command(
@@ -90,24 +108,23 @@ def probe_servers(profile, group_config, read_paths, trial_dir, gateway):
             gateway_port=gateway.port,
             gateway_socket=gateway.unix_socket,
         )
-        read_fd, owner_fd = os.pipe()
+        close_owner = lambda: None  # noqa: E731
         process = None
+        reader = None
         failure = None
         with (trial_dir / f"mcp-{name}.stderr").open("xb") as stderr:
             try:
-                process = subprocess.Popen(
-                    [sys.executable, "-I", "-m", "mindie_bench.runner.owner", str(read_fd), *command],
+                process, close_owner = spawn_owned_popen(
+                    command,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=stderr,
                     env=dict(profile.env, **server["env"]),
                     cwd=profile.root,
-                    start_new_session=True,
-                    pass_fds=(read_fd,),
                     bufsize=0,
+                    **subprocess_window_kwargs(),
                 )
-                os.close(read_fd)
-                read_fd = -1
+                reader = PipeReader(process.stdout)
                 buffer = b""
 
                 def send(value):
@@ -120,12 +137,11 @@ def probe_servers(profile, group_config, read_paths, trial_dir, gateway):
                     while time.monotonic() < deadline:
                         while b"\n" not in buffer:
                             remaining = deadline - time.monotonic()
-                            if (
-                                remaining <= 0
-                                or not select.select([process.stdout], [], [], remaining)[0]
-                            ):
+                            if remaining <= 0:
                                 raise TimeoutError(f"required MCP component {name} did not answer")
-                            chunk = os.read(process.stdout.fileno(), 65536)
+                            timed_out, chunk = reader.read_chunk(remaining)
+                            if timed_out:
+                                raise TimeoutError(f"required MCP component {name} did not answer")
                             if not chunk:
                                 raise RuntimeError(f"required MCP component {name} exited")
                             buffer += chunk
@@ -214,13 +230,11 @@ def probe_servers(profile, group_config, read_paths, trial_dir, gateway):
             finally:
                 try:
                     if process:
-                        close_probe(process)
+                        close_probe(process, reader=reader)
                 except BaseException as cleanup:
                     if failure is None:
                         raise
                     failure.add_note(f"MCP preflight shutdown also failed: {cleanup}")
                 finally:
-                    os.close(owner_fd)
-                    if read_fd >= 0:
-                        os.close(read_fd)
+                    close_owner()
     return observed

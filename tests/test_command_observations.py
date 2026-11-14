@@ -112,6 +112,7 @@ def test_arguments_comments_and_stdin_source_are_not_test_commands(command):
         ("echo " + "x" * 262_144, "command_size_limit"),
         ("echo " + "x " * 4096, "token_limit"),
     ],
+    ids=lambda v: v[:48] if isinstance(v, str) else None,
 )
 def test_dynamic_or_out_of_bound_commands_are_explicitly_unresolved(command, reason):
     observed = observe_npu_command(command)

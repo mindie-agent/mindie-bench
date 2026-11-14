@@ -27,7 +27,7 @@ def postflight_with_process_race(tmp_path, monkeypatch, *, stage, error):
         def stat(self):
             if self.disappearing and stage == "stat":
                 raise error
-            return SimpleNamespace(st_uid=os.getuid())
+            return SimpleNamespace(st_uid=getattr(os, "getuid", lambda: 1000)())
 
         def __truediv__(self, name):
             assert name == "environ"
@@ -52,8 +52,10 @@ def postflight_with_process_race(tmp_path, monkeypatch, *, stage, error):
         return SimpleNamespace(stdout=json.dumps({"0": {"used_mb": 1, "pids": []}}))
 
     monkeypatch.setattr(pathlib, "Path", fake_path)
+    monkeypatch.setattr(os, "getuid", lambda: 1000, raising=False)
     monkeypatch.setattr(os, "pidfd_open", pidfd_open, raising=False)
     monkeypatch.setattr(os, "close", descriptors_closed.append)
+    monkeypatch.setattr(signal, "SIGKILL", getattr(signal, "SIGKILL", 9), raising=False)
     monkeypatch.setattr(
         signal, "pidfd_send_signal", lambda fd, sig: killed.append((fd, sig)), raising=False
     )

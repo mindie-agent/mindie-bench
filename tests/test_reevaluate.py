@@ -7,27 +7,39 @@ import sys
 from pathlib import Path
 
 from mindie_bench.evaluation.reevaluate import reevaluate, sha256
+from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
 
 
 def test_remote_replay_restores_patch_and_helpers_and_does_not_rewrite_unknown(tmp_path):
+    git_exe = which_native("git") or "git"
+    win_kw = subprocess_window_kwargs()
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q", str(repo)], check=True, timeout=5)
-    (repo / "candidate.py").write_text("def calculate(x):\n    return 0\n")
-    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, timeout=5)
-    subprocess.run(["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=t@local",
-                    "commit", "-qm", "baseline"], check=True, timeout=5)
-    base = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], timeout=5).decode().strip()
-    (repo / "candidate.py").write_text("from helper import double\ndef calculate(x):\n    return double(x)\n")
-    patch = subprocess.check_output(["git", "-C", str(repo), "diff"], timeout=5)
+    subprocess.run([git_exe, "-c", "core.autocrlf=false", "init", "-q", str(repo)], check=True, timeout=15, **win_kw)
+    (repo / "candidate.py").write_text("def calculate(x):\n    return 0\n", encoding="utf-8", newline="\n")
+    subprocess.run([git_exe, "-C", str(repo), "-c", "core.autocrlf=false", "add", "."], check=True, timeout=15, **win_kw)
+    subprocess.run(
+        [git_exe, "-C", str(repo), "-c", "core.autocrlf=false", "-c", "user.name=Test", "-c", "user.email=t@local", "commit", "-qm", "baseline"],
+        check=True,
+        timeout=15,
+        **win_kw,
+    )
+    # Simulate Windows Git global `core.autocrlf=true` so `git archive` + `git apply` are proven LF-consistent.
+    subprocess.run([git_exe, "-C", str(repo), "config", "core.autocrlf", "true"], check=True, timeout=15, **win_kw)
+    base = subprocess.check_output([git_exe, "-C", str(repo), "rev-parse", "HEAD"], timeout=15, **win_kw).decode("utf-8").strip()
+    (repo / "candidate.py").write_text("from helper import double\ndef calculate(x):\n    return double(x)\n", encoding="utf-8", newline="\n")
+    patch = subprocess.check_output([git_exe, "-C", str(repo), "-c", "core.autocrlf=false", "diff"], timeout=15, **win_kw)
     task = tmp_path / "tasks/arithmetic"
     (task / "verifier").mkdir(parents=True)
-    (task / "task.toml").write_text(f'[environment.l3]\nrepo_path = "{repo.as_posix()}"\n', encoding="utf-8")
+    (task / "task.toml").write_text(f'[environment.l3]\nrepo_path = "{repo.as_posix()}"\n', encoding="utf-8", newline="\n")
     (task / "verifier/test.sh").write_text(
-        '#!/bin/sh\nexec "$MINDIE_BENCH_PYTHON" -B -c '\
+        '#!/bin/sh\nexec "$MINDIE_BENCH_PYTHON" -B -c '
         "'import json; from candidate import calculate; "
         'ok = all(calculate(x) == x * 2 for x in [-17, 0, 93]); '
-        'print(json.dumps({"reward": float(ok)})); raise SystemExit(not ok)' + "'\n")
+        'print(json.dumps({"reward": float(ok)})); raise SystemExit(not ok)' + "'\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     trial = tmp_path / "trial"
     trial.mkdir()
     (trial / "remote_final.patch").write_bytes(patch)
@@ -54,7 +66,7 @@ def test_remote_replay_restores_patch_and_helpers_and_does_not_rewrite_unknown(t
         "receipt_sha256": sha256(receipt)}]}))
     result = reevaluate(inventory, task.parent, tmp_path / "report", Path(sys.executable))
     row = result["trials"][0]
-    assert row["reevaluation"]["reward"] == 1.0
+    assert row["reevaluation"]["reward"] == 1.0, row["reevaluation"]
     assert row["original_status"] == "unknown" and row["original_resolved"] is None
     assert row["reevaluation"]["speedup_ratio"] is None
     assert row["candidate_source"]["untracked_files"] == ["helper.py"]

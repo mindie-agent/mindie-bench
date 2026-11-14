@@ -559,16 +559,20 @@ def test_each_production_task_plans_against_its_golden_inventory():
 
 # ------------------------------------------------------------------- Tier 2
 def _ssh(host: str, script: str, *, timeout: float = 10.0) -> subprocess.CompletedProcess:
+    from mindie_bench.runner.host_platform import subprocess_window_kwargs
+
     return subprocess.run(
         [
             "ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
-            "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "StrictHostKeyChecking=no", "-o", f"UserKnownHostsFile={os.devnull}",
             host, shlex.join(["bash", "-lc", script]),
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=timeout,
         check=False,
+        **subprocess_window_kwargs(),
     )
 
 

@@ -43,7 +43,7 @@ def test_close_still_finalizes_component_lease_when_local_group_is_already_gone(
     )
     monkeypatch.setattr(subject, "_read", lambda timeout: (_ for _ in ()).throw(RuntimeError("EOF")))
     monkeypatch.setattr(
-        os, "killpg", lambda *args: (_ for _ in ()).throw(PermissionError("already reaped group"))
+        os, "killpg", lambda *args: (_ for _ in ()).throw(PermissionError("already reaped group")), raising=False
     )
     with pytest.raises(RuntimeError, match="cleanup"):
         subject.close()

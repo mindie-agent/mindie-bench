@@ -1,18 +1,52 @@
 from __future__ import annotations
 
+import atexit
 import importlib.util
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 
 from mindie_bench.models import ExperimentConfig, TaskSpec
+from mindie_bench.runner.host_platform import (
+    rmtree_force,
+    subprocess_window_kwargs,
+    which_native,
+    write_executable_shim,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_NOOP_SHIM_DIR: Path | None = None
+_NOOP_TRUE: Path | None = None
+_NOOP_FALSE: Path | None = None
+
+
+def _ensure_noop_shims() -> tuple[Path, Path]:
+    global _NOOP_SHIM_DIR, _NOOP_TRUE, _NOOP_FALSE
+    if os.name != "nt":
+        t = which_native("true") or "/usr/bin/true"
+        f = which_native("false") or "/usr/bin/false"
+        if Path(t).is_file() and Path(f).is_file():
+            return Path(t), Path(f)
+    if _NOOP_TRUE is None or _NOOP_FALSE is None or not _NOOP_TRUE.exists():
+        _NOOP_SHIM_DIR = Path(tempfile.mkdtemp(prefix="mindie-bench-test-shims-"))
+        atexit.register(rmtree_force, _NOOP_SHIM_DIR)
+        _NOOP_TRUE = write_executable_shim(_NOOP_SHIM_DIR, "noop-true", "raise SystemExit(0)\n")
+        _NOOP_FALSE = write_executable_shim(_NOOP_SHIM_DIR, "noop-false", "raise SystemExit(1)\n")
+    return _NOOP_TRUE, _NOOP_FALSE
+
+
+def noop_true() -> Path:
+    return _ensure_noop_shims()[0]
+
+
+def noop_false() -> Path:
+    return _ensure_noop_shims()[1]
 
 
 def _configure_default_test_env() -> None:
@@ -25,21 +59,26 @@ def _configure_default_test_env() -> None:
         "all_proxy",
     ):
         os.environ.pop(proxy_key, None)
+    git_exe = which_native("git") or "git"
     operators_repo = Path("/Volumes/data/code/knowledge-operators")
     if not os.environ.get("MINDIE_BENCH_OPERATORS_CORPUS") and (operators_repo / ".git").exists():
         head_proc = subprocess.run(
-            ["git", "-C", str(operators_repo), "rev-parse", "HEAD"],
+            [git_exe, "-C", str(operators_repo), "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=5,
             check=False,
+            **subprocess_window_kwargs(),
         )
         files_proc = subprocess.run(
-            ["git", "-C", str(operators_repo), "ls-tree", "-r", "--name-only", "-z", "HEAD"],
+            [git_exe, "-C", str(operators_repo), "ls-tree", "-r", "--name-only", "-z", "HEAD"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=5,
             check=False,
+            **subprocess_window_kwargs(),
         )
         if head_proc.returncode == 0 and files_proc.returncode == 0:
             head = head_proc.stdout.strip()[:12]
@@ -86,7 +125,7 @@ def _configure_default_test_env() -> None:
             "MINDIE_BENCH_TEST_CLAUDE_BIN",
             tuple(
                 Path(p)
-                for p in (shutil.which("claude"), str(Path.home() / ".local/bin/claude"))
+                for p in (which_native("claude"), str(Path.home() / ".local/bin/claude") if os.name != "nt" else None)
                 if p
             ),
         ),
@@ -101,14 +140,17 @@ def _configure_default_test_env() -> None:
             "MINDIE_BENCH_TEST_CODEX_BIN",
             tuple(
                 Path(p)
-                for p in (shutil.which("codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex")
+                for p in (
+                    which_native("codex"),
+                    *(("/opt/homebrew/bin/codex", "/usr/local/bin/codex") if os.name != "nt" else ()),
+                )
                 if p
             ),
         ),
         (
             "MINDIE_BENCH_TEST_CODEX_CATALOG",
             (
-                Path.home() / ".codex/models_cache.json",
+                (Path.home() / ".codex/models_cache.json",) if os.name != "nt" else ()
             ),
         ),
     ):
@@ -129,25 +171,36 @@ def isolate_host_user_directories(tmp_path, monkeypatch):
     root = tmp_path.parent / (tmp_path.name + "-host")
     home = root / "home"
     config = root / "config"
+    data = root / "data"
     state = root / "state"
+    cache = root / "cache"
+    appdata = root / "appdata"
+    localappdata = root / "localappdata"
     diagnostics = root / "diagnostics"
-    for directory in (home, config, state, diagnostics):
+    for directory in (home, config, data, state, cache, appdata, localappdata, diagnostics):
         directory.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setenv("LOCALAPPDATA", str(localappdata))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
     monkeypatch.setenv("XDG_STATE_HOME", str(state))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+    monkeypatch.setenv("MINDIE_CONFIG_HOME", str(config / "mindie"))
+    monkeypatch.setenv("MINDIE_DATA_HOME", str(data / "mindie"))
     monkeypatch.setenv("MINDIE_DIAGNOSTICS_ROOT", str(diagnostics))
     monkeypatch.setenv("MINDIE_DIAGNOSTICS_CONFIG", str(config / "diagnostics.json"))
     return {
         "home": home,
         "config": config,
+        "data": data,
         "state": state,
         "diagnostics": diagnostics,
     }
 
 
-AGENT = """#!{python}
-import json, os, pathlib, subprocess, sys, time
+AGENT = """import json, os, pathlib, subprocess, sys, time
 if "--version" in sys.argv:
     print("fixture-agent 1.0")
     raise SystemExit(0)
@@ -156,13 +209,13 @@ if "mode=sleep" in prompt:
     time.sleep(30)
 if "mode=working_sleep" in prompt or "mode=repair_then_sleep" in prompt:
     if "mode=repair_then_sleep" in prompt:
-        pathlib.Path("module.py").write_text("VALUE = 2\\n")
+        pathlib.Path("module.py").write_text("VALUE = 2\\n", encoding="utf-8")
     else:
-        pathlib.Path("module.py").read_text()
-    print(json.dumps({{"type":"fixture.trajectory","trajectory":{{
-        "total_turns":1,"calls":[{{"id":"1","name":"Read",
-        "arguments":{{"file_path":"module.py"}},"turn":1,"started_sec":0.0,"ended_sec":0.001}}]
-    }}}}), flush=True)
+        pathlib.Path("module.py").read_text(encoding="utf-8")
+    print(json.dumps({"type":"fixture.trajectory","trajectory":{
+        "total_turns":1,"calls":[{"id":"1","name":"Read",
+        "arguments":{"file_path":"module.py"},"turn":1,"started_sec":0.0,"ended_sec":0.001}]
+    }}), flush=True)
     time.sleep(30)
 if "mode=malformed" in prompt:
     print("not JSON", flush=True)
@@ -170,36 +223,39 @@ if "mode=malformed" in prompt:
 if "mode=crash" in prompt:
     raise SystemExit(7)
 if "mode=pass" in prompt or "mode=replay" in prompt:
-    pathlib.Path("module.py").write_text("VALUE = 2\\n")
+    pathlib.Path("module.py").write_text("VALUE = 2\\n", encoding="utf-8")
 if "mode=replay" in prompt:
-    result=subprocess.run(["pytest", "-q"], capture_output=True, text=True, timeout=30)
+    win_kw = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+    result=subprocess.run(["pytest", "-q"], capture_output=True, text=True, encoding="utf-8", timeout=30, **win_kw)
     if result.returncode:
         print(result.stderr, file=sys.stderr)
         raise SystemExit(9)
 if "mode=probe" in prompt:
     secret=pathlib.Path(prompt.split("secret=")[1].splitlines()[0])
     try:
-        secret.read_text()
+        secret.read_text(encoding="utf-8")
         raise RuntimeError("ISOLATION_BROKEN")
     except (PermissionError, FileNotFoundError):
         pass
-print(json.dumps({{"type":"fixture.trajectory","trajectory":{{
+print(json.dumps({"type":"fixture.trajectory","trajectory":{
     "native_completed":True,"total_turns":1,
-    "tokens":{{"input_uncached":11,"input_cached":5,"output":3,"complete":True}},
-    "public_messages":[{{"role":"assistant","text":"Updated the test module."}}],
-    "calls":[{{"id":"1","name":"Read","arguments":{{"file_path":"module.py"}},
-              "turn":1,"started_sec":0.0,"ended_sec":0.001,"is_error":False}}]
-}}}}), flush=True)
+    "tokens":{"input_uncached":11,"input_cached":5,"output":3,"complete":True},
+    "public_messages":[{"role":"assistant","text":"Updated the test module."}],
+    "calls":[{"id":"1","name":"Read","arguments":{"file_path":"module.py"},
+              "turn":1,"started_sec":0.0,"ended_sec":0.001,"is_error":False}]
+}}), flush=True)
 """
 
 
 def git(repo, *args):
     return subprocess.run(
-        ["git", "-C", str(repo), *args],
+        [which_native("git") or "git", "-C", str(repo), "-c", "core.autocrlf=false", *args],
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
+        **subprocess_window_kwargs(),
     ).stdout.strip()
 
 
@@ -208,7 +264,7 @@ def _case_source_template(tmp_path_factory):
     repo = tmp_path_factory.mktemp("case-source-template") / "source"
     repo.mkdir()
     git(repo, "init", "-q")
-    (repo / "module.py").write_text("VALUE = 1\n")
+    (repo / "module.py").write_text("VALUE = 1\n", encoding="utf-8", newline="\n")
     git(repo, "add", ".")
     git(
         repo,
@@ -230,9 +286,13 @@ def _corpus_source_template(tmp_path_factory):
     for identity in ["origin", "analogy", "stale"]:
         package = root / "tasks" / identity
         (package / "materials").mkdir(parents=True)
-        (package / "PACKAGE.md").write_text(f"# {identity}\nNPU ACLGraph debug pytest\n")
+        (package / "PACKAGE.md").write_text(
+            f"# {identity}\nNPU ACLGraph debug pytest\n", encoding="utf-8", newline="\n"
+        )
         (package / "materials/0001.md").write_text(
-            "Historical trace: NPU error; pytest failed then fixed.\n"
+            "Historical trace: NPU error; pytest failed then fixed.\n",
+            encoding="utf-8",
+            newline="\n",
         )
     git(root, "init", "-q")
     git(root, "add", ".")
@@ -258,7 +318,7 @@ def case(tmp_path, _case_source_template):
     (task_root / "verifier").mkdir(parents=True)
     (task_root / "oracle").mkdir()
     (task_root / "environment").mkdir()
-    (task_root / "instruction.md").write_text("mode=pass\n")
+    (task_root / "instruction.md").write_text("mode=pass\n", encoding="utf-8", newline="\n")
     (task_root / "oracle/replay_rules.json").write_text(
         json.dumps(
             {
@@ -267,14 +327,18 @@ def case(tmp_path, _case_source_template):
                 "pass": {"stdout": "1 passed\n", "exit_code": 0},
                 "fail": {"stderr": "NPU replay: invalid dtype\n", "exit_code": 1},
             }
-        )
+        ),
+        encoding="utf-8",
+        newline="\n",
     )
     (task_root / "verifier/test.sh").write_text(
         '#!/bin/bash\n'
         'if [ -x /usr/bin/grep ]; then GREP=/usr/bin/grep; else GREP=grep; fi\n'
         'if "$GREP" -qx "VALUE = 2" module.py; then\n'
         'echo \'{"reward":1.0,"speedup_ratio":1.2}\'\nexit 0\n'
-        "else\necho '{\"reward\":0.0}'\nexit 1\nfi\n"
+        "else\necho '{\"reward\":0.0}'\nexit 1\nfi\n",
+        encoding="utf-8",
+        newline="\n",
     )
     task = f'''schema_version = "1.0"
 [task]
@@ -295,16 +359,8 @@ repo_path = {json.dumps(str(repo))}
 base_commit = "{commit}"
 replay_commands = ["pytest"]
 '''
-    (task_root / "task.toml").write_text(task)
-    if os.name == "nt":
-        agent_py = tmp_path / "fixture-agent.py"
-        agent_py.write_text(AGENT.format(python=sys.executable))
-        executable = tmp_path / "fixture-agent.cmd"
-        executable.write_text(f'@"{sys.executable}" -I "{agent_py}" %*\n')
-    else:
-        executable = tmp_path / "fixture-agent"
-        executable.write_text(AGENT.format(python=sys.executable))
-        executable.chmod(0o700)
+    (task_root / "task.toml").write_text(task, encoding="utf-8", newline="\n")
+    executable = write_executable_shim(tmp_path, "fixture-agent", AGENT)
     config = ExperimentConfig.model_validate(
         {
             "schema_version": "1.0",
