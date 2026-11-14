@@ -226,7 +226,7 @@ class TaskSpec(StrictModel):
 
     @classmethod
     def load(cls, root: Path, *, require_soundness_receipt: bool = True) -> TaskSpec:
-        spec = cls.model_validate(tomllib.loads((root / "task.toml").read_text()))
+        spec = cls.model_validate(tomllib.loads((root / "task.toml").read_text(encoding="utf-8")))
         for environment in spec.environment.values():
             if not Path(environment.repo_path).is_absolute():
                 environment.repo_path = str((root / environment.repo_path).resolve())
@@ -376,7 +376,7 @@ class ExperimentConfig(StrictModel):
 
     @classmethod
     def load(cls, path: Path) -> ExperimentConfig:
-        return cls.model_validate(tomllib.loads(path.read_text()))
+        return cls.model_validate(tomllib.loads(path.read_text(encoding="utf-8")))
 
 
 class VerifierResult(StrictModel):

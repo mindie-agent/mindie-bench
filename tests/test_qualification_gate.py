@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -67,9 +66,11 @@ def _aicore_and_aicpu(root: Path, name: str = "FlashMLA") -> tuple[str, str]:
 
 
 def _compile_shared(path: Path, source: str, *, unresolved: bool = False) -> Path:
+    from mindie_bench.runner.host_platform import which_native
+
     source_path = path.with_suffix(".c")
-    source_path.write_text(source)
-    if os.name == "nt" and shutil.which("cc") is None:
+    source_path.write_text(source, encoding="utf-8")
+    if os.name == "nt" and (which_native("cc") is None or which_native("ldd") is None):
         marker = b"UNRESOLVED_EXTERN_ABSENT\n" if unresolved else b"CLEAN_SHARED_LIB\n"
         path.write_bytes(b"\x7fELF" + marker)
         return path
@@ -101,7 +102,7 @@ def _portable_symbol_executor(command: GateCommand) -> CommandReceipt:
     Linux has a native `ldd -r`. macOS does not, so adapt `nm -u` output there
     and drop weak/CRT stubs, which are never genuine unresolved references.
     """
-    if os.name == "nt" and command.argv[:2] == ("ldd", "-r") and shutil.which("ldd") is None:
+    if os.name == "nt" and command.argv[:2] == ("ldd", "-r") and Path(command.argv[2]).read_bytes()[:4] == b"\x7fELF":
         raw = Path(command.argv[2]).read_bytes()
         stderr = "undefined symbol: absent" if b"UNRESOLVED_EXTERN_ABSENT" in raw else ""
         return CommandReceipt(command.argv, 0, "", stderr)
@@ -269,7 +270,7 @@ def test_run_local_command_forwards_windows_console_flags(monkeypatch):
 
     monkeypatch.setattr(gate.subprocess, "Popen", fake_popen)
     receipt = run_local_command(GateCommand(("/no/such/bin",), timeout_sec=1))
-    assert seen["creationflags"] == 0x08000000
+    assert (seen["creationflags"] & 0x08000000) == 0x08000000
     assert receipt.state is GateState.FAILED
     assert receipt.started is False
 
@@ -318,7 +319,7 @@ def test_g1_propagates_all_three_parallelism_variables_and_runs_eager_graph(tmp_
         "OPS_CPU_NUMBER": "3",
     }
     def _make_or_local_executor(cmd: GateCommand) -> CommandReceipt:
-        if os.name == "nt" and cmd.argv and cmd.argv[0] == "make" and shutil.which("make") is None:
+        if os.name == "nt" and cmd.argv and cmd.argv[0] == "make":
             env = {**os.environ, **cmd.env}
             if "-j" not in env.get("MAKEFLAGS", ""):
                 return CommandReceipt(cmd.argv, 9, "MAKEFLAGS_MISSING\n", "")

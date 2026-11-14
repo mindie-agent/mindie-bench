@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shlex
 import threading
 import time
 import traceback
@@ -72,8 +71,8 @@ def fault_triage_evidence(root: Path) -> dict:
     assert "msaicerr" in first.get("recommended_tools", ())
     raw_path = root / "ascend-hccl-device.log"
     redacted_path = root / "ascend-hccl-device.redacted.log"
-    raw_path.write_text(raw)
-    redacted_path.write_text(redacted)
+    raw_path.write_text(raw, encoding="utf-8", newline="\n")
+    redacted_path.write_text(redacted, encoding="utf-8", newline="\n")
     return {
         "status": "pass",
         "raw": str(raw_path),
@@ -146,7 +145,6 @@ class Receiver:
 def one(output: str, repetition: int, exercise_retry: bool = True):
     import importlib.metadata
     import importlib.util
-    import sys
 
     from mindie_diagnostics.integration import record_failure
     from mindie_diagnostics.outbox import Outbox
@@ -163,10 +161,15 @@ def one(output: str, repetition: int, exercise_retry: bool = True):
     )}
     os.environ["MINDIE_DIAGNOSTICS_CONFIG"] = str(policy)
     os.environ["MINDIE_DIAGNOSTICS_ROOT"] = str(events)
-    bridge = root / "local-gh"
+    from mindie_bench.runner.host_platform import write_executable_shim
+
     helper = Path(__file__).with_name("value_http_bridge.py")
-    bridge.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(helper))} \"$@\"\n")
-    bridge.chmod(0o700)
+    bridge = write_executable_shim(
+        root,
+        "local-gh",
+        f"import runpy, sys\nsys.argv[0] = {str(helper)!r}\nrunpy.run_path({str(helper)!r}, run_name='__main__')\n",
+        isolated=False,
+    )
     secret = "ghp_" + "valuefixture0123456789" * 2
     missing = root / "private-workspace" / secret / "weights.bin"
     baseline = []
@@ -192,7 +195,7 @@ def one(output: str, repetition: int, exercise_retry: bool = True):
                     revision=origin.get("vcs_info", {}).get("commit_id"),
                 ))
         assert all(row["recorded"] and not row["logging_failed"] for row in recorded)
-        (root / "baseline-raw.log").write_text("\n".join(baseline))
+        (root / "baseline-raw.log").write_text("\n".join(baseline), encoding="utf-8", newline="\n")
         triage = fault_triage_evidence(root)
         queue = Outbox(root / "outbox.sqlite3")
         ingested = ingest(events, queue, config=policy)
@@ -273,7 +276,7 @@ def one(output: str, repetition: int, exercise_retry: bool = True):
                    "fault_triage": triage, "precision_localization": precision,
                    "receiver_scope": "loopback transport fixture; no public Issue exists"}
             write_json(root / "raw.json", raw)
-            (root / "delivered-report.md").write_text(body)
+            (root / "delivered-report.md").write_text(body, encoding="utf-8", newline="\n")
             return {
                 "repetition": repetition, "status": "pass",
                 "baseline": {"failure_occurrences": 3, "raw_tracebacks": len(baseline),

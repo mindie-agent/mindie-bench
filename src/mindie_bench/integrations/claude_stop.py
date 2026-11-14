@@ -43,7 +43,7 @@ def main():
     if len(data) > MAX_EVENT_BYTES:
         raise ValueError("native Claude Stop event exceeds its evidence bound")
     event = validate_stop(json.loads(data))
-    with Path(sys.argv[1]).open("x") as stream:
+    with Path(sys.argv[1]).open("x", encoding="utf-8") as stream:
         json.dump(event, stream)
         stream.flush()
         os.fsync(stream.fileno())

@@ -9,6 +9,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+from conftest import noop_false, noop_true
 
 from mindie_bench.models import CorpusConfig, Group, GroupConfig, MCPServer, RemoteConfig, VerifierResult
 from mindie_bench.runner import orchestrator
@@ -229,10 +230,10 @@ def configure_g3(case, corpus):
     case["config"].corpora["fixture"] = CorpusConfig(path=str(source), commit=commit)
     case["config"].groups[Group.G3] = GroupConfig(
         mcp_servers={
-            "remote": MCPServer(command="/usr/bin/true", component="remote-dev"),
-            "knowledge": MCPServer(command="/usr/bin/true", component="knowledge"),
+            "remote": MCPServer(command=str(noop_true()), component="remote-dev"),
+            "knowledge": MCPServer(command=str(noop_true()), component="knowledge"),
         },
-        capture_command=["/usr/bin/false"],
+        capture_command=[str(noop_false())],
     )
 
 
@@ -282,9 +283,10 @@ def test_successful_remote_handler_finishes_before_worker_quiesce(
 ):
     task = case["task"] / "task.toml"
     task.write_text(
-        task.read_text()
-        + f'\n[environment.l3]\nrepo_path = "{case["repo"]}"\n'
-        + f'base_commit = "{case["commit"]}"\nnpu_model = "synthetic"\nnpu_count = 1\n'
+        task.read_text(encoding="utf-8")
+        + f"\n[environment.l3]\nrepo_path = {json.dumps(str(case['repo']))}\n"
+        + f'base_commit = "{case["commit"]}"\nnpu_model = "synthetic"\nnpu_count = 1\n',
+        encoding="utf-8",
     )
     case["config"].remote = RemoteConfig(
         host="synthetic",

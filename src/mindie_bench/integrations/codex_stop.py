@@ -22,7 +22,7 @@ def main():
     for key in ["session_id", "turn_id", "transcript_path", "cwd"]:
         if not isinstance(event.get(key), str) or not event[key]:
             raise ValueError(f"native Stop event lacks {key}")
-    with destination.open("x") as stream:
+    with destination.open("x", encoding="utf-8") as stream:
         json.dump(event, stream)
         stream.flush()
         os.fsync(stream.fileno())

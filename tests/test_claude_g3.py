@@ -2,6 +2,7 @@
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,7 @@ import pytest
 from mindie_bench.integrations import claude_stop, first_party
 from mindie_bench.models import HarnessConfig
 from mindie_bench.runner.drivers.claude_code import ClaudeCodeDriver
+from mindie_bench.runner.host_platform import which_native
 from mindie_bench.runner.sandbox import native_command
 
 
@@ -163,6 +165,11 @@ def test_cc_capture_selects_real_adapter_contract_and_native_prompt_not_codex(tm
         first_party.native_capture_inputs(args, {**native, "harness": "unsupported"}, root)
 
 
+@pytest.mark.skipif(
+    platform.system() not in {"Darwin", "Linux"}
+    or (platform.system() == "Linux" and not which_native("bwrap")),
+    reason="Kernel filesystem sandbox requires macOS Seatbelt or Linux bubblewrap",
+)
 def test_native_summary_loader_reads_only_the_selected_package_and_adapter(tmp_path):
     capsule, scripts = tmp_path / "capsule", tmp_path / "adapter"
     capsule.mkdir()

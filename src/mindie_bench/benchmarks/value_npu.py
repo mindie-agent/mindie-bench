@@ -16,6 +16,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from mindie_bench.runner.host_platform import subprocess_window_kwargs
+
 from .value_common import source_revisions, write_json
 
 
@@ -24,9 +26,13 @@ def ssh(host: str, script: str):
     result = subprocess.run(
         ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
          "-o", "ControlMaster=no", host, "bash", "-s"],
-        input=script.encode(), capture_output=True, timeout=25, check=True,
+        input=script.encode("utf-8"),
+        capture_output=True,
+        timeout=25,
+        check=True,
+        **subprocess_window_kwargs(),
     )
-    return result.stdout.decode(), time.monotonic() - started
+    return result.stdout.decode("utf-8", errors="replace"), time.monotonic() - started
 
 
 def _process_answers(parsed):
@@ -40,7 +46,7 @@ def _process_answers(parsed):
 def golden(fixtures: Path):
     from npu_top.npu_smi import parse_npu
 
-    metadata = json.loads((fixtures / "npu-smi-captures.json").read_text())
+    metadata = json.loads((fixtures / "npu-smi-captures.json").read_text(encoding="utf-8"))
     cases = []
     for name in ("a2-173-125-1-2.txt", "a3-192-168-13-154-busy.txt"):
         raw = (fixtures / name).read_bytes()
@@ -102,7 +108,7 @@ def run(output: Path, fixtures: Path, repetitions: int, host: str | None, contai
                 for chip in device.get("chips", [{"phy_id": device["npu_id"]}])
             ]
             assert sorted(physical) == sorted(observed["devices"])
-            (root / "live-npu-smi.txt").write_text(info)
+            (root / "live-npu-smi.txt").write_text(info, encoding="utf-8", newline="\n")
             live = {"physical_devices": physical, "processes": _process_answers(parsed),
                     "raw_npu_elapsed_sec": info_sec, "ssh_operations": 1}
             if container:

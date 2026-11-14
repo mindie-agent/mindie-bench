@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import time
@@ -42,9 +43,11 @@ def inventory():
         raise IntegrityError("private oracle SHA-256 changed: "+", ".join(changed))
     return dict(status="intact", file_count=len(result))
 def execute(command):
+    win_kw={"creationflags": subprocess.CREATE_NO_WINDOW} if os.name=="nt" else {}
     result=subprocess.run(command, capture_output=True,
                           timeout=max(.001, deadline-time.monotonic()),
-                          env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+                          env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+                          **win_kw)
     return dict(returncode=result.returncode,
                 stdout_b64=base64.b64encode(result.stdout).decode(),
                 stderr_b64=base64.b64encode(result.stderr).decode(),
@@ -71,7 +74,8 @@ try:
             or observed["stdout_sha256"]!=probe["stdout_sha256"]):
             raise IntegrityError("oracle negative control "+repr(probe["name"])+" failed: exit="
                 +str(observed["returncode"])+", stdout_sha256="+observed["stdout_sha256"])
-    receipt["judge"]=execute(["/bin/bash", str(root/"verifier/test.sh")])
+    bash_bin=os.environ.get("MINDIE_BENCH_BASH") or ("/bin/bash" if os.name!="nt" else (shutil.which("bash") or "bash"))
+    receipt["judge"]=execute([bash_bin, str(root/"verifier/test.sh")])
 except IntegrityError as error:
     receipt["tampered"]=str(error)
 except subprocess.TimeoutExpired as error:

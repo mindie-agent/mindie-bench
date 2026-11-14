@@ -24,10 +24,49 @@ _LITERAL = {char: chr(0xE000 + index) for index, char in enumerate(";&|<>(){}\n"
 _RESTORE = str.maketrans({value: key for key, value in _LITERAL.items()})
 
 
+_WIN_DRIVE_TOKEN = re.compile(r"(?:\\\\\?\\)?[A-Za-z]:\\[^\s;&|<>(){}'\"`]+")
+
+
+def _normalize_unquoted_win_paths(text: str) -> str:
+    """Normalize unquoted Windows drive paths (`C:\\foo\\bar`) before POSIX `shlex`."""
+    out, quote, idx = [], None, 0
+    while idx < len(text):
+        ch = text[idx]
+        if quote:
+            if ch == "\\" and quote == '"' and idx + 1 < len(text) and text[idx + 1] in {'"', "\\"}:
+                out.append(text[idx : idx + 2])
+                idx += 2
+                continue
+            if ch == quote:
+                quote = None
+            out.append(ch)
+            idx += 1
+            continue
+        if ch in "'\"":
+            quote = ch
+            out.append(ch)
+            idx += 1
+            continue
+        if idx == 0 or text[idx - 1] in " \t\r\n;&|<>()=":
+            m = _WIN_DRIVE_TOKEN.match(text, idx)
+            if m:
+                out.append(m.group(0).replace("\\", "/"))
+                idx = m.end()
+                continue
+        if ch == "\\" and idx + 1 < len(text):
+            out.append(text[idx : idx + 2])
+            idx += 2
+            continue
+        out.append(ch)
+        idx += 1
+    return "".join(out)
+
+
 def _protect_literal_operators(text: str) -> str:
     # shlex drops quoting, so retain the distinction between `echo ';'` and `echo;`.
     if any(marker in text for marker in _LITERAL.values()):
         raise ValueError("reserved_literal_marker")
+    text = _normalize_unquoted_win_paths(text)
     output, quote, index = [], None, 0
     while index < len(text):
         char = text[index]
@@ -164,7 +203,13 @@ def observe_npu_command(command: str) -> dict:
             args.pop(0)
         if not args:
             return
-        head = posixpath.basename(args[0])
+        raw_head = posixpath.basename(args[0].replace("\\", "/"))
+        head = re.sub(r"\.(?:exe|cmd|bat)$", "", raw_head, flags=re.IGNORECASE)
+        if (
+            head.lower() in (_SHELLS | {"env", "command", "exec", "nohup", "ssh", "pytest", "torchrun", "msprof", "vllm"})
+            or _PYTHON.fullmatch(head.lower())
+        ):
+            head = head.lower()
         rest = args[1:]
         if any(char in args[0] for char in "$*?`") or head in {"eval", "source", "."}:
             unresolved.append("dynamic_program_not_inspected")
@@ -249,7 +294,7 @@ def observe_npu_command(command: str) -> dict:
                     if option == "--":
                         position += 1
                     if position < len(rest):
-                        script = posixpath.basename(rest[position])
+                        script = posixpath.basename(rest[position].replace("\\", "/"))
                         if script == "reproduce.py" or re.fullmatch(r"test_[\w.-]+\.py", script):
                             matched.append(head + " " + script)
                     return

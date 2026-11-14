@@ -224,9 +224,14 @@ def main(argv: list[str] | None = None) -> int:
     audit.add_argument("--asset-id", action="append", required=True)
     args = parser.parse_args(argv)
     if args.command == "build":
-        assets = [SourceAsset.model_validate(row) for row in json.loads(args.inventory.read_text())]
+        assets = [
+            SourceAsset.model_validate(row)
+            for row in json.loads(args.inventory.read_text(encoding="utf-8"))
+        ]
         manifest = build_manifest(
-            assets, json.loads(args.assignments.read_text()), seed_cutoff=args.seed_cutoff
+            assets,
+            json.loads(args.assignments.read_text(encoding="utf-8")),
+            seed_cutoff=args.seed_cutoff,
         )
         write_json(args.output, manifest.model_dump(mode="json"))
         print(
@@ -240,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     else:
-        manifest = SplitManifest.model_validate_json(args.manifest.read_text())
+        manifest = SplitManifest.model_validate_json(args.manifest.read_text(encoding="utf-8"))
         print(json.dumps(admit_materials(manifest, args.asset_id, args.purpose)))
     return 0
 

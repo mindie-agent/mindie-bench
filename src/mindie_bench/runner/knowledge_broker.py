@@ -26,10 +26,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
-import select
 import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -40,8 +37,9 @@ from mindie_bench.evaluation.strategy_adoption import (
     delivered_explain_refs,
     requested_explain_refs,
 )
+from mindie_bench.runner.host_platform import PipeReader, PipeWriter, subprocess_window_kwargs
 from mindie_bench.runner.sandbox import native_command
-from mindie_bench.runner.termination import terminate_process_group
+from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
 MAX_FRAME = 1024 * 1024
 MAX_SESSION_BYTES = 32 * MAX_FRAME
@@ -78,12 +76,19 @@ class KnowledgeSession:
         self.closed = False
         self.output_bytes = 0
         self.process = None
-        self.owner_fd = None
+        self._close_owner = lambda: None
+        self._stdout_eof = False
+        self._stderr_eof = False
         self.raw = (self.root / "protocol.jsonl").open("xb")
         self.errors = (self.root / "stderr").open("xb")
         env = {**profile.env, **profile.private_env, **spec["env"]}
         for key in (
             "HOME",
+            "USERPROFILE",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "MINDIE_CONFIG_HOME",
+            "MINDIE_DATA_HOME",
             "XDG_CONFIG_HOME",
             "XDG_DATA_HOME",
             "XDG_CACHE_HOME",
@@ -92,11 +97,12 @@ class KnowledgeSession:
             "CLAUDE_CONFIG_DIR",
             "KIMI_HOME",
             "TMPDIR",
+            "TEMP",
+            "TMP",
         ):
             path = self.root / key.lower()
-            path.mkdir()
+            path.mkdir(exist_ok=True)
             env[key] = str(path)
-        read_fd = None
         try:
             command = native_command(
                 [spec["command"], *spec["args"]],
@@ -105,30 +111,24 @@ class KnowledgeSession:
                 cwd=profile.private_root,
                 policy_path=self.root / "backend.sb",
             )
-            read_fd, self.owner_fd = os.pipe()
-            self.process = subprocess.Popen(
-                [sys.executable, "-I", "-m", "mindie_bench.runner.owner", str(read_fd), *command],
+            self.process, self._close_owner = spawn_owned_popen(
+                command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=profile.private_root,
                 env=env,
-                start_new_session=True,
-                pass_fds=(read_fd,),
                 bufsize=0,
+                **subprocess_window_kwargs(),
             )
-            for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
-                os.set_blocking(stream.fileno(), False)
+            self._stdout_reader = PipeReader(self.process.stdout)
+            self._stderr_reader = PipeReader(self.process.stderr)
+            self._stdin_writer = PipeWriter(self.process.stdin)
         except BaseException:
-            if self.owner_fd is not None:
-                os.close(self.owner_fd)
-                self.owner_fd = None
+            self._close_owner()
             self.raw.close()
             self.errors.close()
             raise
-        finally:
-            if read_fd is not None:
-                os.close(read_fd)
         try:
             self.record("knowledge_session_open", server=name, session_id=identity, pid=self.process.pid)
         except BaseException as exc:
@@ -331,6 +331,20 @@ class KnowledgeSession:
             output.extend(delivered + b"\n")
         return bytes(output)
 
+    def _drain_stderr_ready(self) -> None:
+        while not self._stderr_eof:
+            timed_out, chunk = self._stderr_reader.read_chunk(0.0)
+            if timed_out:
+                return
+            if not chunk:
+                self._stderr_eof = True
+                return
+            self.output_bytes += len(chunk)
+            if self.output_bytes > MAX_SESSION_BYTES:
+                raise ValueError("knowledge MCP session output exceeds bound")
+            self.errors.write(chunk)
+            self.errors.flush()
+
     def exchange(self, data=b"", eof=False):
         with self.lock:
             if self.closed:
@@ -338,43 +352,43 @@ class KnowledgeSession:
             self._submit(data, eof)
             output = bytearray(self.local_output)
             self.local_output = b""
-            deadline = time.monotonic() + 0.05
-            while time.monotonic() < deadline:
-                if output and not self.pending:
-                    break
-                if self.eof and not self.pending and not self.process.stdin.closed:
-                    self.process.stdin.close()
-                readers = [p for p in (self.process.stdout, self.process.stderr) if not p.closed]
-                writers = [self.process.stdin] if self.pending else []
-                readable, writable, _ = select.select(
-                    readers, writers, [], max(0, deadline - time.monotonic())
+            if self.pending:
+                self._stdin_writer.write_frame(
+                    self.pending,
+                    time.monotonic() + 5.0,
+                    timeout_message="knowledge MCP stdin write timed out",
                 )
-                if writable:
-                    try:
-                        count = os.write(self.process.stdin.fileno(), self.pending[:65536])
-                        self.pending = self.pending[count:]
-                    except BlockingIOError:
-                        pass
-                for stream in readable:
-                    chunk = os.read(stream.fileno(), 65536)
-                    if not chunk:
-                        stream.close()
-                        continue
-                    self.output_bytes += len(chunk)
-                    if self.output_bytes > MAX_SESSION_BYTES:
-                        raise ValueError("knowledge MCP session output exceeds bound")
-                    if stream is self.process.stdout:
-                        output.extend(self._observe(chunk))
-                    else:
-                        self.errors.write(chunk)
-                        self.errors.flush()
-                if output or self.process.poll() is not None:
+                self.pending = b""
+            if self.eof and not self.pending and not self.process.stdin.closed:
+                self.process.stdin.close()
+            deadline = time.monotonic() + 0.05
+            while True:
+                self._drain_stderr_ready()
+                if output and not self.pending and not self._stdout_reader.wait_readable(0.0):
                     break
-            code = (
-                self.process.poll()
-                if self.process.stdout.closed and self.process.stderr.closed
-                else None
-            )
+                if self._stdout_eof:
+                    if not self._stderr_eof:
+                        remaining = max(0.0, deadline - time.monotonic())
+                        if remaining > 0 and self._stderr_reader.wait_readable(remaining):
+                            self._drain_stderr_ready()
+                    break
+                remaining = max(0.0, deadline - time.monotonic())
+                timed_out, chunk = self._stdout_reader.read_chunk(0.0 if output else remaining)
+                if timed_out:
+                    self._drain_stderr_ready()
+                    break
+                if not chunk:
+                    self._stdout_eof = True
+                    continue
+                self.output_bytes += len(chunk)
+                if self.output_bytes > MAX_SESSION_BYTES:
+                    raise ValueError("knowledge MCP session output exceeds bound")
+                output.extend(self._observe(chunk))
+                if output and not self.pending and not self._stdout_reader.wait_readable(0.0):
+                    self._drain_stderr_ready()
+                    break
+            self._drain_stderr_ready()
+            code = self.process.poll() if self._stdout_eof and self._stderr_eof else None
             if code is not None and self.output_buffer:
                 raise ValueError("knowledge server exited with an incomplete MCP frame")
             return {
@@ -409,14 +423,14 @@ class KnowledgeSession:
                 deadline = time.monotonic() + 5
                 while (
                     self.process.poll() is None
-                    or not self.process.stdout.closed
-                    or not self.process.stderr.closed
+                    or not self._stdout_eof
+                    or not self._stderr_eof
                 ) and time.monotonic() < deadline:
                     drain()
                 if (
                     self.process.poll() is None
-                    or not self.process.stdout.closed
-                    or not self.process.stderr.closed
+                    or not self._stdout_eof
+                    or not self._stderr_eof
                 ):
                     raise TimeoutError("knowledge MCP did not stop after stdin EOF")
                 if self.process.returncode != 0:
@@ -436,9 +450,7 @@ class KnowledgeSession:
                         primary = exc
                     else:
                         primary.add_note(f"knowledge group cleanup also failed: {exc}")
-                if self.owner_fd is not None:
-                    os.close(self.owner_fd)
-                    self.owner_fd = None
+                self._close_owner()
                 for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
                     stream.close()
                 self.raw.close()

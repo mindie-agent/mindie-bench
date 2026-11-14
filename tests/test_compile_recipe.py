@@ -31,19 +31,19 @@ def recipe(case, corpus, tmp_path):
         "instruction.md": "Repair the actual fixture module.\n",
         "environment/symptom.log": "Observed VALUE=1; expected VALUE=2.\n",
         "environment/reproduce.py": "import module; print(module.VALUE)\n",
-        "verifier/test.sh": (case["task"] / "verifier/test.sh").read_text(),
+        "verifier/test.sh": (case["task"] / "verifier/test.sh").read_text(encoding="utf-8"),
         "verifier/verify.py": "# External verifier fixture supplied independently.\n",
         "oracle/gold_patch.diff": (
             "diff --git a/module.py b/module.py\n--- a/module.py\n+++ b/module.py\n"
             "@@ -1 +1 @@\n-VALUE = 1\n+VALUE = 2\n"
         ),
-        "oracle/replay_rules.json": (case["task"] / "oracle/replay_rules.json").read_text(),
+        "oracle/replay_rules.json": (case["task"] / "oracle/replay_rules.json").read_text(encoding="utf-8"),
     }
     descriptors = {}
     for name, text in assets.items():
         path = root / "assets" / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
+        path.write_text(text, encoding="utf-8", newline="\n")
         descriptors[name] = {"path": "assets/" + name, "sha256": sha(path.read_bytes())}
     manifest = {
         "schema": "mindie-bench-l2-recipe/1",

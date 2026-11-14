@@ -45,6 +45,7 @@ from mindie_bench.models import (
     UnknownExternalEffects,
 )
 from mindie_bench.runner.drivers import driver_for
+from mindie_bench.runner.host_platform import subprocess_window_kwargs, write_executable_shim
 from mindie_bench.runner.sandbox import native_command
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS
 from mindie_bench.runner.verifier import validate_remote_oracle_contract
@@ -231,7 +232,7 @@ def probe_capture_git(profile, paths: list[Path], trial_dir: Path) -> dict:
         "print(json.dumps(preflight_git(Path('capture-git-preflight'))))\n"
     )
     command = native_command(
-        [sys.executable, "-I", "-c", code],
+        [sys.executable, "-I", "-X", "utf8", "-c", code],
         read=paths,
         write=[profile.root],
         cwd=profile.root,
@@ -245,6 +246,8 @@ def probe_capture_git(profile, paths: list[Path], trial_dir: Path) -> dict:
             timeout=30,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            **subprocess_window_kwargs(),
         )
     except subprocess.TimeoutExpired as error:
         for name, value in [("stdout", error.stdout), ("stderr", error.stderr)]:
@@ -253,8 +256,8 @@ def probe_capture_git(profile, paths: list[Path], trial_dir: Path) -> dict:
         raise RuntimeError(
             "capture Git preflight timed out; inspect capture-git-preflight.stderr"
         ) from error
-    (trial_dir / "capture-git-preflight.stdout").write_text(result.stdout)
-    (trial_dir / "capture-git-preflight.stderr").write_text(result.stderr)
+    (trial_dir / "capture-git-preflight.stdout").write_text(result.stdout, encoding="utf-8")
+    (trial_dir / "capture-git-preflight.stderr").write_text(result.stderr, encoding="utf-8")
     if result.returncode:
         raise RuntimeError(
             f"capture Git preflight failed (exit={result.returncode}); "
@@ -285,7 +288,7 @@ def probe_runtime_import(profile, read_paths: list[Path], trial_dir: Path, expec
         "modules=modules)))\n"
     )
     command = native_command(
-        [sys.executable, "-I", "-c", code],
+        [sys.executable, "-I", "-X", "utf8", "-c", code],
         read=read_paths,
         write=[profile.root],
         cwd=profile.root,
@@ -301,6 +304,8 @@ def probe_runtime_import(profile, read_paths: list[Path], trial_dir: Path, expec
                 timeout=20,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                **subprocess_window_kwargs(),
             )
         except subprocess.TimeoutExpired as exc:
             for name, value in [("stdout", exc.stdout), ("stderr", exc.stderr)]:
@@ -309,8 +314,8 @@ def probe_runtime_import(profile, read_paths: list[Path], trial_dir: Path, expec
             raise RuntimeError(
                 "runtime helper import timed out; inspect runtime-preflight.stderr"
             ) from exc
-        (trial_dir / "runtime-preflight.stdout").write_text(result.stdout)
-        (trial_dir / "runtime-preflight.stderr").write_text(result.stderr)
+        (trial_dir / "runtime-preflight.stdout").write_text(result.stdout, encoding="utf-8")
+        (trial_dir / "runtime-preflight.stderr").write_text(result.stderr, encoding="utf-8")
         diagnostic["returncode"] = result.returncode
         if result.returncode:
             raise RuntimeError(
@@ -327,13 +332,15 @@ def probe_runtime_import(profile, read_paths: list[Path], trial_dir: Path, expec
         modules = observed.get("modules")
         if not isinstance(modules, dict) or set(modules) != set(RUNTIME_HELPER_MODULES):
             raise ValueError("runtime module identity is malformed")
-        root = Path(observed["package_root"])
+        root = Path(observed["package_root"]).resolve()
         for name, path in modules.items():
-            if not isinstance(path, str) or Path(path) != root.joinpath(
+            if not isinstance(path, str) or Path(path).resolve() != root.joinpath(
                 *name.split(".")[1:]
-            ).with_suffix(".py"):
+            ).with_suffix(".py").resolve():
                 raise ValueError(f"runtime module identity mismatch: {name}")
-        if Path(observed["executable"]).absolute() != Path(sys.executable).absolute():
+        if os.path.normcase(str(Path(observed["executable"]).absolute())) != os.path.normcase(
+            str(Path(sys.executable).absolute())
+        ):
             raise ValueError("runtime interpreter identity mismatch")
         if observed["benchmark_source_sha256"] != expected_digest:
             raise ValueError(
@@ -367,16 +374,12 @@ def _install_shims(profile, commands: list[str], *, remote: bool):
         module = (
             "mindie_bench.runner.ssh_shim" if command == "ssh" else "mindie_bench.shim.npu_replay_shim"
         )
-        script = directory / command
         # Absolute interpreter and package path are explicit read capabilities.
-        script.write_text(
-            f"#!{sys.executable} -I\nfrom {module} import main\nraise SystemExit(main())\n"
+        write_executable_shim(
+            directory,
+            command,
+            f"import sys\nsys.argv[0] = {command!r}\nfrom {module} import main\nraise SystemExit(main())\n",
         )
-        script.chmod(0o700)
-        if os.name == "nt":
-            (directory / f"{command}.cmd").write_text(
-                f'@"{sys.executable}" -I "{script}" %*\n'
-            )
     prefix = str(directory) + os.pathsep
     if not profile.env["PATH"].startswith(prefix):
         profile.env["PATH"] = prefix + profile.env["PATH"]
@@ -566,9 +569,11 @@ def probe_harness_version(config, profile, paths, trial_dir):
         timeout=20,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        **subprocess_window_kwargs(),
     )
-    (trial_dir / "version.stdout").write_text(version_result.stdout)
-    (trial_dir / "version.stderr").write_text(version_result.stderr)
+    (trial_dir / "version.stdout").write_text(version_result.stdout, encoding="utf-8")
+    (trial_dir / "version.stderr").write_text(version_result.stderr, encoding="utf-8")
     version_result.check_returncode()
     version = version_result.stdout.strip()
     if version != config.harness.expected_version:
@@ -583,7 +588,7 @@ def build_agent_prompt(profile, task_root, *, remote, devices):
     """Build the one initial prompt; remote and local workspace scopes differ."""
     from mindie_bench.runner.profile_builder import knowledge_prompt
 
-    prompt = knowledge_prompt(profile) + (task_root / "instruction.md").read_text()
+    prompt = knowledge_prompt(profile) + (task_root / "instruction.md").read_text(encoding="utf-8")
     if remote:
         prompt += (
             f"\n\nWork on the isolated SSH endpoint bench-slot. "

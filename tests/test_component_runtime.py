@@ -1,6 +1,7 @@
 import copy
 import io
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -115,6 +116,10 @@ def test_idle_requires_measured_zero_aicore_and_vanished_pid_is_unresolved():
         physical_observation(parsed, authority, [8], [], 3600, idle=False, live_pids=[])
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Linux /proc/<pid>/ns/pid symlink targets contain ':' which NTFS forbids",
+)
 def test_namespace_ownership_survives_job_env_changes_but_not_pid_reuse(tmp_path, monkeypatch, capsys):
     import pathlib
 
@@ -430,7 +435,7 @@ def test_acknowledged_helper_cleanup_uses_owner_pipe_without_signalling_a_reaped
     def forbidden_signal(*args):
         raise PermissionError("macOS reaped process-group signal denied")
 
-    monkeypatch.setattr(os, "killpg", forbidden_signal)
+    monkeypatch.setattr(os, "killpg", forbidden_signal, raising=False)
     assert subject._call("diagnostics", "diagnostic") == {"acknowledged": True}
 
 
@@ -532,11 +537,24 @@ def test_verifier_environment_is_literal_and_cannot_replace_slot_isolation(case,
     value = f"$(touch {shlex.quote(str(marker))}); 'literal'\nnonce"
 
     def execute(command, stdin_b64):
+        from mindie_bench.runner.host_platform import resolve_git_bash, subprocess_window_kwargs
+
+        argv = shlex.split(command)
+        run_env = dict(os.environ)
+        if os.name == "nt":
+            bash_bin = Path(resolve_git_bash(run_env)).resolve()
+            usr_bin = bash_bin.parent.parent / "usr" / "bin"
+            extra = [str(bash_bin.parent)] + ([str(usr_bin)] if usr_bin.is_dir() else [])
+            run_env["PATH"] = os.pathsep.join([*extra, run_env.get("PATH", "")])
+            if argv and argv[0] == "env" and (usr_bin / "env.exe").is_file():
+                argv[0] = str(usr_bin / "env.exe")
         result = subprocess.run(
-            shlex.split(command),
+            argv,
             input=base64.b64decode(stdin_b64),
+            env=run_env,
             capture_output=True,
             check=True,
+            **subprocess_window_kwargs(),
         )
         return result.stdout
 

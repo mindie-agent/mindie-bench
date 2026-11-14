@@ -33,7 +33,7 @@ from mindie_bench.models import (
 )
 from mindie_bench.runner.profile_builder import Profile
 from mindie_bench.runner.sandbox import native_command
-from mindie_bench.runner.termination import terminate_process_group
+from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 from mindie_bench.runner.trial_preflight import check_read_boundaries
 from mindie_bench.runner.verifier import local_verifier
 from mindie_bench.runner.worktree_slot import WorktreeSlot
@@ -138,7 +138,7 @@ class StrategyContinuationExecutor:
         write_json(context_path, context)
         # Freeze before the foreground process, and grant it no task-root reads.
         contract = (
-            TaskSpec.model_validate(tomllib.loads((root / "task.toml").read_text())).oracle
+            TaskSpec.model_validate(tomllib.loads((root / "task.toml").read_text(encoding="utf-8"))).oracle
             if (root / "task.toml").is_file() else OracleContract()
         )
         manifest = freeze_oracle(root, contract)
@@ -149,8 +149,18 @@ class StrategyContinuationExecutor:
         home.mkdir()
         env = {
             "PATH": os.environ.get("PATH", os.defpath),
-            "HOME": str(home), "TMPDIR": str(temporary), "PYTHONDONTWRITEBYTECODE": "1",
+            "HOME": str(home),
+            "USERPROFILE": str(home),
+            "TMPDIR": str(temporary),
+            "TEMP": str(temporary),
+            "TMP": str(temporary),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONUTF8": "1",
         }
+        if os.name == "nt":
+            for win_key in ("SystemRoot", "WINDIR", "COMSPEC", "PATHEXT"):
+                if win_key in os.environ:
+                    env[win_key] = os.environ[win_key]
         runtime_reads = [Path(sys.prefix), Path(sys.base_prefix), *self.read_paths]
         check_read_boundaries(runtime_reads, [root, Path(task.source.repo_path)])
         profile = Profile(profile_root, env, None, {}, runtime_reads)
@@ -184,9 +194,13 @@ class StrategyContinuationExecutor:
                 (trial_dir / "agent.stdout").open("xb") as stdout,
                 (trial_dir / "agent.stderr").open("xb") as stderr,
             ):
-                process = subprocess.Popen(
-                    command, cwd=workspace, env=env, stdin=stdin, stdout=stdout, stderr=stderr,
-                    start_new_session=True,
+                process, close_owner = spawn_owned_popen(
+                    command,
+                    cwd=workspace,
+                    env=env,
+                    stdin=stdin,
+                    stdout=stdout,
+                    stderr=stderr,
                 )
                 try:
                     returncode = process.wait(timeout=execution_window)
@@ -195,6 +209,8 @@ class StrategyContinuationExecutor:
                         terminate_process_group(process, term_wait=0.25, kill_wait=2.0)
                     except TimeoutError as exc:
                         raise UnknownExternalEffects(f"agent process cleanup failed: {exc}") from exc
+                    finally:
+                        close_owner()
             evidence["agent_returncode"] = returncode
             completed = returncode == 0
             # A nonzero agent exit does not erase a usable on-disk candidate.
@@ -216,6 +232,8 @@ class StrategyContinuationExecutor:
             payload["verifier_passed"] = passed
             try:
                 write_json(trial_dir / "verifier_record.json", record)
+            except TimeoutError:
+                raise
             except OSError as exc:
                 evidence["verifier_record_error"] = f"{type(exc).__name__}: {exc}"
         except subprocess.TimeoutExpired as exc:
@@ -248,6 +266,8 @@ class StrategyContinuationExecutor:
                 "terminal_status": status, "continuation_completed": completed,
                 "continuation_passed": passed, "error": error, "evidence": evidence,
             })
+        except TimeoutError:
+            raise
         except OSError as exc:
             evidence["receipt_error"] = f"{type(exc).__name__}: {exc}"
         return ContinuationExecution(payload, status, completed, passed, evidence, error)

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import signal
 import subprocess
 import time
 from contextlib import nullcontext
@@ -18,28 +17,37 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from mindie_bench.io import tree_hash, write_json
+from mindie_bench.runner.host_platform import subprocess_window_kwargs
 from mindie_bench.runner.sandbox import native_command
+from mindie_bench.runner.termination import terminate_process_group
 
 HELPER = Path(__file__).resolve().parents[1] / "integrations" / "product_native.py"
 
 
+def _component_executable(bin_dir: Path, name: str) -> Path | None:
+    candidates = [bin_dir / f"{name}.exe", bin_dir / name] if os.name == "nt" else [bin_dir / name]
+    return next((c for c in candidates if c.is_file()), None)
+
+
 def runtime_identity(python: str, *, env: dict[str, str] | None = None) -> dict:
     result = subprocess.run(
-        [python, "-I", str(HELPER)],
+        [python, "-I", "-X", "utf8", str(HELPER)],
         input=json.dumps({"operation": "identities"}),
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=True,
         timeout=30,
         env=env,
+        **subprocess_window_kwargs(),
     )
     return json.loads(result.stdout)
 
 
 def _initialize_domain(python: str, env: dict[str, str], corpus: Path, data_home: Path, domain: str, consent: Path, error_path: Path) -> dict:
-    with error_path.open("x") as errors:
+    with error_path.open("x", encoding="utf-8") as errors:
         completed = subprocess.run(
-            [python, "-I", str(HELPER)],
+            [python, "-I", "-X", "utf8", str(HELPER)],
             input=json.dumps(
                 {
                     "operation": "initialize",
@@ -54,10 +62,13 @@ def _initialize_domain(python: str, env: dict[str, str], corpus: Path, data_home
             stdout=subprocess.PIPE,
             stderr=errors,
             text=True,
+            encoding="utf-8",
             timeout=180,
+            **subprocess_window_kwargs(),
         )
     if completed.returncode:
-        raise RuntimeError("native product preparation failed: " + error_path.read_text()[-3000:])
+        detail = error_path.read_text(encoding="utf-8", errors="replace")[-3000:]
+        raise RuntimeError("native product preparation failed: " + detail)
     return json.loads(completed.stdout)
 
 
@@ -138,7 +149,7 @@ def prepare(root, env, selected, corpus, *, domain_corpora=None, active_domain=N
             admission_path=str(data_home / "admission.sqlite3"),
             community_config=str(community_path),
             component_commands={
-                name: [str(Path(python).parent / executable)]
+                name: [str(found)]
                 for name, executable in (
                     ("profiler", "mindie-profiler"), ("sim", "mindie-sim"),
                     ("coordinator", "mindie-coordinator"),
@@ -146,7 +157,7 @@ def prepare(root, env, selected, corpus, *, domain_corpora=None, active_domain=N
                     ("npu-top", "npu-top"),
                     ("diagnostics", "mindie-diagnostics"),
                 )
-                if (Path(python).parent / executable).is_file()
+                if (found := _component_executable(Path(python).parent, executable)) is not None
             },
         )
     write_json(config_path, config_payload)
@@ -191,7 +202,7 @@ def prepare(root, env, selected, corpus, *, domain_corpora=None, active_domain=N
         "harness": harness,
         "package_version": json.loads((package / (
             "package.json" if harness == "dsh" else ".codex-plugin/plugin.json"
-        )).read_text())["version"],
+        )).read_text(encoding="utf-8"))["version"],
         "package_sha256": tree_hash(package),
         "runtime_python": python,
         "engine_config": str(engine_path),
@@ -269,6 +280,7 @@ class NativeProductService:
             stdout=stderr_file,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            **subprocess_window_kwargs(),
         )
         try:
             connection = Path(connection_path)
@@ -277,18 +289,12 @@ class NativeProductService:
                 if proc.poll() is not None:
                     raise RuntimeError("native knowledge service exited before readiness")
                 if connection.is_file():
-                    state = json.loads(connection.read_text())
+                    state = json.loads(connection.read_text(encoding="utf-8"))
                     return proc, urlparse(state["url"]).port
                 time.sleep(0.02)
             raise TimeoutError("native knowledge service did not become ready in30s")
         except BaseException:
-            if proc.poll() is None:
-                os.killpg(proc.pid, signal.SIGTERM)
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                    proc.wait(timeout=5)
+            terminate_process_group(proc, term_wait=5, kill_wait=5)
             raise
 
     def __enter__(self):
@@ -321,13 +327,8 @@ class NativeProductService:
     def close(self):
         try:
             for proc in [self.process, *self._extra_processes]:
-                if proc and proc.poll() is None:
-                    os.killpg(proc.pid, signal.SIGTERM)
-                    try:
-                        proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                        proc.wait(timeout=5)
+                if proc is not None:
+                    terminate_process_group(proc, term_wait=5, kill_wait=5)
         finally:
             for stderr_file in self._stderr_files:
                 stderr_file.close()

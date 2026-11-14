@@ -42,6 +42,7 @@ from mindie_bench.runner.dsh_catalog import (
 from mindie_bench.runner.dsh_catalog import (
     probe_dsh_catalog as probe_dsh_catalog,
 )
+from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
 
 # The pi-ai provider rejects a custom route model that does not advertise the
 # requested effort. Declare the complete supported ladder, including `off`.
@@ -74,13 +75,20 @@ def capture_git_runtime(env: dict[str, str]) -> dict:
     def inspect(command):
         try:
             return subprocess.run(
-                command, check=True, capture_output=True, text=True, env=env, timeout=30
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=env,
+                timeout=30,
+                **subprocess_window_kwargs(),
             ).stdout.strip()
         except subprocess.CalledProcessError as error:
             error.add_note("Git discovery stderr (at most 16 KiB): " + (error.stderr or "")[:16_384])
             raise
 
-    executable = shutil.which("git", path=env["PATH"])
+    executable = which_native("git", path=env["PATH"]) or which_native("git")
     if executable is None:
         raise FileNotFoundError("Git is required for local capture publication")
     if platform.system() == "Darwin" and Path(executable).resolve() == Path("/usr/bin/git"):
@@ -101,7 +109,7 @@ def capture_git_runtime(env: dict[str, str]) -> dict:
 def bind_mcp_transport(profile: Profile):
     # Native hosts filter the environment inherited by MCP subprocesses.
     path = profile.root / "mcp.json"
-    configured = json.loads(path.read_text())
+    configured = json.loads(path.read_text(encoding="utf-8"))
     for server in configured["mcpServers"].values():
         server["env"].update(
             PATH=profile.env["PATH"],
@@ -153,14 +161,19 @@ def build_profile(
     home.mkdir()
     directories = {
         "HOME": home,
+        "USERPROFILE": home,
         "XDG_CONFIG_HOME": root / "config",
         "XDG_DATA_HOME": root / "data",
         "XDG_CACHE_HOME": root / "cache",
         "XDG_STATE_HOME": root / "state",
+        "APPDATA": root / "config",
+        "LOCALAPPDATA": root / "data",
         "CODEX_HOME": root / "codex",
         "CLAUDE_CONFIG_DIR": root / "claude",
         "KIMI_HOME": root / "kimi",
         "TMPDIR": root / "tmp",
+        "TEMP": root / "tmp",
+        "TMP": root / "tmp",
     }
     for directory in directories.values():
         directory.mkdir(exist_ok=True)
@@ -170,7 +183,7 @@ def build_profile(
     base_path = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
     if os.name == "nt":
         win_dirs = []
-        git_bin = shutil.which("git")
+        git_bin = which_native("git")
         if git_bin:
             git_dir = Path(git_bin).resolve().parent
             win_dirs.append(str(git_dir))
@@ -181,7 +194,7 @@ def build_profile(
         sys_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or r"C:\Windows"
         win_dirs.extend([str(Path(sys_root) / "System32"), sys_root])
         base_path = os.pathsep.join(win_dirs)
-        for win_key in ("SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP"):
+        for win_key in ("SystemRoot", "WINDIR", "COMSPEC", "PATHEXT"):
             if win_key in os.environ:
                 env[win_key] = os.environ[win_key]
     env.update(
@@ -193,6 +206,7 @@ def build_profile(
         GIT_CONFIG_GLOBAL=os.devnull,
         PYTHONNOUSERSITE="1",
         PYTHONDONTWRITEBYTECODE="1",
+        PYTHONUTF8="1",
         DISABLE_AUTOUPDATER="1",
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
     )
@@ -221,20 +235,13 @@ def build_profile(
     if group == Group.G0 and (servers or (group_config and group_config.skills_path)):
         raise ValueError("G0 must contain no MindIE tools or skills")
     if config.remote and group != Group.G0:
-        mindie_dir = home / ".mindie"
-        mindie_dir.mkdir(exist_ok=True)
-        write_json(
-            mindie_dir / "endpoints.json",
-            {
-                "default_alias": "bench-slot",
-                "endpoints": {
-                    "bench-slot": {
-                        "host": "bench-slot",
-                        "port": 22,
-                    }
-                },
-            },
-        )
+        endpoints_payload = {
+            "default_alias": "bench-slot",
+            "endpoints": {"bench-slot": {"host": "bench-slot", "port": 22}},
+        }
+        for mindie_dir in (home / ".mindie", root / "config" / "mindie"):
+            mindie_dir.mkdir(parents=True, exist_ok=True)
+            write_json(mindie_dir / "endpoints.json", endpoints_payload)
     if group != Group.G0 and "remote-dev" not in components:
         raise ValueError(f"{group} requires an explicit remote-dev MCP component")
     if group == Group.G1 and ("knowledge" in components or (group_config and group_config.skills_path)):
@@ -245,6 +252,7 @@ def build_profile(
         raise ValueError("explicit knowledge condition requires the installed domain skill")
     if group in {Group.G2, Group.G3, Group.G4} and "knowledge" not in components:
         raise ValueError(f"{group} requires the real knowledge MCP component")
+    git_exe = which_native("git", path=env.get("PATH")) or which_native("git") or "git"
     excluded = set()
     corpus = None
     corpus_fingerprint = None
@@ -257,18 +265,22 @@ def build_profile(
         declared = config.corpora[corpus_id]
         source = Path(declared.path).resolve()
         actual = subprocess.run(
-            ["git", "-C", str(source), "rev-parse", "HEAD"],
+            [git_exe, "-C", str(source), "rev-parse", "HEAD"],
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=30,
+            **subprocess_window_kwargs(),
         ).stdout.strip()
         dirty = subprocess.run(
-            ["git", "-C", str(source), "status", "--porcelain"],
+            [git_exe, "-C", str(source), "status", "--porcelain"],
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=30,
+            **subprocess_window_kwargs(),
         ).stdout
         if actual != declared.commit or dirty:
             raise ValueError("corpus must be clean at its exact declared commit")
@@ -307,11 +319,12 @@ def build_profile(
         corpus_commit = declared.commit
     local_bare = private_root / "local_knowledge.git"
     subprocess.run(
-        ["git", "init", "--bare", "-q", str(local_bare)],
+        [git_exe, "init", "--bare", "-q", str(local_bare)],
         check=True,
         env=env,
         capture_output=True,
         timeout=30,
+        **subprocess_window_kwargs(),
     )
     env["MINDIE_BENCH_PUBLICATION_POLICY"] = "local-only"
     private_env = {
@@ -358,7 +371,7 @@ def build_profile(
         if server.component != "knowledge":
             runtime_paths.append(command)
             if any(
-                (command.parent / cli).is_file()
+                (command.parent / cli).is_file() or (command.parent / f"{cli}.exe").is_file()
                 for cli in ("mindie-profiler", "mindie-debugger", "mindie-sim", "mindie-coordinator")
             ) or any(
                 c in (getattr(config, "components", None) or {})
@@ -392,7 +405,7 @@ def build_profile(
             knowledge_servers[name] = configured
             mcp[name] = {
                 "command": str(Path(sys.executable).absolute()),
-                "args": ["-I", "-m", "mindie_bench.runner.knowledge_stdio", name],
+                "args": ["-I", "-X", "utf8", "-m", "mindie_bench.runner.knowledge_stdio", name],
                 "env": {},
             }
         else:
@@ -409,13 +422,13 @@ def build_profile(
             path = corpus / relative
             if not path.resolve(strict=True).is_relative_to(corpus.resolve()):
                 raise ValueError("oracle material escapes the filtered corpus")
-            oracle_files[relative] = path.read_text()
+            oracle_files[relative] = path.read_text(encoding="utf-8")
         oracle_text = "\n\n".join(
             f"Source: {relative}\n\n{text}" for relative, text in oracle_files.items()
         )
         if len(oracle_text.encode()) > 128 * 1024:
             raise ValueError("oracle context exceeds its explicit 128 KiB prompt budget")
-        (root / "oracle-context.md").write_text(oracle_text)
+        (root / "oracle-context.md").write_text(oracle_text, encoding="utf-8")
     write_json(root / "settings.json", {"disableAllHooks": True, "autoUpdatesChannel": "stable"})
     dsh_profile = None
     native_product = None
@@ -429,18 +442,22 @@ def build_profile(
             dom_decl = config.corpora[dom_cid]
             dom_src = Path(dom_decl.path).resolve()
             dom_head = subprocess.run(
-                ["git", "-C", str(dom_src), "rev-parse", "HEAD"],
+                [git_exe, "-C", str(dom_src), "rev-parse", "HEAD"],
                 check=True,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=30,
+                **subprocess_window_kwargs(),
             ).stdout.strip()
             dom_dirty = subprocess.run(
-                ["git", "-C", str(dom_src), "status", "--porcelain"],
+                [git_exe, "-C", str(dom_src), "status", "--porcelain"],
                 check=True,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=30,
+                **subprocess_window_kwargs(),
             ).stdout
             if dom_head != dom_decl.commit or dom_dirty:
                 raise ValueError("domain corpus must be clean at its exact declared commit")
@@ -482,7 +499,7 @@ def build_profile(
             native_product=native_product, catalog_checkpoint=product_experiment or bool(native_dsh),
         )
         runtime_root = Path(config.harness.executable).resolve(strict=True)
-        node = shutil.which("node", path=env["PATH"])
+        node = which_native("node", path=env["PATH"]) or which_native("node")
         dsh_roots = [runtime_root]
         if len(runtime_root.parents) >= 2:
             dsh_roots += [runtime_root.parents[1], runtime_root.parents[1].parent]
@@ -525,7 +542,7 @@ def build_profile(
         "publication_policy": "local-only",
         "capture_git_runtime": git_runtime,
         "corpus_projection": "task Markdown and format contract; no feedback, docs, or cached indexes",
-        "mcp_config": json.loads((root / "mcp.json").read_text()),
+        "mcp_config": json.loads((root / "mcp.json").read_text(encoding="utf-8")),
         "knowledge_access": (
             "native product Store contains only the filtered trial corpus; original corpus remains private"
             if native_product
@@ -584,7 +601,9 @@ def build_dsh_profile(
         cwd=root,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
+        **subprocess_window_kwargs(),
     )
     if completed.returncode != 0:
         raise ValueError("DSH profile initialization failed: " + (completed.stderr or "")[-2000:])
@@ -679,14 +698,14 @@ def build_dsh_profile(
     if insert_rows:
         lines.append("- insert:")
         lines.extend(insert_rows)
-    (profile_dir / "cordis.patch.yml").write_text("\n".join(lines) + "\n")
+    (profile_dir / "cordis.patch.yml").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     # Validate the generated YAML without evaluating the !!js expressions.
     class Loader(yaml.SafeLoader):
         pass
 
     Loader.add_constructor("tag:yaml.org,2002:js", lambda loader, node: loader.construct_scalar(node))
-    yaml.load((profile_dir / "cordis.patch.yml").read_text(), Loader=Loader)
+    yaml.load((profile_dir / "cordis.patch.yml").read_text(encoding="utf-8"), Loader=Loader)
     env.update(
         DSH_HOME=str(dsh_home),
         DSH_PROFILE="bench",
@@ -722,7 +741,7 @@ def knowledge_prompt(profile: Profile) -> str:
             "Controlled oracle-context condition: the following selected historical material "
             "is supplied directly to distinguish content utility from routing. Treat it as "
             "fallible reference material and verify applicability in the current environment.\n\n"
-            + (profile.root / "oracle-context.md").read_text()
+            + (profile.root / "oracle-context.md").read_text(encoding="utf-8")
             + "\n\nCurrent engineering request:\n"
         )
     return ""

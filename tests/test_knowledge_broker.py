@@ -1,7 +1,5 @@
 import json
-import os
 import platform
-import select
 import socket
 import struct
 import subprocess
@@ -11,9 +9,11 @@ import time
 from pathlib import Path
 
 import pytest
+from conftest import noop_true
 
 from mindie_bench.models import CorpusConfig, Group, GroupConfig, MCPServer
 from mindie_bench.runner.gateway import Gateway
+from mindie_bench.runner.host_platform import PipeReader, subprocess_window_kwargs, which_native
 from mindie_bench.runner.orchestrator import runtime_paths
 from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profile
 from mindie_bench.runner.sandbox import native_command
@@ -37,11 +37,11 @@ for line in sys.stdin:
             result={"structuredContent":{"units":[
                 {"id":"unit-reviewed","revision":1,
                  "ref":"mindie://operators/units/unit-reviewed@1",
-                 "content":Path(sys.argv[1]).read_text()}],
+                 "content":Path(sys.argv[1]).read_text(encoding="utf-8")}],
                 "requires":[],"unresolved":[{"ref":"unit-missing","status":"not_found"}]},
                 "isError":False}
         else:
-            result={"structuredContent":{"text":Path(sys.argv[1]).read_text()},"isError":False}
+            result={"structuredContent":{"text":Path(sys.argv[1]).read_text(encoding="utf-8")},"isError":False}
     print(json.dumps({"jsonrpc":"2.0","id":request["id"],"result":result}),flush=True)
 """
 
@@ -49,16 +49,16 @@ for line in sys.stdin:
 def setup_profile(case, corpus):
     source, commit = corpus
     server = case["root"] / "fixture-mcp.py"
-    server.write_text(SERVER)
+    server.write_text(SERVER, encoding="utf-8")
     config = case["config"].model_copy(deep=True)
     config.runtime_read_paths = [str(server)]
     config.corpora["fixture"] = CorpusConfig(path=str(source), commit=commit)
     config.groups[Group.G2] = GroupConfig(
         mcp_servers={
-            "remote": MCPServer(command="/usr/bin/true", component="remote-dev"),
+            "remote": MCPServer(command=str(noop_true()), component="remote-dev"),
             "knowledge": MCPServer(
                 command=sys.executable,
-                args=["-I", str(server), "{corpus}/tasks/analogy/materials/0001.md"],
+                args=["-I", "-X", "utf8", str(server), "{corpus}/tasks/analogy/materials/0001.md"],
                 env={"STATE": "{profile}/knowledge-store"},
                 component="knowledge",
             ),
@@ -71,8 +71,8 @@ def setup_profile(case, corpus):
 
 
 def start_front(profile, paths, trial, gateway, code=None, args=()):
-    spec = json.loads((profile.root / "mcp.json").read_text())["mcpServers"]["knowledge"]
-    base = [sys.executable, "-I", "-c", code, *args] if code else [spec["command"], *spec["args"]]
+    spec = json.loads((profile.root / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]["knowledge"]
+    base = [sys.executable, "-I", "-X", "utf8", "-c", code, *args] if code else [spec["command"], *spec["args"]]
     command = native_command(
         base,
         read=paths,
@@ -90,10 +90,17 @@ def start_front(profile, paths, trial, gateway, code=None, args=()):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         bufsize=0,
+        **subprocess_window_kwargs(),
     )
 
 
 def request(process, identity, method, params=None):
+    reader = getattr(process, "_stdout_reader", None)
+    if reader is None:
+        reader = PipeReader(process.stdout)
+        process._stdout_reader = reader
+        process._stdout_buf = bytearray()
+    buf = process._stdout_buf
     process.stdin.write(
         (
             json.dumps(
@@ -108,16 +115,18 @@ def request(process, identity, method, params=None):
         ).encode()
     )
     process.stdin.flush()
-    data = b""
     deadline = time.monotonic() + 10
-    while b"\n" not in data:
+    while b"\n" not in buf:
         remaining = deadline - time.monotonic()
         assert remaining > 0, "MCP transport fixture timed out"
-        assert select.select([process.stdout], [], [], remaining)[0]
-        chunk = os.read(process.stdout.fileno(), 65536)
-        assert chunk, process.stderr.read().decode()
-        data += chunk
-    return json.loads(data)
+        timed_out, chunk = reader.read_chunk(remaining)
+        assert not timed_out, "MCP transport fixture timed out"
+        assert chunk, process.stderr.read().decode("utf-8", errors="replace")
+        buf.extend(chunk)
+    idx = buf.index(b"\n") + 1
+    line = bytes(buf[:idx])
+    del buf[:idx]
+    return json.loads(line)
 
 
 def stop_front(process):
@@ -140,12 +149,14 @@ def test_profile_does_not_disclose_or_grant_private_knowledge(case, corpus):
     assert not profile.corpus.is_relative_to(profile.root)
     assert profile.corpus == profile.private_root / "corpus"
     assert (profile.private_root / "local_knowledge.git/HEAD").is_file()
-    public = (profile.root / "mcp.json").read_text() + json.dumps(profile.env)
+    public = (profile.root / "mcp.json").read_text(encoding="utf-8") + json.dumps(profile.env)
     assert str(profile.corpus) not in public
+    assert json.dumps(str(profile.corpus))[1:-1] not in public
     assert str(profile.private_root) not in public
+    assert json.dumps(str(profile.private_root))[1:-1] not in public
     assert "MINDIE_BENCH_CORPUS" not in profile.env
     assert "knowledge-store" not in public
-    assert str(profile.private_root) in json.dumps(profile.knowledge_servers)
+    assert json.dumps(str(profile.private_root))[1:-1] in json.dumps(profile.knowledge_servers)
     assert profile.fingerprint["knowledge_backend_config_sha256"]["knowledge"]
     assert profile.fingerprint["retained_analogical_task_hashes"] == ["analogy"]
     assert Path(sys.executable).absolute() not in profile.runtime_paths
@@ -210,6 +221,11 @@ def test_declared_analogy_must_survive_the_actual_warm_projection(case, corpus):
         build_profile(trial, case["spec"], Group.G2, config, corpus_override=warm)
 
 
+@pytest.mark.skipif(
+    platform.system() not in {"Darwin", "Linux"}
+    or (platform.system() == "Linux" and not which_native("bwrap")),
+    reason="Kernel filesystem sandbox requires macOS sandbox-exec or Linux bubblewrap",
+)
 def test_actual_os_boundary_denies_direct_corpus_and_state_but_relays_mcp(case, corpus):
     # This fixture verifies real OS/process/HTTP transport; real-component semantic
     # acceptance is performed separately with the locked component runtime.

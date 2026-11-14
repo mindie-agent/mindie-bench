@@ -28,6 +28,7 @@ from pathlib import Path
 
 from mindie_bench.io import safe_relative
 from mindie_bench.models import SourceEnvironment, Trajectory
+from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
 
 SCHEMA = "mindie-bench-source-output-visibility/1"
 MAX_BLOB_BYTES = 1024 * 1024
@@ -70,12 +71,15 @@ def _public_asset(public_root: Path, target: str) -> dict:
 
 
 def _initial_blobs(environment, targets, public_root=None):
+    git_exe = which_native("git") or "git"
+
     def git(*args):
         return subprocess.run(
-            ["git", "-C", environment.repo_path, *args],
+            [git_exe, "-C", environment.repo_path, *args],
             capture_output=True,
             check=True,
             timeout=10,
+            **subprocess_window_kwargs(),
         ).stdout
 
     if git("cat-file", "-t", environment.base_commit).strip() != b"commit":

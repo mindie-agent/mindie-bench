@@ -57,13 +57,15 @@ if probe_errors:
     final["probe_errors"]=probe_errors
 if path.is_dir():
     try:
+        win_kw={"creationflags":subprocess.CREATE_NO_WINDOW} if os.name=="nt" else {}
         common=subprocess.run(["git","-C",cfg["repo_path"],"rev-parse","--git-common-dir"],
-            check=True,capture_output=True,text=True,timeout=60).stdout.strip()
+            check=True,capture_output=True,text=True,encoding="utf-8",timeout=60,**win_kw).stdout.strip()
         common=pathlib.Path(common)
         if not common.is_absolute():
             common=pathlib.Path(cfg["repo_path"])/common
+        expected_git=os.path.normcase(os.path.normpath(str(path/".git")))
         matches=[p for p in (common/"worktrees").iterdir()
-                 if (p/"gitdir").read_text().strip()==str(path/".git")]
+                 if os.path.normcase(os.path.normpath((p/"gitdir").read_text(encoding="utf-8").strip()))==expected_git]
         if len(matches)!=1:
             raise RuntimeError("cannot identify this slot's worktree metadata")
         gitfile=path/".git"
@@ -71,18 +73,18 @@ if path.is_dir():
             gitfile.unlink()
         if gitfile.exists():
             raise RuntimeError("agent created an unexpected .git directory")
-        gitfile.write_text("gitdir: "+str(matches[0])+"\n")
+        gitfile.write_text("gitdir: "+str(matches[0])+"\n",encoding="utf-8",newline="\n")
         patch=subprocess.run(["git","-C",str(path),"diff","--binary","--no-ext-diff","--no-textconv",
-            "HEAD",*diff_paths],check=True,capture_output=True,timeout=60).stdout
+            "HEAD",*diff_paths],check=True,capture_output=True,timeout=60,**win_kw).stdout
         if len(patch)>32*1024*1024:
             raise RuntimeError("remote final patch exceeds artifact bound")
         final["patch_b64"]=base64.b64encode(patch).decode()
         changed=subprocess.run(["git","-C",str(path),"diff","--name-only","-z",
             "--no-ext-diff","--no-textconv","HEAD",*diff_paths],
-            check=True,capture_output=True,timeout=60).stdout.split(b"\0")
+            check=True,capture_output=True,timeout=60,**win_kw).stdout.split(b"\0")
         untracked=subprocess.run(["git","-C",str(path),"ls-files","--others","--exclude-standard","-z",
             *diff_paths],
-            check=True,capture_output=True,timeout=60).stdout.split(b"\0")
+            check=True,capture_output=True,timeout=60,**win_kw).stdout.split(b"\0")
         final["untracked"]={}
         size=0
         ignored_parts={"__pycache__",".pytest_cache",".ruff_cache",".mypy_cache"}
@@ -105,7 +107,7 @@ if path.is_dir():
         final["files_modified"]=sorted(set(
             [os.fsdecode(name) for name in changed if name]+list(final["untracked"])))
         subprocess.run(["git","-C",cfg["repo_path"],"worktree","remove","--force",str(path)],
-            check=True,capture_output=True,timeout=60)
+            check=True,capture_output=True,timeout=60,**win_kw)
     except Exception as exc:
         final["errors"].append(type(exc).__name__+": "+str(exc))
 artifact=str(path)+".final.json"

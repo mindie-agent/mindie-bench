@@ -20,6 +20,14 @@ from pathlib import Path
 
 import pytest
 
+from mindie_bench.runner.host_platform import (
+    resolve_git_bash,
+    subprocess_window_kwargs,
+    which_native,
+    write_command_alias,
+    write_executable_shim,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TASKS_ROOT = REPO_ROOT / "tasks/production-multi-die"
 DUAL = TASKS_ROOT / "a3-dual-die-tp2-allreduce-placement"
@@ -37,13 +45,15 @@ def _load_module(path: Path, name: str):
 
 
 def _fake_bin(tmp_path: Path) -> Path:
-    """PATH with a python3 link but a deliberately failing npu-smi."""
+    """PATH with a python3 alias but a deliberately failing npu-smi."""
     directory = tmp_path / "fake-bin"
     directory.mkdir()
-    (directory / "python3").symlink_to(Path(sys.executable).resolve())
-    npu_smi = directory / "npu-smi"
-    npu_smi.write_text("#!/bin/sh\necho 'protocol test: npu-smi disabled' >&2\nexit 9\n")
-    npu_smi.chmod(0o755)
+    write_command_alias(directory, "python3", [sys.executable, "-X", "utf8"])
+    write_executable_shim(
+        directory,
+        "npu-smi",
+        "import sys\nsys.stderr.write('protocol test: npu-smi disabled\\n')\nraise SystemExit(9)\n",
+    )
     return directory
 
 
@@ -53,11 +63,11 @@ def _workspace(tmp_path: Path, required: tuple[str, ...]) -> Path:
         path = workspace / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         if relative.endswith("parallel_state.py"):
-            content = PINNED_SOURCE.read_text()
+            content = PINNED_SOURCE.read_text(encoding="utf-8")
         else:
             content = "# protocol-test candidate source\n"
-        path.write_text(content)
-    (workspace / "pyproject.toml").write_text("[project]\nname = 'vllm-ascend'\n")
+        path.write_text(content, encoding="utf-8", newline="\n")
+    (workspace / "pyproject.toml").write_text("[project]\nname = 'vllm-ascend'\n", encoding="utf-8", newline="\n")
     return workspace
 
 
@@ -70,13 +80,15 @@ def _run_verifier(task: Path, workspace: Path | None, fake_bin: Path) -> tuple[s
     else:
         env.pop("MINDIE_BENCH_WORKSPACE", None)
     completed = subprocess.run(
-        [sys.executable, "-I", "-B", str(task / "verifier/verify.py")],
+        [sys.executable, "-I", "-B", "-X", "utf8", str(task / "verifier/verify.py")],
         cwd=task,
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=60,
         check=False,
+        **subprocess_window_kwargs(),
     )
     lines = [line for line in completed.stdout.splitlines() if line.strip()]
     assert lines, (task.name, completed.stdout, completed.stderr)
@@ -85,11 +97,12 @@ def _run_verifier(task: Path, workspace: Path | None, fake_bin: Path) -> tuple[s
 
 def _apply_dual_patch(workspace: Path) -> None:
     subprocess.run(
-        ["git", "apply", "--no-index", str(DUAL / "oracle/gold_patch.diff")],
+        [which_native("git") or "git", "-c", "core.autocrlf=false", "apply", "--no-index", str(DUAL / "oracle/gold_patch.diff")],
         cwd=workspace,
         check=True,
         capture_output=True,
         timeout=20,
+        **subprocess_window_kwargs(),
     )
 
 
@@ -575,20 +588,27 @@ def test_private_oracle_bundle_runs_without_environment_fixture(tmp_path):
     _apply_dual_patch(workspace)
     fake_bin = _fake_bin(tmp_path)
     env = dict(os.environ)
+    bash_bin = resolve_git_bash()
+    bash_dirs = [str(fake_bin)]
+    if os.name == "nt":
+        bp = Path(bash_bin).resolve().parent
+        bash_dirs.extend([str(bp), str(bp.parent / "usr" / "bin")])
     env.update(
-        PATH=str(fake_bin),
+        PATH=os.pathsep.join(bash_dirs),
         MINDIE_BENCH_ORACLE_ROOT=str(oracle_root),
         MINDIE_BENCH_WORKSPACE=str(workspace),
     )
     env.pop("ASCEND_RT_VISIBLE_DEVICES", None)
     completed = subprocess.run(
-        ["/bin/bash", str(oracle_root / "verifier/test.sh")],
+        [bash_bin, str(oracle_root / "verifier/test.sh")],
         cwd=workspace,
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=60,
         check=False,
+        **subprocess_window_kwargs(),
     )
     assert completed.returncode == 1, (completed.stdout, completed.stderr)
     payload = json.loads(
@@ -624,8 +644,13 @@ def test_unsupported_private_bundles_fail_closed_without_model_or_peer(tmp_path,
     workspace = _workspace(tmp_path, target_files)
     fake_bin = _fake_bin(tmp_path)
     env = dict(os.environ)
+    bash_bin = resolve_git_bash()
+    bash_dirs = [str(fake_bin)]
+    if os.name == "nt":
+        bp = Path(bash_bin).resolve().parent
+        bash_dirs.extend([str(bp), str(bp.parent / "usr" / "bin")])
     env.update(
-        PATH=str(fake_bin),
+        PATH=os.pathsep.join(bash_dirs),
         MINDIE_BENCH_ORACLE_ROOT=str(oracle_root),
         MINDIE_BENCH_WORKSPACE=str(workspace),
     )
@@ -641,13 +666,15 @@ def test_unsupported_private_bundles_fail_closed_without_model_or_peer(tmp_path,
     ):
         env.pop(name, None)
     completed = subprocess.run(
-        ["/bin/bash", str(oracle_root / "verifier/test.sh")],
+        [bash_bin, str(oracle_root / "verifier/test.sh")],
         cwd=workspace,
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=60,
         check=False,
+        **subprocess_window_kwargs(),
     )
     assert completed.returncode == 1, (completed.stdout, completed.stderr)
     payload = json.loads(

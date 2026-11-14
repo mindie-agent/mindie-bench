@@ -31,7 +31,7 @@ KIMI_BIN = Path(os.environ.get("MINDIE_BENCH_TEST_KIMI_BIN", Path.home() / ".kim
 def replay(name, components=None):
     driver = KimiDriver()
     driver.server_components = components or {}
-    events = [json.loads(line) for line in (FIXTURES / name).read_text().splitlines()]
+    events = [json.loads(line) for line in (FIXTURES / name).read_text(encoding="utf-8").splitlines()]
     for index, event in enumerate(events):
         driver.consume(event, float(index), 0)
     return driver.trajectory()
@@ -305,55 +305,70 @@ def test_build_kimi_profile_wires_owned_environment(tmp_path):
 
 
 def fake_kimi(tmp_path):
+    from mindie_bench.runner.host_platform import write_executable_shim
+
     capture = tmp_path / "fake-argv.json"
-    script = tmp_path / "fake-kimi"
-    script.write_text(
-        "#!/bin/sh\n"
-        f"printf '%s' \"$2\" > {str(capture)!r}.prompt\n"
-        f"printf '%s' \"$*\" > {str(capture)!r}.argv\n"
-        'printf \'%s\\n\' \'{"role":"meta","type":"system.version","version":"2.2.0"}\'\n'
-        'printf \'%s\\n\' \'{"role":"assistant","content":"ADAPTER_OK"}\'\n'
-        'printf \'%s\\n\' \'{"role":"meta","type":"session.resume_hint",'
-        '"session_id":"session_fake"}\'\n'
+    script = write_executable_shim(
+        tmp_path,
+        "fake-kimi",
+        f"""import pathlib, sys
+prompt_path = pathlib.Path({str(capture) + ".prompt"!r})
+argv_path = pathlib.Path({str(capture) + ".argv"!r})
+prompt_path.write_text(sys.argv[2], encoding="utf-8", newline="\\n")
+argv_path.write_text(" ".join(sys.argv[1:]), encoding="utf-8", newline="\\n")
+print('{{"role":"meta","type":"system.version","version":"2.2.0"}}')
+print('{{"role":"assistant","content":"ADAPTER_OK"}}')
+print('{{"role":"meta","type":"session.resume_hint","session_id":"session_fake"}}')
+""",
     )
-    script.chmod(0o700)
     return script, capture
 
 
 def test_adapter_delivers_stdin_prompt_as_dash_p(tmp_path):
+    from mindie_bench.runner.host_platform import subprocess_window_kwargs
+
     script, capture = fake_kimi(tmp_path)
     prompt = "Fix the dtype mismatch.\nLine two stays intact."
     result = subprocess.run(
         [sys.executable, "-m", "mindie_bench.runner.drivers.kimi", str(script), "--output-format",
          "stream-json"],
-        input=prompt.encode(),
+        input=prompt.encode("utf-8"),
         capture_output=True,
         timeout=30,
+        **subprocess_window_kwargs(),
     )
-    assert result.returncode == 0
-    assert Path(str(capture) + ".prompt").read_text() == prompt
-    assert Path(str(capture) + ".argv").read_text() == f"-p {prompt} --output-format stream-json"
-    events = [json.loads(line) for line in result.stdout.decode().splitlines()]
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+    assert Path(str(capture) + ".prompt").read_text(encoding="utf-8") == prompt
+    assert Path(str(capture) + ".argv").read_text(encoding="utf-8") == f"-p {prompt} --output-format stream-json"
+    events = [json.loads(line) for line in result.stdout.decode("utf-8").splitlines()]
     assert events[1] == {"role": "assistant", "content": "ADAPTER_OK"}
 
 
 def test_adapter_rejects_oversized_prompt(tmp_path):
+    from conftest import noop_true
+
+    from mindie_bench.runner.host_platform import subprocess_window_kwargs
+
     result = subprocess.run(
-        [sys.executable, "-m", "mindie_bench.runner.drivers.kimi", "/bin/true"],
+        [sys.executable, "-m", "mindie_bench.runner.drivers.kimi", str(noop_true())],
         input=b"x" * (1024 * 1024 + 1),
         capture_output=True,
         timeout=30,
+        **subprocess_window_kwargs(),
     )
     assert result.returncode == 2
     assert b"adapter budget" in result.stderr
 
 
 def test_adapter_fails_closed_on_missing_executable():
+    from mindie_bench.runner.host_platform import subprocess_window_kwargs
+
     result = subprocess.run(
         [sys.executable, "-m", "mindie_bench.runner.drivers.kimi", "/nonexistent/kimi"],
         input=b"hi",
         capture_output=True,
         timeout=30,
+        **subprocess_window_kwargs(),
     )
     assert result.returncode == 2
     assert b"failed to exec" in result.stderr

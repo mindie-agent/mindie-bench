@@ -2,7 +2,6 @@ import base64
 import io
 import json
 import os
-import select
 import shlex
 import signal
 import subprocess
@@ -14,6 +13,11 @@ import pytest
 
 from mindie_bench.models import RemoteConfig, SourceEnvironment
 from mindie_bench.runner.remote_slot import WORKER, RemoteSlot
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="remote_worker.py runs inside Linux NPU containers via POSIX select/killpg",
+)
 
 STREAM_BOUND = 8 * 1024 * 1024
 
@@ -290,8 +294,7 @@ def test_late_stream_acknowledgement_is_retained_before_real_cleanup(worker_slot
     read = slot._read
 
     def lost_after_delivery(timeout):
-        readable, _, _ = select.select([slot.process.stdout], [], [], 5)
-        assert readable
+        assert slot._ensure_stdout_reader().wait_readable(5)
         raise TimeoutError("stream acknowledgement was not delivered to caller")
 
     monkeypatch.setattr(slot, "_read", lost_after_delivery)

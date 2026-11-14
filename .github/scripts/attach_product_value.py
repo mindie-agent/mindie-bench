@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -57,12 +58,13 @@ def attach(
                 "path": file, "status": state,
             })
     # Finish all read-only checks before the first external write.
+    flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
     for operation in operations:
         if publish and operation["status"] == "ready":
             subprocess.run([
                 "gh", "release", "upload", operation["tag"], str(operation["path"]),
                 "--repo", operation["repository"],
-            ], check=True, capture_output=True, timeout=60)
+            ], check=True, capture_output=True, timeout=60, **flags)
             operation["status"] = "uploaded"
         operation.pop("path")
     return operations

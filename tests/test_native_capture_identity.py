@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -33,7 +34,7 @@ def test_claude_capture_binds_stop_to_actual_session_and_owned_transcript(tmp_pa
         "claude-code", Trajectory(native_session_id="session-1", native_completed=True), profile, workspace
     )
     assert payload["harness"] == "claude-code"
-    assert payload["transcript_path"].endswith("projects/owned/session-1.jsonl")
+    assert Path(payload["transcript_path"]).as_posix().endswith("projects/owned/session-1.jsonl")
     assert "turn_id" not in payload
 
 

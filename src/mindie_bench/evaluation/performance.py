@@ -186,7 +186,7 @@ def measure_rotating_buffers(
     buffer_identity: Callable[[Any], str],
     samples_per_shape: int,
     warmup_rounds: int = 1,
-    clock_ns: Callable[[], int] = time.monotonic_ns,
+    clock_ns: Callable[[], int] = time.perf_counter_ns,
 ) -> TimingRun:
     """Measure on the judge host; device completion belongs to synchronize().
 
@@ -315,7 +315,7 @@ def measure_warm_server(
     server_config_sha256: str,
     baseline_server_identity: str,
     candidate_server_identity: str,
-    clock_ns: Callable[[], int] = time.monotonic_ns,
+    clock_ns: Callable[[], int] = time.perf_counter_ns,
 ) -> WarmServerProbe:
     """Time completed requests to already running servers, excluding startup."""
     runs = [

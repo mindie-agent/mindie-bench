@@ -65,17 +65,22 @@ def test_historical_source_and_actual_npu_diagnostic_bytes_match_manifest():
 def test_complete_module_semantic_judge_is_independent_of_replay_and_public_helper(tensor_case, variant):
     _, workspace, target, _ = tensor_case
     if variant == "gold":
+        from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
+
         subprocess.run(
-            ["git", "apply", "--no-index", str(TEMPLATE / "oracle/gold_patch.diff")],
+            [which_native("git") or "git", "-c", "core.autocrlf=false", "apply", "--no-index", str(TEMPLATE / "oracle/gold_patch.diff")],
             cwd=workspace,
             capture_output=True,
             check=True,
+            **subprocess_window_kwargs(),
         )
     elif variant == "diagnostic_bypass":
         target.write_text(
-            target.read_text().replace(
+            target.read_text(encoding="utf-8").replace(
                 "torch.topk(logits, k=top_k, dim=-1)", "torch.topk(logits, k=(top_k), dim=-1)"
-            )
+            ),
+            encoding="utf-8",
+            newline="\n",
         )
     elif variant == "public_helper_bypass":
         (workspace / "replay_cpu_boundary.py").write_text(
@@ -117,21 +122,27 @@ def test_actual_installed_replay_shim_returns_saved_error_then_exposes_its_patte
         environment = {**profile.env, "MINDIE_BENCH_GATEWAY": gateway.url}
 
         def replay():
+            from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
+
+            shim = which_native("npu-replay-sampler", path=environment.get("PATH")) or "npu-replay-sampler"
             return subprocess.run(
-                ["npu-replay-sampler"],
+                [shim],
                 cwd=case["repo"],
                 env=environment,
                 capture_output=True,
                 timeout=10,
+                **subprocess_window_kwargs(),
             )
 
         original = replay()
         assert original.returncode == 1
         assert original.stderr == (TEMPLATE / "environment/history-error.stderr").read_bytes()
         target.write_text(
-            target.read_text().replace(
+            target.read_text(encoding="utf-8").replace(
                 "torch.topk(logits, k=top_k, dim=-1)", "torch.topk(logits, k=(top_k), dim=-1)"
-            )
+            ),
+            encoding="utf-8",
+            newline="\n",
         )
         apparent_pass = replay()
         assert apparent_pass.returncode == 0

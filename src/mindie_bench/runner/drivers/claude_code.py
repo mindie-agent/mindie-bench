@@ -6,7 +6,9 @@
 """Claude print stream-json; deduplicate message IDs and correlate tool results."""
 
 import json
+import os
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -33,24 +35,28 @@ class ClaudeCodeDriver:
         native_tmp.mkdir(exist_ok=True)
         profile.env["CLAUDE_CODE_TMPDIR"] = str(native_tmp)
         capture_hook = profile.fingerprint.get("group") in {"G3", "G4"}
-        settings = json.loads((profile.root / "settings.json").read_text())
+        settings = json.loads((profile.root / "settings.json").read_text(encoding="utf-8"))
         if capture_hook:
             hook = [
                 sys.executable,
                 "-I",
+                *(["-X", "utf8"] if os.name == "nt" else []),
                 "-m",
                 "mindie_bench.integrations.claude_stop",
                 str(profile.root / "native-stop.json"),
             ]
+            hook_cmd = subprocess.list2cmdline(hook) if os.name == "nt" else shlex.join(hook)
             settings.update(
                 disableAllHooks=False,
-                hooks={"Stop": [{"hooks": [{"type": "command", "command": shlex.join(hook)}]}]},
+                hooks={"Stop": [{"hooks": [{"type": "command", "command": hook_cmd}]}]},
             )
-            (profile.root / "settings.json").write_text(json.dumps(settings) + "\n")
+            (profile.root / "settings.json").write_text(
+                json.dumps(settings) + "\n", encoding="utf-8"
+            )
         # The native summary worker reads this owned native profile, never the
         # caller's profile. Provider credentials remain the broker-only environment.
         (Path(profile.env["CLAUDE_CONFIG_DIR"]) / "settings.json").write_text(
-            json.dumps({"model": config.model}) + "\n"
+            json.dumps({"model": config.model}) + "\n", encoding="utf-8"
         )
         if (profile.root / "skills").exists():
             import shutil

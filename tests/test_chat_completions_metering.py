@@ -4,6 +4,8 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from conftest import noop_true
+
 from mindie_bench.models import HarnessConfig
 from mindie_bench.runner.gateway import Gateway
 from mindie_bench.runner.usage import UsageMeter
@@ -48,7 +50,7 @@ def test_dsh_chat_completions_forwarding_and_usage(case, monkeypatch):
     monkeypatch.setenv("BENCH_DSH_TEST_KEY", "local-test-only")
     harness = HarnessConfig(
         name="dsh",
-        executable="/usr/bin/true",
+        executable=str(noop_true()),
         model="deepseek-flash",
         expected_version="0.2.0-rc.2",
         api_protocol="openai-completions",

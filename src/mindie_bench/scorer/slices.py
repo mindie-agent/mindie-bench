@@ -13,7 +13,9 @@ from mindie_bench.scorer.metrics import retrieval_metrics, routing_metrics
 
 
 def score_slices(path: Path, *, kind: str, k: int = 3) -> dict:
-    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    rows = [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
     if not rows:
         raise ValueError("slice input is empty")
     identities = [row["sample_id"] for row in rows]

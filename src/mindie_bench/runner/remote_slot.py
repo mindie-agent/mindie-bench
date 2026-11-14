@@ -32,8 +32,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
-import select
 import shlex
 import subprocess
 import threading
@@ -43,7 +41,7 @@ from pathlib import Path, PurePosixPath
 
 from mindie_bench.io import is_ignored_cache_path, safe_relative
 from mindie_bench.models import RemoteConfig, RemotePreStartError, SourceEnvironment
-from mindie_bench.runner.process import subprocess_window_kwargs
+from mindie_bench.runner.host_platform import PipeReader, PipeWriter, subprocess_window_kwargs
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, PROJECTOR
 from mindie_bench.runner.termination import terminate_process_group
 
@@ -91,6 +89,8 @@ class RemoteSlot:
         self.cleanup_confirmed = False
         self.public_files: dict[str, str] = {}
         self.read_buffer = b""
+        self._stdout_reader: PipeReader | None = None
+        self._stdin_writer: PipeWriter | None = None
 
     def command(self, command: list[str]) -> list[str]:
         return [
@@ -113,6 +113,8 @@ class RemoteSlot:
             timeout=30,
             check=True,
             text=True,
+            encoding="utf-8",
+            **subprocess_window_kwargs(),
         )
         return self.validate_probe(json.loads(result.stdout))
 
@@ -286,17 +288,27 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                 if k not in {"REMOTE_DEV_JOB_TOKEN", "MINDIE_BENCH_COMPONENT_GUARD"}
             }
             (self.artifact_dir / "slot_isolation.json").write_text(
-                json.dumps({"TMPDIR_BACKING_PATH": self.tmpdir_backing, **public_env})
+                json.dumps({"TMPDIR_BACKING_PATH": self.tmpdir_backing, **public_env}),
+                encoding="utf-8",
+                newline="\n",
             )
         return self
 
+    def _ensure_stdout_reader(self) -> PipeReader:
+        if self._stdout_reader is None or self._stdout_reader.stream is not self.process.stdout:
+            self._stdout_reader = PipeReader(self.process.stdout)
+        return self._stdout_reader
+
     def _read(self, timeout):
+        reader = self._ensure_stdout_reader()
         deadline = time.monotonic() + timeout
         while b"\n" not in self.read_buffer:
             remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([self.process.stdout], [], [], remaining)[0]:
+            if remaining <= 0:
                 raise TimeoutError("remote worker acknowledgement lost; effects unknown")
-            chunk = os.read(self.process.stdout.fileno(), 65536)
+            timed_out, chunk = reader.read_chunk(remaining)
+            if timed_out:
+                raise TimeoutError("remote worker acknowledgement lost; effects unknown")
             if not chunk:
                 raise RuntimeError("remote worker exited without a receipt")
             self.read_buffer += chunk
@@ -306,20 +318,11 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         return json.loads(line)
 
     def _send_frame(self, frame: bytes, deadline: float):
-        descriptor = self.process.stdin.fileno()
-        os.set_blocking(descriptor, False)
-        remaining = memoryview(frame)
-        while remaining:
-            wait = deadline - time.monotonic()
-            if wait <= 0 or not select.select([], [descriptor], [], wait)[1]:
-                raise TimeoutError("remote worker submission incomplete; effects unknown")
-            try:
-                written = os.write(descriptor, remaining[:65536])
-            except BlockingIOError:
-                continue
-            if not written:
-                raise BrokenPipeError("remote worker accepted no request bytes")
-            remaining = remaining[written:]
+        if self._stdin_writer is None or self._stdin_writer.stream is not self.process.stdin:
+            self._stdin_writer = PipeWriter(self.process.stdin)
+        self._stdin_writer.write_frame(
+            frame, deadline, timeout_message="remote worker submission incomplete; effects unknown"
+        )
 
     def _request(self, request, timeout, *, expected=None):
         if self.closed:
@@ -480,7 +483,9 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                         if "cleanup" in receipt:
                             self.cleanup_receipt = receipt
                         elif self.artifact_dir:
-                            with (self.artifact_dir / "remote_late_results.jsonl").open("a") as stream:
+                            with (self.artifact_dir / "remote_late_results.jsonl").open(
+                                "a", encoding="utf-8", newline="\n"
+                            ) as stream:
                                 stream.write(json.dumps(receipt) + "\n")
                 self.process.wait(timeout=5)
             except (TimeoutError, subprocess.TimeoutExpired, RuntimeError) as exc:
@@ -531,7 +536,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             if self.artifact_dir:
                 try:
                     (self.artifact_dir / "remote_cleanup.json").write_text(
-                        json.dumps(self.cleanup_receipt)
+                        json.dumps(self.cleanup_receipt), encoding="utf-8", newline="\n"
                     )
                     if "patch_b64" in final:
                         (self.artifact_dir / "remote_final.patch").write_bytes(

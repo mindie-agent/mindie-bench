@@ -13,10 +13,14 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import tomllib
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from mindie_bench.runner.host_platform import resolve_git_bash, subprocess_window_kwargs
 
 TASKS = (
     'dspark-mrv2-drafter-crash-zh-vague', 'l3-dspark-mrv2-drafter-crash-zh-vague',
@@ -212,20 +216,20 @@ def write_variant(workspace, out, label, before, after):
                      fromfile=f'a/{relative}' if relative in before else '/dev/null', tofile=f'b/{relative}'))
         target = workspace / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(source)
-    (out / f'{label}.diff').write_text(''.join(patch))
+        target.write_text(source, encoding='utf-8')
+    (out / f'{label}.diff').write_text(''.join(patch), encoding='utf-8')
 
 
 def run_case(task, workspace, python, out, label):
-    env = dict(os.environ, MINDIE_BENCH_WORKSPACE=str(workspace), MINDIE_BENCH_PYTHON=python)
-    command = ['bash', str(task / 'verifier/test.sh')]
+    env = dict(os.environ, MINDIE_BENCH_WORKSPACE=str(workspace), MINDIE_BENCH_PYTHON=python, PYTHONUTF8='1')
+    command = [resolve_git_bash(env), str(task / 'verifier/test.sh')]
     start = time.monotonic()
-    proc = subprocess.run(command, env=env, cwd=workspace, capture_output=True, timeout=60)
+    proc = subprocess.run(command, env=env, cwd=workspace, capture_output=True, timeout=60, **subprocess_window_kwargs())
     elapsed = time.monotonic() - start
     (out / f'{label}.stdout').write_bytes(proc.stdout)
     (out / f'{label}.stderr').write_bytes(proc.stderr)
     verdicts = []
-    for line in proc.stdout.decode(errors='replace').splitlines():
+    for line in proc.stdout.decode('utf-8', errors='replace').splitlines():
         try:
             value = json.loads(line)
         except json.JSONDecodeError:
@@ -235,7 +239,7 @@ def run_case(task, workspace, python, out, label):
     verdict = verdicts[-1] if verdicts else {}
     return dict(command=command, exit_code=proc.returncode, elapsed_sec=elapsed,
                 reward=verdict.get('reward'), verdict=verdict,
-                source_sha256={str(p.relative_to(workspace)): digest(p.read_bytes())
+                source_sha256={p.relative_to(workspace).as_posix(): digest(p.read_bytes())
                                for p in sorted(workspace.rglob('*.py'))},
                 stdout=str(out / f'{label}.stdout'), stderr=str(out / f'{label}.stderr'))
 
@@ -252,7 +256,7 @@ def main():
     results = {}
     for name in args.task or TASKS:
         task = root / 'tasks/zh-vague' / name
-        config = tomllib.loads((task / 'task.toml').read_text())
+        config = tomllib.loads((task / 'task.toml').read_text(encoding='utf-8'))
         tier, environment = next(iter(config['environment'].items()))
         commit, repository = environment['base_commit'], environment['repo_path']
         out = output / name
@@ -264,7 +268,7 @@ def main():
         for relative in source_files:
             base[relative] = subprocess.run(
                 ['git', '-C', repository, 'show', f'{commit}:{relative}'],
-                capture_output=True, check=True, timeout=20,
+                capture_output=True, check=True, timeout=20, **subprocess_window_kwargs(),
             ).stdout
         with tempfile.TemporaryDirectory(prefix='mindie-behavior-soundness-') as folder:
             workspace = Path(folder)
@@ -275,27 +279,27 @@ def main():
             stages = {'base': run_case(task, workspace, args.python, out, 'base')}
             negative_patch = []
             for relative, data in base.items():
-                negative = no_op_source(data.decode())
-                negative_patch.extend(difflib.unified_diff(data.decode().splitlines(keepends=True),
+                negative = no_op_source(data.decode('utf-8'))
+                negative_patch.extend(difflib.unified_diff(data.decode('utf-8').splitlines(keepends=True),
                                       negative.splitlines(keepends=True), fromfile=f"a/{relative}", tofile=f"b/{relative}"))
-                (workspace / relative).write_text(negative)
-            (out / "negative_control.diff").write_text("".join(negative_patch))
+                (workspace / relative).write_text(negative, encoding='utf-8')
+            (out / "negative_control.diff").write_text("".join(negative_patch), encoding='utf-8')
             stages['negative_control'] = run_case(task, workspace, args.python, out, 'negative_control')
             for relative, data in base.items():
                 (workspace / relative).write_bytes(data)
-            subprocess.run(['git', 'apply', '--no-index', str(task / 'oracle/gold_patch.diff')],
-                           cwd=workspace, check=True, capture_output=True, timeout=20)
+            subprocess.run(['git', '-c', 'core.autocrlf=false', 'apply', '--no-index', str(task / 'oracle/gold_patch.diff')],
+                           cwd=workspace, check=True, capture_output=True, timeout=20, **subprocess_window_kwargs())
             stages['gold'] = run_case(task, workspace, args.python, out, 'gold')
-            gold_sources = {relative: (workspace / relative).read_text() for relative in base}
+            gold_sources = {relative: (workspace / relative).read_text(encoding='utf-8') for relative in base}
             helper_patch = []
             for relative in base:
                 path = workspace / relative
-                gold = path.read_text()
+                gold = path.read_text(encoding='utf-8')
                 helper = extracted_helpers(gold, relative)
                 helper_patch.extend(difflib.unified_diff(gold.splitlines(keepends=True), helper.splitlines(keepends=True),
                                     fromfile=f"a/{relative}", tofile=f"b/{relative}"))
-                path.write_text(helper)
-            (out / "gold_helpers.diff").write_text("".join(helper_patch))
+                path.write_text(helper, encoding='utf-8')
+            (out / "gold_helpers.diff").write_text("".join(helper_patch), encoding='utf-8')
             stages['gold_helpers'] = run_case(task, workspace, args.python, out, 'gold_helpers')
             if name.startswith('k3-') or 'mrv2-dsa-prefill-metadata' in name:
                 for label, partial in (('gold_equivalent', False), ('negative_partial_state', True)):
@@ -317,7 +321,7 @@ def main():
                             negative_unconditional_consumer=0.0)
         passed = all(stages[key]['reward'] == reward and stages[key]['exit_code'] == (0 if reward else 1)
                      for key, reward in expected.items())
-        hashes = {str(p.relative_to(task)): digest(p.read_bytes()) for p in sorted((task / 'verifier').rglob('*'))
+        hashes = {p.relative_to(task).as_posix(): digest(p.read_bytes()) for p in sorted((task / 'verifier').rglob('*'))
                   if p.is_file() and '__pycache__' not in p.parts}
         receipt = dict(schema_version='2.0', status='completed' if passed else 'failed',
                        task=name, tier=tier, validation_scope='cpu_behavior', model_calls=0,
@@ -329,17 +333,15 @@ def main():
                        control_generator_sha256=digest(Path(__file__).read_bytes()),
                        native_kernel_bound=None, measured_npu_speedup=None, speedup_ratio=None,
                        cases=stages, errors=[] if passed else ['soundness expectations did not all hold'])
-        (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+        (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
         if passed and not args.no_write_receipts:
             # Match the repository's task_hash implementation; the receipt itself is excluded.
-            import sys
-            sys.path.insert(0, str(root / 'src'))
             from mindie_bench.io import task_hash
             receipt['task_sha256'] = task_hash(task)
-            (task / 'soundness_receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+            (task / 'soundness_receipt.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
         results[name] = receipt
         print(name, {key: value['reward'] for key, value in stages.items()}, flush=True)
-    (output / 'summary.json').write_text(json.dumps(results, indent=2) + '\n')
+    (output / 'summary.json').write_text(json.dumps(results, indent=2) + '\n', encoding='utf-8')
     raise SystemExit(not all(value['status'] == 'completed' for value in results.values()))
 
 

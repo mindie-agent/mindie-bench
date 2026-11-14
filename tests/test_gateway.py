@@ -8,6 +8,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+from conftest import noop_true
 
 from mindie_bench.models import HarnessConfig, RemotePreStartError
 from mindie_bench.runner.gateway import Gateway
@@ -64,7 +65,7 @@ def test_claude_native_beta_query_is_forwarded_without_opening_arbitrary_queries
     monkeypatch.setenv("BENCH_TEST_KEY", "fixture-only")
     harness = HarnessConfig(
         name="claude-code",
-        executable="/usr/bin/true",
+        executable=str(noop_true()),
         model="pinned",
         expected_version="fixture",
         api_key_env="BENCH_TEST_KEY",
@@ -111,7 +112,12 @@ def test_replay_rule_paths_never_leave_parent_and_have_hard_budget(case):
 
 def test_replay_symlink_escape_rejected(case):
     (case["repo"] / "module.py").unlink()
-    (case["repo"] / "module.py").symlink_to(case["task"] / "oracle/replay_rules.json")
+    try:
+        (case["repo"] / "module.py").symlink_to(case["task"] / "oracle/replay_rules.json")
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows host lacks symlink creation privilege")
+        raise
     with Gateway(
         case["config"].harness, case["spec"], case["task"], case["repo"], case["root"] / "journal"
     ) as gateway:
@@ -124,7 +130,7 @@ def test_unknown_paid_request_not_retried_and_key_stays_parent(case, monkeypatch
     monkeypatch.setenv("BENCH_TEST_KEY", "synthetic-parent-only-key")
     harness = HarnessConfig(
         name="codex",
-        executable="/usr/bin/true",
+        executable=str(noop_true()),
         model="test",
         expected_version="test",
         api_key_env="BENCH_TEST_KEY",
@@ -170,7 +176,7 @@ def test_agent_cannot_change_the_controlled_model(case, monkeypatch):
     monkeypatch.setenv("BENCH_TEST_KEY", "synthetic-key")
     harness = HarnessConfig(
         name="codex",
-        executable="/usr/bin/true",
+        executable=str(noop_true()),
         model="pinned-model",
         expected_version="test",
         api_key_env="BENCH_TEST_KEY",
@@ -199,7 +205,7 @@ def test_cleartext_relay_is_restricted_to_numeric_loopback(case, monkeypatch, ur
     monkeypatch.setenv("BENCH_TEST_KEY", "local-relay-placeholder")
     harness = HarnessConfig(
         name="codex",
-        executable="/usr/bin/true",
+        executable=str(noop_true()),
         model="test",
         expected_version="test",
         api_key_env="BENCH_TEST_KEY",

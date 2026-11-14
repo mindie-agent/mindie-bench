@@ -678,7 +678,7 @@ def main():
     except BaseException:
         receipt = Path.cwd() / "full-loop-receipt.json"
         if receipt.is_file():
-            print(json.dumps(json.loads(receipt.read_text()), ensure_ascii=False))
+            print(json.dumps(json.loads(receipt.read_text(encoding="utf-8")), ensure_ascii=False))
         raise
     print(json.dumps(result, ensure_ascii=False))
 
