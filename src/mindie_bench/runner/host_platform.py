@@ -392,8 +392,9 @@ class PipeReader:
         while True:
             try:
                 chunk = os.read(self._fd, self._chunk_size)
-            except TimeoutError:
-                raise
+            except TimeoutError as exc:
+                self._queue.put((b"", exc))
+                return
             except (OSError, ValueError) as exc:
                 self._queue.put((b"", exc))
                 return

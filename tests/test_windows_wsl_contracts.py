@@ -540,3 +540,120 @@ def test_reevaluate_run_verifier_withholds_completed_verdict_when_cleanup_fails(
     monkeypatch.setattr(reeval_mod, "terminate_process_group", fail_cleanup)
     with pytest.raises(TimeoutError, match="owned process group survived"):
         reeval_mod.run_verifier(task, workspace, output, Path(sys.executable), 10.0)
+
+
+def test_pipe_reader_propagates_timeout_error_from_worker_instead_of_dying_silently(monkeypatch):
+    import mindie_bench.runner.host_platform as hp
+
+    def timeout_read(_fd: int, _size: int) -> bytes:
+        raise TimeoutError("injected worker read timeout")
+
+    monkeypatch.setattr(hp.os, "read", timeout_read)
+    r_fd, w_fd = os.pipe()
+    try:
+        reader = PipeReader(r_fd)
+        with pytest.raises(TimeoutError, match="injected worker read timeout"):
+            reader.read_chunk(1.0)
+    finally:
+        for fd in (r_fd, w_fd):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+def test_windows_profile_builder_includes_git_usr_bin_when_git_in_mingw64_bin(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import mindie_bench.runner.profile_builder as pb
+    from mindie_bench.models import ExperimentConfig, Group, TaskSpec
+
+    fake_git_root = tmp_path / "Git"
+    mingw_bin = fake_git_root / "mingw64" / "bin"
+    usr_bin = fake_git_root / "usr" / "bin"
+    git_bin_dir = fake_git_root / "bin"
+    mingw_bin.mkdir(parents=True)
+    usr_bin.mkdir(parents=True)
+    git_bin_dir.mkdir(parents=True)
+    fake_git = mingw_bin / "git.exe"
+    fake_bash = git_bin_dir / "bash.exe"
+    fake_git.write_bytes(b"MZ")
+    fake_bash.write_bytes(b"MZ")
+
+    monkeypatch.setattr(pb, "os", SimpleNamespace(name="nt", environ={}, pathsep=";", devnull=os.devnull))
+    monkeypatch.setattr(pb, "which_native", lambda name, **_kw: str(fake_git) if name == "git" else None)
+    monkeypatch.setattr(pb, "resolve_git_bash", lambda *_a, **_kw: str(fake_bash))
+    monkeypatch.setattr(pb.subprocess, "run", lambda *_a, **_kw: SimpleNamespace(returncode=0, stdout="", stderr=""))
+
+    task_dir = tmp_path / "task"
+    (task_dir / "oracle").mkdir(parents=True)
+    (task_dir / "verifier").mkdir()
+    (task_dir / "instruction.md").write_text("fix\n", encoding="utf-8", newline="\n")
+    (task_dir / "verifier/test.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
+    (task_dir / "task.toml").write_text(
+        'schema_version = "1.0"\n[task]\ninstance_id = "t1"\ndomain_category = "numerical_accuracy"\n'
+        'difficulty = "easy"\nevidence = "synthetic"\n[mindie_knowledge]\nknowledge_gradient = "no_hit"\n'
+        'target_files = ["a.py"]\n[budget]\ntimeout_sec = 10\n[environment.l2]\nrepo_path = "."\n'
+        f'base_commit = "{"0" * 40}"\nreplay_commands = ["true"]\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    cfg_path = tmp_path / "exp.toml"
+    cfg_path.write_text(
+        'schema_version = "1.0"\nbackend = "fixture"\n[harness]\nname = "fixture"\n'
+        f"executable = {json.dumps(sys.executable)}\nmodel = \"m\"\nexpected_version = \"v\"\n"
+        "input_usd_per_million = 0\ncached_usd_per_million = 0\noutput_usd_per_million = 0\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    trial_dir = tmp_path / "trial"
+    trial_dir.mkdir()
+    prof = pb.build_profile(
+        trial_dir,
+        TaskSpec.load(task_dir, require_soundness_receipt=False),
+        Group.G0,
+        ExperimentConfig.load(cfg_path),
+    )
+    entries = prof.env["PATH"].split(";")
+    assert str(usr_bin.resolve()) in entries
+    assert str(mingw_bin.resolve()) in entries
+    assert entries.index(str(usr_bin.resolve())) < entries.index(str(Path(r"C:\Windows") / "System32"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable-bit tracking")
+def test_worktree_snapshot_patch_preserves_posix_executable_bit_changes(tmp_path):
+    from mindie_bench.models import SourceEnvironment
+    from mindie_bench.runner.host_platform import is_wsl_interop_path
+    from mindie_bench.runner.worktree_slot import WorktreeSlot
+
+    if is_wsl_interop_path(tmp_path):
+        pytest.skip("DrvFS mount intentionally disables core.fileMode")
+    git_exe = which_native("git") or "git"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run([git_exe, "init", "-q", str(repo)], check=True, timeout=15)
+    script = repo / "run.sh"
+    script.write_text("#!/bin/sh\necho ok\n", encoding="utf-8", newline="\n")
+    script.chmod(0o644)
+    subprocess.run([git_exe, "-C", str(repo), "add", "run.sh"], check=True, timeout=15)
+    subprocess.run(
+        [git_exe, "-C", str(repo), "-c", "user.name=T", "-c", "user.email=t@local", "commit", "-qm", "init"],
+        check=True,
+        timeout=15,
+    )
+    base = subprocess.check_output([git_exe, "-C", str(repo), "rev-parse", "HEAD"], text=True, timeout=15).strip()
+    task_root = tmp_path / "task"
+    task_root.mkdir()
+    env = SourceEnvironment(repo_path=str(repo), base_commit=base)
+    slot = WorktreeSlot(env, tmp_path / "wt", task_root)
+    slot.prepare()
+    try:
+        (slot.destination / "run.sh").chmod(0o755)
+        out = tmp_path / "out"
+        out.mkdir()
+        modified = slot.snapshot_patch(out)
+        assert "run.sh" in modified
+        assert b"new mode 100755" in (out / "final_patch.diff").read_bytes()
+    finally:
+        slot.cleanup()
+

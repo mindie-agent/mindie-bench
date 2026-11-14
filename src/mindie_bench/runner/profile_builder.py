@@ -42,7 +42,7 @@ from mindie_bench.runner.dsh_catalog import (
 from mindie_bench.runner.dsh_catalog import (
     probe_dsh_catalog as probe_dsh_catalog,
 )
-from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
+from mindie_bench.runner.host_platform import resolve_git_bash, subprocess_window_kwargs, which_native
 
 # The pi-ai provider rejects a custom route model that does not advertise the
 # requested effort. Declare the complete supported ladder, including `off`.
@@ -182,15 +182,23 @@ def build_profile(
     env = {name: str(path) for name, path in directories.items()}
     base_path = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
     if os.name == "nt":
-        win_dirs = []
+        win_dirs: list[str] = []
+        git_seeds: list[Path] = []
         git_bin = which_native("git")
         if git_bin:
-            git_dir = Path(git_bin).resolve().parent
-            win_dirs.append(str(git_dir))
-            for sub in (("usr", "bin"), ("bin",)):
-                candidate = git_dir.parent.joinpath(*sub)
-                if candidate.is_dir():
-                    win_dirs.append(str(candidate))
+            git_seeds.append(Path(git_bin).resolve())
+        try:
+            git_seeds.append(Path(resolve_git_bash()).resolve())
+        except FileNotFoundError:
+            pass
+        for seed in git_seeds:
+            if str(seed.parent) not in win_dirs:
+                win_dirs.append(str(seed.parent))
+            for parent in seed.parents[:3]:
+                for sub in (("usr", "bin"), ("mingw64", "bin"), ("bin",), ("cmd",)):
+                    candidate = parent.joinpath(*sub)
+                    if candidate.is_dir() and str(candidate) not in win_dirs:
+                        win_dirs.append(str(candidate))
         sys_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or r"C:\Windows"
         win_dirs.extend([str(Path(sys_root) / "System32"), sys_root])
         base_path = os.pathsep.join(win_dirs)

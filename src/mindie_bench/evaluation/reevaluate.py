@@ -307,8 +307,15 @@ def reevaluate(inventory: Path, tasks: Path, output: Path, python: Path,
             finally:
                 try:
                     rmtree_force(workspace)
-                except OSError:
-                    pass
+                except TimeoutError as exc:
+                    row["reevaluation"]["cleanup_failed"] = True
+                    row["reevaluation"]["cleanup_error"] = f"{type(exc).__name__}: {exc}"
+                    row["reevaluation"]["workspace_remaining"] = workspace.exists()
+                    raise
+                except OSError as exc:
+                    row["reevaluation"]["cleanup_failed"] = True
+                    row["reevaluation"]["cleanup_error"] = f"{type(exc).__name__}: {exc}"
+                    row["reevaluation"]["workspace_remaining"] = workspace.exists()
             print(item["trial_id"], row["reevaluation"]["reward"],
                   row["reevaluation"]["failure_category"], flush=True)
         row["original_receipt_unchanged"] = receipt_hash == sha256(source)

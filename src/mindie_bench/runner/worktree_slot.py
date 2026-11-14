@@ -189,12 +189,16 @@ class WorktreeSlot:
     def snapshot_patch(self, output: Path) -> list[str]:
         self.reattach_metadata()
         try:
+            filemode_cfg = (
+                ["-c", "core.fileMode=false"]
+                if os.name == "nt" or is_wsl_interop_path(self.repo) or is_wsl_interop_path(self.destination)
+                else []
+            )
             command = [
                 self.git_exe,
                 "-c",
                 "core.fsmonitor=false",
-                "-c",
-                "core.fileMode=false",
+                *filemode_cfg,
                 "-c",
                 "core.quotepath=false",
                 "-c",
