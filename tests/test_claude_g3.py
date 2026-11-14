@@ -3,6 +3,7 @@
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -99,8 +100,10 @@ def test_only_g3_enables_the_owned_native_stop_and_session_artifact(tmp_path, gr
         assert settings["disableAllHooks"] is False
         assert list(settings["hooks"]) == ["Stop"]
         hook = settings["hooks"]["Stop"][0]["hooks"][0]
-        assert "mindie_bench.integrations.claude_stop" in hook["command"]
-        assert str(root / "native-stop.json") in hook["command"]
+        tokens = shlex.split(hook["command"], posix=True)
+        assert tokens[0] == sys.executable.replace("\\", "/")
+        assert "mindie_bench.integrations.claude_stop" in tokens
+        assert tokens[-1] == (root / "native-stop.json").as_posix()
     else:
         assert "--no-session-persistence" in command
         assert settings["disableAllHooks"] is True and "hooks" not in settings

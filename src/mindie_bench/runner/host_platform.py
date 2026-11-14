@@ -426,7 +426,7 @@ class PipeReader:
         chunk, err = item
         if err is not None:
             self._eof = True
-            return False, b""
+            raise err
         if not chunk:
             self._eof = True
         return False, chunk
@@ -472,6 +472,7 @@ class PipeWriter:
     def __init__(self, stream) -> None:
         self.stream = stream
         self._closed = False
+        self._failed: BaseException | None = None
         self._jobs: queue.Queue[_PipeWriteJob | None] | None = None
         self._finalizer: weakref.finalize | None = None
         if os.name == "nt":
@@ -493,34 +494,40 @@ class PipeWriter:
     def write_frame(self, frame: bytes, deadline: float, *, timeout_message: str) -> None:
         if self._closed:
             raise ValueError("PipeWriter is closed")
-        if os.name != "nt":
-            fd = self.stream.fileno()
-            os.set_blocking(fd, False)
-            remaining = memoryview(frame)
-            while remaining:
-                wait = deadline - time.monotonic()
-                if wait <= 0 or not select.select([], [fd], [], wait)[1]:
-                    raise TimeoutError(timeout_message)
-                try:
-                    written = os.write(fd, remaining[:65536])
-                except BlockingIOError:
-                    continue
-                if not written:
-                    raise BrokenPipeError("pipe accepted no bytes")
-                remaining = remaining[written:]
-            return
-        assert self._jobs is not None
-        wait = deadline - time.monotonic()
-        if wait <= 0:
-            raise TimeoutError(timeout_message)
-        done = threading.Event()
-        errors: list[BaseException] = []
+        if self._failed is not None:
+            raise RuntimeError("PipeWriter stream is tainted by an earlier failed write") from self._failed
         try:
-            self._jobs.put((frame, done, errors), timeout=wait)
-        except queue.Full as exc:
-            raise TimeoutError(timeout_message) from exc
-        remaining = deadline - time.monotonic()
-        if remaining <= 0 or not done.wait(remaining):
-            raise TimeoutError(timeout_message)
-        if errors:
-            raise errors[0]
+            if os.name != "nt":
+                fd = self.stream.fileno()
+                os.set_blocking(fd, False)
+                remaining = memoryview(frame)
+                while remaining:
+                    wait = deadline - time.monotonic()
+                    if wait <= 0 or not select.select([], [fd], [], wait)[1]:
+                        raise TimeoutError(timeout_message)
+                    try:
+                        written = os.write(fd, remaining[:65536])
+                    except BlockingIOError:
+                        continue
+                    if not written:
+                        raise BrokenPipeError("pipe accepted no bytes")
+                    remaining = remaining[written:]
+                return
+            assert self._jobs is not None
+            wait = deadline - time.monotonic()
+            if wait <= 0:
+                raise TimeoutError(timeout_message)
+            done = threading.Event()
+            errors: list[BaseException] = []
+            try:
+                self._jobs.put((frame, done, errors), timeout=wait)
+            except queue.Full as exc:
+                raise TimeoutError(timeout_message) from exc
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not done.wait(remaining):
+                raise TimeoutError(timeout_message)
+            if errors:
+                raise errors[0]
+        except BaseException as exc:
+            self._failed = exc
+            raise

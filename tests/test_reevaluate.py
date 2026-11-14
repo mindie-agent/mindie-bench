@@ -24,6 +24,8 @@ def test_remote_replay_restores_patch_and_helpers_and_does_not_rewrite_unknown(t
         timeout=15,
         **win_kw,
     )
+    # Simulate Windows Git global `core.autocrlf=true` so `git archive` + `git apply` are proven LF-consistent.
+    subprocess.run([git_exe, "-C", str(repo), "config", "core.autocrlf", "true"], check=True, timeout=15, **win_kw)
     base = subprocess.check_output([git_exe, "-C", str(repo), "rev-parse", "HEAD"], timeout=15, **win_kw).decode("utf-8").strip()
     (repo / "candidate.py").write_text("from helper import double\ndef calculate(x):\n    return double(x)\n", encoding="utf-8", newline="\n")
     patch = subprocess.check_output([git_exe, "-C", str(repo), "-c", "core.autocrlf=false", "diff"], timeout=15, **win_kw)

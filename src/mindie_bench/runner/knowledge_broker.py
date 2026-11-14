@@ -79,6 +79,7 @@ class KnowledgeSession:
         self._close_owner = lambda: None
         self._stdout_eof = False
         self._stderr_eof = False
+        self._stdin_tainted: BaseException | None = None
         self.raw = (self.root / "protocol.jsonl").open("xb")
         self.errors = (self.root / "stderr").open("xb")
         env = {**profile.env, **profile.private_env, **spec["env"]}
@@ -349,16 +350,26 @@ class KnowledgeSession:
         with self.lock:
             if self.closed:
                 raise ValueError("knowledge session is closed")
+            tainted = getattr(self, "_stdin_tainted", None)
+            if tainted is not None:
+                raise RuntimeError(
+                    "knowledge MCP stdin stream is tainted by an earlier failed write"
+                ) from tainted
             self._submit(data, eof)
             output = bytearray(self.local_output)
             self.local_output = b""
             if self.pending:
-                self._stdin_writer.write_frame(
-                    self.pending,
-                    time.monotonic() + 5.0,
-                    timeout_message="knowledge MCP stdin write timed out",
-                )
+                frame = self.pending
                 self.pending = b""
+                try:
+                    self._stdin_writer.write_frame(
+                        frame,
+                        time.monotonic() + 5.0,
+                        timeout_message="knowledge MCP stdin write timed out",
+                    )
+                except BaseException as exc:
+                    self._stdin_tainted = exc
+                    raise
             if self.eof and not self.pending and not self.process.stdin.closed:
                 self.process.stdin.close()
             deadline = time.monotonic() + 0.05
@@ -418,6 +429,11 @@ class KnowledgeSession:
                     )
 
             try:
+                tainted = getattr(self, "_stdin_tainted", None)
+                if tainted is not None:
+                    raise RuntimeError(
+                        "knowledge MCP session closed after failed stdin submission"
+                    ) from tainted
                 if not self.eof:
                     drain(eof=True)
                 deadline = time.monotonic() + 5

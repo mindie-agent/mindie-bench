@@ -87,7 +87,17 @@ def restore_candidate(row: dict, receipt: dict, task: Path, workspace: Path) -> 
             archive_path = Path(temp_dir) / "archive.tar"
             try:
                 subprocess.run(
-                    [git_exe, "-C", environment["repo_path"], "archive", "-o", str(archive_path), base],
+                    [
+                        git_exe,
+                        "-C",
+                        environment["repo_path"],
+                        "-c",
+                        "core.autocrlf=false",
+                        "archive",
+                        "-o",
+                        str(archive_path),
+                        base,
+                    ],
                     stderr=subprocess.PIPE,
                     check=True,
                     timeout=30,
@@ -157,16 +167,14 @@ def run_verifier(task: Path, workspace: Path, output: Path, python: Path, timeou
             stderr=stderr,
         )
         try:
-            process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            terminate_process_group(process)
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                terminate_process_group(process)
+            else:
+                terminate_process_group(process, term_wait=0.2, kill_wait=5.0)
         finally:
-            if not timed_out:
-                try:
-                    terminate_process_group(process, term_wait=0.2, kill_wait=5.0)
-                except (TimeoutError, OSError, subprocess.SubprocessError):
-                    pass
             close_owner()
     result = {"status": "not_evaluated", "reward": None, "failure_category": None,
               "failure_reason": None, "returncode": process.returncode,

@@ -403,3 +403,140 @@ def test_claude_driver_stop_hook_command_preserves_windows_paths_in_posix_shlex(
     assert tokens[0] == "C:/Python313/python.exe"
     assert tokens[-1] == str(root / "native-stop.json").replace("\\", "/")
     assert "\\" not in hook_cmd
+
+
+def test_pipe_reader_propagates_read_oserror_instead_of_truncating_as_eof(monkeypatch):
+    import mindie_bench.runner.host_platform as hp
+    import mindie_bench.runner.ssh_shim as ssh_shim
+
+    calls = {"n": 0}
+
+    def flaky_read(_fd: int, _size: int) -> bytes:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return b"echo prefix\n"
+        raise OSError("injected pipe read failure")
+
+    monkeypatch.setattr(hp.os, "read", flaky_read)
+    r_fd, w_fd = os.pipe()
+    try:
+        with os.fdopen(r_fd, "rb", closefd=False) as stream:
+            from types import SimpleNamespace
+
+            monkeypatch.setattr(ssh_shim, "sys", SimpleNamespace(stdin=stream))
+            with pytest.raises(OSError, match="injected pipe read failure"):
+                ssh_shim._read_oneshot_stdin(wait_for_start=True)
+    finally:
+        for fd in (r_fd, w_fd):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+def test_knowledge_session_write_timeout_taints_stream_and_never_resubmits_on_close(monkeypatch):
+    import io
+    import threading
+    from types import SimpleNamespace
+
+    import mindie_bench.runner.host_platform as hp
+    import mindie_bench.runner.knowledge_broker as kb
+
+    session = kb.KnowledgeSession.__new__(kb.KnowledgeSession)
+    session.identity = session.name = "pipe-timeout-repro"
+    session.record = lambda *_a, **_k: None
+    session.lock = threading.RLock()
+    session.pending = session.input_buffer = session.output_buffer = session.local_output = b""
+    session.requests = {}
+    session.eof = session.closed = session._stdout_eof = session._stderr_eof = False
+    session._stdin_tainted = None
+    session.output_bytes = 0
+    session.raw = io.BytesIO()
+    session.errors = io.BytesIO()
+    session._close_owner = lambda: None
+
+    r_fd, w_fd = os.pipe()
+    stream = os.fdopen(w_fd, "wb", buffering=0)
+    session.process = SimpleNamespace(
+        stdin=stream,
+        stdout=io.BytesIO(),
+        stderr=io.BytesIO(),
+        returncode=0,
+        poll=lambda: 0,
+    )
+    replies = iter([json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}}).encode() + b"\n", b""])
+    session._stdout_reader = SimpleNamespace(
+        read_chunk=lambda _t: (False, next(replies, b"")),
+        wait_readable=lambda _t: True,
+    )
+    session._stderr_reader = SimpleNamespace(
+        read_chunk=lambda _t: (False, b""),
+        wait_readable=lambda _t: True,
+    )
+    received = bytearray()
+
+    def read_peer() -> None:
+        try:
+            while chunk := os.read(r_fd, 65536):
+                received.extend(chunk)
+        finally:
+            os.close(r_fd)
+
+    peer = threading.Thread(target=read_peer, daemon=True)
+    monkeypatch.setattr(hp, "os", SimpleNamespace(name="nt", write=os.write))
+    writer = hp.PipeWriter(stream)
+    calls: list[bytes] = []
+
+    def send(frame: bytes, *_a, **_k) -> None:
+        calls.append(frame)
+        writer.write_frame(
+            frame,
+            time.monotonic() + (0.05 if len(calls) == 1 else 2.0),
+            timeout_message="blocked write",
+        )
+
+    session._stdin_writer = SimpleNamespace(write_frame=send, close=writer.close)
+    frame = (
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "knowledge_query", "arguments": {"query": "x" * 200000}},
+            }
+        ).encode()
+        + b"\n"
+    )
+    with pytest.raises(TimeoutError, match="blocked write"):
+        session.exchange(frame)
+    peer.start()
+    monkeypatch.setattr(kb, "terminate_process_group", lambda *_a, **_k: 0)
+    with pytest.raises(RuntimeError, match="failed stdin submission"):
+        session.close()
+    peer.join(2.0)
+    writer._thread.join(2.0)
+    assert len(calls) == 1
+    assert len(received) <= len(frame)
+    assert bytes(received) == frame[: len(received)]
+    assert not writer._thread.is_alive()
+
+
+def test_reevaluate_run_verifier_withholds_completed_verdict_when_cleanup_fails(tmp_path, monkeypatch):
+    import mindie_bench.evaluation.reevaluate as reeval_mod
+
+    task = tmp_path / "task"
+    (task / "verifier").mkdir(parents=True)
+    (task / "verifier/test.sh").write_text(
+        '#!/bin/sh\necho \'{"reward": 1.0}\'\nexit 0\n', encoding="utf-8", newline="\n"
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    output = tmp_path / "output"
+    output.mkdir()
+
+    def fail_cleanup(*_args, **_kwargs):
+        raise TimeoutError("owned process group survived")
+
+    monkeypatch.setattr(reeval_mod, "terminate_process_group", fail_cleanup)
+    with pytest.raises(TimeoutError, match="owned process group survived"):
+        reeval_mod.run_verifier(task, workspace, output, Path(sys.executable), 10.0)
