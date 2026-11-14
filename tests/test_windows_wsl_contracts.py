@@ -148,12 +148,15 @@ def test_pipe_reader_and_writer_enforce_deadlines():
         assert timed_out is True and chunk == b""
 
         writer = PipeWriter(sleeper.stdin)
-        with pytest.raises(TimeoutError, match="pipe deadline"):
-            writer.write_frame(
-                b"x" * (2 * 1024 * 1024),
-                time.monotonic() + 0.15,
-                timeout_message="pipe deadline",
-            )
+        try:
+            with pytest.raises(TimeoutError, match="pipe deadline"):
+                writer.write_frame(
+                    b"x" * (2 * 1024 * 1024),
+                    time.monotonic() + 0.15,
+                    timeout_message="pipe deadline",
+                )
+        finally:
+            writer.close()
     finally:
         sleeper.kill()
         sleeper.wait(timeout=5)
@@ -282,3 +285,121 @@ def test_headless_windows_powershell_51_utf8_under_create_no_window():
     )
     parsed = json.loads(res.stdout.decode("utf-8"))
     assert parsed == {"ok": True, "echo": "昇腾MindIE中文测试"}
+
+
+def test_pipe_writer_close_and_gc_do_not_leak_worker_threads():
+    import gc
+    import threading
+
+    baseline = sum(1 for t in threading.enumerate() if t.name == "mindie-pipe-writer")
+    fds: list[tuple[int, int]] = []
+    try:
+        for idx in range(5):
+            r_fd, w_fd = os.pipe()
+            fds.append((r_fd, w_fd))
+            with os.fdopen(w_fd, "wb", closefd=False) as stream:
+                writer = PipeWriter(stream)
+                writer.write_frame(b"ping\n", time.monotonic() + 2.0, timeout_message="ping timeout")
+                if idx % 2 == 0:
+                    writer.close()
+                del writer
+        gc.collect()
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            alive = sum(1 for t in threading.enumerate() if t.name == "mindie-pipe-writer")
+            if alive <= baseline:
+                break
+            time.sleep(0.02)
+        assert sum(1 for t in threading.enumerate() if t.name == "mindie-pipe-writer") <= baseline
+    finally:
+        for r_fd, w_fd in fds:
+            for fd in (r_fd, w_fd):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+
+@pytest.mark.tier1
+def test_ssh_shim_preserves_delayed_chunked_stdin_until_eof(tmp_path):
+    import base64
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    captured: list[dict] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers["Content-Length"])
+            body = json.loads(self.rfile.read(length))
+            captured.append(body)
+            reply = json.dumps({"stdout_b64": "", "stderr_b64": "", "exit_code": 7}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(reply)))
+            self.end_headers()
+            self.wfile.write(reply)
+
+        def log_message(self, *_args):
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    try:
+        env = dict(os.environ, MINDIE_BENCH_GATEWAY=f"http://127.0.0.1:{server.server_port}")
+        env.pop("MINDIE_BENCH_SSH_STREAM", None)
+        env.pop("REMOTE_DEV_HARNESS_PROFILE", None)
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "mindie_bench.runner.ssh_shim", "bench-slot", "bash -s"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            **subprocess_window_kwargs(),
+        )
+        assert proc.stdin is not None
+        proc.stdin.write(b"echo first\n")
+        proc.stdin.flush()
+        time.sleep(0.35)
+        proc.stdin.write(b"exit 7\n")
+        proc.stdin.close()
+        rc = proc.wait(timeout=10)
+        for s in (proc.stdout, proc.stderr):
+            if s:
+                s.close()
+        assert rc == 7
+        assert len(captured) == 1
+        assert base64.b64decode(captured[0]["stdin_b64"]) == b"echo first\nexit 7\n"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_claude_driver_stop_hook_command_preserves_windows_paths_in_posix_shlex(tmp_path, monkeypatch):
+    import shlex
+    from types import SimpleNamespace
+
+    import mindie_bench.runner.drivers.claude_code as claude_mod
+
+    root = tmp_path / "profile dir"
+    cfg_dir = tmp_path / "claude cfg"
+    root.mkdir()
+    cfg_dir.mkdir()
+    (root / "settings.json").write_text("{}\n", encoding="utf-8")
+    (root / "mcp.json").write_text('{"mcpServers":{}}\n', encoding="utf-8")
+    monkeypatch.setattr(claude_mod, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(claude_mod, "sys", SimpleNamespace(executable=r"C:\Python313\python.exe"))
+    profile = SimpleNamespace(
+        root=root,
+        env={"CLAUDE_CONFIG_DIR": str(cfg_dir)},
+        fingerprint={"server_components": {}, "group": "G3"},
+    )
+    config = SimpleNamespace(executable="claude", model="sonnet", reasoning_effort=None)
+    claude_mod.ClaudeCodeDriver().command(profile, config)
+    saved = json.loads((root / "settings.json").read_text(encoding="utf-8"))
+    hook_cmd = saved["hooks"]["Stop"][0]["hooks"][0]["command"]
+    tokens = shlex.split(hook_cmd, posix=True)
+    assert tokens[0] == "C:/Python313/python.exe"
+    assert tokens[-1] == str(root / "native-stop.json").replace("\\", "/")
+    assert "\\" not in hook_cmd

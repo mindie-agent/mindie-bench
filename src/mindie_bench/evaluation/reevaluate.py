@@ -26,6 +26,7 @@ from pathlib import Path
 
 from mindie_bench.runner.host_platform import (
     resolve_git_bash,
+    rmtree_force,
     subprocess_window_kwargs,
     which_native,
     write_command_alias,
@@ -80,26 +81,36 @@ def restore_candidate(row: dict, receipt: dict, task: Path, workspace: Path) -> 
         environment = spec["environment"][row["tier"]]
         base = receipt["environment_fingerprint"]["base_commit"]
         git_exe = which_native("git") or "git"
-        with tempfile.TemporaryDirectory(prefix="mindie-reevaluate-archive-") as temp_dir:
+        with tempfile.TemporaryDirectory(
+            prefix="mindie-reevaluate-archive-", ignore_cleanup_errors=True
+        ) as temp_dir:
             archive_path = Path(temp_dir) / "archive.tar"
-            subprocess.run(
-                [git_exe, "-C", environment["repo_path"], "archive", "-o", str(archive_path), base],
-                stderr=subprocess.PIPE,
-                check=True,
-                timeout=30,
-                **subprocess_window_kwargs(),
-            )
+            try:
+                subprocess.run(
+                    [git_exe, "-C", environment["repo_path"], "archive", "-o", str(archive_path), base],
+                    stderr=subprocess.PIPE,
+                    check=True,
+                    timeout=30,
+                    **subprocess_window_kwargs(),
+                )
+            except subprocess.CalledProcessError as exc:
+                detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
+                raise RuntimeError(f"git archive exited {exc.returncode}: {detail}") from exc
             with tarfile.open(archive_path) as source:
                 source.extractall(workspace, filter="data")
         if patch_bytes:
-            subprocess.run(
-                [git_exe, "-c", "core.autocrlf=false", "apply", "--no-index", "--binary", str(patch_path)],
-                cwd=workspace,
-                check=True,
-                capture_output=True,
-                timeout=30,
-                **subprocess_window_kwargs(),
-            )
+            try:
+                subprocess.run(
+                    [git_exe, "-c", "core.autocrlf=false", "apply", "--no-index", "--binary", str(patch_path)],
+                    cwd=workspace,
+                    check=True,
+                    capture_output=True,
+                    timeout=30,
+                    **subprocess_window_kwargs(),
+                )
+            except subprocess.CalledProcessError as exc:
+                detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
+                raise RuntimeError(f"git apply exited {exc.returncode}: {detail}") from exc
         for name, encoded in cleanup["untracked"].items():
             target = workspace / name
             if not target.resolve().is_relative_to(workspace.resolve()):
@@ -151,6 +162,11 @@ def run_verifier(task: Path, workspace: Path, output: Path, python: Path, timeou
             timed_out = True
             terminate_process_group(process)
         finally:
+            if not timed_out:
+                try:
+                    terminate_process_group(process, term_wait=0.2, kill_wait=5.0)
+                except (TimeoutError, OSError, subprocess.SubprocessError):
+                    pass
             close_owner()
     result = {"status": "not_evaluated", "reward": None, "failure_category": None,
               "failure_reason": None, "returncode": process.returncode,
@@ -269,18 +285,22 @@ def reevaluate(inventory: Path, tasks: Path, output: Path, python: Path,
         if selected:
             trial_output = output / item["trial_id"]
             trial_output.mkdir()
+            workspace = Path(tempfile.mkdtemp(prefix="mindie-reevaluate-"))
             try:
                 if receipt_hash != item["receipt_sha256"]:
                     raise ValueError("receipt hash differs from audited source")
-                with tempfile.TemporaryDirectory(prefix="mindie-reevaluate-") as directory:
-                    workspace = Path(directory)
-                    row["candidate_source"] = restore_candidate(item, receipt, task, workspace)
-                    row["reevaluation"] = run_verifier(
-                        task, workspace, trial_output, task_pythons.get(item["task_id"], python), timeout)
+                row["candidate_source"] = restore_candidate(item, receipt, task, workspace)
+                row["reevaluation"] = run_verifier(
+                    task, workspace, trial_output, task_pythons.get(item["task_id"], python), timeout)
             except Exception as exc:
                 row["reevaluation"] = {"status": "not_evaluated", "reward": None,
                                        "failure_category": "artifact_or_execution_error",
                                        "failure_reason": f"{type(exc).__name__}: {exc}"}
+            finally:
+                try:
+                    rmtree_force(workspace)
+                except OSError:
+                    pass
             print(item["trial_id"], row["reevaluation"]["reward"],
                   row["reevaluation"]["failure_category"], flush=True)
         row["original_receipt_unchanged"] = receipt_hash == sha256(source)

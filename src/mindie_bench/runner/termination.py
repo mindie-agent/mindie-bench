@@ -257,11 +257,16 @@ def _signal_group(process, signum, *, force: bool = False) -> None:
             return
         except PermissionError:
             pass
-    if sys.platform == "win32" and force:
+    if sys.platform == "win32":
         job = getattr(process, "_win_job_handle", None)
         if job:
-            _kernel32.TerminateJobObject(_wt.HANDLE(job), 1)
-        else:
+            if force:
+                _kernel32.TerminateJobObject(_wt.HANDLE(job), 1)
+        elif isinstance(process, _STDLIB_POPEN):
+            # Plain Win32 `Popen.terminate()` calls `TerminateProcess` on the leader only;
+            # without a Job Object we must kill the process tree before the leader PID exits.
+            _win_taskkill_tree(getattr(process, "pid", None))
+        elif force:
             _win_taskkill_tree(getattr(process, "pid", None))
     method = process.kill if force else process.terminate
     try:

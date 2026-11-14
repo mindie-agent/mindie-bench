@@ -66,11 +66,11 @@ def _aicore_and_aicpu(root: Path, name: str = "FlashMLA") -> tuple[str, str]:
 
 
 def _compile_shared(path: Path, source: str, *, unresolved: bool = False) -> Path:
-    from mindie_bench.runner.host_platform import which_native
-
     source_path = path.with_suffix(".c")
     source_path.write_text(source, encoding="utf-8")
-    if os.name == "nt" and (which_native("cc") is None or which_native("ldd") is None):
+    if os.name == "nt":
+        # G0's `ldd -r` contract inspects ELF undefined dynamic relocations;
+        # Windows PE/COFF `ld.exe` rejects unresolved imports at link time.
         marker = b"UNRESOLVED_EXTERN_ABSENT\n" if unresolved else b"CLEAN_SHARED_LIB\n"
         path.write_bytes(b"\x7fELF" + marker)
         return path

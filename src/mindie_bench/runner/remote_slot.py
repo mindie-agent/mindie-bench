@@ -43,7 +43,7 @@ from mindie_bench.io import is_ignored_cache_path, safe_relative
 from mindie_bench.models import RemoteConfig, RemotePreStartError, SourceEnvironment
 from mindie_bench.runner.host_platform import PipeReader, PipeWriter, subprocess_window_kwargs
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, PROJECTOR
-from mindie_bench.runner.termination import terminate_process_group
+from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
 _RESERVED_SLOT_ENV = {
     "REMOTE_DEV_JOB_TOKEN",
@@ -91,6 +91,7 @@ class RemoteSlot:
         self.read_buffer = b""
         self._stdout_reader: PipeReader | None = None
         self._stdin_writer: PipeWriter | None = None
+        self._close_owner = lambda: None
 
     def command(self, command: list[str]) -> list[str]:
         return [
@@ -253,14 +254,12 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
 """
         if self.artifact_dir:
             self.stderr_file = (self.artifact_dir / "remote.stderr").open("xb")
-        self.process = subprocess.Popen(
+        self.process, self._close_owner = spawn_owned_popen(
             self.command(["/bin/bash", "-c", command]),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self.stderr_file or subprocess.DEVNULL,
-            start_new_session=True,
             bufsize=0,
-            **subprocess_window_kwargs(),
         )
         ready = self._read(40)
         if "cleanup" in ready:
@@ -468,6 +467,8 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                 self.component_runtime.stop_monitor()
             except Exception as exc:
                 errors.append(f"remote monitor settlement: {type(exc).__name__}: {exc}")
+        if self._stdin_writer is not None:
+            self._stdin_writer.close()
         if self.process:
             try:
                 self.process.stdin.close()
@@ -490,11 +491,12 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                 self.process.wait(timeout=5)
             except (TimeoutError, subprocess.TimeoutExpired, RuntimeError) as exc:
                 errors.append(f"remote worker cleanup unconfirmed: {type(exc).__name__}: {exc}")
-                if self.process.poll() is None:
-                    try:
-                        terminate_process_group(self.process, term_wait=2, kill_wait=5)
-                    except (TimeoutError, OSError) as cleanup:
-                        errors.append(f"remote local process-group cleanup: {cleanup}")
+                try:
+                    terminate_process_group(self.process, term_wait=2, kill_wait=5)
+                except (TimeoutError, OSError) as cleanup:
+                    errors.append(f"remote local process-group cleanup: {cleanup}")
+            finally:
+                self._close_owner()
         if self.stderr_file:
             try:
                 self.stderr_file.close()

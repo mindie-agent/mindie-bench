@@ -64,7 +64,7 @@ def test_remote_replay_restores_patch_and_helpers_and_does_not_rewrite_unknown(t
         "receipt_sha256": sha256(receipt)}]}))
     result = reevaluate(inventory, task.parent, tmp_path / "report", Path(sys.executable))
     row = result["trials"][0]
-    assert row["reevaluation"]["reward"] == 1.0
+    assert row["reevaluation"]["reward"] == 1.0, row["reevaluation"]
     assert row["original_status"] == "unknown" and row["original_resolved"] is None
     assert row["reevaluation"]["speedup_ratio"] is None
     assert row["candidate_source"]["untracked_files"] == ["helper.py"]

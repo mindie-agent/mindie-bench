@@ -8,7 +8,6 @@
 import json
 import os
 import shlex
-import subprocess
 import sys
 from pathlib import Path
 
@@ -37,15 +36,20 @@ class ClaudeCodeDriver:
         capture_hook = profile.fingerprint.get("group") in {"G3", "G4"}
         settings = json.loads((profile.root / "settings.json").read_text(encoding="utf-8"))
         if capture_hook:
+            is_win = os.name == "nt"
+            py_arg = sys.executable.replace("\\", "/") if is_win else sys.executable
+            stop_arg = str(profile.root / "native-stop.json")
+            if is_win:
+                stop_arg = stop_arg.replace("\\", "/")
             hook = [
-                sys.executable,
+                py_arg,
                 "-I",
-                *(["-X", "utf8"] if os.name == "nt" else []),
+                *(["-X", "utf8"] if is_win else []),
                 "-m",
                 "mindie_bench.integrations.claude_stop",
-                str(profile.root / "native-stop.json"),
+                stop_arg,
             ]
-            hook_cmd = subprocess.list2cmdline(hook) if os.name == "nt" else shlex.join(hook)
+            hook_cmd = shlex.join(hook)
             settings.update(
                 disableAllHooks=False,
                 hooks={"Stop": [{"hooks": [{"type": "command", "command": hook_cmd}]}]},

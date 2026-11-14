@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 from mindie_bench.io import tree_hash, write_json
 from mindie_bench.runner.host_platform import subprocess_window_kwargs
 from mindie_bench.runner.sandbox import native_command
-from mindie_bench.runner.termination import terminate_process_group
+from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
 HELPER = Path(__file__).resolve().parents[1] / "integrations" / "product_native.py"
 
@@ -242,6 +242,7 @@ class NativeProductService:
         self.port = None
         self.ports = ()
         self._extra_processes = []
+        self._owner_closers = []
         self._stderr_files = []
 
     def _start_one(self, engine_config: str, connection_path: str, label: str) -> tuple[subprocess.Popen, int]:
@@ -273,15 +274,14 @@ class NativeProductService:
         service_env = dict(self.profile.env)
         if workspace_dir.exists():
             service_env["MINDIE_BENCH_WORKSPACE"] = str(workspace_dir)
-        proc = subprocess.Popen(
+        proc, close_owner = spawn_owned_popen(
             command,
             cwd=self.profile.root,
             env=service_env,
             stdout=stderr_file,
             stderr=subprocess.STDOUT,
-            start_new_session=True,
-            **subprocess_window_kwargs(),
         )
+        self._owner_closers.append(close_owner)
         try:
             connection = Path(connection_path)
             deadline = time.monotonic() + 30
@@ -294,7 +294,10 @@ class NativeProductService:
                 time.sleep(0.02)
             raise TimeoutError("native knowledge service did not become ready in30s")
         except BaseException:
-            terminate_process_group(proc, term_wait=5, kill_wait=5)
+            try:
+                terminate_process_group(proc, term_wait=5, kill_wait=5)
+            finally:
+                close_owner()
             raise
 
     def __enter__(self):
@@ -330,6 +333,8 @@ class NativeProductService:
                 if proc is not None:
                     terminate_process_group(proc, term_wait=5, kill_wait=5)
         finally:
+            for close_owner in self._owner_closers:
+                close_owner()
             for stderr_file in self._stderr_files:
                 stderr_file.close()
 

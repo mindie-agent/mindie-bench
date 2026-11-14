@@ -443,6 +443,8 @@ class KnowledgeSession:
                 primary = exc
             finally:
                 self.closed = True
+                if self._stdin_writer is not None:
+                    self._stdin_writer.close()
                 try:
                     terminate_process_group(self.process, term_wait=2, kill_wait=5)
                 except (TimeoutError, OSError, subprocess.SubprocessError) as exc:

@@ -15,8 +15,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from mindie_bench.runner.host_platform import subprocess_window_kwargs
-from mindie_bench.runner.termination import terminate_process_group
+from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
 
 def _catalog_identity(payload: dict) -> dict:
@@ -103,17 +102,15 @@ def probe_dsh_catalog(
     with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open(
         "w", encoding="utf-8"
     ) as stderr:
-        process = subprocess.Popen(
+        process, close_owner = spawn_owned_popen(
             command,
             cwd=workspace,
             env=env,
             stdin=subprocess.PIPE,
             stdout=stdout,
             stderr=stderr,
-            start_new_session=True,
             text=True,
             encoding="utf-8",
-            **subprocess_window_kwargs(),
         )
         try:
             if process.stdin:
@@ -126,6 +123,7 @@ def probe_dsh_catalog(
                 raise RuntimeError("mounted catalog checkpoint timed out before writing")
             _stop_probe_group(process, reason="completion")
         finally:
+            close_owner()
             if process.stdin and not process.stdin.closed:
                 process.stdin.close()
     if returncode != 0:

@@ -72,18 +72,28 @@ def _stream(gateway, command):
             return exit_code
 
 
-def _read_oneshot_stdin(limit: int = 8 * 1024 * 1024) -> bytes:
+def _read_oneshot_stdin(limit: int = 8 * 1024 * 1024, *, wait_for_start: bool = False) -> bytes:
     reader = PipeReader(sys.stdin.fileno())
-    timed_out, first = reader.read_chunk(0.2)
-    if timed_out or not first:
+    timed_out, first = reader.read_chunk(3600.0 if wait_for_start else 0.2)
+    if timed_out:
+        if wait_for_start:
+            raise TimeoutError("SSH stdin timed out before initial bytes")
+        return b""
+    if not first:
         return b""
     buf = bytearray(first)
-    while len(buf) < limit:
-        timed_out, chunk = reader.read_chunk(0.2)
-        if timed_out or not chunk:
+    if len(buf) > limit:
+        raise ValueError("SSH stdin exceeds 8 MiB bound; refusing truncated submission")
+    while True:
+        timed_out, chunk = reader.read_chunk(3600.0)
+        if timed_out:
+            raise TimeoutError("SSH stdin stalled before EOF; refusing truncated submission")
+        if not chunk:
             break
-        buf.extend(chunk[: limit - len(buf)])
-    return bytes(buf[:limit])
+        buf.extend(chunk)
+        if len(buf) > limit:
+            raise ValueError("SSH stdin exceeds 8 MiB bound; refusing truncated submission")
+    return bytes(buf)
 
 
 def main():
@@ -113,7 +123,7 @@ def main():
     if stdin_null or sys.stdin.isatty():
         stdin = b""
     else:
-        stdin = _read_oneshot_stdin()
+        stdin = _read_oneshot_stdin(wait_for_start=(command == "bash -s"))
     payload = dict(command=command, stdin_b64=base64.b64encode(stdin).decode())
     result = _post(gateway, "/bench/ssh", payload)
     sys.stdout.buffer.write(base64.b64decode(result["stdout_b64"]))

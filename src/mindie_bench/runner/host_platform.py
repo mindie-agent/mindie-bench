@@ -36,6 +36,7 @@ import subprocess
 import sys
 import threading
 import time
+import weakref
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
@@ -72,10 +73,17 @@ def rmtree_force(path: Path) -> None:
             return
         func(target)
 
-    if sys.version_info >= (3, 12):
-        shutil.rmtree(ext, onexc=_clear_readonly)
-    else:
-        shutil.rmtree(ext, onerror=_clear_readonly)
+    for attempt in range(5 if os.name == "nt" else 1):
+        try:
+            if sys.version_info >= (3, 12):
+                shutil.rmtree(ext, onexc=_clear_readonly)
+            else:
+                shutil.rmtree(ext, onerror=_clear_readonly)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == 4:
+                raise
+            time.sleep(0.05)
 
 
 def is_wsl_interop_path(candidate: str | Path) -> bool:
@@ -424,33 +432,67 @@ class PipeReader:
         return False, chunk
 
 
+_PipeWriteJob = tuple[bytes, threading.Event, list[BaseException]]
+
+
+def _stop_pipe_writer_queue(jobs: queue.Queue[_PipeWriteJob | None]) -> None:
+    while True:
+        try:
+            jobs.put_nowait(None)
+            return
+        except queue.Full:
+            try:
+                jobs.get_nowait()
+            except queue.Empty:
+                pass
+
+
+def _pipe_writer_loop(jobs: queue.Queue[_PipeWriteJob | None], stream) -> None:
+    while True:
+        item = jobs.get()
+        if item is None:
+            return
+        payload, done, errors = item
+        try:
+            view = memoryview(payload)
+            while view:
+                written = os.write(stream.fileno(), view[:65536])
+                if not written:
+                    raise BrokenPipeError("pipe accepted no bytes")
+                view = view[written:]
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            done.set()
+
+
 class PipeWriter:
     """Deadline-bounded pipe frame writer supporting Windows blocking anonymous pipes."""
 
     def __init__(self, stream) -> None:
         self.stream = stream
-        self._jobs: queue.Queue[tuple[bytes, threading.Event, list[BaseException]]] | None = None
+        self._closed = False
+        self._jobs: queue.Queue[_PipeWriteJob | None] | None = None
+        self._finalizer: weakref.finalize | None = None
         if os.name == "nt":
-            self._jobs = queue.Queue(maxsize=1)
-            threading.Thread(target=self._win_loop, daemon=True).start()
+            jobs: queue.Queue[_PipeWriteJob | None] = queue.Queue(maxsize=1)
+            self._jobs = jobs
+            self._thread = threading.Thread(
+                target=_pipe_writer_loop, args=(jobs, stream), name="mindie-pipe-writer", daemon=True
+            )
+            self._thread.start()
+            self._finalizer = weakref.finalize(self, _stop_pipe_writer_queue, jobs)
 
-    def _win_loop(self) -> None:
-        assert self._jobs is not None
-        while True:
-            payload, done, errors = self._jobs.get()
-            try:
-                view = memoryview(payload)
-                while view:
-                    written = os.write(self.stream.fileno(), view[:65536])
-                    if not written:
-                        raise BrokenPipeError("pipe accepted no bytes")
-                    view = view[written:]
-            except BaseException as exc:
-                errors.append(exc)
-            finally:
-                done.set()
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if self._finalizer is not None:
+            self._finalizer()
 
     def write_frame(self, frame: bytes, deadline: float, *, timeout_message: str) -> None:
+        if self._closed:
+            raise ValueError("PipeWriter is closed")
         if os.name != "nt":
             fd = self.stream.fileno()
             os.set_blocking(fd, False)
