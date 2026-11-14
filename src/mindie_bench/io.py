@@ -81,13 +81,13 @@ def write_json(path: Path, value: object, *, exclusive: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False) + "\n"
     if exclusive:
-        with path.open("x", encoding="utf-8") as out:
+        with path.open("x", encoding="utf-8", newline="\n") as out:
             out.write(data)
             out.flush()
             os.fsync(out.fileno())
         return
     temporary = path.with_suffix(path.suffix + ".tmp")
-    with temporary.open("x", encoding="utf-8") as out:
+    with temporary.open("x", encoding="utf-8", newline="\n") as out:
         out.write(data)
         out.flush()
         os.fsync(out.fileno())
@@ -105,6 +105,13 @@ def read_json(path: Path) -> dict:
 
 def safe_relative(value: str) -> str:
     path = Path(value)
-    if not value or path.is_absolute() or ".." in path.parts or "\\" in value:
+    if (
+        not value
+        or value.startswith("/")
+        or bool(path.anchor)
+        or path.is_absolute()
+        or ".." in path.parts
+        or "\\" in value
+    ):
         raise ValueError(f"expected a confined relative path: {value!r}")
     return value

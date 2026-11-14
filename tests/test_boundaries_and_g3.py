@@ -1,11 +1,17 @@
+import platform
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from conftest import noop_true
 
 from mindie_bench.models import CorpusConfig, Group, GroupConfig, MCPServer
+from mindie_bench.runner.host_platform import (
+    which_native,
+    write_executable_shim,
+)
 from mindie_bench.runner.orchestrator import check_read_boundaries, run_matrix, run_trial, runtime_paths
 from mindie_bench.runner.profile_builder import build_profile
 from mindie_bench.runner.remote_slot import POSTFLIGHT, WORKER, RemoteSlot
@@ -22,6 +28,11 @@ def test_broad_runtime_grants_cannot_expose_answer_or_home(tmp_path):
         check_read_boundaries([tmp_path / "oracle/gold.diff"], [tmp_path / "oracle"])
 
 
+@pytest.mark.skipif(
+    platform.system() not in {"Darwin", "Linux"}
+    or (platform.system() == "Linux" and not which_native("bwrap")),
+    reason="Kernel network sandbox requires macOS sandbox-exec or Linux bubblewrap",
+)
 def test_direct_network_cannot_bypass_github_shim(case):
     trial = case["root"] / "sandbox"
     trial.mkdir()
@@ -97,27 +108,25 @@ def test_g3_seed_eval_temporal_and_repetition_isolation(case, corpus):
         )
         text = text.replace('knowledge_gradient = "analogical"', 'knowledge_gradient = "near_exact"')
         manifest.write_text(text)
-    capture = case["root"] / "capture"
-    capture.write_text(
-        f"#!{sys.executable} -I\n"
-        + """
-import json,pathlib,sys
+    capture = write_executable_shim(
+        case["root"] / "capture-bin",
+        "capture",
+        """import json,pathlib,sys
 request=json.load(sys.stdin)
 root=pathlib.Path(request["destination"])/"tasks"/("captured-"+request["instance_id"])
 (root/"materials").mkdir(parents=True)
-(root/"PACKAGE.md").write_text("# Synthetic captured advice\\n")
-(root/"materials/0001.md").write_text("Synthetic locally captured public text.\\n")
+(root/"PACKAGE.md").write_text("# Synthetic captured advice\\n", encoding="utf-8")
+(root/"materials/0001.md").write_text("Synthetic locally captured public text.\\n", encoding="utf-8")
 print(json.dumps({"status":"completed","tokens":{"total":7,"complete":True},"estimated_cost_usd":0,"corpus_lint":{"status":"passed"}}))
-"""
+""",
     )
-    capture.chmod(0o700)
     config = case["config"]
-    config.runtime_read_paths = [str(capture)]
+    config.runtime_read_paths = [str(capture), str(capture.parent)]
     config.corpora["fixture"] = CorpusConfig(path=str(source), commit=commit)
     config.groups[Group.G3] = GroupConfig(
         mcp_servers={
-            "remote": MCPServer(command="/usr/bin/true", component="remote-dev"),
-            "knowledge": MCPServer(command="/usr/bin/true", component="knowledge"),
+            "remote": MCPServer(command=str(noop_true()), component="remote-dev"),
+            "knowledge": MCPServer(command=str(noop_true()), component="knowledge"),
         },
         capture_command=[str(capture)],
     )

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -26,8 +27,9 @@ def github(path, *, binary=False):
     command = ["gh", "api", path]
     if binary:
         command += ["-H", "Accept: application/octet-stream"]
-    result = subprocess.run(command, capture_output=True, check=True, timeout=60)
-    return result.stdout if binary else json.loads(result.stdout)
+    flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+    result = subprocess.run(command, capture_output=True, check=True, timeout=60, **flags)
+    return result.stdout if binary else json.loads(result.stdout.decode("utf-8"))
 
 
 def tag_revision(repository, version, fetch=github):

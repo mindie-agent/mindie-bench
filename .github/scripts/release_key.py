@@ -21,6 +21,11 @@ SECRET = "MINDIE_RELEASE_DEPLOY_KEY"
 TITLE = "mindie-release-main-only"
 
 
+def _secure_tmp_parent() -> str | None:
+    # Avoid WSL2 DrvFS `/mnt/<drive>` TMPDIR where chmod(0o600) is a no-op (`0o777`).
+    return "/tmp" if os.name != "nt" and Path("/tmp").is_dir() else None
+
+
 def configure(api):
     api.api(f"{api.prefix}/environments/{ENVIRONMENT}", method="PUT", data={
         "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}})
@@ -42,7 +47,7 @@ def configure(api):
         return keys[0]["id"]
     if keys:
         raise ValueError("incomplete deploy-key setup requires reconciling its environment secret")
-    with tempfile.TemporaryDirectory(prefix="mindie-release-key-") as directory:
+    with tempfile.TemporaryDirectory(prefix="mindie-release-key-", dir=_secure_tmp_parent()) as directory:
         private = Path(directory) / "id_ed25519"
         flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
         subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-C", TITLE, "-f", str(private)],
@@ -89,7 +94,7 @@ def _push(api, revision, reference, *, dry_run):
     secret = os.environ.get(SECRET)
     if not secret:
         raise ValueError("the main-only release deploy key is unavailable")
-    with tempfile.TemporaryDirectory(prefix="mindie-release-push-") as directory:
+    with tempfile.TemporaryDirectory(prefix="mindie-release-push-", dir=_secure_tmp_parent()) as directory:
         private, hosts = Path(directory) / "key", Path(directory) / "known_hosts"
         # gh secret set trims trailing stdin whitespace; OpenSSH requires this LF.
         private.write_text(secret.replace("\r\n", "\n").rstrip("\n") + "\n",

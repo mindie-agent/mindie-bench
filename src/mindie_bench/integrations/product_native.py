@@ -14,7 +14,21 @@ import sys
 import time
 from importlib import metadata, util
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
+from urllib.request import url2pathname
+
+
+def _file_url_to_path(url: str) -> Path:
+    parsed = urlparse(url)
+    raw_path = (
+        f"//{parsed.netloc}{parsed.path}"
+        if parsed.netloc and parsed.netloc.lower() != "localhost"
+        else parsed.path
+    )
+    decoded = url2pathname(raw_path)
+    if len(decoded) >= 3 and decoded[0] == "/" and decoded[2] == ":" and decoded[1].isalpha():
+        decoded = decoded[1:]
+    return Path(decoded)
 
 COMPONENTS = {
     "knowledge": ("mindie-knowledge", "mindie_knowledge"),
@@ -46,7 +60,7 @@ def identities():
                 source.update(hashlib.file_digest(stream, "sha256").digest())
         artifact_sha = None
         if direct and urlparse(direct["url"]).scheme == "file":
-            artifact = Path(unquote(urlparse(direct["url"]).path))
+            artifact = _file_url_to_path(direct["url"])
             if artifact.suffix == ".whl" and artifact.is_file():
                 with artifact.open("rb") as stream:
                     artifact_sha = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -79,7 +93,7 @@ def initialize(request):
     progress("store_open")
     try:
         contract = corpus / "publication-contract.json"
-        graded = contract.is_file() and json.loads(contract.read_text()).get("schema") == (
+        graded = contract.is_file() and json.loads(contract.read_text(encoding="utf-8")).get("schema") == (
             "mindie-publication-contract/2"
         )
         if graded:
@@ -96,7 +110,8 @@ def initialize(request):
             packages = []
             for task in sorted((corpus / "tasks").iterdir()):
                 files = {
-                    p.relative_to(task).as_posix(): p.read_text() for p in sorted(task.rglob("*.md"))
+                    p.relative_to(task).as_posix(): p.read_text(encoding="utf-8")
+                    for p in sorted(task.rglob("*.md"))
                 }
                 # install_feed owns native validation; do not parse every YAML
                 # document twice in the benchmark's preparation layer.
@@ -131,6 +146,10 @@ def initialize(request):
 
 
 def main():
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     request = json.load(sys.stdin)
     if request["operation"] == "identities":
         result = {"components": identities(), "python_base_prefix": sys.base_prefix}

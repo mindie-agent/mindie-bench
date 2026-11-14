@@ -23,6 +23,7 @@ read-only SSH probe for Tier 2 topology evidence.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import subprocess
@@ -316,14 +317,23 @@ def _section(text: str, name: str) -> str:
 
 def probe_npu_smi(host: str, *, timeout: float = 8.0, ssh: str = "ssh") -> NpuTopology:
     """Read-only SSH probe. Unreachable hosts return a non-allocatable snapshot."""
+    from mindie_bench.runner.host_platform import subprocess_window_kwargs
+
     command = [
         ssh, "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
-        "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "StrictHostKeyChecking=no", "-o", f"UserKnownHostsFile={os.devnull}",
         host, shlex.join(["bash", "-lc", _probe_script()]),
     ]
     try:
         completed = subprocess.run(
-            command, capture_output=True, text=True, timeout=timeout, check=False
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+            **subprocess_window_kwargs(),
         )
     except TimeoutError:
         raise

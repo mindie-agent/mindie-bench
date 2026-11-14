@@ -16,12 +16,16 @@ TEMPLATE = Path(__file__).resolve().parents[1] / "tasks/stale/fused-mc2-report"
 
 
 def test_actual_old_and_current_complete_env_modules_demonstrate_the_version_boundary():
+    from mindie_bench.runner.host_platform import subprocess_window_kwargs
+
     result = subprocess.run(
-        [sys.executable, "-I", str(TEMPLATE / "assets/environment/version_probe.py")],
+        [sys.executable, "-I", "-X", "utf8", str(TEMPLATE / "assets/environment/version_probe.py")],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=20,
         check=True,
+        **subprocess_window_kwargs(),
     )
     rows = json.loads(result.stdout)
     observed = {(row["version"], row["input"]): row["observed"] for row in rows}
@@ -31,7 +35,7 @@ def test_actual_old_and_current_complete_env_modules_demonstrate_the_version_bou
         ("v0_27_1_contract", "0"): "unrecognized",
         ("v0_27_1_contract", "1"): "unrecognized",
     }
-    recipe = json.loads((TEMPLATE / "recipe.json").read_text())
+    recipe = json.loads((TEMPLATE / "recipe.json").read_text(encoding="utf-8"))
     assert recipe["task_spec"]["mindie_knowledge"]["knowledge_gradient"] == "stale"
     evidence = recipe["knowledge_evidence"][0]
     assert evidence["relation"] == "stale"

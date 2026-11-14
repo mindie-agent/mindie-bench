@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import base64
 import os
-import select
 import sys
 import time
 
+from mindie_bench.runner.host_platform import PipeReader
 from mindie_bench.runner.ssh_shim import _post
 
 
@@ -22,6 +22,7 @@ def main():
         raise ValueError("knowledge relay requires its registered server name")
     opened = _post(gateway, "/bench/knowledge-stdio", {"action": "open", "server": sys.argv[1]})
     identity = opened["session_id"]
+    stdin_reader = PipeReader(sys.stdin.fileno())
     eof = False
     primary = None
     try:
@@ -29,8 +30,9 @@ def main():
             data = b""
             close_input = False
             if not eof:
-                if select.select([sys.stdin.fileno()], [], [], 0.05)[0]:
-                    data = os.read(sys.stdin.fileno(), 65536)
+                timed_out, chunk = stdin_reader.read_chunk(0.05)
+                if not timed_out:
+                    data = chunk
                     eof = not data
                     close_input = eof
             else:

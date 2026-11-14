@@ -1,18 +1,19 @@
 import platform
-import shutil
 import subprocess
 
 import pytest
+from conftest import noop_true
 
 from mindie_bench.integrations import first_party
 from mindie_bench.models import CorpusConfig, Group, GroupConfig, MCPServer
 from mindie_bench.runner import orchestrator
+from mindie_bench.runner.host_platform import which_native
 from mindie_bench.runner.profile_builder import build_profile
 
 pytestmark = pytest.mark.skipif(
     platform.system() not in {"Darwin", "Linux"}
     or platform.system() == "Linux"
-    and not shutil.which("bwrap"),
+    and not which_native("bwrap"),
     reason="requires a native sandbox",
 )
 
@@ -23,10 +24,10 @@ def g3_profile(case, corpus):
     config.corpora["fixture"] = CorpusConfig(path=str(source), commit=commit)
     config.groups[Group.G3] = GroupConfig(
         mcp_servers={
-            "remote": MCPServer(command="/usr/bin/true", component="remote-dev"),
-            "knowledge": MCPServer(command="/usr/bin/true", component="knowledge"),
+            "remote": MCPServer(command=str(noop_true()), component="remote-dev"),
+            "knowledge": MCPServer(command=str(noop_true()), component="knowledge"),
         },
-        capture_command=["/usr/bin/true"],
+        capture_command=[str(noop_true())],
     )
     trial = case["root"] / "git-probe"
     trial.mkdir()

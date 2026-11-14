@@ -1,4 +1,5 @@
 import pytest
+from conftest import noop_true
 
 from mindie_bench.models import CorpusConfig, Group, GroupConfig, MCPServer
 from mindie_bench.runner.profile_builder import build_profile, knowledge_prompt
@@ -19,7 +20,7 @@ def configure(case, corpus, *, mode, files=(), skills=False):
         oracle_context_files=list(files),
         skills_path=skill_path,
         mcp_servers={
-            name: MCPServer(command="/usr/bin/true", component=name)
+            name: MCPServer(command=str(noop_true()), component=name)
             for name in ["knowledge", "remote-dev"]
         },
     )

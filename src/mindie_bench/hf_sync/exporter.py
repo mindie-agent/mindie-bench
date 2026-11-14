@@ -140,7 +140,7 @@ def public_task_row(task_root: Path) -> dict:
         base_commit=env_spec.base_commit,
         npu_model=env_spec.npu_model,
         npu_count=env_spec.npu_count,
-        instruction=(task_root / "instruction.md").read_text(),
+        instruction=(task_root / "instruction.md").read_text(encoding="utf-8"),
         public_environment_files=public_env_files,
         target_files_count=len(spec.mindie_knowledge.target_files),
         inference=spec.inference.model_dump(mode="json") if spec.inference else None,
@@ -261,14 +261,18 @@ def export_hf(
             key=os.urandom(32).hex(),
             private_paths=private_paths,
         )
+        from mindie_bench.runner.host_platform import subprocess_window_kwargs
+
         # Use the installed first-party deterministic redactor, not a new,
         # weaker regex implementation or a summarizing model.
         result = subprocess.run(
-            [str(knowledge_python), "-I", str(_REDACT_WORKER)],
+            [str(knowledge_python), "-I", "-X", "utf8", str(_REDACT_WORKER)],
             input=json.dumps(request),
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=120,
+            **subprocess_window_kwargs(),
         )
         if result.returncode != 0:
             raise RuntimeError("required mindie_knowledge redaction failed; no export was published")
@@ -282,9 +286,11 @@ def export_hf(
             write_json(staging / "tasks.json", redacted_tasks, exclusive=True)
         write_json(staging / "receipts.json", data["receipts"], exclusive=True)
         write_json(staging / "leaderboard.json", data["leaderboard"], exclusive=True)
-        (staging / "index.html").write_text(render(data["leaderboard"]))
+        (staging / "index.html").write_text(
+            render(data["leaderboard"]), encoding="utf-8", newline="\n"
+        )
         scanner_config = Path(temporary) / "gitleaks.toml"
-        scanner_config.write_text("[extend]\nuseDefault = true\n")
+        scanner_config.write_text("[extend]\nuseDefault = true\n", encoding="utf-8", newline="\n")
         scan = subprocess.run(
             [
                 str(gitleaks),
@@ -305,6 +311,7 @@ def export_hf(
             capture_output=True,
             timeout=120,
             env={k: v for k, v in os.environ.items() if not k.startswith("GITLEAKS_")},
+            **subprocess_window_kwargs(),
         )
         if scan.returncode != 0:
             raise RuntimeError("required final Gitleaks gate failed; no export was published")
@@ -352,7 +359,9 @@ def export_hf(
             manifest_payload["private"] = private
         write_json(staging / "eval_manifest.json", manifest_payload, exclusive=True)
         (staging / "README.md").write_text(
-            _dataset_card(data["leaderboard"], has_tasks="tasks" in data)
+            _dataset_card(data["leaderboard"], has_tasks="tasks" in data),
+            encoding="utf-8",
+            newline="\n",
         )
         if upload_repo:
             try:

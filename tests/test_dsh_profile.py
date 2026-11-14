@@ -1,8 +1,7 @@
-import stat
-
 import yaml
 
 from mindie_bench.models import ExperimentConfig, HarnessConfig
+from mindie_bench.runner.host_platform import write_executable_shim
 from mindie_bench.runner.profile_builder import DSH_REASONING_EFFORTS, build_dsh_profile
 
 
@@ -16,7 +15,7 @@ _PatchLoader.add_constructor(
 
 
 def _patch(root):
-    text = (root / "dsh-home" / "profiles" / "bench" / "cordis.patch.yml").read_text()
+    text = (root / "dsh-home" / "profiles" / "bench" / "cordis.patch.yml").read_text(encoding="utf-8")
     rows = yaml.load(text, Loader=_PatchLoader)
     flattened = [row for row in rows if "id" in row]
     for row in rows:
@@ -25,18 +24,25 @@ def _patch(root):
 
 
 def _write_fake_dsh(tmp_path):
-    fake = tmp_path / "dsh"
-    fake.write_text(
-        "#!/bin/sh\n"
-        "set -e\n"
-        "profile=\"$DSH_HOME/profiles/bench\"\n"
-        "mkdir -p \"$profile\"\n"
-        "printf '%s\\n' '{\"name\":\"dsh-profile-bench\",\"private\":true,\"dsh\":{\"profile\":{\"bundles\":[\"@deepseek-ai/dsh-base\",\"@deepseek-ai/dsh-headless\"]}}}' > \"$profile/package.json\"\n"
-        "printf '%s\\n' '[]' > \"$profile/cordis.patch.yml\"\n"
-        "echo '[]'\n"
+    return write_executable_shim(
+        tmp_path,
+        "dsh",
+        """import json, os, pathlib
+profile = pathlib.Path(os.environ["DSH_HOME"]) / "profiles" / "bench"
+profile.mkdir(parents=True, exist_ok=True)
+(profile / "package.json").write_text(
+    json.dumps({
+        "name": "dsh-profile-bench",
+        "private": True,
+        "dsh": {"profile": {"bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-headless"]}},
+    }) + "\\n",
+    encoding="utf-8",
+    newline="\\n",
+)
+(profile / "cordis.patch.yml").write_text("[]\\n", encoding="utf-8", newline="\\n")
+print("[]")
+""",
     )
-    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
-    return fake
 
 
 def _config(fake, **updates):

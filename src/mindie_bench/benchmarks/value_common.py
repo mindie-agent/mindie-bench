@@ -15,10 +15,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
+
 
 def write_json(path: Path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=True) + "\n")
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=True) + "\n", encoding="utf-8", newline="\n")
 
 
 def source_revisions(packages: tuple[str, ...] | None = None):
@@ -46,9 +48,15 @@ def environment():
 
 
 def git_source(root: Path):
+    git_exe = which_native("git") or "git"
+
     def read(*args):
         return subprocess.check_output(
-            ["git", "-C", str(root), *args], text=True, timeout=5
+            [git_exe, "-C", str(root), *args],
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+            **subprocess_window_kwargs(),
         ).strip()
 
     return {"revision": read("rev-parse", "HEAD"), "dirty": bool(read("status", "--porcelain"))}

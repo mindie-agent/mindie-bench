@@ -25,6 +25,8 @@ import posixpath
 import re
 import shlex
 
+from mindie_bench.scorer.command_observations import _normalize_unquoted_win_paths
+
 
 def _python_accesses(code: str) -> tuple[list[tuple[str, str]], list[str]]:
     """Follow literal path aliases and executed syntax, never strings containing code."""
@@ -345,7 +347,9 @@ def _shell_accesses(command: str, *, depth=0, remote=False, stdin=None):
         rest, more = _shell_accesses(tail, depth=depth + 1, remote=remote) if tail.strip() else ([], [])
         return first + rest, reasons + more
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()\n")
+        lexer = shlex.shlex(
+            _normalize_unquoted_win_paths(command), posix=True, punctuation_chars=";&|<>()\n"
+        )
         lexer.whitespace = " \t\r"
         lexer.whitespace_split = True
         tokens = list(lexer)
@@ -368,7 +372,13 @@ def _shell_accesses(command: str, *, depth=0, remote=False, stdin=None):
             words = words[1:]
         if not words:
             continue
-        name = posixpath.basename(words[0])
+        raw_name = posixpath.basename(words[0].replace("\\", "/"))
+        name = re.sub(r"\.(?:exe|cmd|bat)$", "", raw_name, flags=re.IGNORECASE)
+        if name.lower() in {
+            "sh", "bash", "zsh", "dash", "ssh", "apply_patch", "patch", "tee", "cp", "mv",
+            "cat", "sed", "grep", "rg", "head", "tail", "perl",
+        } or re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", name.lower()):
+            name = name.lower()
         if name in {"sh", "bash", "zsh", "dash"}:
             option = next((i for i, word in enumerate(words) if word in {"-c", "-lc", "-ic"}), None)
             if option is not None and option + 1 < len(words):

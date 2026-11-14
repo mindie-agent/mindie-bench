@@ -7,11 +7,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+from mindie_bench.runner.host_platform import which_native
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
 from upgrade_acceptance import baseline_install_command, baseline_requirement
 
 
 def test_old_adapter_baseline_resolves_its_nested_python_project(tmp_path, monkeypatch):
+    uv_bin = which_native("uv")
+    if not uv_bin:
+        pytest.skip("uv is not installed on host")
+    monkeypatch.setenv("PATH", f"{Path(uv_bin).parent}{os.pathsep}{os.environ.get('PATH', '')}")
     flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 
     def run(*args, cwd=None):

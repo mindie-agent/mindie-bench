@@ -638,10 +638,17 @@ def claude_cli_strategy_selector(
         + json.dumps(view, ensure_ascii=False)
     )
     started = time.perf_counter()
+    from mindie_bench.runner.host_platform import subprocess_window_kwargs
+
     try:
         completed = subprocess.run(
             [executable, "-p", prompt, "--output-format", "json", "--max-turns", "1", "--tools", ""],
-            capture_output=True, text=True, timeout=timeout_sec, check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=timeout_sec,
+            check=True,
+            **subprocess_window_kwargs(),
         )
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError(f"claude selector timed out after {timeout_sec}s") from exc

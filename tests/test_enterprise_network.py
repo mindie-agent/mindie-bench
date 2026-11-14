@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from conftest import noop_true
 
 from mindie_bench.models import HarnessConfig
 from mindie_bench.runner.gateway import Gateway
@@ -90,7 +91,7 @@ def test_model_connect_uses_proxy_auth_and_verified_tls_without_forwarding_crede
         monkeypatch.setenv("BENCH_TEST_KEY", "provider-only-secret")
         harness = HarnessConfig(
             name="codex",
-            executable="/usr/bin/true",
+            executable=str(noop_true()),
             model="pinned",
             expected_version="fixture",
             api_key_env="BENCH_TEST_KEY",

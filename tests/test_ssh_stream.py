@@ -3,10 +3,15 @@ import contextlib
 import http.server
 import json
 import os
-import select
 import subprocess
 import sys
 import threading
+import time
+import weakref
+
+from mindie_bench.runner.host_platform import PipeReader, subprocess_window_kwargs
+
+_STREAM_READERS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
 def encoded(value):
@@ -49,17 +54,32 @@ def launch(url, *, stream=True):
     else:
         environment.pop("MINDIE_BENCH_SSH_STREAM", None)
     return subprocess.Popen(
-        [sys.executable, "-I", "-m", "mindie_bench.runner.ssh_shim", "--", "root@bench-slot", "rpc"],
+        [sys.executable, "-I", "-X", "utf8", "-m", "mindie_bench.runner.ssh_shim", "--", "root@bench-slot", "rpc"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=environment,
+        **subprocess_window_kwargs(),
     )
 
 
 def read_line(stream):
-    assert select.select([stream], [], [], 5)[0], "SSH facade did not forward the remote frame"
-    return stream.readline()
+    pair = _STREAM_READERS.get(stream)
+    if pair is None:
+        pair = (PipeReader(stream), bytearray())
+        _STREAM_READERS[stream] = pair
+    reader, buf = pair
+    deadline = time.monotonic() + 5
+    while b"\n" not in buf:
+        remaining = deadline - time.monotonic()
+        assert remaining > 0, "SSH facade did not forward the remote frame"
+        timed_out, chunk = reader.read_chunk(remaining)
+        assert not timed_out and chunk, "SSH facade did not forward the remote frame"
+        buf.extend(chunk)
+    idx = buf.index(b"\n") + 1
+    line = bytes(buf[:idx])
+    del buf[:idx]
+    return line
 
 
 def test_stream_forwards_ready_before_caller_sends_request_or_eof():

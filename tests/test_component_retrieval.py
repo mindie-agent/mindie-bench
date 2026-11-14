@@ -24,7 +24,7 @@ def write_case(tmp_path):
         source_commit="a" * 40,
         label_scope="positive_only_target_recovery",
         source_files_sha256={
-            str(path.relative_to(corpus)): hashlib.sha256(path.read_bytes()).hexdigest()
+            path.relative_to(corpus).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in [task / "index.md", block]
         },
     )

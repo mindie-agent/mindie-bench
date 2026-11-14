@@ -11,6 +11,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+from conftest import noop_true
 
 from mindie_bench.evaluation.broker_knowledge import summarize_broker_knowledge
 from mindie_bench.models import HarnessConfig
@@ -187,7 +188,7 @@ def _harness(endpoint, monkeypatch, key="BENCH_TLS_TEST_KEY"):
     monkeypatch.setenv(key, secret)
     return HarnessConfig(
         name="claude-code",
-        executable="/usr/bin/true",
+        executable=str(noop_true()),
         model="pinned",
         expected_version="fixture",
         api_key_env=key,
@@ -212,7 +213,7 @@ def test_fatal_alert_after_request_write_is_unknown_usage_incomplete_and_not_rep
                 data=payload.encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with pytest.raises(http.client.RemoteDisconnected):
+            with pytest.raises((http.client.RemoteDisconnected, ConnectionResetError, urllib.error.URLError)):
                 urllib.request.urlopen(request, timeout=5)
             assert gateway.unknown and gateway.model_calls == 1
             assert gateway.usage_meters[1].tokens.complete is False
@@ -304,7 +305,7 @@ def test_failed_request_submission_separates_confirmed_and_uncertain_bytes(case,
     monkeypatch.setenv("BENCH_PARTIAL_KEY", secret)
     harness = HarnessConfig(
         name="claude-code",
-        executable="/usr/bin/true",
+        executable=str(noop_true()),
         model="pinned",
         expected_version="fixture",
         api_key_env="BENCH_PARTIAL_KEY",
@@ -389,7 +390,7 @@ def test_certificate_validation_stays_on_and_unavailable_fields_are_null(case, m
                 data=body,
                 headers={"Content-Type": "application/json"},
             )
-            with pytest.raises(http.client.RemoteDisconnected):
+            with pytest.raises((http.client.RemoteDisconnected, ConnectionResetError, urllib.error.URLError)):
                 urllib.request.urlopen(request, timeout=5)
             gateway.finish_inference(timeout=5)
     finally:
@@ -534,7 +535,7 @@ def test_plain_endpoint_tls_failure_records_stage_without_request_credentials(ca
     monkeypatch.setenv("BENCH_TLS_KEY", secret)
     harness = HarnessConfig(
         name="claude-code",
-        executable="/usr/bin/true",
+        executable=str(noop_true()),
         model="pinned",
         expected_version="fixture",
         api_key_env="BENCH_TLS_KEY",
@@ -548,7 +549,7 @@ def test_plain_endpoint_tls_failure_records_stage_without_request_credentials(ca
                 data=json.dumps({"model": "pinned", "messages": []}).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with pytest.raises(http.client.RemoteDisconnected):
+            with pytest.raises((http.client.RemoteDisconnected, ConnectionResetError, urllib.error.URLError)):
                 urllib.request.urlopen(request, timeout=5)
             assert gateway.unknown
             assert gateway.model_calls == 1

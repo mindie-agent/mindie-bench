@@ -9,22 +9,27 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 from mindie_bench.io import write_json
 from mindie_bench.models import ExperimentConfig, Group
+from mindie_bench.runner.host_platform import (
+    subprocess_window_kwargs,
+    which_native,
+    write_executable_shim,
+)
 from mindie_bench.runner.orchestrator import run_matrix
 from mindie_bench.scorer.comparator import comparison, freeze, grouped_summaries, markdown
 
 FIXTURE_AGENT = r"""
-import json, pathlib, subprocess, sys
+import json, os, pathlib, subprocess, sys
 if "--version" in sys.argv:
     print("mindie-bench-synthetic 1.0")
     raise SystemExit(0)
 prompt=sys.stdin.read()
-pathlib.Path("operator.py").write_text("ACCUMULATE_DTYPE = 'float32'\n")
-tested=subprocess.run(["npu-replay-test"],capture_output=True,text=True,timeout=30)
+pathlib.Path("operator.py").write_text("ACCUMULATE_DTYPE = 'float32'\n", encoding="utf-8", newline="\n")
+win_kw={"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+tested=subprocess.run(["npu-replay-test"],capture_output=True,text=True,encoding="utf-8",timeout=30,**win_kw)
 if tested.returncode:
     print(tested.stderr,file=sys.stderr)
     raise SystemExit(tested.returncode)
@@ -43,14 +48,30 @@ def demo(output: Path) -> dict:
     output.chmod(0o700)
     source = output / "inputs/source"
     source.mkdir(parents=True)
-    (source / "operator.py").write_text("ACCUMULATE_DTYPE = 'float16'\n")
-    subprocess.run(["git", "init", "-q", str(source)], check=True, timeout=30)
-    subprocess.run(["git", "-C", str(source), "add", "."], check=True, timeout=30)
+    (source / "operator.py").write_text(
+        "ACCUMULATE_DTYPE = 'float16'\n", encoding="utf-8", newline="\n"
+    )
+    git_exe = which_native("git") or "git"
+    git_cfg = ["-c", "core.autocrlf=false", "-c", "core.longpaths=true"]
+    win_kw = subprocess_window_kwargs()
+    subprocess.run(
+        [git_exe, *git_cfg, "init", "-q", str(source)],
+        check=True,
+        timeout=30,
+        **win_kw,
+    )
+    subprocess.run(
+        [git_exe, "-C", str(source), *git_cfg, "add", "."],
+        check=True,
+        timeout=30,
+        **win_kw,
+    )
     subprocess.run(
         [
-            "git",
+            git_exe,
             "-C",
             str(source),
+            *git_cfg,
             "-c",
             "user.name=Synthetic Fixture",
             "-c",
@@ -61,25 +82,29 @@ def demo(output: Path) -> dict:
         ],
         check=True,
         timeout=30,
+        **win_kw,
     )
     commit = subprocess.run(
-        ["git", "-C", str(source), "rev-parse", "HEAD"],
+        [git_exe, "-C", str(source), "rev-parse", "HEAD"],
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
+        **win_kw,
     ).stdout.strip()
-    agent = output / "inputs/synthetic-agent"
-    agent.write_text(f"#!{sys.executable}\n" + FIXTURE_AGENT)
-    agent.chmod(0o700)
+    agent = write_executable_shim(output / "inputs", "synthetic-agent", FIXTURE_AGENT)
     task = output / "inputs/task"
     (task / "oracle").mkdir(parents=True)
     (task / "verifier").mkdir()
     (task / "instruction.md").write_text(
         "SYNTHETIC DEMONSTRATION ONLY. Change operator.py to accumulate in float32 "
-        "and run npu-replay-test. This is a plumbing fixture, not a real Ascend task.\n"
+        "and run npu-replay-test. This is a plumbing fixture, not a real Ascend task.\n",
+        encoding="utf-8",
+        newline="\n",
     )
-    (task / "task.toml").write_text(f'''schema_version = "1.0"
+    (task / "task.toml").write_text(
+        f'''schema_version = "1.0"
 [task]
 instance_id = "synthetic-dtype-replay"
 domain_category = "numerical_accuracy"
@@ -94,7 +119,10 @@ timeout_sec = 10
 repo_path = "../source"
 base_commit = "{commit}"
 replay_commands = ["npu-replay-test"]
-''')
+''',
+        encoding="utf-8",
+        newline="\n",
+    )
     write_json(
         task / "oracle/replay_rules.json",
         dict(
@@ -109,11 +137,15 @@ replay_commands = ["npu-replay-test"]
     )
     (task / "oracle/gold_patch.diff").write_text(
         "diff --git a/operator.py b/operator.py\n--- a/operator.py\n+++ b/operator.py\n"
-        "@@ -1 +1 @@\n-ACCUMULATE_DTYPE = 'float16'\n+ACCUMULATE_DTYPE = 'float32'\n"
+        "@@ -1 +1 @@\n-ACCUMULATE_DTYPE = 'float16'\n+ACCUMULATE_DTYPE = 'float32'\n",
+        encoding="utf-8",
+        newline="\n",
     )
     (task / "verifier/test.sh").write_text(
         "#!/bin/bash\nif grep -qx \"ACCUMULATE_DTYPE = 'float32'\" operator.py; then\n"
-        "echo '{\"reward\":1.0}'\nexit 0\nelse\necho '{\"reward\":0.0}'\nexit 1\nfi\n"
+        "echo '{\"reward\":1.0}'\nexit 0\nelse\necho '{\"reward\":0.0}'\nexit 1\nfi\n",
+        encoding="utf-8",
+        newline="\n",
     )
     config_text = f"""schema_version = "1.0"
 backend = "fixture"
@@ -127,7 +159,7 @@ cached_usd_per_million = 0
 output_usd_per_million = 0
 """
     config_path = output / "inputs/experiment.toml"
-    config_path.write_text(config_text)
+    config_path.write_text(config_text, encoding="utf-8", newline="\n")
     config = ExperimentConfig.load(config_path)
     rows = run_matrix(
         [task], config, tier="l2", groups=[Group.G0], repetitions=3, concurrency=3, output=output / "run"
@@ -137,7 +169,7 @@ output_usd_per_million = 0
     freeze(rows, output / "baseline")
     result = comparison(rows, rows)
     write_json(output / "comparison.json", result, exclusive=True)
-    (output / "comparison.md").write_text(markdown(result))
+    (output / "comparison.md").write_text(markdown(result), encoding="utf-8", newline="\n")
     return dict(
         output=str(output),
         evidence="synthetic",

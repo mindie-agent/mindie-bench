@@ -41,17 +41,23 @@ from pathlib import Path
 
 from mindie_bench.evaluation.timing import StageRecorder
 from mindie_bench.models import UnknownExternalEffects
+from mindie_bench.runner.host_platform import subprocess_window_kwargs
 
 
 def write_json(path, value):
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
 
 
 def packages(corpus):
     from mindie_knowledge.materials.store import validate_package_files
 
     for path in sorted((corpus / "tasks").iterdir()):
-        files = {p.relative_to(path).as_posix(): p.read_text() for p in path.rglob("*.md")}
+        files = {
+            p.relative_to(path).as_posix(): p.read_text(encoding="utf-8")
+            for p in path.rglob("*.md")
+        }
         yield validate_package_files(files, "vllm-ascend")
 
 
@@ -106,7 +112,7 @@ def serve(args):
     log = Path(args.state) / "retrieval-observations.jsonl"
 
     def record(kind, **values):
-        with log.open("a") as stream:
+        with log.open("a", encoding="utf-8", newline="\n") as stream:
             stream.write(json.dumps(dict(kind=kind, **values), ensure_ascii=False) + "\n")
 
     # MaterialStore owns SQLite state and ReMe's synchronous asyncio.Runner.
@@ -191,12 +197,21 @@ def git(*arguments, cwd=None):
     executable = os.environ["MINDIE_BENCH_GIT"]
     try:
         return subprocess.run(
-            [executable, "-c", "protocol.file.allow=always", *map(str, arguments)],
+            [
+                executable,
+                "-c",
+                "core.autocrlf=false",
+                "-c",
+                "protocol.file.allow=always",
+                *map(str, arguments),
+            ],
             cwd=cwd,
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=30,
+            **subprocess_window_kwargs(),
         ).stdout.strip()
     except subprocess.CalledProcessError as error:
         error.add_note("Git stderr (at most 16 KiB): " + (error.stderr or "")[:16_384])
@@ -297,7 +312,7 @@ def native_capture_inputs(args, native, root):
         adapter = codex_transcript
         worker = "agent_worker.py"
         os.environ["MINDIE_CODEX_BIN"] = args.codex_bin
-        catalog = json.loads((root / "model-catalog.json").read_text())
+        catalog = json.loads((root / "model-catalog.json").read_text(encoding="utf-8"))
         selected = [model for model in catalog["models"] if model.get("slug") == args.summary_model]
         if len(selected) != 1:
             raise ValueError("capture model requires exactly one explicit native catalog record")
@@ -538,7 +553,7 @@ def capture(args):
                 for name, text in package["files"].items():
                     path = staging / "tasks" / package["task_id"] / name
                     path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_text(text)
+                    path.write_text(text, encoding="utf-8", newline="\n")
         from mindie_bench.evaluation.corpus_linter import CorpusLintRejected, audit_packages
 
         with timing.measure("corpus_lint"):
@@ -605,7 +620,7 @@ def capture(args):
                 for name, text in package["files"].items():
                     path = target / name
                     path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_text(text)
+                    path.write_text(text, encoding="utf-8", newline="\n")
         total = usage["input_tokens"] + usage["cached_input_tokens"] + usage["output_tokens"]
         result = dict(
             status="completed",

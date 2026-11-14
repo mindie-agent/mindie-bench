@@ -33,7 +33,7 @@ def summarize_component_runtime(path: Path) -> dict:
     provenance, peaks, aicore, phases = {}, {}, {}, Counter()
     observer_times, diagnostic_times = [], []
     samples = rejections = diagnostic_records = diagnostic_failures = dropped_records = 0
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         row = json.loads(line)
         event = row["event"]
         timestamp = row["monotonic_sec"]

@@ -15,9 +15,13 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from mindie_bench.runner.host_platform import resolve_git_bash, subprocess_window_kwargs
 
 FAMILIES = ("dsv4-sparse-mla-qli-fusion-rsi-zh", "triton-spatial-norm-dim-merge-rsi-zh")
 BASE = "264445c1379b7e5c00df06752bf6a9c604c2c3cb"
@@ -57,6 +61,7 @@ def prepare_base(workspace, family):
             check=True,
             capture_output=True,
             timeout=20,
+            **subprocess_window_kwargs(),
         ).stdout
         dest = workspace / name
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -82,23 +87,24 @@ def variant(target, family, stage):
             f"def {fn}(*args, **kwargs):\n    return torch.zeros_like(args[0]), {{'correctness_ok': True, 'tpot_ms': 0.001}}\n"
             "def select_optimal_block_size(n, dtype, live=3):\n    return 512 if n <= 512 else (4096 if dtype == torch.float32 else 8192)\n"
             "def compute_persistent_grid(n, cores=48):\n    return (min(n, cores),)\n"
-            f"def run_ablation_suite():\n    return {{arm: {{'correctness_ok': True, 'tpot_ms': 0.001}} for arm in {arms!r}}}\n"
+            f"def run_ablation_suite():\n    return {{arm: {{'correctness_ok': True, 'tpot_ms': 0.001}} for arm in {arms!r}}}\n",
+            encoding="utf-8",
         )
     elif stage == "constant_return":
-        source = target.read_text()
+        source = target.read_text(encoding="utf-8")
         if family.startswith("dsv4"):
             source = source.replace("return attn_out, {", "return torch.zeros_like(attn_out), {")
         else:
             source = source.replace("return out, {", "return torch.zeros_like(out), {")
-        target.write_text(source)
+        target.write_text(source, encoding="utf-8")
     elif stage == "wrong_guard_lengths":
-        source = target.read_text().replace(
+        source = target.read_text(encoding="utf-8").replace(
             "(topk_indices >= 0).sum(dim=-1).to(torch.int32)",
             "torch.clamp(seqused_k.to(torch.int32), min=0, max=topk)",
         )
-        target.write_text(source)
+        target.write_text(source, encoding="utf-8")
     elif stage == "gold_bf16_inplace":
-        source = target.read_text()
+        source = target.read_text(encoding="utf-8")
         source = source.replace(
             "sum_fp32 = sum_fp32.to(torch.bfloat16).to(torch.float32)",
             "sum_bf16 = torch.zeros_like(sum_fp32, dtype=torch.bfloat16)\n        sum_bf16.add_(sum_fp32)\n        sum_fp32 = sum_bf16.float()",
@@ -107,11 +113,11 @@ def variant(target, family, stage):
             "sq_fp32 = sq_fp32.to(torch.bfloat16).to(torch.float32)",
             "sq_bf16 = torch.zeros_like(sq_fp32, dtype=torch.bfloat16)\n        sq_bf16.add_(sq_fp32)\n        sq_fp32 = sq_bf16.float()",
         )
-        target.write_text(source)
+        target.write_text(source, encoding="utf-8")
     elif stage == "gold_suite_helper":
         # The public default operator remains correct; the suite controls an
         # extracted helper. The oracle must follow the runtime tensor boundary.
-        source = target.read_text().replace(f"{fn}(", "_controlled_tensor_entry(")
+        source = target.read_text(encoding="utf-8").replace(f"{fn}(", "_controlled_tensor_entry(")
         tree = ast.parse(source)
         original = next(
             n
@@ -140,9 +146,12 @@ def variant(target, family, stage):
             )
         ]
         public.decorator_list = []
-        target.write_text(source + "\n\n" + ast.unparse(ast.fix_missing_locations(public)) + "\n")
+        target.write_text(
+            source + "\n\n" + ast.unparse(ast.fix_missing_locations(public)) + "\n",
+            encoding="utf-8",
+        )
     elif stage == "gold_helper":
-        source = target.read_text().replace(f"def {fn}(", "def _gold_implementation(", 1)
+        source = target.read_text(encoding="utf-8").replace(f"def {fn}(", "def _gold_implementation(", 1)
         source += (
             "\nclass _GoldDelegate:\n"
             "    @staticmethod\n"
@@ -151,7 +160,7 @@ def variant(target, family, stage):
             f"def {fn}(*args, **kwargs):\n"
             "    return _GoldDelegate.invoke(*args, **kwargs)\n"
         )
-        target.write_text(source)
+        target.write_text(source, encoding="utf-8")
 
 
 def run(root, python, output):
@@ -180,11 +189,19 @@ def run(root, python, output):
                     target = prepare_base(workspace, family)
                     if stage != "baseline":
                         subprocess.run(
-                            ["git", "apply", "--no-index", str(task / "oracle/gold_patch.diff")],
+                            [
+                                "git",
+                                "-c",
+                                "core.autocrlf=false",
+                                "apply",
+                                "--no-index",
+                                str(task / "oracle/gold_patch.diff"),
+                            ],
                             cwd=workspace,
                             capture_output=True,
                             check=True,
                             timeout=20,
+                            **subprocess_window_kwargs(),
                         )
                     variant(target, family, stage)
                     input_hashes = hashes(workspace)
@@ -197,18 +214,21 @@ def run(root, python, output):
                         "OMP_NUM_THREADS": "1",
                         "MKL_NUM_THREADS": "1",
                         "PYTHONDONTWRITEBYTECODE": "1",
+                        "PYTHONUTF8": "1",
                     }
                     result = subprocess.run(
-                        ["bash", str(task / "verifier/test.sh")],
+                        [resolve_git_bash(env), str(task / "verifier/test.sh")],
                         cwd=workspace,
                         env=env,
                         capture_output=True,
                         text=True,
+                        encoding="utf-8",
                         timeout=45,
+                        **subprocess_window_kwargs(),
                     )
                     elapsed = time.monotonic() - start
-                    (evidence / f"{stage}.stdout").write_text(result.stdout)
-                    (evidence / f"{stage}.stderr").write_text(result.stderr)
+                    (evidence / f"{stage}.stdout").write_text(result.stdout, encoding="utf-8")
+                    (evidence / f"{stage}.stderr").write_text(result.stderr, encoding="utf-8")
                     verdict = json.loads(result.stdout.strip().splitlines()[-1])
                     results[stage] = {
                         "expected_reward": expected,
@@ -257,13 +277,15 @@ def run(root, python, output):
                 "errors": [] if complete else ["soundness reward mismatch"],
             }
             (task / "soundness_receipt.json").write_text(
-                json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+                json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
             (evidence / "soundness.json").write_text(
-                json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+                json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
             proofs.append(receipt)
-    (output / "summary.json").write_text(json.dumps(proofs, indent=2, sort_keys=True) + "\n")
+    (output / "summary.json").write_text(
+        json.dumps(proofs, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return all(p["status"] == "completed" for p in proofs)
 
 

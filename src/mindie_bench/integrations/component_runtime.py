@@ -34,7 +34,6 @@ import importlib.metadata
 import importlib.util
 import json
 import os
-import signal
 import subprocess
 import sys
 import threading
@@ -92,15 +91,19 @@ def package_metadata(name, source_paths=()):
     for source in source_paths:
         root = Path(source).resolve()
         if module and module.origin and Path(module.origin).resolve().is_relative_to(root):
-            project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
+            from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
+
+            project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
             if project["name"] != name:
                 raise ValueError("explicit source package identity differs from its project metadata")
             revision = subprocess.run(
-                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                [which_native("git") or "git", "-C", str(root), "rev-parse", "HEAD"],
                 check=True,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=5,
+                **subprocess_window_kwargs(),
             ).stdout.strip()
             return dict(
                 name=name,
@@ -294,30 +297,28 @@ class ComponentRuntime:
     def _journal(self, event, **facts):
         row = dict(event=event, monotonic_sec=time.monotonic(), trace_id=self.trace_id, **facts)
         with self.journal_lock:
-            with (self.artifact_dir / "component_runtime.jsonl").open("a") as stream:
+            with (self.artifact_dir / "component_runtime.jsonl").open(
+                "a", encoding="utf-8", newline="\n"
+            ) as stream:
                 stream.write(json.dumps(row, sort_keys=True) + "\n")
 
     def _call(self, component, action, **payload):
         if threading.current_thread() is self.monitor and self.stop.is_set():
             raise _MonitorStopped()
-        from mindie_bench.runner.process import subprocess_window_kwargs
+        from mindie_bench.runner.host_platform import subprocess_window_kwargs
+        from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
         request = dict(
             action=action,
             source_paths=self.config.get("python_paths", {}).get(component, []),
             **payload,
         )
-        read_fd, owner_fd = os.pipe()
+        close_owner = lambda: None  # noqa: E731
         process = None
         primary = None
         try:
-            process = subprocess.Popen(
+            process, close_owner = spawn_owned_popen(
                 [
-                    sys.executable,
-                    "-I",
-                    "-m",
-                    "mindie_bench.runner.owner",
-                    str(read_fd),
                     self.config["interpreters"][component],
                     "-I",
                     "-B",
@@ -326,8 +327,6 @@ class ComponentRuntime:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                start_new_session=True,
-                pass_fds=(read_fd,),
                 **subprocess_window_kwargs(),
                 env={
                     **os.environ,
@@ -341,8 +340,6 @@ class ComponentRuntime:
                     ),
                 },
             )
-            os.close(read_fd)
-            read_fd = -1
             stdout, stderr = process.communicate(json.dumps(request).encode(), timeout=60)
             if len(stdout) > 8 * 1024 * 1024 or len(stderr) > 1024 * 1024:
                 raise RuntimeError("component result exceeded the evidence bound")
@@ -361,19 +358,13 @@ class ComponentRuntime:
             primary = exc
             raise
         finally:
-            if read_fd >= 0:
-                os.close(read_fd)
-            os.close(owner_fd)
+            close_owner()
             if process:
                 try:
-                    # Closing the existing owner pipe reclaims descendants.
-                    # A reaped leader's process-group number is no longer an
-                    # owned signal target, even if a zombie still exposes it.
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                        process.wait(timeout=5)
+                        terminate_process_group(process, term_wait=0, kill_wait=5)
                     except BaseException as cleanup:
                         if primary is not None:
                             primary.add_note(f"component helper cleanup also failed: {cleanup}")

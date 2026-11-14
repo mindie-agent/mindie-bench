@@ -89,11 +89,11 @@ def _build_moe_checkpoint(root: Path) -> tuple[dict, dict]:
     config = {"num_routed_experts": _SOURCE_EXPERTS, "num_experts_per_tok": _TOP_K,
               "num_hidden_layers": _EXPERT_LAYERS, "n_group": 8, "topk_group": 4,
               "hidden_size": 8}
-    (source / "config.json").write_text(json.dumps(config))
+    (source / "config.json").write_text(json.dumps(config), encoding="utf-8", newline="\n")
     slimmed = root / "moe-slim"
     report = slim_moe_checkpoint(source, slimmed, _SLIM_EXPERTS)
     header = _read_safetensors_header(slimmed / "model.safetensors")
-    updated = json.loads((slimmed / "config.json").read_text())
+    updated = json.loads((slimmed / "config.json").read_text(encoding="utf-8"))
     assert (report["current_routed_experts"], report["target_routed_experts"]) == (
         _SOURCE_EXPERTS, _SLIM_EXPERTS)
     assert (report["num_hidden_layers_before"], report["num_hidden_layers_after"]) == (
@@ -787,7 +787,7 @@ def precision_localization_evidence(root: Path) -> dict:
     payload = {**summary, "cases": first}
     evidence_path = root / "precision-localization.json"
     write_json(evidence_path, payload)
-    assert json.loads(evidence_path.read_text()) == payload
+    assert json.loads(evidence_path.read_text(encoding="utf-8")) == payload
     return {
         **summary,
         "evidence_path": str(evidence_path),

@@ -165,7 +165,7 @@ class Gateway(AbstractContextManager):
             path = (self.workspace / safe_relative(check["path"])).resolve()
             if not path.is_relative_to(self.workspace.resolve()):
                 raise ValueError("replay check escapes workspace")
-            content = path.read_text() if path.is_file() else ""
+            content = path.read_text(encoding="utf-8") if path.is_file() else ""
             if len(content) > 4 * 1024 * 1024:
                 raise ValueError("replay input exceeds bound")
             if "contains" in check:
@@ -329,6 +329,16 @@ class Gateway(AbstractContextManager):
                     raise
                 except OSError:
                     pass
+                if os.name == "nt":
+                    # Winsock2 shutdown(SD_BOTH) does not interrupt an in-flight blocking
+                    # WSARecv; closing the underlying SOCKET handle wakes the reader thread
+                    # while keeping HTTPResponse.fp/close() owned strictly by the handler.
+                    try:
+                        socket.socket._real_close(transport)
+                    except TimeoutError:
+                        raise
+                    except OSError:
+                        pass
             # The handler owns HTTPConnection/HTTPResponse.close(). Closing it
             # here races read1() over its mutable fp/chunk state; socket shutdown
             # interrupts that read so the handler can close and settle itself.

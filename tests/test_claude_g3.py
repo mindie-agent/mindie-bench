@@ -2,6 +2,8 @@
 
 import json
 import os
+import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -15,6 +17,7 @@ import pytest
 from mindie_bench.integrations import claude_stop, first_party
 from mindie_bench.models import HarnessConfig
 from mindie_bench.runner.drivers.claude_code import ClaudeCodeDriver
+from mindie_bench.runner.host_platform import which_native
 from mindie_bench.runner.sandbox import native_command
 
 
@@ -97,8 +100,10 @@ def test_only_g3_enables_the_owned_native_stop_and_session_artifact(tmp_path, gr
         assert settings["disableAllHooks"] is False
         assert list(settings["hooks"]) == ["Stop"]
         hook = settings["hooks"]["Stop"][0]["hooks"][0]
-        assert "mindie_bench.integrations.claude_stop" in hook["command"]
-        assert str(root / "native-stop.json") in hook["command"]
+        tokens = shlex.split(hook["command"], posix=True)
+        assert tokens[0] == sys.executable.replace("\\", "/")
+        assert "mindie_bench.integrations.claude_stop" in tokens
+        assert tokens[-1] == (root / "native-stop.json").as_posix()
     else:
         assert "--no-session-persistence" in command
         assert settings["disableAllHooks"] is True and "hooks" not in settings
@@ -163,6 +168,11 @@ def test_cc_capture_selects_real_adapter_contract_and_native_prompt_not_codex(tm
         first_party.native_capture_inputs(args, {**native, "harness": "unsupported"}, root)
 
 
+@pytest.mark.skipif(
+    platform.system() not in {"Darwin", "Linux"}
+    or (platform.system() == "Linux" and not which_native("bwrap")),
+    reason="Kernel filesystem sandbox requires macOS Seatbelt or Linux bubblewrap",
+)
 def test_native_summary_loader_reads_only_the_selected_package_and_adapter(tmp_path):
     capsule, scripts = tmp_path / "capsule", tmp_path / "adapter"
     capsule.mkdir()

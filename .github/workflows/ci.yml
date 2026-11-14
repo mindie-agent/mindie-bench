@@ -18,10 +18,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        env:
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: "true"
+          GIT_CONFIG_KEY_1: core.autocrlf
+          GIT_CONFIG_VALUE_1: "false"
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.13'
@@ -29,7 +38,7 @@ jobs:
         run: bash .github/scripts/setup_linux_sandbox.sh
       - run: uv sync --locked --all-extras
       - run: uv run ruff check .
-      - run: uv run pytest -m "not live_npu" --basetemp=/tmp/mb-ci
+      - run: uv run pytest -m "not live_npu" --basetemp="${{ runner.temp }}/mb-ci"
       - run: uv run mindie-bench demo --output reports/ci-synthetic
       - name: Measure scorer release workload
         run: |

@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from conftest import noop_true
 
 from mindie_bench.models import (
     CorpusConfig,
@@ -47,7 +48,7 @@ def test_budget_refusal_journals_zero_new_admission_with_settled_first_request(c
     monkeypatch.setenv("TEST_BROKER_KEY", "zero-paid-mock")
     harness = HarnessConfig(
         name="codex",
-        executable="/usr/bin/true",
+        executable=str(noop_true()),
         model="mock",
         expected_version="test",
         api_key_env="TEST_BROKER_KEY",
@@ -105,10 +106,10 @@ def test_capture_interruption_preserves_process_state_and_separate_settled_usage
     config.corpora["fixture"] = CorpusConfig(path=str(source), commit=commit)
     config.groups[Group.G3] = GroupConfig(
         mcp_servers={
-            "remote": MCPServer(command="/usr/bin/true", component="remote-dev"),
-            "knowledge": MCPServer(command="/usr/bin/true", component="knowledge"),
+            "remote": MCPServer(command=str(noop_true()), component="remote-dev"),
+            "knowledge": MCPServer(command=str(noop_true()), component="knowledge"),
         },
-        capture_command=["/usr/bin/true"],
+        capture_command=[str(noop_true())],
         capture_max_model_calls=1,
     )
     monkeypatch.setattr(orchestrator, "probe_runtime_import", lambda *args: {})
@@ -161,10 +162,10 @@ def test_corpus_rejection_findings_survive_without_inventing_capture_token_recei
     config.corpora["fixture"] = CorpusConfig(path=str(source), commit=commit)
     config.groups[Group.G3] = GroupConfig(
         mcp_servers={
-            "remote": MCPServer(command="/usr/bin/true", component="remote-dev"),
-            "knowledge": MCPServer(command="/usr/bin/true", component="knowledge"),
+            "remote": MCPServer(command=str(noop_true()), component="remote-dev"),
+            "knowledge": MCPServer(command=str(noop_true()), component="knowledge"),
         },
-        capture_command=["/usr/bin/true"],
+        capture_command=[str(noop_true())],
     )
     monkeypatch.setattr(orchestrator, "probe_runtime_import", lambda *args: {})
     monkeypatch.setattr(orchestrator, "native_command", lambda command, **kwargs: command)

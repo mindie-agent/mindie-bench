@@ -37,14 +37,13 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
-from mindie_bench.runner.process import subprocess_window_kwargs
+from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
 from mindie_bench.runner.qualification_gate_models import (
     SCHEMA,
     AbbaSample,
@@ -76,7 +75,7 @@ from mindie_bench.runner.qualification_gate_timing import (
 from mindie_bench.runner.qualification_gate_timing import (
     frozen_baseline_digest,
 )
-from mindie_bench.runner.termination import terminate_process_group
+from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
 __all__ = [
     "SCHEMA",
@@ -125,29 +124,28 @@ class ArtifactReader(Protocol):
 
 
 def run_local_command(command: GateCommand) -> CommandReceipt:
-    """Run one bounded command in its own process group."""
+    """Run one bounded command in its own process group or Win32 Job Object."""
     environment = {**os.environ, **command.env}
     argv = list(command.argv)
     if os.name == "nt" and argv:
-        if argv[0] in {"python3", "python"}:
-            resolved_py = shutil.which(argv[0], path=environment.get("PATH"))
-            if not resolved_py or "WindowsApps" in resolved_py:
-                argv[0] = sys.executable
-        elif argv == ["true"] and not shutil.which("true", path=environment.get("PATH")):
+        if argv[0] in {"python3", "python"} and not which_native(argv[0], path=environment.get("PATH")):
+            argv[0] = sys.executable
+        elif argv == ["true"] and not which_native("true", path=environment.get("PATH")):
             argv = [sys.executable, "-c", "pass"]
+    popen_kw: dict[str, Any] = dict(
+        cwd=command.cwd, env=environment, stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace",
+        **subprocess_window_kwargs(),
+    )
+    close_owner = None
     try:
-        process = subprocess.Popen(
-            argv,
-            cwd=command.cwd,
-            env=environment,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            errors="replace",
-            start_new_session=True,
-            **subprocess_window_kwargs(),
-        )
+        if sys.platform == "win32":
+            process, close_owner = spawn_owned_popen(argv, **popen_kw)
+        else:
+            process = subprocess.Popen(
+                argv, start_new_session=True, **popen_kw
+            )
     except TimeoutError:
         raise
     except OSError as error:
@@ -161,32 +159,25 @@ def run_local_command(command: GateCommand) -> CommandReceipt:
             terminate_process_group(process, term_wait=2, kill_wait=5)
         except (TimeoutError, OSError) as cleanup:
             return CommandReceipt(
-                command.argv,
-                None,
-                timed_out=True,
+                command.argv, None, timed_out=True,
                 error=f"timeout cleanup failed: {type(cleanup).__name__}",
             )
         try:
             stdout, stderr = process.communicate(timeout=2)
         except subprocess.TimeoutExpired as cleanup:
             return CommandReceipt(
-                command.argv,
-                None,
-                timed_out=True,
+                command.argv, None, timed_out=True,
                 error=f"process group did not drain: {type(cleanup).__name__}",
             )
         return CommandReceipt(
-            command.argv,
-            process.returncode,
-            stdout[:MAX_CAPTURE_BYTES],
-            stderr[:MAX_CAPTURE_BYTES],
-            timed_out=True,
+            command.argv, process.returncode,
+            stdout[:MAX_CAPTURE_BYTES], stderr[:MAX_CAPTURE_BYTES], timed_out=True,
         )
+    finally:
+        if close_owner is not None:
+            close_owner()
     return CommandReceipt(
-        command.argv,
-        process.returncode,
-        stdout[:MAX_CAPTURE_BYTES],
-        stderr[:MAX_CAPTURE_BYTES],
+        command.argv, process.returncode, stdout[:MAX_CAPTURE_BYTES], stderr[:MAX_CAPTURE_BYTES]
     )
 
 

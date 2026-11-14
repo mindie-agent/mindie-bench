@@ -180,7 +180,7 @@ def main(argv=None):
 
             request_type = AblationRequest if args.command == "ablation-evaluate" else GateRequest
             result = (
-                request_type.model_validate_json(args.input.read_text())
+                request_type.model_validate_json(args.input.read_text(encoding="utf-8"))
                 .evaluate()
                 .model_dump(mode="json")
             )
@@ -393,7 +393,9 @@ def main(argv=None):
             )
             args.output.mkdir(parents=True, exist_ok=False)
             write_json(args.output / "comparison.json", result, exclusive=True)
-            (args.output / "comparison.md").write_text(markdown(result))
+            (args.output / "comparison.md").write_text(
+                markdown(result), encoding="utf-8", newline="\n"
+            )
         elif args.command == "freeze":
             rows = load_receipts(args.input)
             freeze(rows, args.output)

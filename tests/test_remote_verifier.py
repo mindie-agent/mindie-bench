@@ -5,11 +5,17 @@ import hashlib
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.models import OracleContract, OracleProbe, UnknownExternalEffects
+from mindie_bench.runner.host_platform import (
+    resolve_git_bash,
+    subprocess_window_kwargs,
+    write_command_alias,
+)
 from mindie_bench.runner.verifier import remote_verifier, validate_remote_oracle_contract
 
 
@@ -25,15 +31,31 @@ class LocalJudgeTransport:
 
     def verify(self, script, *, env, timeout):
         self.calls.append((script, env, timeout))
+        bash_bin = resolve_git_bash()
+        path_parts = [str(self.tmp / "bin")]
+        if os.name == "nt":
+            bash_parent = Path(bash_bin).resolve().parent
+            path_parts.append(str(bash_parent))
+            usr_bin = bash_parent.parent / "usr" / "bin"
+            if usr_bin.is_dir():
+                path_parts.append(str(usr_bin))
+            path_parts.append(os.environ.get("PATH", ""))
+        else:
+            path_parts.extend(["/usr/bin", "/bin"])
         result = subprocess.run(
-            ["/bin/bash", "-s"],
+            [bash_bin, "-s"],
             input=script,
             env=dict(
-                os.environ, TMPDIR=str(self.tmp), PATH=str(self.tmp / "bin") + ":/usr/bin:/bin", **env
+                os.environ,
+                TMPDIR=self.tmp.as_posix(),
+                MINDIE_BENCH_BASH=bash_bin,
+                PATH=os.pathsep.join(p for p in path_parts if p),
+                **env,
             ),
             capture_output=True,
-            timeout=timeout + 1,
+            timeout=timeout + 5,
             cwd=self.workspace,
+            **subprocess_window_kwargs(),
         )
         if self.after:
             self.after()
@@ -49,14 +71,13 @@ def task(tmp_path):
     root = tmp_path / "task"
     (root / "verifier").mkdir(parents=True)
     (root / "oracle").mkdir()
-    (root / "verifier/test.sh").write_text("printf '{\"reward\":1}\\r\\n'\n")
-    (root / "oracle/golden.py").write_text("ANSWER = 3\n")
+    (root / "verifier/test.sh").write_text("printf '{\"reward\":1}\\r\\n'\n", encoding="utf-8", newline="\n")
+    (root / "oracle/golden.py").write_text("ANSWER = 3\n", encoding="utf-8", newline="\n")
     trial = tmp_path / "trial"
     trial.mkdir()
     LocalJudgeTransport.tmp = tmp_path / "private-tmp"
     LocalJudgeTransport.tmp.mkdir()
-    (LocalJudgeTransport.tmp / "bin").mkdir()
-    (LocalJudgeTransport.tmp / "bin/python3").symlink_to(sys.executable)
+    write_command_alias(LocalJudgeTransport.tmp / "bin", "python3", [sys.executable, "-X", "utf8"])
     LocalJudgeTransport.workspace = tmp_path / "workspace"
     LocalJudgeTransport.workspace.mkdir()
     return root, trial
@@ -66,7 +87,7 @@ def test_remote_judge_binds_nonce_and_oracle_and_preserves_actual_bytes(task):
     root, trial = task
     remote, contract = LocalJudgeTransport(), OracleContract()
     frozen = freeze_oracle(root, contract)
-    value, record = remote_verifier(root, remote, trial, 2, frozen, contract, None)
+    value, record = remote_verifier(root, remote, trial, 10, frozen, contract, None)
     assert value.reward == 1 and value.oracle_status == "intact"
     assert record["oracle"]["before"] == record["oracle"]["after"]
     assert remote.calls[0][1]["MINDIE_BENCH_ORACLE_SHA256"] == frozen.sha256
@@ -86,7 +107,7 @@ def test_remote_judge_cannot_pass_when_local_oracle_changes(task, when):
     remote = LocalJudgeTransport(after=mutate if when == "after" else None)
     if when == "before":
         mutate()
-    value, record = remote_verifier(root, remote, trial, 2, frozen, contract, None)
+    value, record = remote_verifier(root, remote, trial, 10, frozen, contract, None)
     assert value.reward == 0 and value.oracle_status == "oracle_tampered"
     assert len(remote.calls) == (1 if when == "after" else 0)
     if when == "after":
@@ -100,8 +121,10 @@ def test_private_remote_probe_runs_actual_bound_files_and_cleans_bundle(task):
     (root / "verifier/control.py").write_text(
         "import os,pathlib,sys\n"
         "root=pathlib.Path(os.environ['MINDIE_BENCH_ORACLE_ROOT'])\n"
-        "assert (root/'oracle/golden.py').read_text() == 'ANSWER = 3\\n'\n"
-        "sys.stdout.buffer.write(b'known-control\\r\\n')\n"
+        "assert (root/'oracle/golden.py').read_text(encoding='utf-8') == 'ANSWER = 3\\n'\n"
+        "sys.stdout.buffer.write(b'known-control\\r\\n')\n",
+        encoding="utf-8",
+        newline="\n",
     )
     contract = OracleContract(
         probes=[
@@ -116,7 +139,7 @@ def test_private_remote_probe_runs_actual_bound_files_and_cleans_bundle(task):
     remote = LocalJudgeTransport()
     validate_remote_oracle_contract(contract)
     value, record = remote_verifier(
-        root, remote, trial, 2, freeze_oracle(root, contract), contract, None
+        root, remote, trial, 15, freeze_oracle(root, contract), contract, None
     )
     assert value.reward == 1
     assert record["oracle"]["probes"][0]["stdout_sha256"] == hashlib.sha256(raw).hexdigest()
@@ -145,24 +168,29 @@ def test_remote_limits_this_judge_request_without_changing_agent_budget(task):
     root, trial = task
     remote, contract = LocalJudgeTransport(), OracleContract()
     remote.timeout = 1200
-    value, _ = remote_verifier(root, remote, trial, 2, freeze_oracle(root, contract), contract, None)
+    value, _ = remote_verifier(root, remote, trial, 10, freeze_oracle(root, contract), contract, None)
     assert value.reward == 1
-    assert remote.calls[0][2] == 2
+    assert remote.calls[0][2] == 10
     assert remote.timeout == 1200
 
 
 def test_private_bundle_actual_tamper_is_rejected_and_original_judge_output_survives(task):
     root, trial = task
     code = (
-        "import os,pathlib;"
+        "import os,pathlib,sys;"
         "p=pathlib.Path(os.environ['MINDIE_BENCH_ORACLE_ROOT'])/'oracle/golden.py';"
-        "p.chmod(0o644);p.write_text('forged');print('{\"reward\":1}')"
+        "p.chmod(0o644);p.write_text('forged',encoding='utf-8');"
+        "sys.stdout.buffer.write(b'{\"reward\":1}\\n')"
     )
     import shlex
 
-    (root / "verifier/test.sh").write_text(shlex.join([sys.executable, "-I", "-c", code]))
+    (root / "verifier/test.sh").write_text(
+        shlex.join([Path(sys.executable).as_posix(), "-I", "-c", code]) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     contract, remote = OracleContract(), LocalJudgeTransport()
-    value, record = remote_verifier(root, remote, trial, 2, freeze_oracle(root), contract, None)
+    value, record = remote_verifier(root, remote, trial, 15, freeze_oracle(root), contract, None)
     assert value.reward == 0 and value.oracle_status == "oracle_tampered"
     assert "oracle/golden.py" in value.failure_reason
     assert (trial / "verifier.stdout").read_bytes() == b'{"reward":1}\n'
@@ -173,12 +201,14 @@ def test_private_bundle_actual_tamper_is_rejected_and_original_judge_output_surv
 def test_remote_negative_control_detects_actual_candidate_monkeypatch_in_own_process(task):
     root, trial = task
     (root / "verifier/control.py").write_text(
-        "import importlib.util,pathlib\n"
+        "import importlib.util,pathlib,sys\n"
         "spec=importlib.util.spec_from_file_location('candidate', pathlib.Path.cwd()/'candidate.py')\n"
         "mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)\n"
         "mod.setup()\n"
         "assert sum([1,2])==3, 'actual monkeypatch detected'\n"
-        "print('control-ok')\n"
+        "sys.stdout.buffer.write(b'control-ok\\n')\n",
+        encoding="utf-8",
+        newline="\n",
     )
     contract = OracleContract(
         probes=[
@@ -195,7 +225,7 @@ def test_remote_negative_control_detects_actual_candidate_monkeypatch_in_own_pro
         "def setup():\n import builtins\n builtins.sum=lambda values: 0\n"
     )
     value, record = remote_verifier(
-        root, remote, trial, 2, freeze_oracle(root, contract), contract, None
+        root, remote, trial, 15, freeze_oracle(root, contract), contract, None
     )
     assert value.reward == 0 and value.oracle_status == "oracle_tampered"
     assert record["oracle"]["probes"][0]["returncode"] == 1

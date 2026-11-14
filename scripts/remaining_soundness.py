@@ -31,13 +31,36 @@ STAGES = {
 }
 
 
+def _win_kw():
+    return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+
+
+def _resolve_bash(env):
+    if os.name != "nt":
+        return "/bin/bash" if Path("/bin/bash").is_file() else (shutil.which("bash", path=env.get("PATH")) or "bash")
+    for entry in (env.get("PATH") or "").split(os.pathsep):
+        found = shutil.which("bash", path=entry)
+        if found and "\\windows\\system32\\" not in found.replace("/", "\\").lower() and "\\windowsapps\\" not in found.replace("/", "\\").lower():
+            return found
+    for root in (
+        os.environ.get("ProgramFiles", r"C:\Program Files") + r"\Git",
+        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)") + r"\Git",
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Git"),
+    ):
+        for rel in ("bin/bash.exe", "usr/bin/bash.exe"):
+            cand = Path(root) / rel
+            if cand.is_file():
+                return str(cand)
+    raise FileNotFoundError("Git for Windows bash.exe not found")
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def tree_hash(root, exclude=()):
     files = {
-        str(p.relative_to(root)): digest(p)
+        p.relative_to(root).as_posix(): digest(p)
         for p in sorted(root.rglob("*"))
         if p.is_file() and p.name not in exclude and "__pycache__" not in p.parts
     }
@@ -46,7 +69,9 @@ def tree_hash(root, exclude=()):
 
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+    path.write_text(
+        json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
 
 def helper_variant(source, entry, *, class_helper):
@@ -89,7 +114,7 @@ def prepare(repo, output, *, npu, python, tasks=None):
     jobs = []
     for name in names:
         task = repo / "tasks/zh-vague" / name
-        spec = tomllib.loads((task / "task.toml").read_text())
+        spec = tomllib.loads((task / "task.toml").read_text(encoding="utf-8"))
         tier = "l3" if npu else "l2"
         environment = spec["environment"][tier]
         source_repo = Path(environment["repo_path"])
@@ -99,7 +124,7 @@ def prepare(repo, output, *, npu, python, tasks=None):
         task_output = output / name
         task_output.mkdir(parents=True, exist_ok=True)
         shutil.copytree(task / "verifier", task_output / "verifier", dirs_exist_ok=True)
-        files = [str(target)]
+        files = [target.as_posix()]
         if name in COMPONENTS:
             files.extend(
                 subprocess.check_output(
@@ -114,7 +139,9 @@ def prepare(repo, output, *, npu, python, tasks=None):
                         "vllm_ascend_diag/fixtures",
                     ],
                     text=True,
+                    encoding="utf-8",
                     timeout=10,
+                    **_win_kw(),
                 ).splitlines()
             )
         base = task_output / "base"
@@ -123,24 +150,28 @@ def prepare(repo, output, *, npu, python, tasks=None):
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(
                 subprocess.check_output(
-                    ["git", "-C", str(source_repo), "show", f"{commit}:{relative}"], timeout=10
+                    ["git", "-C", str(source_repo), "show", f"{commit}:{relative}"],
+                    timeout=10,
+                    **_win_kw(),
                 )
             )
         gold = task_output / "gold"
         shutil.copytree(base, gold, dirs_exist_ok=True)
         subprocess.run(
-            ["git", "apply", "--no-index", str(task / "oracle/gold_patch.diff")],
+            ["git", "-c", "core.autocrlf=false", "apply", "--no-index", str(task / "oracle/gold_patch.diff")],
             cwd=gold,
             check=True,
             capture_output=True,
             timeout=10,
+            **_win_kw(),
         )
         for stage in ("negative", "gold_helper_function", "gold_helper_class"):
             shutil.copytree(gold, task_output / stage, dirs_exist_ok=True)
-        gold_source = (gold / target).read_text()
+        gold_source = (gold / target).read_text(encoding="utf-8")
         for stage in ("gold_helper_function", "gold_helper_class"):
             (task_output / stage / target).write_text(
-                helper_variant(gold_source, entry, class_helper=stage.endswith("class"))
+                helper_variant(gold_source, entry, class_helper=stage.endswith("class")),
+                encoding="utf-8",
             )
         negative = task_output / "negative" / target
         if name in COMPONENTS:
@@ -149,6 +180,8 @@ def prepare(repo, output, *, npu, python, tasks=None):
                 [
                     python,
                     "-I",
+                    "-X",
+                    "utf8",
                     "-B",
                     "-c",
                     "import importlib.util,json,sys; p=sys.argv[1]; s=importlib.util.spec_from_file_location('candidate',p); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(json.dumps(getattr(m,sys.argv[2])()))",
@@ -157,15 +190,20 @@ def prepare(repo, output, *, npu, python, tasks=None):
                 ],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=40,
+                **_win_kw(),
             )
             if capture.returncode:
                 raise RuntimeError(capture.stderr)
             constant = json.loads(capture.stdout)
-            negative.write_text(f"def {entry}(*args, **kwargs):\n    return {constant!r}\n")
+            negative.write_text(
+                f"def {entry}(*args, **kwargs):\n    return {constant!r}\n", encoding="utf-8"
+            )
         else:
             negative.write_text(
-                "def set_cos_and_sin(*args, **kwargs):\n    return None\n\ndef update_cos_sin(*args, **kwargs):\n    return None\n\ndef get_cos_and_sin_slice():\n    return None, None\n"
+                "def set_cos_and_sin(*args, **kwargs):\n    return None\n\ndef update_cos_sin(*args, **kwargs):\n    return None\n\ndef get_cos_and_sin_slice():\n    return None, None\n",
+                encoding="utf-8",
             )
         job = {
             "task": name,
@@ -190,32 +228,48 @@ def prepare(repo, output, *, npu, python, tasks=None):
 
 
 def run_prepared(output, python):
-    jobs = json.loads((output / "jobs.json").read_text())
+    jobs = json.loads((output / "jobs.json").read_text(encoding="utf-8"))
     results = []
     for job in jobs:
         directory = output / job["task"]
         runs = {}
         for stage, expected in STAGES.items():
             workspace = directory / stage
-            env = dict(os.environ, MINDIE_BENCH_WORKSPACE=str(workspace), MINDIE_BENCH_PYTHON=python)
-            command = ["bash", str(directory / "verifier/test.sh")]
+            env = dict(
+                os.environ,
+                MINDIE_BENCH_WORKSPACE=str(workspace),
+                MINDIE_BENCH_PYTHON=python,
+                PYTHONUTF8="1",
+            )
+            command = [_resolve_bash(env), str(directory / "verifier/test.sh")]
             start = time.monotonic()
             try:
                 proc = subprocess.run(
-                    command, cwd=workspace, env=env, capture_output=True, text=True, timeout=40
+                    command,
+                    cwd=workspace,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=40,
+                    **_win_kw(),
                 )
                 stdout, stderr, code = proc.stdout, proc.stderr, proc.returncode
             except subprocess.TimeoutExpired as exc:
                 stdout = (
-                    (exc.stdout or b"").decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+                    (exc.stdout or b"").decode("utf-8", errors="replace")
+                    if isinstance(exc.stdout, bytes)
+                    else (exc.stdout or "")
                 )
                 stderr = (
-                    (exc.stderr or b"").decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+                    (exc.stderr or b"").decode("utf-8", errors="replace")
+                    if isinstance(exc.stderr, bytes)
+                    else (exc.stderr or "")
                 )
                 stderr += "\nVerifier subprocess exceeded 40s budget.\n"
                 code = None
-            (directory / f"{stage}.stdout").write_text(stdout)
-            (directory / f"{stage}.stderr").write_text(stderr)
+            (directory / f"{stage}.stdout").write_text(stdout, encoding="utf-8")
+            (directory / f"{stage}.stderr").write_text(stderr, encoding="utf-8")
             verdict = None
             for line in reversed(stdout.splitlines()):
                 try:
@@ -276,7 +330,7 @@ def run_prepared(output, python):
 
 
 def publish(repo, output):
-    results = json.loads((output / "results.json").read_text())
+    results = json.loads((output / "results.json").read_text(encoding="utf-8"))
     for receipt in results:
         task = repo / "tasks/zh-vague" / receipt["task"]
         if tree_hash(task, ("soundness_receipt.json",)) != receipt["task_sha256"]:

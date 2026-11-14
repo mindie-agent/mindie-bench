@@ -32,7 +32,7 @@ UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, uni
 
 
 def frontmatter(path: Path) -> dict:
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     parts = text.split("---\n", 2)
     if len(parts) != 3 or parts[0]:
         raise ValueError(f"missing explicit frontmatter: {path}")
@@ -62,7 +62,7 @@ def read_package(root: Path) -> Package:
         title = next(
             (
                 line.lstrip("# ").strip()
-                for line in local.read_text().splitlines()
+                for line in local.read_text(encoding="utf-8").splitlines()
                 if line.startswith("#")
             ),
             root.name,

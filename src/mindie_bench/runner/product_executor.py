@@ -41,7 +41,7 @@ class ProductExecutionBinding:
     runtime: dict = field(init=False, repr=False)
 
     def __post_init__(self):
-        manifest = json.loads(self.runtime_manifest.read_text())
+        manifest = json.loads(self.runtime_manifest.read_text(encoding="utf-8"))
         runtime = runtime_snapshot(self.config, self.capability_mode)
         if runtime != manifest["runtime_snapshot"]:
             raise ValueError("installed product runtime differs from its prepared source identity")

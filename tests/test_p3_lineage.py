@@ -496,7 +496,14 @@ def test_unreadable_lineage_bytes_are_not_reported_as_changed(tmp_path, monkeypa
     monkeypatch.undo()
     heldout = tmp_path / "heldout-task"
     heldout.mkdir()
-    (heldout / "instruction.md").symlink_to("/no/such/mindie-instruction.md")
+    try:
+        (heldout / "instruction.md").symlink_to(tmp_path / "no-such-mindie-instruction.md")
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            # Without SeCreateSymbolicLinkPrivilege, verify missing-instruction unreadable directly.
+            pass
+        else:
+            raise
     downstream = evaluate_p3_lineage(manifest, task_root=heldout, verify_artifacts=False)
     assert any(
         item.startswith("downstream_instruction_unreadable:FileNotFoundError:")

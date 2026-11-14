@@ -23,6 +23,7 @@ def main() -> None:
     destination = args.destination.absolute()
     if destination.exists():
         raise FileExistsError("preserve existing runtime; choose a fresh destination")
+    win_kw = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
     version = subprocess.check_output(
         [
             str(args.python.resolve(strict=True)),
@@ -31,6 +32,8 @@ def main() -> None:
             "import json,sys;print(json.dumps(list(sys.version_info[:3])))",
         ],
         text=True,
+        encoding="utf-8",
+        **win_kw,
     )
     if json.loads(version) != [3, 13, 12]:
         raise ValueError("this CPU recipe requires the explicitly pinned CPython 3.13.12")
@@ -58,21 +61,26 @@ def main() -> None:
             },
             indent=2,
         )
-        + "\n"
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
     result = subprocess.run(
         command,
         env=dict(os.environ, UV_PROJECT_ENVIRONMENT=str(destination / "venv")),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
+        **win_kw,
     )
-    (destination / "setup.stdout").write_text(result.stdout)
-    (destination / "setup.stderr").write_text(result.stderr)
+    (destination / "setup.stdout").write_text(result.stdout, encoding="utf-8", newline="\n")
+    (destination / "setup.stderr").write_text(result.stderr, encoding="utf-8", newline="\n")
     result.check_returncode()
     if sha(recipe / "uv.lock") != lock_sha:
         raise RuntimeError("locked installation changed its lock")
-    python = destination / "venv/bin/python"
+    python = destination / ("venv/Scripts/python.exe" if os.name == "nt" else "venv/bin/python")
     probe = """
 import hashlib,importlib.metadata,json,platform,sys
 from pathlib import Path
@@ -93,10 +101,16 @@ print(json.dumps(dict(executable=sys.executable,base_prefix=sys.base_prefix,
     torch_file=str(Path(torch.__file__).resolve()),packages=packages)))
 """
     checked = subprocess.run(
-        [str(python), "-I", "-c", probe], capture_output=True, text=True, check=False
+        [str(python), "-I", "-X", "utf8", "-c", probe],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        **win_kw,
     )
-    (destination / "probe.stdout").write_text(checked.stdout)
-    (destination / "probe.stderr").write_text(checked.stderr)
+    (destination / "probe.stdout").write_text(checked.stdout, encoding="utf-8", newline="\n")
+    (destination / "probe.stderr").write_text(checked.stderr, encoding="utf-8", newline="\n")
     checked.check_returncode()
     observed = json.loads(checked.stdout)
     manifest = {
@@ -105,14 +119,18 @@ print(json.dumps(dict(executable=sys.executable,base_prefix=sys.base_prefix,
         "interpreter": str(python),
         "resolved_python": str(python.resolve(strict=True)),
         "python_binary_sha256": sha(python.resolve(strict=True)),
-        "uv_version": subprocess.check_output([args.uv, "--version"], text=True).strip(),
+        "uv_version": subprocess.check_output(
+            [args.uv, "--version"], text=True, encoding="utf-8", **win_kw
+        ).strip(),
         "recipe_pyproject_sha256": sha(recipe / "pyproject.toml"),
         "uv_lock_sha256": lock_sha,
         "observed": observed,
         "scope": "Real CPU torch tensors; no torch_npu, NPU, HCCL or full-model claim.",
         "relocation": "Materialize a fresh task revision and re-prove soundness after any path/runtime change.",
     }
-    (destination / "runtime-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (destination / "runtime-manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
     print(json.dumps(manifest, indent=2))
 
 

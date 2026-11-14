@@ -11,6 +11,13 @@ from test_metrics import receipt
 from mindie_bench.hf_sync.exporter import export_hf, public_row
 from mindie_bench.mining.knowledge_to_task import _toml_document, mine_knowledge
 from mindie_bench.models import TaskSpec
+from mindie_bench.runner.host_platform import (
+    resolve_git_bash,
+    subprocess_window_kwargs,
+    which_native,
+    write_command_alias,
+    write_executable_shim,
+)
 from mindie_bench.runner.soundness import check_soundness
 from mindie_bench.scorer.comparator import freeze, load_receipts
 
@@ -32,7 +39,9 @@ def test_task_serializer_roundtrips_multiple_private_oracle_probes():
 def test_soundness_checks_fail_before_and_pass_after_and_preserves_source(case):
     (case["task"] / "oracle/gold_patch.diff").write_text(
         "diff --git a/module.py b/module.py\n--- a/module.py\n+++ b/module.py\n"
-        "@@ -1 +1 @@\n-VALUE = 1\n+VALUE = 2\n"
+        "@@ -1 +1 @@\n-VALUE = 1\n+VALUE = 2\n",
+        encoding="utf-8",
+        newline="\n",
     )
     proof = check_soundness(case["task"], case["config"], tier="l2", output=case["root"] / "soundness")
     assert proof["status"] == "completed"
@@ -87,12 +96,13 @@ def test_export_never_contains_private_traces_configs_or_error_messages():
 
 
 def test_missing_redactor_is_fail_closed(tmp_path):
+    missing = tmp_path / "does/not/exist"
     with pytest.raises(ValueError, match="unavailable"):
         export_hf(
             tmp_path / "input",
             tmp_path / "public",
-            knowledge_python=Path("/does/not/exist"),
-            gitleaks=Path("/does/not/exist"),
+            knowledge_python=missing,
+            gitleaks=missing,
         )
     assert not (tmp_path / "public").exists()
 
@@ -100,9 +110,7 @@ def test_missing_redactor_is_fail_closed(tmp_path):
 def test_redactor_failure_never_publishes_partial_output(tmp_path, monkeypatch):
     source = tmp_path / "input"
     freeze([receipt("completed_pass")], source)
-    scanner = tmp_path / "scanner"
-    scanner.write_text("#!/bin/sh\nexit 1\n")
-    scanner.chmod(0o700)
+    scanner = write_executable_shim(tmp_path, "scanner", "raise SystemExit(1)\n")
     output = tmp_path / "public"
     with pytest.raises(RuntimeError, match="redaction"):
         export_hf(source, output, knowledge_python=Path(sys.executable), gitleaks=scanner)
@@ -120,11 +128,9 @@ def public_export_input(tmp_path):
         row.environment_fingerprint["remote_environment"] = {"kernel": "5.10.0-216.0.0"}
         directory = source / str(repetition)
         directory.mkdir(parents=True)
-        (directory / "trial_receipt.json").write_text(row.model_dump_json())
+        (directory / "trial_receipt.json").write_text(row.model_dump_json(), encoding="utf-8")
         originals.append(row)
-    scanner = tmp_path / "scanner"
-    scanner.write_text("#!/bin/sh\nexit 0\n")
-    scanner.chmod(0o700)
+    scanner = write_executable_shim(tmp_path, "scanner", "raise SystemExit(0)\n")
     return source, originals, scanner
 
 
@@ -331,8 +337,18 @@ def test_cli_matrix_alias_supports_multiple_tasks_flags(case, tmp_path, monkeypa
     assert captured["paths"] == [task_a, task_b]
 
 
-def test_hardened_g4_rsi_verifiers_reject_constant_returning_dummy_modules(tmp_path):
+def _verifier_bash_env(tmp_path: Path, workspace: Path) -> tuple[str, dict[str, str]]:
     import os
+
+    env = dict(os.environ, MINDIE_BENCH_WORKSPACE=str(workspace), MINDIE_BENCH_PYTHON=sys.executable)
+    if os.name == "nt" and not which_native("python3", path=env.get("PATH")):
+        shim_dir = tmp_path / "_py3_shim"
+        write_command_alias(shim_dir, "python3", [sys.executable, "-X", "utf8"])
+        env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "")
+    return resolve_git_bash(env), env
+
+
+def test_hardened_g4_rsi_verifiers_reject_constant_returning_dummy_modules(tmp_path):
     import subprocess
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -350,8 +366,8 @@ def test_hardened_g4_rsi_verifiers_reject_constant_returning_dummy_modules(tmp_p
     ):
         ws = tmp_path / task_id
         ws.mkdir()
-        (ws / "experiment-ledger.jsonl").write_text(" ".join(arms) + "\n")
-        (ws / "PROGRESS.md").write_text("# Progress summary with at least forty characters here.\n")
+        (ws / "experiment-ledger.jsonl").write_text(" ".join(arms) + "\n", encoding="utf-8")
+        (ws / "PROGRESS.md").write_text("# Progress summary with at least forty characters here.\n", encoding="utf-8")
         mod_path = ws / rel_mod
         mod_path.parent.mkdir(parents=True, exist_ok=True)
         mod_path.write_text(
@@ -366,15 +382,19 @@ def test_hardened_g4_rsi_verifiers_reject_constant_returning_dummy_modules(tmp_p
             '        "minus_dim_merge": {"nested_loop_depth": 3, "latency_ms": 2.0},\n'
             '        "minus_block_scaling": {"block_size": 512, "latency_ms": 2.0},\n'
             '        "minus_multibuffer_cast_guard": {"enable_multibuffer": True, "intermediate_gm_copies": 1, "latency_ms": 2.0},\n'
-            "    }\n"
+            "    }\n",
+            encoding="utf-8",
         )
         verifier_sh = repo_root / "tasks/zh-vague" / task_id / "verifier/test.sh"
+        bash_bin, env = _verifier_bash_env(tmp_path, ws)
         proc = subprocess.run(
-            ["/bin/bash", str(verifier_sh)],
+            [bash_bin, str(verifier_sh)],
             cwd=ws,
-            env=dict(os.environ, MINDIE_BENCH_WORKSPACE=str(ws)),
+            env=env,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            **subprocess_window_kwargs(),
         )
         assert proc.returncode != 0
         payload = json.loads([line for line in proc.stdout.splitlines() if line.strip()][-1])
@@ -418,20 +438,22 @@ STRING_ONLY_ARTIFACTS = {
     ],
 )
 def test_behavior_verifiers_reject_string_only_artifacts(tmp_path, task_id):
-    import os
     import subprocess
 
     task = Path(__file__).resolve().parents[1] / "tasks/zh-vague" / task_id
-    for relative in tomllib.loads((task / "task.toml").read_text())["mindie_knowledge"]["target_files"]:
+    for relative in tomllib.loads((task / "task.toml").read_text(encoding="utf-8"))["mindie_knowledge"]["target_files"]:
         (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / relative).write_text(STRING_ONLY_ARTIFACTS[relative])
+        (tmp_path / relative).write_text(STRING_ONLY_ARTIFACTS[relative], encoding="utf-8")
+    bash_bin, env = _verifier_bash_env(tmp_path, tmp_path)
     proc = subprocess.run(
-        ["/bin/bash", str(task / "verifier/test.sh")],
+        [bash_bin, str(task / "verifier/test.sh")],
         cwd=tmp_path,
-        env=dict(os.environ, MINDIE_BENCH_WORKSPACE=str(tmp_path)),
+        env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=60,
+        **subprocess_window_kwargs(),
     )
     assert proc.returncode == 1, proc.stderr
     payload = json.loads([line for line in proc.stdout.splitlines() if line.strip()][-1])

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import shlex
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from mindie_bench.evaluation.oracle_freezer import (
     freeze_oracle,
 )
 from mindie_bench.models import OracleContract, OracleProbe, UnknownExternalEffects
+from mindie_bench.runner.host_platform import which_native
 from mindie_bench.runner.verifier import local_verifier
 
 
@@ -69,11 +71,21 @@ def test_frozen_inventory_rejects_changed_membership(judge, action):
     else:
         target.unlink()
         if action == "symlink":
-            target.symlink_to(root / "oracle/golden.py")
+            try:
+                target.symlink_to(root / "oracle/golden.py")
+            except OSError as exc:
+                if getattr(exc, "winerror", None) == 1314:
+                    pytest.skip("Windows host lacks symlink creation privilege")
+                raise
     with pytest.raises(OracleTampered):
         check_oracle(frozen)
 
 
+@pytest.mark.skipif(
+    platform.system() not in {"Darwin", "Linux"}
+    or (platform.system() == "Linux" and not which_native("bwrap")),
+    reason="Kernel filesystem sandbox requires macOS Seatbelt or Linux bubblewrap",
+)
 def test_foreground_cannot_write_external_judge_in_actual_sandbox(judge):
     root, workspace, *_ = judge
     (root / "verifier/test.sh").write_text(
@@ -93,13 +105,15 @@ def test_actual_in_memory_monkeypatch_is_detected_by_bound_negative_control(judg
     root, workspace, *_ = judge
     probe = root / "verifier/negative.py"
     probe.write_text(
-        "import importlib.util, os\n"
+        "import importlib.util, os, sys\n"
         "spec=importlib.util.spec_from_file_location('candidate', "
         "os.environ['MINDIE_BENCH_WORKSPACE']+'/candidate.py')\n"
         "mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)\n"
         "mod.setup()\n"
         "assert sum([1,2]) == 3, 'controlled judge monkeypatch detected'\n"
-        "print('control-ok')\n"
+        "sys.stdout.buffer.write(b'control-ok\\n')\n",
+        encoding="utf-8",
+        newline="\n",
     )
     contract = OracleContract(
         probes=[
@@ -173,7 +187,9 @@ def test_local_timeout_stops_owned_descendant_and_keeps_partial_output(
         + f"if release.exists(): pathlib.Path({str(sentinel)!r}).write_text('late mutation')\n"
     )
     (root / "verifier/test.sh").write_text(
-        f"{shlex.quote(sys.executable)} -I -c {shlex.quote(child)} &\nwait\n"
+        f"{shlex.quote(Path(sys.executable).as_posix())} -I -c {shlex.quote(child)} &\nwait\n",
+        encoding="utf-8",
+        newline="\n",
     )
     actual_popen = subprocess.Popen
     owners = []
@@ -186,14 +202,22 @@ def test_local_timeout_stops_owned_descendant_and_keeps_partial_output(
 
     monkeypatch.setattr(verifier.subprocess, "Popen", observe_owner)
     if inventory_failure:
-        actual_run = subprocess.run
+        if sys.platform == "win32":
+            from mindie_bench.runner import termination
 
-        def fail_inventory(command, **kwargs):
-            if command == ["ps", "-e", "-o", "pgid=,stat="]:
+            def fail_win_inventory(_process):
                 raise OSError("process inventory unavailable")
-            return actual_run(command, **kwargs)
 
-        monkeypatch.setattr(verifier.subprocess, "run", fail_inventory)
+            monkeypatch.setattr(termination, "_win_job_active_count", fail_win_inventory)
+        else:
+            actual_run = subprocess.run
+
+            def fail_inventory(command, **kwargs):
+                if command == ["ps", "-e", "-o", "pgid=,stat="]:
+                    raise OSError("process inventory unavailable")
+                return actual_run(command, **kwargs)
+
+            monkeypatch.setattr(verifier.subprocess, "run", fail_inventory)
     late_write = False
     try:
         with pytest.raises((subprocess.TimeoutExpired, UnknownExternalEffects)) as raised:
@@ -244,7 +268,7 @@ def test_probe_hash_uses_actual_bytes_without_newline_normalization(judge):
         probes=[
             OracleProbe(
                 name="raw_bytes",
-                command=["/usr/bin/printf", raw.decode()],
+                command=[sys.executable, "-I", "-c", "import sys; sys.stdout.buffer.write(b'control\\r\\n')"],
                 expected_returncode=0,
                 stdout_sha256=hashlib.sha256(raw).hexdigest(),
             )

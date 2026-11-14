@@ -44,7 +44,8 @@ def _ports():
 def _worker(connection, task_id, state, observed, ports, coordinated):
     # Own a process group so parent cleanup can terminate descendants without
     # signalling the runner's own group.
-    os.setsid()
+    if hasattr(os, "setsid"):
+        os.setsid()
     from mindie_coordinator.host.mindie_npu_coordination import NpuCoordinator
 
     coordinator = NpuCoordinator(state) if coordinated else None

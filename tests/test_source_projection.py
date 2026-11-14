@@ -1,9 +1,11 @@
 import hashlib
+import os
 import subprocess
 
 import pytest
 
 from mindie_bench.models import SourceEnvironment
+from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS
 from mindie_bench.runner.worktree_slot import WorktreeSlot
 
@@ -12,14 +14,19 @@ from mindie_bench.runner.worktree_slot import WorktreeSlot
 def neutral_git_environment(tmp_path, monkeypatch):
     # A developer's global git setup (for example an ignore rule for
     # .claude/settings.local.json) must not mask harness files in these tests.
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
-    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-empty"))
 
 
 def git(repo, *args):
     return subprocess.run(
-        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True
+        [which_native("git") or "git", "-C", str(repo), "-c", "core.autocrlf=false", *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        **subprocess_window_kwargs(),
     ).stdout.strip()
 
 
@@ -129,7 +136,12 @@ def test_symlinked_destination_still_reattaches_and_cleans_up(hosted_repo, tmp_p
     before = git(repo, "worktree", "list")
     link = tmp_path / "link"
     (tmp_path / "real").mkdir()
-    link.symlink_to(tmp_path / "real")
+    try:
+        link.symlink_to(tmp_path / "real", target_is_directory=True)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows host lacks symlink creation privilege")
+        raise
     slot = make_slot(repo, commit, link / "trial" / "workspace", tmp_path)
     workspace = slot.prepare()
     (workspace / "module.py").write_text("VALUE = 2\n")

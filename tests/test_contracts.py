@@ -1,21 +1,28 @@
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from conftest import noop_true
 from pydantic import ValidationError
 
 from mindie_bench.io import read_json, safe_relative, tree_hash, write_json
 from mindie_bench.models import Group, GroupConfig, MCPServer
+from mindie_bench.runner.host_platform import subprocess_window_kwargs
 from mindie_bench.runner.profile_builder import bind_mcp_transport, build_profile, filtered_corpus
 from mindie_bench.runner.verifier import parse_verifier
 
 
 def test_component_python_keeps_its_virtual_environment(case, tmp_path):
     runtime = tmp_path / "component-runtime"
-    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(runtime)], check=True)
+    subprocess.run(
+        [sys.executable, "-m", "venv", "--without-pip", str(runtime)],
+        check=True,
+        **subprocess_window_kwargs(),
+    )
     python = runtime / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     case["config"].groups[Group.G1] = GroupConfig(
         mcp_servers={"remote": MCPServer(command=str(python), component="remote-dev")}
@@ -23,22 +30,25 @@ def test_component_python_keeps_its_virtual_environment(case, tmp_path):
     destination = tmp_path / "trial"
     destination.mkdir()
     profile = build_profile(destination, case["spec"], Group.G1, case["config"])
-    invocation = json.loads((profile.root / "mcp.json").read_text())["mcpServers"]["remote"]["command"]
+    invocation = json.loads((profile.root / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]["remote"]["command"]
     observed = subprocess.check_output(
-        [invocation, "-I", "-c", "import sys;print(sys.prefix)"], text=True
+        [invocation, "-I", "-c", "import sys;print(sys.prefix)"],
+        text=True,
+        encoding="utf-8",
+        **subprocess_window_kwargs(),
     ).strip()
-    assert observed == str(runtime)
+    assert Path(observed).resolve() == runtime.resolve()
 
 
 def test_mcp_transport_explicitly_survives_native_environment_filtering(case, monkeypatch):
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "must-not-inherit")
     case["config"].groups[Group.G1] = GroupConfig(
-        mcp_servers={"remote": MCPServer(command="/usr/bin/true", component="remote-dev")}
+        mcp_servers={"remote": MCPServer(command=str(noop_true()), component="remote-dev")}
     )
     destination = case["root"] / "transport"
     destination.mkdir()
     profile = build_profile(destination, case["spec"], Group.G1, case["config"])
-    profile.env["PATH"] = str(profile.root / "bin") + ":" + profile.env["PATH"]
+    profile.env["PATH"] = str(profile.root / "bin") + os.pathsep + profile.env["PATH"]
     profile.env["MINDIE_BENCH_GATEWAY"] = "http://127.0.0.1:12345"
     bind_mcp_transport(profile)
     server = json.loads((profile.root / "mcp.json").read_text())["mcpServers"]["remote"]
@@ -286,8 +296,8 @@ def test_g2_filters_and_preserves_stale_knowledge(case, corpus):
     config.corpora["fixture"] = CorpusConfig(path=str(root), commit=commit)
     config.groups[Group.G2] = GroupConfig(
         mcp_servers={
-            "remote": MCPServer(command="/usr/bin/true", component="remote-dev"),
-            "knowledge": MCPServer(command="/usr/bin/true", component="knowledge", args=["{corpus}"]),
+            "remote": MCPServer(command=str(noop_true()), component="remote-dev"),
+            "knowledge": MCPServer(command=str(noop_true()), component="knowledge", args=["{corpus}"]),
         }
     )
     trial = case["root"] / "trial"

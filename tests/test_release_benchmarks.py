@@ -205,7 +205,9 @@ subprocess.run(["git", "-c", "user.name=Benchmark", "-c",
 
 
 def test_runner_without_git_provenance_cannot_publish(tmp_path, workspace):
-    shutil.rmtree(tmp_path / "runner/.git")
+    from mindie_bench.runner.host_platform import rmtree_force
+
+    rmtree_force(tmp_path / "runner/.git")
     report = run(tmp_path, workspace)
     assert report["tool"]["source"] is None
     assert "runner_source_unavailable" in report["blocking_reasons"]

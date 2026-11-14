@@ -1,6 +1,5 @@
 import json
 import platform
-import shutil
 import socket
 import subprocess
 import sys
@@ -9,10 +8,11 @@ from pathlib import Path
 import pytest
 
 from mindie_bench.runner import sandbox
+from mindie_bench.runner.host_platform import which_native
 
 
 @pytest.mark.skipif(
-    platform.system() != "Linux" or not shutil.which("bwrap"),
+    platform.system() != "Linux" or not which_native("bwrap"),
     reason="requires real Linux bubblewrap",
 )
 def test_aliased_python_runtime_keeps_virtualenv_and_isolation(tmp_path):

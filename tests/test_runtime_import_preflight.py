@@ -13,11 +13,12 @@ import pytest
 
 from mindie_bench.models import Group
 from mindie_bench.runner import orchestrator
+from mindie_bench.runner.host_platform import which_native
 from mindie_bench.runner.profile_builder import build_profile
 
 pytestmark = pytest.mark.skipif(
     platform.system() not in {"Darwin", "Linux"}
-    or (platform.system() == "Linux" and not shutil.which("bwrap")),
+    or (platform.system() == "Linux" and not which_native("bwrap")),
     reason="requires a native sandbox; no unisolated fallback",
 )
 

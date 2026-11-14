@@ -32,6 +32,7 @@ from pathlib import Path
 from mindie_bench.corpus import read_package
 from mindie_bench.io import read_json, safe_relative, sha256_file, task_hash, tree_hash, write_json
 from mindie_bench.models import TaskSpec
+from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
 
 DOMAINS = {
     "graph_and_kernel_debugging": re.compile(
@@ -47,27 +48,32 @@ DOMAINS = {
 def mine_knowledge(corpus: Path, output: Path, *, limit: int = 12) -> list[dict]:
     if limit < 1:
         raise ValueError("candidate limit must be positive")
+    git_exe = which_native("git") or "git"
     commit = subprocess.run(
-        ["git", "-C", str(corpus), "rev-parse", "HEAD"],
+        [git_exe, "-C", str(corpus), "rev-parse", "HEAD"],
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
+        **subprocess_window_kwargs(),
     ).stdout.strip()
     if subprocess.run(
-        ["git", "-C", str(corpus), "status", "--porcelain"],
+        [git_exe, "-C", str(corpus), "status", "--porcelain"],
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
+        **subprocess_window_kwargs(),
     ).stdout:
         raise ValueError("mine a clean, exact corpus revision")
     candidates = []
     for package in sorted((corpus / "tasks").iterdir()):
         decoded = read_package(package)
         navigation, materials = decoded.navigation, decoded.blocks
-        text = navigation.read_text()
-        body = "\n".join(path.read_text() for path in materials)
+        text = navigation.read_text(encoding="utf-8")
+        body = "\n".join(path.read_text(encoding="utf-8") for path in materials)
         categories = [name for name, pattern in DOMAINS.items() if pattern.search(text + "\n" + body)]
         if not categories:
             continue
@@ -151,8 +157,13 @@ def mine_knowledge(corpus: Path, output: Path, *, limit: int = 12) -> list[dict]
 
 
 def _git(repo: Path, *args: str) -> bytes:
+    git_exe = which_native("git") or "git"
     return subprocess.run(
-        ["git", "-C", str(repo), *args], check=True, capture_output=True, timeout=30
+        [git_exe, "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        timeout=30,
+        **subprocess_window_kwargs(),
     ).stdout
 
 
@@ -270,7 +281,11 @@ def compile_recipe(corpus: Path, recipe_manifest: Path, output: Path) -> dict:
         if _git(corpus, "show", commit + ":" + relative) != block.read_bytes():
             raise ValueError("knowledge evidence differs from its frozen Git blob")
         quote = label["supporting_text"]
-        if not isinstance(quote, str) or len(quote) < 12 or quote not in block.read_text():
+        if (
+            not isinstance(quote, str)
+            or len(quote) < 12
+            or quote not in block.read_text(encoding="utf-8")
+        ):
             raise ValueError("knowledge relation needs actual supporting body text")
         relation_ids[label["relation"]].add(package_id)
     knowledge = spec.mindie_knowledge
@@ -326,12 +341,14 @@ def compile_recipe(corpus: Path, recipe_manifest: Path, output: Path) -> dict:
     if manifest.get("soundness_receipt"):
         spec.task.evidence = "verified"
     output.mkdir(parents=True, exist_ok=False)
-    (output / "task.toml").write_text(_toml_document(spec.model_dump(exclude_none=True)))
+    (output / "task.toml").write_text(
+        _toml_document(spec.model_dump(exclude_none=True)), encoding="utf-8", newline="\n"
+    )
     for destination, raw in assets.items():
         path = output / destination
         path.parent.mkdir(parents=True, exist_ok=True)
         if destination in {"verifier/test.sh", "instruction.md"}:
-            raw = raw.replace(b"@L2_PYTHON@", str(python).encode())
+            raw = raw.replace(b"@L2_PYTHON@", python.as_posix().encode("utf-8"))
         path.write_bytes(raw)
     if manifest.get("soundness_receipt"):
         proof = json.loads(_asset(root, manifest["soundness_receipt"]))

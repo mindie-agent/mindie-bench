@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import stat
 from pathlib import Path
 
 import pytest
@@ -608,17 +607,23 @@ _PatchLoader.add_constructor(
 
 @pytest.mark.tier1
 def test_dsh_profiles_force_standard_tools_and_max_reasoning_effort(tmp_path):
-    fake = tmp_path / "dsh"
-    fake.write_text(
-        "#!/bin/sh\nset -e\n"
-        "profile=\"$DSH_HOME/profiles/bench\"\n"
-        "mkdir -p \"$profile\"\n"
-        "printf '%s\\n' '{\"name\":\"dsh-profile-bench\",\"private\":true,"
-        "\"dsh\":{\"profile\":{\"bundles\":[]}}}' > \"$profile/package.json\"\n"
-        "printf '%s\\n' '[]' > \"$profile/cordis.patch.yml\"\n"
-        "echo '[]'\n"
+    from mindie_bench.runner.host_platform import write_executable_shim
+
+    fake = write_executable_shim(
+        tmp_path,
+        "dsh",
+        """import json, os, pathlib
+profile = pathlib.Path(os.environ["DSH_HOME"]) / "profiles" / "bench"
+profile.mkdir(parents=True, exist_ok=True)
+(profile / "package.json").write_text(
+    json.dumps({"name": "dsh-profile-bench", "private": True, "dsh": {"profile": {"bundles": []}}}) + "\\n",
+    encoding="utf-8",
+    newline="\\n",
+)
+(profile / "cordis.patch.yml").write_text("[]\\n", encoding="utf-8", newline="\\n")
+print("[]")
+""",
     )
-    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
     config = ExperimentConfig(
         schema_version="1.0",
         harness=HarnessConfig(
@@ -632,7 +637,7 @@ def test_dsh_profiles_force_standard_tools_and_max_reasoning_effort(tmp_path):
     root.mkdir()
     build_dsh_profile(root, {"PATH": "/usr/bin:/bin:/opt/homebrew/bin"}, config, {}, {})
     patch = yaml.load(
-        (root / "dsh-home" / "profiles" / "bench" / "cordis.patch.yml").read_text(),
+        (root / "dsh-home" / "profiles" / "bench" / "cordis.patch.yml").read_text(encoding="utf-8"),
         Loader=_PatchLoader,
     )
     rows = {row["id"]: row for row in patch if "id" in row}

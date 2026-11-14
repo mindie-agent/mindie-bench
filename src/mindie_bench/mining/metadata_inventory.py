@@ -492,7 +492,11 @@ def freeze_public_pilot(records: list[dict], groups: list[dict], repo: str, outp
 
 
 def _jsonl(path: Path, rows: list[dict]):
-    path.write_text("".join(json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n" for row in rows))
+    path.write_text(
+        "".join(json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
 def prepare(root: Path, *, shortlist_limit: int = 200, pilot_repo: str | None = None) -> dict:

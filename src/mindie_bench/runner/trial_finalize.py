@@ -160,6 +160,15 @@ def score_trial_trajectory(
                     for line in audit_path.read_text(encoding="utf-8").splitlines()
                     if line.strip()
                 ]
+            except TimeoutError as exc:
+                knowledge_audit_error = f"{audit_path}: {type(exc).__name__}: {exc}"
+                errors.append(
+                    dict(
+                        stage="scoring",
+                        type=type(exc).__name__,
+                        message=f"knowledge_query_audit unreadable: {knowledge_audit_error}",
+                    )
+                )
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
                 knowledge_audit_error = f"{audit_path}: {type(exc).__name__}: {exc}"
                 errors.append(
@@ -352,7 +361,7 @@ def run_g3_capture(
     group_config = config.groups[group]
     public = {
         "messages": [
-            {"role": "user", "text": (task_root / "instruction.md").read_text()},
+            {"role": "user", "text": (task_root / "instruction.md").read_text(encoding="utf-8")},
             *trajectory.public_messages,
         ],
         "destination": str(profile.corpus),

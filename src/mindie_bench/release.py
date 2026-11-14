@@ -28,8 +28,9 @@ from mindie_bench.release_contract import (
     ReleaseManifest,
     ReleaseSuite,
 )
+from mindie_bench.runner.host_platform import which_native
 from mindie_bench.runner.process import subprocess_window_kwargs
-from mindie_bench.runner.termination import terminate_process_group
+from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
 
 class CommandNotStarted(RuntimeError):
@@ -42,8 +43,13 @@ def _now():
 
 def _git(repo: Path, *args: str) -> str:
     return subprocess.run(
-        ["git", "-C", str(repo), *args],
-        check=True, capture_output=True, text=True, timeout=10,
+        [which_native("git") or "git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+        **subprocess_window_kwargs(),
     ).stdout.strip()
 
 
@@ -58,8 +64,8 @@ def _runner_identity() -> dict | None:
     """Bind the loaded runner to its own tracked Git file, never the candidate."""
     module = Path(__file__).resolve()
     try:
-        root = Path(_git(module.parent, "rev-parse", "--show-toplevel"))
-        _git(root, "ls-files", "--error-unmatch", "--", str(module.relative_to(root)))
+        root = Path(_git(module.parent, "rev-parse", "--show-toplevel")).resolve()
+        _git(root, "ls-files", "--error-unmatch", "--", module.relative_to(root).as_posix())
     except subprocess.CalledProcessError:
         # Installed wheels can run exploratory suites but lack Git release evidence.
         return None
@@ -73,11 +79,15 @@ def _execute(command, *, repo, env, destination, timeout):
         destination / "stderr.log"
     ).open("wb") as err:
         try:
-            process = subprocess.Popen(
-                command, cwd=repo, env=env, stdout=out, stderr=err,
-                start_new_session=os.name == "posix",
-                **subprocess_window_kwargs(),
-            )
+            if sys.platform == "win32":
+                process, close_owner = spawn_owned_popen(
+                    command, cwd=repo, env=env, stdout=out, stderr=err,
+                )
+            else:
+                process = subprocess.Popen(
+                    command, cwd=repo, env=env, stdout=out, stderr=err, start_new_session=True,
+                )
+                close_owner = lambda: None  # noqa: E731
         except TimeoutError:
             raise
         except OSError as error:
@@ -89,16 +99,12 @@ def _execute(command, *, repo, env, destination, timeout):
             timed_out = True
             returncode = None
         finally:
-            # A command can leave descendants after its leader exits.
-            if os.name == "posix":
+            try:
+                # A command can leave descendants after its leader exits.
                 terminate_process_group(process, term_wait=2, kill_wait=5)
-            elif process.poll() is None:
-                subprocess.run(
-                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                    stdout=err, stderr=err, timeout=5, check=True,
-                    **subprocess_window_kwargs(),
-                )
-            process.wait(timeout=5)
+                process.wait(timeout=5)
+            finally:
+                close_owner()
     return returncode, timed_out, time.perf_counter() - started
 
 
@@ -109,7 +115,7 @@ def _run_case(case, *, repo, python, private):
         destination = private / case.id / str(repetition + 1)
         destination.mkdir(parents=True)
         measurement = destination / "measurement.json"
-        env = dict(os.environ, MINDIE_BENCH_RESULT_PATH=str(measurement))
+        env = dict(os.environ, MINDIE_BENCH_RESULT_PATH=str(measurement), PYTHONUTF8="1")
         command = [argument.replace("{python}", python) for argument in case.command]
         attempt = {"repetition": repetition + 1}
         try:
@@ -248,7 +254,14 @@ def run_release_suite(*, repo, repository, version, suite, output, python=sys.ex
     source = _identity(repo)
     runner_source = _runner_identity()
     workload_python = subprocess.run(
-        [python, "--version"], cwd=repo, capture_output=True, text=True, check=True, timeout=10,
+        [python, "--version"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+        timeout=10,
+        **subprocess_window_kwargs(),
     ).stdout.strip()
     started = _now()
     output.mkdir(parents=True, exist_ok=False)

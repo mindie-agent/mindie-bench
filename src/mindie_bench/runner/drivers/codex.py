@@ -5,14 +5,34 @@
 
 """Codex exec JSONL: completed native items and explicit usage only."""
 
+import base64
 import json
+import os
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
 from mindie_bench.models import Tokens, ToolCall, Trajectory
 from mindie_bench.runner.drivers import normalize_tool
 from mindie_bench.scorer.tool_observations import SCHEMA, observe_codex_result
+
+
+def _hook_entry(argv: list[str]) -> dict[str, str]:
+    if os.name != "nt":
+        return {"type": "command", "command": shlex.join(argv)}
+    ps_args = " ".join("'" + item.replace("'", "''") + "'" for item in argv)
+    ps_script = (
+        "$OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+        "try { [Console]::OutputEncoding = $OutputEncoding; [Console]::InputEncoding = $OutputEncoding } catch {}; "
+        f"& {ps_args}; exit $LASTEXITCODE"
+    )
+    encoded = base64.b64encode(ps_script.encode("utf-16le")).decode("ascii")
+    return {
+        "type": "command",
+        "command": subprocess.list2cmdline(argv),
+        "commandWindows": f"powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {encoded}",
+    }
 
 
 class CodexDriver:
@@ -53,7 +73,7 @@ class CodexDriver:
             lines.insert(
                 1, f"model_catalog_json = {json.dumps(str(profile.root / 'model-catalog.json'))}"
             )
-        mcp = json.loads((profile.root / "mcp.json").read_text())["mcpServers"]
+        mcp = json.loads((profile.root / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]
         for name, server in mcp.items():
             lines += [
                 f"[mcp_servers.{json.dumps(name)}]",
@@ -66,25 +86,28 @@ class CodexDriver:
             if server["env"]:
                 lines.append(f"[mcp_servers.{json.dumps(name)}.env]")
                 lines += [f"{json.dumps(k)} = {json.dumps(v)}" for k, v in server["env"].items()]
-        (Path(profile.env["CODEX_HOME"]) / "config.toml").write_text("\n".join(lines) + "\n")
+        (Path(profile.env["CODEX_HOME"]) / "config.toml").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
         capture_hook = profile.fingerprint.get("group") in {"G3", "G4"}
         native_product = profile.fingerprint.get("native_product")
         hooks = {}
         if native_product:
-            hooks["UserPromptSubmit"] = [{
-                "hooks": [{"type": "command", "command": shlex.join(native_product["prompt_hook"])}]
-            }]
+            hooks["UserPromptSubmit"] = [{"hooks": [_hook_entry(native_product["prompt_hook"])]}]
         if capture_hook:
             hook = [
                 sys.executable,
                 "-I",
+                *(["-X", "utf8"] if os.name == "nt" else []),
                 "-m",
                 "mindie_bench.integrations.codex_stop",
                 str(profile.root / "native-stop.json"),
             ]
-            hooks["Stop"] = [{"hooks": [{"type": "command", "command": shlex.join(hook)}]}]
+            hooks["Stop"] = [{"hooks": [_hook_entry(hook)]}]
         if hooks:
-            (Path(profile.env["CODEX_HOME"]) / "hooks.json").write_text(json.dumps({"hooks": hooks}))
+            (Path(profile.env["CODEX_HOME"]) / "hooks.json").write_text(
+                json.dumps({"hooks": hooks}), encoding="utf-8"
+            )
         if (profile.root / "skills").exists():
             import shutil
 

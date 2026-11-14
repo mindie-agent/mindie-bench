@@ -21,7 +21,7 @@ def is_graded(source: Path) -> bool:
     contract = source / "publication-contract.json"
     if not contract.is_file():
         return False
-    value = json.loads(contract.read_text())
+    value = json.loads(contract.read_text(encoding="utf-8"))
     schema = value.get("schema")
     if schema not in {"mindie-publication-contract/1", "mindie-publication-contract/2"}:
         raise ValueError("corpus publication contract has an unsupported format")
@@ -38,7 +38,7 @@ def units(source: Path) -> dict[str, tuple[Path, dict]]:
             continue
         if path.is_symlink() or not path.resolve(strict=True).is_relative_to(source.resolve()):
             raise ValueError("graded unit escapes the selected corpus")
-        raw = path.read_text()
+        raw = path.read_text(encoding="utf-8")
         if not raw.startswith("---\n") or "\n---\n" not in raw:
             raise ValueError("graded unit requires its authoritative frontmatter")
         metadata = yaml.safe_load(raw.split("\n---\n", 1)[0][4:])

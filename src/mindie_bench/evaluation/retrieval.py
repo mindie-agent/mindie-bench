@@ -40,7 +40,9 @@ def latency_summary(values: list[float]) -> dict:
 
 
 def load_labels(path: Path, corpus: Path, revision: str) -> list[dict]:
-    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    rows = [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
     if not rows or len({row["sample_id"] for row in rows}) != len(rows):
         raise ValueError("retrieval workload must contain unique, nonempty samples")
     if any(not isinstance(row["sample_id"], str) or not row["sample_id"].strip() for row in rows):
@@ -95,7 +97,7 @@ def _selected_identity(hit):
 
 def _body(corpus, task_id, block_id):
     path = corpus / "tasks" / safe_relative(task_id) / "blocks" / (safe_relative(block_id) + ".md")
-    return path.read_text().split("\n---\n\n", 1)[1]
+    return path.read_text(encoding="utf-8").split("\n---\n\n", 1)[1]
 
 
 def evaluate_retrieval(
@@ -104,14 +106,26 @@ def evaluate_retrieval(
     import mindie_knowledge
 
     from mindie_bench.integrations.first_party import consumer, explain
+    from mindie_bench.runner.host_platform import subprocess_window_kwargs, which_native
 
     if repetitions < 1 or k < 1:
         raise ValueError("retrieval repetitions and k must be positive")
     corpus, labels = corpus.resolve(strict=True), labels.resolve(strict=True)
+    git_exe = which_native("git") or "git"
     revision = subprocess.check_output(
-        ["git", "-C", str(corpus), "rev-parse", "HEAD"], text=True, timeout=30
+        [git_exe, "-C", str(corpus), "rev-parse", "HEAD"],
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+        **subprocess_window_kwargs(),
     ).strip()
-    dirty = subprocess.check_output(["git", "-C", str(corpus), "status", "--porcelain"], text=True, timeout=30)
+    dirty = subprocess.check_output(
+        [git_exe, "-C", str(corpus), "status", "--porcelain"],
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+        **subprocess_window_kwargs(),
+    )
     if dirty:
         raise ValueError("component retrieval requires a clean, pinned corpus")
     rows = load_labels(labels, corpus, revision)
@@ -206,7 +220,7 @@ def evaluate_retrieval(
                     )
                 observations.append(sample)
                 samples.append(sample)
-                with (output / "observations.jsonl").open("a") as stream:
+                with (output / "observations.jsonl").open("a", encoding="utf-8", newline="\n") as stream:
                     stream.write(json.dumps(sample, ensure_ascii=False) + "\n")
             summaries.append(
                 dict(

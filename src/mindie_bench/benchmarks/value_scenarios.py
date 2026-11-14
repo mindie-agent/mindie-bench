@@ -92,7 +92,7 @@ def main(argv=None):
                     from mindie_coordinator.host.mindie_npu_coordination import parse_npu_smi_info
 
                     observed = parse_npu_smi_info(
-                        (args.npu_fixtures / "a2-173-125-1-2.txt").read_text()
+                        (args.npu_fixtures / "a2-173-125-1-2.txt").read_text(encoding="utf-8")
                     )
                 cases.append(coordinator_run(output, observed, args.repetitions))
         if diagnostics:
