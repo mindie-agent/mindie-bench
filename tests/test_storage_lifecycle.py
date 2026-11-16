@@ -494,6 +494,8 @@ def test_postflight_abandons_sixty_second_trash_unlink_under_virtual_clock(
             assert worker_entered.wait(2.0)
 
     def virtual_join(self, timeout=None):
+        if self.name != "postflight-trash-retirement":
+            return real_join(self, timeout)
         # Simulate a 60s clock advance while the deletion worker is blocked in
         # one unlink syscall: the join must expire immediately, not wait.
         clock["skew"] = 60.0
