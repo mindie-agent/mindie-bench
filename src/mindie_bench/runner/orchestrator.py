@@ -628,6 +628,8 @@ def run_trial(
                             "remote postflight failed; preserve separate business verdict",
                         )
             auxiliary["owned_namespace_cleanup_confirmed"] = getattr(remote, "cleanup_confirmed", None)
+            if getattr(remote, "cleanup_warning", None):
+                auxiliary["remote_cleanup_warning"] = remote.cleanup_warning
             auxiliary["files_modified"] = getattr(remote, "modified_files", None)
             auxiliary["files_modified_scope"] = "remote_judged_workspace"
             auxiliary["files_modified_reason"] = (

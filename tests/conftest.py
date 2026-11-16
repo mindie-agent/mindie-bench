@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -49,7 +50,25 @@ def noop_false() -> Path:
     return _ensure_noop_shims()[1]
 
 
+def _prune_stale_operator_snapshots() -> None:
+    """Remove abandoned corpus snapshots this user owns; active runs are untouched."""
+    getuid = getattr(os, "getuid", None)
+    cutoff = time.time() - 24 * 60 * 60
+    for candidate in Path(tempfile.gettempdir()).glob("mindie-bench-operators-clean-*"):
+        try:
+            status = candidate.stat()
+        except TimeoutError:
+            raise
+        except OSError:
+            continue
+        if getuid is not None and status.st_uid != getuid():
+            continue
+        if status.st_mtime < cutoff:
+            rmtree_force(candidate)
+
+
 def _configure_default_test_env() -> None:
+    _prune_stale_operator_snapshots()
     for proxy_key in (
         "HTTP_PROXY",
         "HTTPS_PROXY",
@@ -82,18 +101,20 @@ def _configure_default_test_env() -> None:
         )
         if head_proc.returncode == 0 and files_proc.returncode == 0:
             head = head_proc.stdout.strip()[:12]
-            snapshot = Path(f"/tmp/mindie-bench-operators-clean-{head}")
-            if not (snapshot / "index" / "routing-manifest.json").is_file():
-                shutil.rmtree(snapshot, ignore_errors=True)
-                snapshot.mkdir(parents=True, exist_ok=True)
-                for rel in files_proc.stdout.split("\0"):
-                    if not rel:
-                        continue
-                    src = operators_repo / rel
-                    if src.is_file():
-                        dst = snapshot / rel
-                        dst.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dst)
+            # Host `/tmp` must not accumulate one snapshot per source commit.
+            # Create under the isolated temp root and remove it at exit.
+            snapshot = Path(
+                tempfile.mkdtemp(prefix=f"mindie-bench-operators-clean-{head}-")
+            )
+            atexit.register(rmtree_force, snapshot)
+            for rel in files_proc.stdout.split("\0"):
+                if not rel:
+                    continue
+                src = operators_repo / rel
+                if src.is_file():
+                    dst = snapshot / rel
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
             os.environ["MINDIE_BENCH_OPERATORS_CORPUS"] = str(snapshot)
     # Native capture must use this test environment's components, not a
     # historical release interpreter paired with today's adapter scripts.

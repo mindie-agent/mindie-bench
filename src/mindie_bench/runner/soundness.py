@@ -138,6 +138,8 @@ def check_soundness(task_root: Path, config, *, tier: str, output: Path, promote
             try:
                 remote.close()
                 proof["remote_postflight"] = remote.postflight
+                if getattr(remote, "cleanup_warning", None):
+                    proof["remote_cleanup_warning"] = remote.cleanup_warning
             except Exception as exc:
                 cleanup_errors.append(
                     dict(stage="remote_cleanup", type=type(exc).__name__, message=str(exc))

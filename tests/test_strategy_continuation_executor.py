@@ -244,7 +244,7 @@ def test_verifier_time_uses_its_separate_allowance(tmp_path, source_and_oracle):
     )
     budget = StrategySelectionBudget(
         business_window_sec=10, selector_timeout_sec=1,
-        verifier_timeout_sec=5, cleanup_grace_sec=5, outer_timeout_sec=20,
+        verifier_timeout_sec=5, cleanup_grace_sec=5, outer_timeout_sec=45,
     )
     cell = next(cell for cell in plan_strategy_selection_cells([case], repetitions=1)[0] if cell.arm == "A")
     ticks = iter([0.0, 12.0])

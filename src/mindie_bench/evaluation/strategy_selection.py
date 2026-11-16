@@ -6,8 +6,9 @@ Late decisions and verified passes survive budget overruns. Continuation faults
 preserve selection/spend and do not void other cells. Device time requires
 measured occupancy and observed counts. The real executor owns verifier truth;
 legacy dict results remain unverified. Missing usage stays None.
-[Timeouts & Locks] outer >= business window + verifier budget + cleanup grace
-(725s >= 600s + 120s + 5s); selector <= 30s. Callables own bounded I/O.
+[Timeouts & Locks] outer >= business window + verifier + patch capture + cleanup
+grace + verifier drain (750s >= 600s + 120s + 10s + 15s + 5s); selector <= 30s.
+Callables own bounded I/O.
 [Side-Effect Policy] No source corpus mutation or fabricated model/NPU receipts.
 """
 
@@ -72,12 +73,9 @@ from mindie_bench.runner.mechanism_contracts import (
 )
 from mindie_bench.runner.strategy_continuation import (
     ContinuationExecution,
-)
-from mindie_bench.runner.strategy_continuation import (
-    StrategyContinuationExecutor as StrategyContinuationExecutor,
-)
-from mindie_bench.runner.strategy_continuation import (
-    StrategyContinuationTask as StrategyContinuationTask,
+    StrategyContinuationExecutor,
+    StrategyContinuationTask,  # noqa: F401 - public re-export
+    continuation_outer_budget,
 )
 
 SCHEMA_VERSION = "mindie-bench-strategy-selection-pilot/1"
@@ -99,7 +97,7 @@ class StrategySelectionBudget:
     business_window_sec: float = 600.0
     verifier_timeout_sec: float = 120.0
     cleanup_grace_sec: float = 5.0
-    outer_timeout_sec: float = 725.0
+    outer_timeout_sec: float = 750.0
     knowledge_token_budget: int = 4096
 
     def __post_init__(self):
@@ -115,11 +113,13 @@ class StrategySelectionBudget:
             raise ValueError("business_window_sec must be >= selector_timeout_sec")
         if self.cleanup_grace_sec < 5.0:
             raise ValueError("cleanup_grace_sec must be >= 5.0s")
-        min_outer = self.business_window_sec + self.verifier_timeout_sec + self.cleanup_grace_sec
+        min_outer = continuation_outer_budget(
+            self.business_window_sec, self.verifier_timeout_sec, self.cleanup_grace_sec
+        )
         if self.outer_timeout_sec < min_outer:
             raise ValueError(
-                f"outer_timeout_sec ({self.outer_timeout_sec}) must be >= "
-                f"business_window_sec + verifier_timeout_sec + cleanup_grace_sec ({min_outer})"
+                f"outer_timeout_sec ({self.outer_timeout_sec}) must be >= business_window_sec "
+                f"+ verifier_timeout_sec + patch_capture + cleanup_grace + drain ({min_outer})"
             )
 
 def load_combined_routing_index(corpus_roots: Sequence[str | Path]) -> RoutingIndex:

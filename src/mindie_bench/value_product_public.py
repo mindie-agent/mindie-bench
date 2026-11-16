@@ -54,6 +54,7 @@ AUXILIARY_KEYS = {
     "model_call_measurement_basis",
     "verifier_wall_clock_sec",
     "post_flight_npu_clean",
+    "remote_cleanup_warning",
     "remote_test_budget_invocations",
     "remote_delivery_failures",
     "model_delivery_failures",
