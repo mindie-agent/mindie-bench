@@ -12,6 +12,8 @@ PID/network/IPC namespaces.
   submissions on the slot and surfacing `UnknownExternalEffects` to the orchestrator.
 - `TMPDIR` is bound to a short `/tmp/bench-<hex12>` path backed by `.bench-home/tmp` so vLLM
   native TP `sockaddr_un` Unix domain sockets never overflow the 104-byte path limit.
+- Persisted postflight receipts are reconciled by canonical slot identity (`/` and backslash
+  are equivalent), never by raw separator strings.
 
 [Timeouts & Locks]
 - Per-command worker inner timeout equals the caller `timeout`; 20s after that is reserved
@@ -19,7 +21,8 @@ PID/network/IPC namespaces.
 - Host-side `_request` pipe wait: `limit + 25.0s` (`kill_grace 20s + flush_grace 5s`).
 - Slot teardown (`POSTFLIGHT` + NPU HBM/PID drain) wait is `50.0s`; `POSTFLIGHT` owns a
   `30.0s` monotonic budget (never more than `40.0s`) split into extraction, bounded
-  teardown, and a final-artifact reserve, keeping a `5.0s` margin below the caller wait.
+  teardown, and a dedicated final-receipt reserve. The last `5.0s` still rewrites the durable
+  receipt after teardown, keeping a `5.0s` margin below the caller wait.
 - If postflight stdout is lost or unparseable, one read-only `10.0s` SSH probe may recover
   `<slots_root>/<trial_id>.final.json`; it verifies `trial_id` and exact slot identity.
 - Final-artifact removal and the stale-artifact sweep share one `15.0s` SSH grace after
@@ -52,6 +55,11 @@ from pathlib import Path, PurePosixPath
 from mindie_bench.io import is_ignored_cache_path, safe_relative
 from mindie_bench.models import RemoteConfig, RemotePreStartError, SourceEnvironment
 from mindie_bench.runner.host_platform import PipeReader, PipeWriter, subprocess_window_kwargs
+from mindie_bench.runner.remote_receipt import (
+    RECONCILE_FINAL_ARTIFACT,
+    REMOTE_FINAL_ARTIFACT_SWEEP,
+    canonical_slot_path,
+)
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, PROJECTOR
 from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
@@ -97,73 +105,6 @@ if POSTFLIGHT_BUDGET_SEC > 40.0:
 if POSTFLIGHT_OUTER_WAIT_SEC < POSTFLIGHT_BUDGET_SEC + 15.0:
     raise ValueError("POSTFLIGHT outer wait must cover its budget plus 15s of grace")
 
-# Read-only recovery probe for a lost frame: it never deletes or writes, and only
-# distinguishes a valid persisted receipt from absence or another slot's artifact.
-RECONCILE_FINAL_ARTIFACT = r"""
-import json, pathlib, sys
-slot = pathlib.Path(sys.argv[1]); trial_id = slot.name
-try:
-    payload = json.loads(slot.with_name(trial_id + ".final.json").read_text(encoding="utf-8"))
-except TimeoutError:
-    raise
-except (OSError, ValueError):
-    raise SystemExit(3)
-if (not isinstance(payload, dict) or payload.get("trial_id") != trial_id
-        or payload.get("slot_path") != str(slot)):
-    raise SystemExit(4)
-print(json.dumps(payload))
-"""
-
-# Runs inside the remote container. The owned artifact is removed unconditionally;
-# other candidates must be this user's, older than the age bound, and not backed by
-# a live slot worktree or `MINDIE_BENCH_SLOT_ID` process.
-REMOTE_FINAL_ARTIFACT_SWEEP = r"""
-import json, os, pathlib, sys, time
-root = pathlib.Path(sys.argv[1])
-owned = sys.argv[2]
-cutoff = time.time() - float(sys.argv[3])
-uid = getattr(os, "getuid", lambda: None)()
-proc_root = pathlib.Path("/proc")
-def active(trial):
-    if (root / trial).exists():
-        return True
-    if not proc_root.is_dir():
-        return False
-    token = b"MINDIE_BENCH_SLOT_ID=" + os.fsencode(trial)
-    for proc in proc_root.iterdir():
-        if not proc.name.isdigit():
-            continue
-        try:
-            if uid is not None and proc.stat().st_uid != uid:
-                continue
-            if token in (proc / "environ").read_bytes().split(b"\0"):
-                return True
-        except (FileNotFoundError, ProcessLookupError, PermissionError):
-            continue
-    return False
-removed, warnings = [], []
-for artifact in sorted(root.glob("*.final.json")):
-    try:
-        stat = artifact.stat()
-    except TimeoutError:
-        raise
-    except OSError:
-        continue
-    if uid is not None and stat.st_uid != uid:
-        continue
-    is_owned = artifact.name == owned
-    if not is_owned and (stat.st_mtime > cutoff or active(artifact.name[:-len(".final.json")])):
-        continue
-    try:
-        artifact.unlink()
-        removed.append(artifact.name)
-    except TimeoutError:
-        raise
-    except OSError as exc:
-        warnings.append(artifact.name + ": " + type(exc).__name__ + ": " + str(exc))
-print(json.dumps({"removed": removed, "warnings": warnings}))
-"""
-
 
 def _atomic_write_durable(path: Path, data: bytes) -> None:
     """Fsync a same-directory temp file and replace the target atomically."""
@@ -198,7 +139,10 @@ class RemoteSlot:
     ):
         self.config, self.environment = config, environment
         self.devices, self.timeout = devices, timeout
-        self.path = str(PurePosixPath(config.slots_root) / trial_id)
+        # Remote paths are POSIX. Normalize a Windows-local slots root too, so
+        # unit tests and the persisted receipt agree on one canonical identity.
+        root = str(config.slots_root).replace("\\", "/")
+        self.path = str(PurePosixPath(root) / trial_id)
         self.artifact_dir = artifact_dir
         self.lock = threading.Lock()
         self.process = self.preflight = self.postflight = None
@@ -596,7 +540,8 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             )
             payload = json.loads(result.stdout)
             if (not isinstance(payload, dict) or payload.get("trial_id") != trial_id
-                    or payload.get("slot_path") != self.path):
+                    or canonical_slot_path(payload.get("slot_path"))
+                    != canonical_slot_path(self.path)):
                 raise ValueError("persisted postflight receipt does not match this slot")
             self.cleanup_receipt = {"cleanup": payload}
             self.recovered_cleanup_receipt = True

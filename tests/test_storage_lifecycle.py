@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -27,6 +28,7 @@ from mindie_bench.evaluation.knowledge_tiered import evaluate_applicability_and_
 from mindie_bench.models import RemoteConfig
 from mindie_bench.runner import kda_build_cache
 from mindie_bench.runner.host_platform import subprocess_window_kwargs
+from mindie_bench.runner.remote_receipt import canonical_slot_path
 from mindie_bench.runner.remote_slot import POSTFLIGHT, RemoteSlot
 from mindie_bench.runner.worktree_slot import WorktreeSlot
 
@@ -303,15 +305,17 @@ def test_postflight_writes_final_artifact_before_teardown_overrun(case, monkeypa
 
     final = json.loads(pathlib.Path(str(workspace) + ".final.json").read_text())
     output = json.loads(capsys.readouterr().out)
-    # The published artifact predates teardown; the late timeout is visible only
-    # in the in-memory stdout receipt, proving the file was already complete.
+    # The blocking Git call overran the entire receipt deadline, not just the
+    # earlier teardown deadline. The pre-teardown artifact therefore remains the
+    # honest durable copy while stdout reports the exhausted reserve.
     assert final["teardown_complete"] is False
     assert not any("git worktree remove" in item for item in final["errors"])
     assert any("worktree metadata removal" in item for item in output["cleanup"]["errors"])
+    assert any("artifact rewrite: TimeoutError" in item for item in output["cleanup"]["errors"])
     assert not workspace.exists()
     assert output["cleanup"]["slot_vacated"] is True
     assert output["cleanup"]["trash_deferred"] is True
-    # A blocking Git call consumed the reserve before fallback retirement, so
+    # A blocking Git call consumed the reserves before fallback retirement, so
     # exact admin cleanup is honestly deferred rather than granted unbounded time.
     assert not any("admin removal" in item for item in final["errors"])
     assert any("admin removal" in item for item in output["cleanup"]["errors"])
@@ -412,6 +416,209 @@ def test_postflight_rewrites_final_artifact_with_fast_teardown_failure(case, mon
 
 
 @pytest.mark.tier1
+def test_postflight_abandons_blocked_trash_unlink_within_receipt_budget(
+    case, monkeypatch, capsys
+):
+    workspace = case["root"] / "blocked-unlink"
+    workspace.mkdir()
+    for index in range(6):
+        (workspace / f"payload-{index}.txt").write_text("data\n", encoding="utf-8")
+    original_unlink = os.unlink
+    release = threading.Event()
+    blocked = []
+
+    def slow_unlink(target, *args, **kwargs):
+        if ".trash-" in str(target):
+            blocked.append(pathlib.Path(target))
+            release.wait(5.0)
+        return original_unlink(target, *args, **kwargs)
+
+    monkeypatch.setattr(os, "unlink", slow_unlink)
+    started = time.monotonic()
+    try:
+        run_postflight_for_slot(
+            workspace,
+            case["root"] / "missing-repo",
+            monkeypatch,
+            extra={
+                "postflight_budget_s": 1.0,
+                "postflight_artifact_reserve_s": 0.1,
+                "postflight_teardown_s": 0.2,
+            },
+        )
+        elapsed = time.monotonic() - started
+        final = json.loads(pathlib.Path(str(workspace) + ".final.json").read_text())
+        output = json.loads(capsys.readouterr().out)
+    finally:
+        release.set()
+
+    assert blocked
+    assert elapsed < 1.0
+    assert final["slot_vacated"] is True
+    assert final["slot_removed"] is False
+    assert final["trash_deferred"] is True
+    assert final["teardown_complete"] is True
+    assert any("slot tree removal deferred" in item for item in final["errors"])
+    assert output["cleanup"] == final
+    trash = list(workspace.parent.glob(".trash-*"))
+    assert trash
+    for path in trash:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+@pytest.mark.tier1
+def test_postflight_abandons_sixty_second_trash_unlink_under_virtual_clock(
+    case, monkeypatch, capsys
+):
+    workspace = case["root"] / "virtual-unlink"
+    workspace.mkdir()
+    for index in range(3):
+        (workspace / f"payload-{index}.txt").write_text("data\n", encoding="utf-8")
+    real_monotonic = time.monotonic
+    real_join = threading.Thread.join
+    real_start = threading.Thread.start
+    original_unlink = os.unlink
+    clock = {"skew": 0.0}
+    release = threading.Event()
+    worker_entered = threading.Event()
+    blocked = []
+
+    def monotonic():
+        return real_monotonic() + clock["skew"]
+
+    def start_and_wait(self):
+        real_start(self)
+        if self.name == "postflight-trash-retirement":
+            # The virtual clock jump below is only meaningful once the worker is
+            # actually blocked inside one unlink syscall.
+            assert worker_entered.wait(2.0)
+
+    def virtual_join(self, timeout=None):
+        # Simulate a 60s clock advance while the deletion worker is blocked in
+        # one unlink syscall: the join must expire immediately, not wait.
+        clock["skew"] = 60.0
+        return real_join(self, 0)
+
+    def slow_unlink(target, *args, **kwargs):
+        if ".trash-" in str(target):
+            blocked.append(target)
+            worker_entered.set()
+            release.wait(60.0)
+        return original_unlink(target, *args, **kwargs)
+
+    monkeypatch.setattr(time, "monotonic", monotonic)
+    monkeypatch.setattr(threading.Thread, "start", start_and_wait)
+    monkeypatch.setattr(threading.Thread, "join", virtual_join)
+    monkeypatch.setattr(os, "unlink", slow_unlink)
+    started = real_monotonic()
+    try:
+        run_postflight_for_slot(
+            workspace,
+            case["root"] / "missing-repo",
+            monkeypatch,
+            extra={
+                "postflight_budget_s": 2.0,
+                "postflight_artifact_reserve_s": 0.1,
+                "postflight_teardown_s": 1.0,
+            },
+        )
+        elapsed = real_monotonic() - started
+        final = json.loads(pathlib.Path(str(workspace) + ".final.json").read_text())
+        output = json.loads(capsys.readouterr().out)
+    finally:
+        release.set()
+
+    assert blocked
+    assert elapsed < 1.0
+    # The virtual 60s jump also exhausts the receipt deadline, so the durable
+    # artifact is the honest pre-teardown copy while stdout carries the final
+    # deferred state and the timed-out rewrite is explicit.
+    assert final["teardown_complete"] is False
+    assert output["cleanup"]["teardown_complete"] is True
+    assert output["cleanup"]["slot_vacated"] is True
+    assert output["cleanup"]["slot_removed"] is False
+    assert output["cleanup"]["trash_deferred"] is True
+    assert any("artifact rewrite: TimeoutError" in item for item in output["cleanup"]["errors"])
+    for path in workspace.parent.glob(".trash-*"):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+@pytest.mark.tier1
+def test_postflight_uses_receipt_reserve_and_reconciles_after_teardown_overrun(
+    case, tmp_path, monkeypatch, capsys
+):
+    slots = tmp_path / "slots"
+    slots.mkdir()
+    worktree = WorktreeSlot(
+        case["spec"].environment["l2"], slots / "owned-trial", case["task"]
+    )
+    workspace = worktree.prepare()
+    admin = worktree._admin_dir
+    assert admin is not None
+    (workspace / "module.py").write_text("VALUE = 2\n", encoding="utf-8")
+    original_run = subprocess.run
+
+    def slow_success(command, **kwargs):
+        if command == ["owned-probe"]:
+            return SimpleNamespace(stdout=json.dumps({"0": {"used_mb": 1, "pids": []}}))
+        if "worktree" in command and "remove" in command:
+            # The removal finishes after the teardown deadline but before the
+            # dedicated receipt reserve expires.
+            time.sleep(2.0)
+            return original_run(
+                command,
+                check=True,
+                capture_output=True,
+                timeout=30,
+                **subprocess_window_kwargs(),
+            )
+        return original_run(command, **kwargs)
+
+    run_postflight_for_slot(
+        workspace,
+        case["repo"],
+        monkeypatch,
+        extra={
+            "postflight_budget_s": 5.0,
+            "postflight_artifact_reserve_s": 0.1,
+            "postflight_teardown_s": 0.2,
+        },
+        run=slow_success,
+    )
+
+    final = json.loads(pathlib.Path(str(workspace) + ".final.json").read_text())
+    output = json.loads(capsys.readouterr().out)
+    assert final["teardown_complete"] is True
+    assert final["slot_vacated"] is True
+    assert final["slot_removed"] is True
+    assert final["trash_deferred"] is False
+    assert final["errors"] == []
+    assert output["cleanup"] == final
+    assert not workspace.exists()
+    assert not admin.exists()
+
+    slot = remote_slot_for_local_command(case, tmp_path, monkeypatch)
+    slot.cleanup_receipt = None
+    slot.process = SimpleNamespace(stdin=io.BytesIO(), wait=lambda timeout: 0)
+    monkeypatch.setattr(
+        slot,
+        "_read",
+        lambda timeout: (_ for _ in ()).throw(TimeoutError("postflight stdout lost")),
+    )
+    monkeypatch.setattr(
+        remote_slot_module, "terminate_process_group", lambda *args, **kwargs: None
+    )
+
+    slot.close()
+
+    assert slot.recovered_cleanup_receipt is True
+    assert slot.cleanup_confirmed is True
+    assert slot.cleanup_receipt["cleanup"]["teardown_complete"] is True
+    assert slot.cleanup_receipt["cleanup"]["slot_removed"] is True
+    assert slot.cleanup_receipt["cleanup"]["trash_deferred"] is False
+
+
+@pytest.mark.tier1
 def test_postflight_removes_worktree_when_patch_exceeds_bound(case, monkeypatch):
     slot = WorktreeSlot(
         case["spec"].environment["l2"], case["root"] / "oversize-workspace", case["task"]
@@ -469,7 +676,7 @@ def test_postflight_removes_worktree_when_patch_exceeds_bound(case, monkeypatch)
 
 def remote_slot_for_local_command(case, tmp_path, monkeypatch):
     slots = tmp_path / "slots"
-    slots.mkdir()
+    slots.mkdir(exist_ok=True)
     config = RemoteConfig(
         host="fixture",
         container="fixture",
@@ -675,6 +882,54 @@ def test_remote_slot_close_recovers_persisted_receipt_after_stdout_timeout(
     assert slot.cleanup_warning and "postflight stdout lost" in slot.cleanup_warning
     assert not owned.exists()
     assert json.loads((tmp_path / "remote_cleanup.json").read_text()) == slot.cleanup_receipt
+
+
+@pytest.mark.tier1
+def test_canonical_slot_path_accepts_windows_separator_conversion():
+    # Windows `Path(...)` renders `C:\...\slots/owned-trial` with backslashes.
+    mixed = r"C:\Users\runneradmin\slots/owned-trial"
+    converted = r"C:\Users\runneradmin\slots\owned-trial"
+    assert canonical_slot_path(mixed) == canonical_slot_path(converted)
+    assert canonical_slot_path(mixed) != canonical_slot_path(
+        r"C:\Users\runneradmin\slots\other-trial"
+    )
+
+
+@pytest.mark.tier1
+def test_remote_slot_reconciles_windows_path_conversion(case, tmp_path, monkeypatch):
+    slot = remote_slot_for_local_command(case, tmp_path, monkeypatch)
+    assert "\\" not in slot.path
+    slot.cleanup_receipt = None
+    slot.process = SimpleNamespace(stdin=io.BytesIO(), wait=lambda timeout: 0)
+    payload = {
+        "trial_id": "owned-trial",
+        # Windows `Path(...)` renders the same slot with backslashes. The remote
+        # probe runs POSIX in production, so reconciliation must compare one
+        # canonical identity instead of raw separator strings.
+        "slot_path": slot.path.replace("/", "\\"),
+        "probe": {"0": {"used_mb": 0, "pids": [], "model": "Ascend910"}},
+        "errors": [],
+        "slot_vacated": True,
+        "slot_removed": True,
+        "trash_deferred": False,
+        "teardown_complete": True,
+    }
+    owned = Path(slot.path + ".final.json")
+    owned.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(
+        slot,
+        "_read",
+        lambda timeout: (_ for _ in ()).throw(TimeoutError("postflight stdout lost")),
+    )
+    monkeypatch.setattr(
+        remote_slot_module, "terminate_process_group", lambda *args, **kwargs: None
+    )
+
+    slot.close()
+
+    assert slot.recovered_cleanup_receipt is True
+    assert slot.cleanup_confirmed is True
+    assert slot.cleanup_receipt == {"cleanup": payload}
 
 
 @pytest.mark.tier1

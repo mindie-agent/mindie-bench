@@ -5,11 +5,12 @@
 #   sibling, so the slot path is vacated before any unbounded filesystem work begins.
 #   Only this slot's worktree and its exact `.git/worktrees/<slot>` admin directory
 #   are removed; shared metadata is never swept globally.
-# [Timeouts & Locks] One monotonic postflight deadline splits into diff/status,
-#   a bounded teardown, and a final-artifact reserve. Every fallback unlink/rmdir
-#   checks the deadline first and raises TimeoutError instead of overrunning it.
-#   The script emits its stdout receipt before the caller's SSH wait can expire;
-#   artifact writes are atomic.
+# [Timeouts & Locks] One monotonic receipt deadline splits into diff/status, a
+#   bounded teardown, and a dedicated final-receipt reserve. After the slot path
+#   is atomically vacated, physical `.trash-*`/admin deletion runs in a daemon
+#   thread joined only until the teardown deadline: a blocked unlink/rmdir is
+#   abandoned there instead of delaying the receipt. The script emits its stdout
+#   receipt before the caller's SSH wait can expire; artifact writes are atomic.
 # [Side-Effect Policy] Kills only this slot's owned processes, always writes
 #   `<slot>.final.json`, removes this slot's worktree plus exact admin entry,
 #   atomically parks leftover tree bytes under `.trash-*`, and never mutates a
@@ -23,6 +24,7 @@ import signal
 import stat
 import subprocess
 import sys
+import threading
 import time
 
 cfg=json.loads(sys.argv[1])
@@ -43,12 +45,13 @@ artifact_reserve=min(
     max(0.0,budget-.1),
 )
 finish_span=max(.1,min(budget,outer_wait-5.0))
-artifact_deadline=started+max(.001,finish_span-artifact_reserve)
+receipt_deadline=started+finish_span
+teardown_deadline=started+min(finish_span,max(1.0,finish_span-artifact_reserve))
 teardown_budget=max(0.0,float(cfg.get("postflight_teardown_s",10.0)))
-teardown_budget=min(teardown_budget,max(0.0,artifact_deadline-started))
-extract_deadline=max(started,artifact_deadline-teardown_budget)
+teardown_budget=min(teardown_budget,max(0.0,teardown_deadline-started))
+extract_deadline=max(started,teardown_deadline-teardown_budget)
 if extract_deadline<=started:
-    extract_deadline=started+(artifact_deadline-started)/2
+    extract_deadline=started+(teardown_deadline-started)/2
 
 
 def phase_timeout(limit,until):
@@ -272,6 +275,38 @@ def _slot_status(trash):
     }
 
 
+def _retire_trees(trash,admin,until,result):
+    """Delete already-renamed trees off the receipt path; never raise."""
+    problems=result["problems"]
+    try:
+        if trash is not None and os.path.lexists(trash):
+            try:
+                _try_remove_tree(trash,until,"slot tree removal",problems)
+            except TimeoutError as exc:
+                problems.append("slot tree removal deferred: TimeoutError: "+str(exc))
+        if admin is not None and os.path.lexists(admin):
+            try:
+                _try_remove_tree(admin,until,"slot worktree admin removal",problems)
+            except TimeoutError as exc:
+                problems.append("slot worktree admin removal: TimeoutError: "+str(exc))
+        try:
+            result["sweep"].extend(_sweep_old_trash(until,trash))
+        except TimeoutError as exc:
+            result["sweep"].append("stale trash sweep: TimeoutError: "+str(exc))
+    except Exception as exc:
+        problems.append("slot tree retirement: "+type(exc).__name__+": "+str(exc))
+
+
+def _join_retire(worker,until):
+    """Wait for retirement only inside the teardown window, never past it."""
+    while worker.is_alive():
+        remaining=until-time.monotonic()
+        if remaining<=0:
+            return False
+        worker.join(min(.25,remaining))
+    return True
+
+
 def remove_worktree(until,admin=None):
     """Remove this slot's tree and exact admin entry; never sweep shared metadata."""
     problems=[]
@@ -328,18 +363,47 @@ def remove_worktree(until,admin=None):
             raise
         except OSError as exc:
             problems.append("slot tree retirement: "+type(exc).__name__+": "+str(exc))
-    if trash is not None and os.path.lexists(trash):
+    # A stalled unlink/rmdir inside this daemon thread must never own the
+    # receipt window. The main thread joins until the teardown deadline, then
+    # records the parked tree as deferred and enters `finally` immediately.
+    needs_retire=(
+        (trash is not None and os.path.lexists(trash))
+        or (admin is not None and os.path.lexists(admin))
+    )
+    if needs_retire:
+        retire_result={"problems":[],"sweep":[]}
+        retire_deferred=False
+        retire_joined=False
+        worker=threading.Thread(target=_retire_trees,args=(trash,admin,until,retire_result),
+            daemon=True,name="postflight-trash-retirement")
         try:
-            _try_remove_tree(trash,until,"slot tree removal",problems)
-        except TimeoutError as exc:
-            problems.append("slot tree removal deferred: TimeoutError: "+str(exc))
-    status=_slot_status(trash)
-    if admin is not None and os.path.lexists(admin):
-        try:
-            _try_remove_tree(admin,until,"slot worktree admin removal",problems)
-        except TimeoutError as exc:
-            problems.append("slot worktree admin removal: TimeoutError: "+str(exc))
-    status["trash_sweep_errors"]=_sweep_old_trash(until,trash)
+            worker.start()
+        except RuntimeError as exc:
+            retire_deferred=True
+            problems.append("slot tree retirement worker: "+type(exc).__name__+": "+str(exc))
+        else:
+            retire_joined=_join_retire(worker,until)
+            if retire_joined:
+                problems.extend(retire_result["problems"])
+                problems.extend(retire_result["sweep"])
+            else:
+                retire_deferred=True
+                problems.append(
+                    "slot tree removal deferred: TimeoutError: teardown deadline exhausted")
+                if admin is not None:
+                    problems.append(
+                        "slot worktree admin removal: TimeoutError: teardown deadline exhausted")
+    else:
+        retire_result={"problems":[],"sweep":[]}
+        retire_deferred=False
+        retire_joined=False
+    if retire_deferred and trash is not None:
+        # The rename above already vacated the slot; avoid another filesystem
+        # stat on a stalled mount before the receipt is written.
+        status={"slot_vacated":True,"slot_removed":False,"trash_deferred":True}
+    else:
+        status=_slot_status(trash)
+    status["trash_sweep_errors"]=list(retire_result["sweep"]) if retire_joined else []
     return problems,status
 
 
@@ -347,7 +411,7 @@ def remove_worktree(until,admin=None):
 # keeps teardown working even if patch extraction consumes the teardown reserve.
 slot_admin=None
 try:
-    _,initial_matches=worktree_metadata(min(artifact_deadline,started+5.0))
+    _,initial_matches=worktree_metadata(min(teardown_deadline,started+5.0))
     if len(initial_matches)==1:
         slot_admin=initial_matches[0].resolve()
 except Exception:
@@ -448,11 +512,11 @@ try:
     write_artifact(final)
 except Exception as exc:
     final["errors"].append("artifact publish: "+type(exc).__name__+": "+str(exc))
-teardown_deadline=min(artifact_deadline,time.monotonic()+teardown_budget)
+teardown_limit=min(teardown_deadline,time.monotonic()+teardown_budget)
 teardown_complete=False
 try:
     if os.path.lexists(path) or pathlib.Path(cfg["repo_path"]).exists():
-        problems,status=remove_worktree(teardown_deadline,slot_admin)
+        problems,status=remove_worktree(teardown_limit,slot_admin)
         final["errors"].extend(problems)
         final.update(status)
     else:
@@ -466,9 +530,13 @@ except Exception as exc:
     final.update(_slot_status(None))
 finally:
     final["teardown_complete"]=teardown_complete
-    if time.monotonic()<artifact_deadline:
+    # The receipt reserve belongs to this rewrite even when teardown exhausted
+    # its own earlier deadline; stdout still reports a reserve miss honestly.
+    if time.monotonic()<receipt_deadline:
         try:
             write_artifact(final)
         except Exception as exc:
             final["errors"].append("artifact rewrite: "+type(exc).__name__+": "+str(exc))
+    else:
+        final["errors"].append("artifact rewrite: TimeoutError: receipt deadline exhausted")
     print(json.dumps({"cleanup":final,"remote_artifact":str(artifact)}),flush=True)
