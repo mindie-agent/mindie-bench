@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -128,15 +129,22 @@ def test_local_cleanup_evidence_failure_still_releases_owned_lease(
         }
     }
     monkeypatch.setattr(slot, "validate_probe", lambda value: value)
-    method = "write_text" if failed_artifact.endswith(".json") else "write_bytes"
-    original = getattr(Path, method)
+    if failed_artifact == "remote_cleanup.json":
+        # The durable save is temp + fsync + os.replace, not Path.write_text.
+        monkeypatch.setattr(
+            os, "fsync", lambda descriptor: (_ for _ in ()).throw(
+                OSError("local evidence storage failed")
+            )
+        )
+    else:
+        original = Path.write_bytes
 
-    def write(path, *args, **kwargs):
-        if path.name == failed_artifact:
-            raise OSError("local evidence storage failed")
-        return original(path, *args, **kwargs)
+        def write(path, *args, **kwargs):
+            if path.name == failed_artifact:
+                raise OSError("local evidence storage failed")
+            return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, method, write)
+        monkeypatch.setattr(Path, "write_bytes", write)
     finished = []
     slot.component_runtime = SimpleNamespace(
         stop_monitor=lambda: None,

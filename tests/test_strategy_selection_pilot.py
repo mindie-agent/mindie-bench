@@ -455,7 +455,7 @@ def test_cli_pilot_without_executor_reports_only_judged_selector_decisions(tmp_p
     assert report["upper_bounds"]["selector_calls"] == 24
     assert report["upper_bounds"]["max_model_calls"] == 432
     assert report["upper_bounds"]["max_npu_runs"] == 72
-    assert report["upper_bounds"]["max_outer_wall_clock_sec"] == 26100.0
+    assert report["upper_bounds"]["max_outer_wall_clock_sec"] == 27000.0
 
     # Verify balanced triplet order reversal between repetition 1 and repetition 2.
     f1_rep1 = [

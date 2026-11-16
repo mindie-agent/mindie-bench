@@ -57,6 +57,8 @@ def _prune_stale_operator_snapshots() -> None:
     for candidate in Path(tempfile.gettempdir()).glob("mindie-bench-operators-clean-*"):
         try:
             status = candidate.stat()
+        except TimeoutError:
+            raise
         except OSError:
             continue
         if getuid is not None and status.st_uid != getuid():

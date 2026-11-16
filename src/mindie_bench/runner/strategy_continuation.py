@@ -3,10 +3,12 @@
 [Invariants] Each call starts from the same pinned source in an owned worktree.
 The agent receives the selected unit and prerequisites, never judge answers or
 oracle files. Only local_verifier owns the task verdict; agent output is a log.
-[Timeouts & Locks] One absolute business + verifier + cleanup deadline bounds
-agent, verifier and WorktreeSlot phase waits. The outer deadline reserves the
-larger of the caller grace and `WorktreeSlot.CLEANUP_GRACE_S`; patch capture
-uses half of it before removal. Local accounting cannot erase a verdict.
+[Timeouts & Locks] One absolute business + verifier + patch-capture + cleanup +
+drain deadline bounds agent, verifier and WorktreeSlot phase waits. The outer
+deadline reserves `PATCH_CAPTURE_BUDGET_SEC + max(cleanup grace,
+WorktreeSlot.CLEANUP_GRACE_S) + VERIFIER_DRAIN_GRACE_SEC`; patch capture stops at
+least one cleanup grace before the outer deadline. Local accounting cannot erase
+a verdict.
 [Side-Effect Policy] Runs the supplied command in the existing native sandbox,
 retains context/logs/patch/verifier evidence, and removes only its own worktree.
 """
@@ -41,8 +43,22 @@ from mindie_bench.runner.worktree_slot import WorktreeSlot
 
 # local_verifier may drain its process group after the command timeout.
 VERIFIER_DRAIN_GRACE_SEC = 5.0
-# Worktree reattach/remove/prune must complete after an exhausted trial budget.
+# Patch extraction has its own slice before cleanup starts.
+PATCH_CAPTURE_BUDGET_SEC = 10.0
+# Worktree reattach/remove plus pure-Python discard must complete after an
+# exhausted trial budget.
 CLEANUP_GRACE_SEC = WorktreeSlot.CLEANUP_GRACE_S
+
+
+def continuation_outer_budget(business_window_sec, verifier_timeout_sec, cleanup_grace_sec):
+    """Total wall-clock budget containing patch capture, cleanup, and drain."""
+    return (
+        business_window_sec
+        + verifier_timeout_sec
+        + PATCH_CAPTURE_BUDGET_SEC
+        + max(cleanup_grace_sec, CLEANUP_GRACE_SEC)
+        + VERIFIER_DRAIN_GRACE_SEC
+    )
 
 
 @dataclass(frozen=True)
@@ -100,10 +116,12 @@ class StrategyContinuationExecutor:
         started = time.monotonic()
         business_deadline = started + remaining_window_sec
         verifier_deadline = business_deadline + self.verifier_timeout_sec
-        # Reserve the worktree cleanup grace outside the business/verifier budgets
-        # so an exhausted trial deadline can never skip reattach/remove/prune.
+        # Reserve patch capture, worktree cleanup, and verifier drain up front so
+        # an exhausted trial deadline can never push cleanup past the outer budget.
         cleanup_reserve = max(cleanup_grace_sec, CLEANUP_GRACE_SEC)
-        outer_deadline = verifier_deadline + cleanup_reserve
+        outer_deadline = started + continuation_outer_budget(
+            remaining_window_sec, self.verifier_timeout_sec, cleanup_grace_sec
+        )
         task = self.tasks[case.case_id]
         root = task.task_root.resolve(strict=True)
         if task.source.npu_count:
@@ -178,9 +196,13 @@ class StrategyContinuationExecutor:
             "selected_strategy_ref": selected_ref, "source_commit": task.source.base_commit,
             "validation_scope": "local_behavior",
             "verifier_record": None, "adoption_observed": None,
-            "outer_budget_sec": remaining_window_sec + self.verifier_timeout_sec + cleanup_reserve,
+            "outer_budget_sec": continuation_outer_budget(
+                remaining_window_sec, self.verifier_timeout_sec, cleanup_grace_sec
+            ),
+            "patch_capture_budget_sec": PATCH_CAPTURE_BUDGET_SEC,
             "cleanup_grace_sec": cleanup_reserve,
             "worktree_cleanup_grace_sec": CLEANUP_GRACE_SEC,
+            "verifier_drain_grace_sec": VERIFIER_DRAIN_GRACE_SEC,
         }
         payload = {
             "selected_strategy_ref": selected_ref, "verifier_passed": False,
@@ -255,7 +277,12 @@ class StrategyContinuationExecutor:
             error = f"{type(exc).__name__}: {exc}"
         finally:
             if slot.created:
-                slot.deadline = outer_deadline - cleanup_reserve / 2
+                # Keep a full cleanup grace plus the outer deadline. Patch capture
+                # may use at most its own slice and never eats cleanup's reserve.
+                slot.deadline = min(
+                    outer_deadline - cleanup_reserve,
+                    time.monotonic() + PATCH_CAPTURE_BUDGET_SEC,
+                )
                 try:
                     slot.snapshot_patch(trial_dir)
                     evidence["patch"] = str(trial_dir / "final_patch.diff")

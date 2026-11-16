@@ -101,7 +101,7 @@ def test_owned_tiered_workspace_removed_on_success_and_failure(tmp_path, monkeyp
 
 @pytest.mark.tier1
 @pytest.mark.parametrize("rogue_git", [False, True])
-def test_cleanup_after_expired_deadline_prunes_worktree_metadata(case, rogue_git):
+def test_cleanup_after_expired_deadline_removes_worktree_metadata(case, rogue_git):
     slot = WorktreeSlot(
         case["spec"].environment["l2"], case["root"] / "expired-workspace", case["task"]
     )
@@ -128,6 +128,208 @@ def test_cleanup_after_expired_deadline_prunes_worktree_metadata(case, rogue_git
     ).stdout
     assert str(workspace) not in listing
     assert (case["repo"] / "module.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+
+
+@pytest.mark.tier1
+def test_discard_grace_removes_tree_and_exact_admin_after_remove_timeout(case, monkeypatch):
+    slot = WorktreeSlot(
+        case["spec"].environment["l2"], case["root"] / "remove-timeout" / "workspace", case["task"]
+    )
+    workspace = slot.prepare()
+    admin = slot._admin_dir
+    assert admin is not None and admin.is_dir()
+
+    def timeout_remove(*arguments):
+        raise TimeoutError("simulated git worktree remove timeout")
+
+    # The remove sub-budget is bounded independently from the pure-Python
+    # discard grace, so an exhausted remove deadline cannot strand the slot.
+    monkeypatch.setattr(slot, "WORKTREE_REMOVE_BUDGET_S", 1.0)
+    monkeypatch.setattr(slot, "worktree_command", timeout_remove)
+    slot.deadline = time.monotonic() - 1
+    slot.cleanup()
+
+    assert not workspace.exists()
+    assert not admin.exists()
+    assert admin_entries(slot) == []
+
+
+@pytest.mark.tier1
+def test_fallback_cleanup_preserves_concurrent_sibling_slot_metadata_and_patch(case, monkeypatch):
+    for name in ("concurrent-a", "concurrent-b"):
+        (case["root"] / name).mkdir()
+    slot_a = WorktreeSlot(
+        case["spec"].environment["l2"], case["root"] / "concurrent-a" / "workspace", case["task"]
+    )
+    slot_b = WorktreeSlot(
+        case["spec"].environment["l2"], case["root"] / "concurrent-b" / "workspace", case["task"]
+    )
+    workspace_a = slot_a.prepare()
+    workspace_b = slot_b.prepare()
+    admin_a, admin_b = slot_a._admin_dir, slot_b._admin_dir
+    assert admin_a is not None and admin_b is not None
+    assert len(admin_entries(slot_a)) == 2
+
+    # Force the fallback path on A only: a rogue .git plus a failed Git remove.
+    (workspace_a / ".git").mkdir()
+    (workspace_a / ".git/config").write_text("[core]\n", encoding="utf-8")
+    original_remove = slot_a.worktree_command
+
+    def fail_remove(*arguments):
+        if arguments[0] == "remove":
+            raise RuntimeError("simulated worktree remove failure")
+        return original_remove(*arguments)
+
+    monkeypatch.setattr(slot_a, "worktree_command", fail_remove)
+    slot_a.deadline = time.monotonic() - 1
+    slot_a.cleanup()
+
+    assert not workspace_a.exists()
+    assert not admin_a.exists()
+    assert admin_b.is_dir()
+    assert admin_entries(slot_a) == [admin_b]
+
+    # B still has its hidden .git and exact admin entry: patch extraction and
+    # its own cleanup must work after A's fallback removal.
+    (workspace_b / "module.py").write_text("VALUE = 2\n", encoding="utf-8")
+    assert slot_b.snapshot_patch(case["root"] / "concurrent-b") == ["module.py"]
+    slot_b.cleanup()
+    assert not workspace_b.exists()
+    assert not admin_b.exists()
+    assert admin_entries(slot_a) == []
+
+
+def run_postflight_for_slot(workspace, repo, monkeypatch, *, extra=None, run=None):
+    original_path, original_run = pathlib.Path, subprocess.run
+
+    def path(value):
+        if value == "/proc":
+            return SimpleNamespace(iterdir=lambda: iter(()))
+        return original_path(value)
+
+    def default_run(command, **kwargs):
+        if command == ["owned-probe"]:
+            return SimpleNamespace(stdout=json.dumps({"0": {"used_mb": 1, "pids": []}}))
+        return original_run(command, **kwargs)
+
+    config = {
+        "path": str(workspace),
+        "repo_path": str(repo),
+        "source_projection": [],
+        "probe_command": ["owned-probe"],
+        "devices": [0],
+        "memory_limit_mb": 100,
+        **(extra or {}),
+    }
+    with monkeypatch.context() as patch:
+        patch.setitem(
+            sys.modules,
+            "pathlib",
+            SimpleNamespace(Path=path, PurePosixPath=pathlib.PurePosixPath),
+        )
+        patch.setattr(subprocess, "run", run or default_run)
+        patch.setattr(sys, "argv", ["postflight", json.dumps(config)])
+        exec(compile(POSTFLIGHT, "remote-postflight", "exec"), {})
+
+
+@pytest.mark.tier1
+def test_postflight_cleanup_preserves_concurrent_sibling_slot(case, monkeypatch):
+    for name in ("postflight-a", "postflight-b"):
+        (case["root"] / name).mkdir()
+    slot_a = WorktreeSlot(
+        case["spec"].environment["l2"], case["root"] / "postflight-a" / "workspace", case["task"]
+    )
+    slot_b = WorktreeSlot(
+        case["spec"].environment["l2"], case["root"] / "postflight-b" / "workspace", case["task"]
+    )
+    workspace_a = slot_a.prepare()
+    workspace_b = slot_b.prepare()
+    admin_a, admin_b = slot_a._admin_dir, slot_b._admin_dir
+    assert admin_a is not None and admin_b is not None
+    assert len(admin_entries(slot_a)) == 2
+    (workspace_a / "module.py").write_text("VALUE = 2\n", encoding="utf-8")
+
+    run_postflight_for_slot(workspace_a, case["repo"], monkeypatch)
+
+    final = json.loads(pathlib.Path(str(workspace_a) + ".final.json").read_text())
+    assert final["errors"] == []
+    assert not workspace_a.exists()
+    assert not admin_a.exists()
+    assert admin_b.is_dir()
+    assert admin_entries(slot_a) == [admin_b]
+
+    # The sibling's hidden .git is still valid after postflight removed A.
+    (workspace_b / "module.py").write_text("VALUE = 2\n", encoding="utf-8")
+    assert slot_b.snapshot_patch(case["root"] / "postflight-b") == ["module.py"]
+    slot_b.cleanup()
+    assert not admin_b.exists()
+    assert admin_entries(slot_a) == []
+
+
+@pytest.mark.tier1
+def test_postflight_writes_final_artifact_before_teardown_overrun(case, monkeypatch, capsys):
+    slot = WorktreeSlot(
+        case["spec"].environment["l2"], case["root"] / "teardown-budget" / "workspace", case["task"]
+    )
+    workspace = slot.prepare()
+    admin = slot._admin_dir
+    assert admin is not None
+    (workspace / "module.py").write_text("VALUE = 2\n", encoding="utf-8")
+    original_run = subprocess.run
+
+    def slow_remove(command, **kwargs):
+        if command == ["owned-probe"]:
+            return SimpleNamespace(stdout=json.dumps({"0": {"used_mb": 1, "pids": []}}))
+        if "worktree" in command and "remove" in command:
+            time.sleep(2.0)
+            raise subprocess.TimeoutExpired(command, kwargs.get("timeout"))
+        return original_run(command, **kwargs)
+
+    run_postflight_for_slot(
+        workspace,
+        case["repo"],
+        monkeypatch,
+        extra={
+            "postflight_budget_s": 1.5,
+            "postflight_artifact_reserve_s": 0.1,
+            "postflight_teardown_s": 0.2,
+        },
+        run=slow_remove,
+    )
+
+    final = json.loads(pathlib.Path(str(workspace) + ".final.json").read_text())
+    output = json.loads(capsys.readouterr().out)
+    # The published artifact predates teardown; the late timeout is visible only
+    # in the in-memory stdout receipt, proving the file was already complete.
+    assert not any("git worktree remove" in item for item in final["errors"])
+    assert any("worktree metadata removal" in item for item in output["cleanup"]["errors"])
+    assert not workspace.exists()
+    assert not admin.exists()
+
+
+@pytest.mark.tier1
+def test_postflight_rewrites_final_artifact_with_fast_teardown_failure(case, monkeypatch):
+    slot = WorktreeSlot(
+        case["spec"].environment["l2"], case["root"] / "teardown-status" / "workspace", case["task"]
+    )
+    workspace = slot.prepare()
+    admin = slot._admin_dir
+    assert admin is not None
+    original_run = subprocess.run
+
+    def fail_remove(command, **kwargs):
+        if command == ["owned-probe"]:
+            return SimpleNamespace(stdout=json.dumps({"0": {"used_mb": 1, "pids": []}}))
+        if "worktree" in command and "remove" in command:
+            raise subprocess.CalledProcessError(1, command, stderr=b"simulated failure")
+        return original_run(command, **kwargs)
+
+    run_postflight_for_slot(workspace, case["repo"], monkeypatch, run=fail_remove)
+
+    final = json.loads(pathlib.Path(str(workspace) + ".final.json").read_text())
+    assert any("worktree metadata removal" in item for item in final["errors"])
+    assert not workspace.exists()
+    assert not admin.exists()
 
 
 @pytest.mark.tier1
@@ -251,7 +453,20 @@ def test_kda_build_cache_bounds_entries_and_removes_failed_temporary(tmp_path):
     # A directory named like the package makes copy2 fail after the temp dir exists.
     run_cache("mkdir -p csrc/build_out/pkg.run")
     cache_root = home / "cache" / "kda_build_out"
+    cache_root.mkdir(parents=True, exist_ok=True)
     assert not list(cache_root.glob("*.tmp-*"))
+
+    dead_process = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead_process.wait()
+    alive_tmp = cache_root / f"alive.tmp-{os.getpid()}"
+    dead_tmp = cache_root / f"dead.tmp-{dead_process.pid}"
+    young_tmp = cache_root / f"young.tmp-{dead_process.pid}"
+    for path in (alive_tmp, dead_tmp, young_tmp):
+        path.mkdir()
+        (path / "partial").write_text("partial\n", encoding="utf-8")
+    old = time.time() - 2 * 60 * 60
+    os.utime(alive_tmp, (old, old))
+    os.utime(dead_tmp, (old, old))
 
     for index in range(18):
         run_cache(
@@ -259,9 +474,18 @@ def test_kda_build_cache_bounds_entries_and_removes_failed_temporary(tmp_path):
             f"printf pkg{index} > csrc/build_out/pkg.run"
         )
 
-    entries = [path for path in cache_root.iterdir() if path.is_dir()]
+    # In-flight temporary trees are neither counted nor evicted. Only the old
+    # directory whose PID has exited is atomically renamed and reclaimed.
+    entries = [
+        path
+        for path in cache_root.iterdir()
+        if path.is_dir() and ".tmp-" not in path.name
+    ]
     assert len(entries) == 16
-    assert not list(cache_root.glob("*.tmp-*"))
+    assert alive_tmp.is_dir()
+    assert young_tmp.is_dir()
+    assert not dead_tmp.exists()
+    assert not list(cache_root.glob(".trash-*"))
 
 
 @pytest.mark.tier1
@@ -293,6 +517,32 @@ def test_remote_slot_close_removes_final_artifact_and_sweeps_stale(
         "owned-trial.final.json",
         "stale-trial.final.json",
     }
+
+
+@pytest.mark.tier1
+@pytest.mark.parametrize("failure", ["fsync", "replace"])
+def test_remote_slot_keeps_remote_artifact_when_local_receipt_is_not_durable(
+    case, tmp_path, monkeypatch, failure
+):
+    slot = remote_slot_for_local_command(case, tmp_path, monkeypatch)
+    owned = Path(slot.path + ".final.json")
+    owned.write_text("{}", encoding="utf-8")
+
+    if failure == "fsync":
+        monkeypatch.setattr(
+            os, "fsync", lambda descriptor: (_ for _ in ()).throw(OSError("sync failed"))
+        )
+    else:
+        monkeypatch.setattr(
+            os, "replace", lambda *arguments: (_ for _ in ()).throw(OSError("replace failed"))
+        )
+
+    with pytest.raises(RuntimeError, match="local cleanup evidence"):
+        slot.close()
+
+    # The remote artifact is only deleted after the local receipt is durable.
+    assert owned.exists()
+    assert not (tmp_path / "remote_cleanup.json").exists()
 
 
 @pytest.mark.tier1

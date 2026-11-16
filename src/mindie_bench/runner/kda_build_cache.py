@@ -1,10 +1,14 @@
 # [Role] Reuse a verified KDA build package keyed by exact source/command identity.
 # [Invariants] A cached package is copied only when its manifest SHA-256 matches;
 #   generated build directories are excluded from the source identity. The shared
-#   cache keeps at most 16 keyed entries, evicting the least recently written.
+#   cache keeps at most 16 completed keyed entries, evicting the least recently
+#   used (a cache hit refreshes mtime). In-flight `.tmp-<pid>` directories never
+#   count as eviction candidates.
 # [Timeouts & Locks] The wrapped build subprocess is bounded at 60s; cache writes
 #   use a PID-suffixed temporary directory and atomic rename, and every failed
-#   write removes its temporary directory.
+#   write removes its temporary directory. A dead-PID `.tmp-<pid>` directory is
+#   reclaimed only after it is older than 1h and its PID exited, via atomic
+#   `.trash-*` rename.
 # [Side-Effect Policy] Writes only under `$HOME/cache/kda_build_out` and the slot's
 #   own `csrc/build_out`; no network or host-state mutation.
 
@@ -15,9 +19,12 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 
 GENERATED = {"build", "build_out", "output"}
 MAX_CACHE_ENTRIES = 16
+STALE_TMP_AGE_SEC = 60 * 60
+TRASH_PREFIX = ".trash-"
 
 
 def sha256(path):
@@ -33,18 +40,86 @@ def current_sources(root):
     }
 
 
+def _pid_exited(pid):
+    if pid <= 0:
+        return True
+    if os.name == "nt":
+        # Windows has no portable signal-0 probe; age alone never proves death.
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    except TimeoutError:
+        raise
+    except OSError:
+        return False
+    return False
+
+
+def _temporary_pid(name):
+    marker = ".tmp-"
+    if marker not in name:
+        return None
+    try:
+        return int(name.rsplit(marker, 1)[1])
+    except ValueError:
+        return None
+
+
+def _is_temporary_name(name):
+    return name.startswith(".tmp") or ".tmp-" in name or name.endswith(".tmp")
+
+
+def _discard_stale_temporary(path):
+    """Atomically rename a dead temporary directory before deleting it."""
+    trash = path.with_name(
+        TRASH_PREFIX + path.name + "-" + str(os.getpid()) + "-" + str(time.time_ns())
+    )
+    try:
+        path.rename(trash)
+    except TimeoutError:
+        raise
+    except OSError:
+        return
+    shutil.rmtree(trash, ignore_errors=True)
+
+
 def prune_cache(root, current):
     entries = []
+    stale_temporaries = []
+    now = time.time()
     for path in root.iterdir():
-        if path == current or not path.is_dir():
+        if path == current or not path.is_dir() or path.is_symlink():
+            continue
+        if path.name.startswith(TRASH_PREFIX):
+            continue
+        if _is_temporary_name(path.name):
+            pid = _temporary_pid(path.name)
+            if pid is None:
+                continue
+            try:
+                aged = now - path.stat().st_mtime >= STALE_TMP_AGE_SEC
+            except TimeoutError:
+                raise
+            except OSError:
+                continue
+            if aged and _pid_exited(pid):
+                stale_temporaries.append(path)
             continue
         try:
             entries.append((path.stat().st_mtime, path))
+        except TimeoutError:
+            raise
         except OSError:
             continue
     entries.sort(reverse=True)
     for _, path in entries[MAX_CACHE_ENTRIES - 1:]:
         shutil.rmtree(path, ignore_errors=True)
+    for path in stale_temporaries:
+        _discard_stale_temporary(path)
 
 
 receipt_path, csrc, cache_dir = pathlib.Path("../build-receipt.json"), pathlib.Path("csrc"), None
@@ -68,6 +143,12 @@ if receipt_path.is_file() and csrc.is_dir():
                     build_out = csrc / "build_out"
                     build_out.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(cached_pkg, build_out / manifest["name"])
+                    try:
+                        os.utime(cache_dir, None)
+                    except TimeoutError:
+                        raise
+                    except OSError:
+                        pass
                     raise SystemExit(0)
     except SystemExit:
         raise

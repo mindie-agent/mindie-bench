@@ -17,9 +17,11 @@ PID/network/IPC namespaces.
 - Per-command worker inner timeout equals the caller `timeout`; 20s after that is reserved
   for SIGTERM (2s) then SIGKILL drain, so worker outer = `limit + 20s`.
 - Host-side `_request` pipe wait: `limit + 25.0s` (`kill_grace 20s + flush_grace 5s`).
-- Slot startup readiness wait: `40.0s`; slot teardown (`POSTFLIGHT` + NPU HBM/PID drain) wait: `40.0s`.
+- Slot startup readiness wait: `40.0s`; slot teardown (`POSTFLIGHT` + NPU HBM/PID drain) wait:
+  `50.0s`. `POSTFLIGHT` owns a `30.0s` monotonic budget split into extraction,
+  `10.0s` teardown, and a `5.0s` artifact reserve; `50.0s >= 30.0s + 15.0s`.
 - Final-artifact removal and the stale-artifact sweep share one `15.0s` SSH grace after
-  `remote_cleanup.json` is durably written locally.
+  `remote_cleanup.json` is fsynced and atomically renamed locally.
 - Confirmed pre-start worker errors (`started: False`) raise `RemotePreStartError` and do
   not set `operation_unknown`. Sticky unknown is only a lost pipe or a missing receipt.
 
@@ -27,15 +29,17 @@ PID/network/IPC namespaces.
 - Acquires `flock -n` on `/tmp/mindie-bench-device-<id>.lock` (and optional `ComponentRuntime`
   coordinator leases) before creating the worktree; `trap POSTFLIGHT EXIT` kills remaining slot
   processes via `pidfd_send_signal`, verifies NPU HBM/PID drain, extracts `patch_b64`, and removes
-  the worktree.
-- After `remote_cleanup.json` is saved locally, removes `<slot>.final.json` and opportunistically
-  sweeps `<slots_root>/*.final.json` older than 48h that this user owns and no live slot holds.
+  only this slot's worktree plus its exact admin entry.
+- After `remote_cleanup.json` is durably saved locally, removes `<slot>.final.json` and
+  opportunistically sweeps `<slots_root>/*.final.json` older than 48h that this user owns and no
+  live slot holds.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import os
 import shlex
 import subprocess
 import threading
@@ -73,6 +77,21 @@ KDA_BUILD_CACHE_HELPER = Path(__file__).with_name("kda_build_cache.py").read_tex
 FINAL_ARTIFACT_CLEANUP_GRACE_SEC = 15.0
 STALE_FINAL_ARTIFACT_SEC = 48 * 60 * 60
 
+# Strict teardown arithmetic: 30s postflight budget = 15s extraction + 10s
+# teardown + 5s final-artifact reserve. The SSH wait keeps a 5s transport/flush
+# margin over the required `postflight_budget + 15s`.
+POSTFLIGHT_BUDGET_SEC = 30.0
+POSTFLIGHT_ARTIFACT_RESERVE_SEC = 5.0
+POSTFLIGHT_TEARDOWN_SEC = 10.0
+POSTFLIGHT_EXTRACT_BUDGET_SEC = (
+    POSTFLIGHT_BUDGET_SEC - POSTFLIGHT_ARTIFACT_RESERVE_SEC - POSTFLIGHT_TEARDOWN_SEC
+)
+POSTFLIGHT_OUTER_WAIT_SEC = 50.0
+if POSTFLIGHT_EXTRACT_BUDGET_SEC <= 0:
+    raise ValueError("POSTFLIGHT budget leaves no extraction time")
+if POSTFLIGHT_OUTER_WAIT_SEC < POSTFLIGHT_BUDGET_SEC + 15.0:
+    raise ValueError("POSTFLIGHT outer wait must cover its budget plus 15s of grace")
+
 # Runs inside the remote container. The owned artifact is removed unconditionally;
 # other candidates must be this user's, older than the age bound, and not backed by
 # a live slot worktree or `MINDIE_BENCH_SLOT_ID` process.
@@ -104,6 +123,8 @@ removed, warnings = [], []
 for artifact in sorted(root.glob("*.final.json")):
     try:
         stat = artifact.stat()
+    except TimeoutError:
+        raise
     except OSError:
         continue
     if uid is not None and stat.st_uid != uid:
@@ -114,10 +135,33 @@ for artifact in sorted(root.glob("*.final.json")):
     try:
         artifact.unlink()
         removed.append(artifact.name)
+    except TimeoutError:
+        raise
     except OSError as exc:
         warnings.append(artifact.name + ": " + type(exc).__name__ + ": " + str(exc))
 print(json.dumps({"removed": removed, "warnings": warnings}))
 """
+
+
+def _atomic_write_durable(path: Path, data: bytes) -> None:
+    """Fsync a same-directory temp file and replace the target atomically."""
+    temp = path.with_name(f"{path.name}.tmp-{uuid.uuid4().hex}")
+    descriptor = -1
+    try:
+        descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, path)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 class RemoteSlot:
@@ -268,6 +312,9 @@ class RemoteSlot:
             memory_limit_mb=self.config.memory_limit_mb,
             probe_command=self.config.probe_command,
             source_projection=HARNESS_CONFIG_PATHS,
+            postflight_budget_s=POSTFLIGHT_BUDGET_SEC,
+            postflight_artifact_reserve_s=POSTFLIGHT_ARTIFACT_RESERVE_SEC,
+            postflight_teardown_s=POSTFLIGHT_TEARDOWN_SEC,
         )
         cleanup = shlex.join(["python3", "-I", "-c", POSTFLIGHT, json.dumps(cleanup_config)])
         slot_bin = cache_root + "/bin"
@@ -572,7 +619,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                 errors.append(f"remote owner-pipe close: {type(exc).__name__}: {exc}")
             try:
                 if self.cleanup_receipt is None:
-                    deadline = time.monotonic() + 40
+                    deadline = time.monotonic() + POSTFLIGHT_OUTER_WAIT_SEC
                     while self.cleanup_receipt is None:
                         receipt = self._read(max(0, deadline - time.monotonic()))
                         if "cleanup" in receipt:
@@ -632,8 +679,11 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             if self.artifact_dir:
                 cleanup_saved = False
                 try:
-                    (self.artifact_dir / "remote_cleanup.json").write_text(
-                        json.dumps(self.cleanup_receipt), encoding="utf-8", newline="\n"
+                    # The remote artifact is deleted only after this local copy is
+                    # durable. A failed fsync/replace leaves the remote copy intact.
+                    _atomic_write_durable(
+                        self.artifact_dir / "remote_cleanup.json",
+                        json.dumps(self.cleanup_receipt).encode("utf-8"),
                     )
                     cleanup_saved = True
                     if "patch_b64" in final:
