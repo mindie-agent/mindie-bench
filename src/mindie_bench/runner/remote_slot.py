@@ -17,9 +17,11 @@ PID/network/IPC namespaces.
 - Per-command worker inner timeout equals the caller `timeout`; 20s after that is reserved
   for SIGTERM (2s) then SIGKILL drain, so worker outer = `limit + 20s`.
 - Host-side `_request` pipe wait: `limit + 25.0s` (`kill_grace 20s + flush_grace 5s`).
-- Slot startup readiness wait: `40.0s`; slot teardown (`POSTFLIGHT` + NPU HBM/PID drain) wait:
-  `50.0s`. `POSTFLIGHT` owns a `30.0s` monotonic budget split into extraction,
-  `10.0s` teardown, and a `5.0s` artifact reserve; `50.0s >= 30.0s + 15.0s`.
+- Slot teardown (`POSTFLIGHT` + NPU HBM/PID drain) wait is `50.0s`; `POSTFLIGHT` owns a
+  `30.0s` monotonic budget (never more than `40.0s`) split into extraction, bounded
+  teardown, and a final-artifact reserve, keeping a `5.0s` margin below the caller wait.
+- If postflight stdout is lost or unparseable, one read-only `10.0s` SSH probe may recover
+  `<slots_root>/<trial_id>.final.json`; it verifies `trial_id` and exact slot identity.
 - Final-artifact removal and the stale-artifact sweep share one `15.0s` SSH grace after
   `remote_cleanup.json` is fsynced and atomically renamed locally.
 - Confirmed pre-start worker errors (`started: False`) raise `RemotePreStartError` and do
@@ -75,11 +77,12 @@ POSTFLIGHT = Path(__file__).with_name("remote_postflight.py").read_text(encoding
 KDA_BUILD_CACHE_HELPER = Path(__file__).with_name("kda_build_cache.py").read_text(encoding="utf-8")
 
 FINAL_ARTIFACT_CLEANUP_GRACE_SEC = 15.0
+RECONCILIATION_PROBE_SEC = 10.0
 STALE_FINAL_ARTIFACT_SEC = 48 * 60 * 60
 
 # Strict teardown arithmetic: 30s postflight budget = 15s extraction + 10s
 # teardown + 5s final-artifact reserve. The SSH wait keeps a 5s transport/flush
-# margin over the required `postflight_budget + 15s`.
+# margin, and postflight itself refuses a budget above 40s.
 POSTFLIGHT_BUDGET_SEC = 30.0
 POSTFLIGHT_ARTIFACT_RESERVE_SEC = 5.0
 POSTFLIGHT_TEARDOWN_SEC = 10.0
@@ -89,8 +92,27 @@ POSTFLIGHT_EXTRACT_BUDGET_SEC = (
 POSTFLIGHT_OUTER_WAIT_SEC = 50.0
 if POSTFLIGHT_EXTRACT_BUDGET_SEC <= 0:
     raise ValueError("POSTFLIGHT budget leaves no extraction time")
+if POSTFLIGHT_BUDGET_SEC > 40.0:
+    raise ValueError("POSTFLIGHT budget must leave a receipt margin below the SSH wait")
 if POSTFLIGHT_OUTER_WAIT_SEC < POSTFLIGHT_BUDGET_SEC + 15.0:
     raise ValueError("POSTFLIGHT outer wait must cover its budget plus 15s of grace")
+
+# Read-only recovery probe for a lost frame: it never deletes or writes, and only
+# distinguishes a valid persisted receipt from absence or another slot's artifact.
+RECONCILE_FINAL_ARTIFACT = r"""
+import json, pathlib, sys
+slot = pathlib.Path(sys.argv[1]); trial_id = slot.name
+try:
+    payload = json.loads(slot.with_name(trial_id + ".final.json").read_text(encoding="utf-8"))
+except TimeoutError:
+    raise
+except (OSError, ValueError):
+    raise SystemExit(3)
+if (not isinstance(payload, dict) or payload.get("trial_id") != trial_id
+        or payload.get("slot_path") != str(slot)):
+    raise SystemExit(4)
+print(json.dumps(payload))
+"""
 
 # Runs inside the remote container. The owned artifact is removed unconditionally;
 # other candidates must be this user's, older than the age bound, and not backed by
@@ -185,6 +207,7 @@ class RemoteSlot:
         self.created = self.closed = self.operation_unknown = False
         self.cleanup_confirmed = False
         self.cleanup_warning = None
+        self.recovered_cleanup_receipt = False
         self.removed_remote_artifacts: list[str] = []
         self.public_files: dict[str, str] = {}
         self.read_buffer = b""
@@ -313,6 +336,7 @@ class RemoteSlot:
             probe_command=self.config.probe_command,
             source_projection=HARNESS_CONFIG_PATHS,
             postflight_budget_s=POSTFLIGHT_BUDGET_SEC,
+            postflight_outer_wait_s=POSTFLIGHT_OUTER_WAIT_SEC,
             postflight_artifact_reserve_s=POSTFLIGHT_ARTIFACT_RESERVE_SEC,
             postflight_teardown_s=POSTFLIGHT_TEARDOWN_SEC,
         )
@@ -561,6 +585,30 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             return self.execute(command, base64.b64encode(script).decode())
         return self.execute(command, base64.b64encode(script).decode(), timeout=timeout)
 
+    def _recover_cleanup_receipt(self) -> bool:
+        """Read the persisted postflight receipt after stdout was lost (read-only)."""
+        trial_id = PurePosixPath(self.path).name
+        try:
+            result = subprocess.run(
+                self.command(["python3", "-I", "-c", RECONCILE_FINAL_ARTIFACT, self.path]),
+                check=True, capture_output=True, text=True, encoding="utf-8",
+                timeout=RECONCILIATION_PROBE_SEC, **subprocess_window_kwargs(),
+            )
+            payload = json.loads(result.stdout)
+            if (not isinstance(payload, dict) or payload.get("trial_id") != trial_id
+                    or payload.get("slot_path") != self.path):
+                raise ValueError("persisted postflight receipt does not match this slot")
+            self.cleanup_receipt = {"cleanup": payload}
+            self.recovered_cleanup_receipt = True
+            return True
+        except subprocess.TimeoutExpired as exc:
+            self.cleanup_warning = f"remote cleanup reconciliation timed out: {exc}"
+        except TimeoutError:
+            raise
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            self.cleanup_warning = f"remote cleanup reconciliation: {type(exc).__name__}: {exc}"
+        return False
+
     def _remove_remote_artifact(self):
         """Best-effort removal of the owned remote artifact plus stale-slots sweep."""
         name = PurePosixPath(self.path).name + ".final.json"
@@ -588,6 +636,8 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         except subprocess.TimeoutExpired as exc:
             self.cleanup_warning = f"remote final artifact cleanup timed out: {exc}"
             return
+        except TimeoutError:
+            raise
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             self.cleanup_warning = (
                 f"remote final artifact cleanup: {type(exc).__name__}: {exc}"
@@ -603,6 +653,7 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
     def close(self):
         self.closed = True
         errors = []
+        worker_cleanup_error = None
         if self.component_runtime:
             try:
                 self.component_runtime.stop_monitor()
@@ -630,14 +681,32 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                             ) as stream:
                                 stream.write(json.dumps(receipt) + "\n")
                 self.process.wait(timeout=5)
-            except (TimeoutError, subprocess.TimeoutExpired, RuntimeError) as exc:
-                errors.append(f"remote worker cleanup unconfirmed: {type(exc).__name__}: {exc}")
+            except (TimeoutError, subprocess.TimeoutExpired, RuntimeError, ValueError, TypeError) as exc:
+                worker_cleanup_error = (
+                    f"remote worker cleanup unconfirmed: {type(exc).__name__}: {exc}"
+                )
+                errors.append(worker_cleanup_error)
                 try:
                     terminate_process_group(self.process, term_wait=2, kill_wait=5)
-                except (TimeoutError, OSError) as cleanup:
+                except TimeoutError:
+                    raise
+                except OSError as cleanup:
                     errors.append(f"remote local process-group cleanup: {cleanup}")
             finally:
                 self._close_owner()
+        if self.cleanup_receipt is None and self.created:
+            # The postflight artifact is durable before teardown; lost local stdout
+            # does not by itself prove the remote slot leaked.
+            try:
+                recovered = self._recover_cleanup_receipt()
+            except TimeoutError as exc:
+                recovered = False
+                errors.append(f"remote cleanup reconciliation: TimeoutError: {exc}")
+            if recovered and worker_cleanup_error is not None:
+                errors.remove(worker_cleanup_error)
+                self.cleanup_warning = self.cleanup_warning or (
+                    "postflight stdout lost; recovered persisted remote cleanup receipt"
+                )
         if self.stderr_file:
             try:
                 self.stderr_file.close()
@@ -648,9 +717,20 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         if self.cleanup_receipt:
             final = self.cleanup_receipt.get("cleanup", {})
             errors.extend(final.get("errors", []))
+            if self.recovered_cleanup_receipt and final.get("teardown_complete") is not True:
+                errors.append("remote cleanup receipt predates teardown completion")
+            elif final.get("teardown_complete") is False:
+                errors.append("remote cleanup receipt did not finish teardown")
             # Namespace completion is independent of whole-device occupancy and
-            # local evidence accounting. Coordinator still checks owner/ports.
-            self.cleanup_confirmed = not errors
+            # local evidence accounting. A parked `.trash-*` tree or a slot path
+            # that still exists is never a confirmed namespace release.
+            self.cleanup_confirmed = (
+                not errors
+                and final.get("trash_deferred") is not True
+                and final.get("slot_removed") is not False
+                and final.get("slot_vacated") is not False
+                and final.get("teardown_complete") is not False
+            )
             errors.extend(final.get("probe_errors", []))
             if "files_modified" in final:
                 try:
@@ -692,7 +772,9 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                         )
                 except TimeoutError:
                     raise
-                except (OSError, ValueError) as exc:
+                except OSError as exc:
+                    errors.append(f"local cleanup evidence: {type(exc).__name__}: {exc}")
+                except ValueError as exc:
                     errors.append(f"local cleanup evidence: {type(exc).__name__}: {exc}")
                 # The remote artifact is up to ~85 MiB with base64 patches. Delete
                 # it only after the local receipt is durable; a failure is a

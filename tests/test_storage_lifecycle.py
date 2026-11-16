@@ -7,9 +7,11 @@ They assert that owned temporary state disappears even on failure paths.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,9 +21,11 @@ from types import SimpleNamespace
 
 import pytest
 
+import mindie_bench.runner.remote_slot as remote_slot_module
 from mindie_bench.evaluation import knowledge_tiered
 from mindie_bench.evaluation.knowledge_tiered import evaluate_applicability_and_distractors
 from mindie_bench.models import RemoteConfig
+from mindie_bench.runner import kda_build_cache
 from mindie_bench.runner.host_platform import subprocess_window_kwargs
 from mindie_bench.runner.remote_slot import POSTFLIGHT, RemoteSlot
 from mindie_bench.runner.worktree_slot import WorktreeSlot
@@ -301,10 +305,85 @@ def test_postflight_writes_final_artifact_before_teardown_overrun(case, monkeypa
     output = json.loads(capsys.readouterr().out)
     # The published artifact predates teardown; the late timeout is visible only
     # in the in-memory stdout receipt, proving the file was already complete.
+    assert final["teardown_complete"] is False
     assert not any("git worktree remove" in item for item in final["errors"])
     assert any("worktree metadata removal" in item for item in output["cleanup"]["errors"])
     assert not workspace.exists()
-    assert not admin.exists()
+    assert output["cleanup"]["slot_vacated"] is True
+    assert output["cleanup"]["trash_deferred"] is True
+    # A blocking Git call consumed the reserve before fallback retirement, so
+    # exact admin cleanup is honestly deferred rather than granted unbounded time.
+    assert not any("admin removal" in item for item in final["errors"])
+    assert any("admin removal" in item for item in output["cleanup"]["errors"])
+    assert admin.exists()
+    for path in workspace.parent.glob(".trash-*"):
+        shutil.rmtree(path, ignore_errors=True)
+    shutil.rmtree(admin, ignore_errors=True)
+
+
+@pytest.mark.tier1
+def test_postflight_bounded_trash_retirement_emits_receipt_before_deadline(
+    case, monkeypatch, capsys
+):
+    slot = WorktreeSlot(
+        case["spec"].environment["l2"],
+        case["root"] / "bounded-trash" / "workspace",
+        case["task"],
+    )
+    workspace = slot.prepare()
+    (workspace / "module.py").write_text("VALUE = 2\n", encoding="utf-8")
+    for index in range(8):
+        (workspace / f"payload-{index}.txt").write_text("data\n", encoding="utf-8")
+    original_run, original_unlink = subprocess.run, os.unlink
+    sleeper_started = []
+
+    def fail_remove(command, **kwargs):
+        if command == ["owned-probe"]:
+            return SimpleNamespace(stdout=json.dumps({"0": {"used_mb": 1, "pids": []}}))
+        if "worktree" in command and "remove" in command:
+            raise subprocess.CalledProcessError(1, command, stderr=b"simulated failure")
+        return original_run(command, **kwargs)
+
+    def slow_unlink(target, *args, **kwargs):
+        result = original_unlink(target, *args, **kwargs)
+        if ".trash-" in str(target):
+            sleeper_started.append(time.monotonic())
+            time.sleep(1.0)
+        return result
+
+    monkeypatch.setattr(os, "unlink", slow_unlink)
+    started = time.monotonic()
+    run_postflight_for_slot(
+        workspace,
+        case["repo"],
+        monkeypatch,
+        extra={
+            "postflight_budget_s": 10.0,
+            "postflight_artifact_reserve_s": 5.0,
+            "postflight_teardown_s": 2.0,
+        },
+        run=fail_remove,
+    )
+    elapsed = time.monotonic() - started
+
+    final = json.loads(pathlib.Path(str(workspace) + ".final.json").read_text())
+    output = json.loads(capsys.readouterr().out)
+    trash = list(workspace.parent.glob(".trash-*"))
+    assert sleeper_started and elapsed < 10.0
+    assert not workspace.exists()
+    assert trash
+    assert final["slot_vacated"] is True
+    assert final["slot_removed"] is False
+    assert final["trash_deferred"] is True
+    assert final["teardown_complete"] is True
+    assert output["cleanup"] == final
+    assert any("slot tree removal deferred" in item for item in final["errors"])
+
+    monkeypatch.setattr(os, "unlink", original_unlink)
+    for path in trash:
+        shutil.rmtree(path, ignore_errors=True)
+    if slot._admin_dir is not None:
+        shutil.rmtree(slot._admin_dir, ignore_errors=True)
 
 
 @pytest.mark.tier1
@@ -416,6 +495,78 @@ def remote_slot_for_local_command(case, tmp_path, monkeypatch):
     return slot
 
 
+class _FakeKernel32:
+    def __init__(self, handle, error, exit_code, exit_ok=True):
+        self.handle = handle
+        self.error = error
+        self.exit_code = exit_code
+        self.exit_ok = exit_ok
+        self.closed = False
+
+    def OpenProcess(self, access, inherit, pid):
+        assert access == kda_build_cache.PROCESS_QUERY_LIMITED_INFORMATION
+        assert inherit is False
+        assert pid == 4321
+        return self.handle
+
+    def CloseHandle(self, handle):
+        assert handle == self.handle
+        self.closed = True
+        return True
+
+    def GetExitCodeProcess(self, handle, pointer):
+        assert handle == self.handle
+        pointer._obj.value = self.exit_code
+        return self.exit_ok
+
+
+@pytest.mark.tier1
+@pytest.mark.parametrize(
+    ("handle", "error", "exit_code", "expected"),
+    [
+        (0, kda_build_cache.ERROR_INVALID_PARAMETER, None, True),
+        (0, kda_build_cache.ERROR_ACCESS_DENIED, None, False),
+        (123, 0, kda_build_cache.STILL_ACTIVE, False),
+        (123, 0, 0, True),
+    ],
+)
+def test_windows_pid_exit_probe_never_calls_os_kill(
+    monkeypatch, handle, error, exit_code, expected
+):
+    kernel32 = _FakeKernel32(handle, error, exit_code)
+    monkeypatch.setattr(kda_build_cache.os, "name", "nt")
+    monkeypatch.setattr(
+        kda_build_cache, "_windows_kernel32", lambda: (kernel32, lambda: kernel32.error)
+    )
+    monkeypatch.setattr(
+        kda_build_cache.os,
+        "kill",
+        lambda *args: pytest.fail("os.kill(pid, 0) must never run on Windows"),
+    )
+
+    assert kda_build_cache._pid_exited(4321) is expected
+    assert kernel32.closed is (handle != 0)
+
+
+@pytest.mark.tier1
+def test_dead_pid_temporary_cleanup_uses_platform_probe(tmp_path):
+    cache_root = tmp_path / "kda_build_out"
+    current = cache_root / "current"
+    current.mkdir(parents=True)
+    dead_process = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead_process.wait()
+    stale = cache_root / f"stale.tmp-{dead_process.pid}"
+    stale.mkdir()
+    (stale / "partial").write_text("partial\n", encoding="utf-8")
+    old = time.time() - 2 * kda_build_cache.STALE_TMP_AGE_SEC
+    os.utime(stale, (old, old))
+
+    kda_build_cache.prune_cache(cache_root, current)
+
+    assert not stale.exists()
+    assert not list(cache_root.glob(".trash-*"))
+
+
 @pytest.mark.tier1
 def test_kda_build_cache_bounds_entries_and_removes_failed_temporary(tmp_path):
     output = tmp_path / "output"
@@ -486,6 +637,118 @@ def test_kda_build_cache_bounds_entries_and_removes_failed_temporary(tmp_path):
     assert young_tmp.is_dir()
     assert not dead_tmp.exists()
     assert not list(cache_root.glob(".trash-*"))
+
+
+@pytest.mark.tier1
+def test_remote_slot_close_recovers_persisted_receipt_after_stdout_timeout(
+    case, tmp_path, monkeypatch
+):
+    slot = remote_slot_for_local_command(case, tmp_path, monkeypatch)
+    slot.cleanup_receipt = None
+    slot.process = SimpleNamespace(stdin=io.BytesIO(), wait=lambda timeout: 0)
+    payload = {
+        "trial_id": "owned-trial",
+        "slot_path": slot.path,
+        "probe": {"0": {"used_mb": 0, "pids": [], "model": "Ascend910"}},
+        "errors": [],
+        "slot_vacated": True,
+        "slot_removed": True,
+        "trash_deferred": False,
+        "teardown_complete": True,
+    }
+    owned = Path(slot.path + ".final.json")
+    owned.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(
+        slot,
+        "_read",
+        lambda timeout: (_ for _ in ()).throw(TimeoutError("postflight stdout lost")),
+    )
+    monkeypatch.setattr(
+        remote_slot_module, "terminate_process_group", lambda *args, **kwargs: None
+    )
+
+    slot.close()
+
+    assert slot.recovered_cleanup_receipt is True
+    assert slot.cleanup_receipt == {"cleanup": payload}
+    assert slot.cleanup_confirmed is True
+    assert slot.cleanup_warning and "postflight stdout lost" in slot.cleanup_warning
+    assert not owned.exists()
+    assert json.loads((tmp_path / "remote_cleanup.json").read_text()) == slot.cleanup_receipt
+
+
+@pytest.mark.tier1
+def test_remote_slot_close_does_not_confirm_a_pre_teardown_receipt(
+    case, tmp_path, monkeypatch
+):
+    slot = remote_slot_for_local_command(case, tmp_path, monkeypatch)
+    slot.cleanup_receipt = None
+    slot.process = SimpleNamespace(stdin=io.BytesIO(), wait=lambda timeout: 0)
+    payload = {
+        "trial_id": "owned-trial",
+        "slot_path": slot.path,
+        "probe": {"0": {"used_mb": 0, "pids": [], "model": "Ascend910"}},
+        "errors": [],
+        "slot_vacated": True,
+        "slot_removed": False,
+        "trash_deferred": False,
+        "teardown_complete": False,
+    }
+    owned = Path(slot.path + ".final.json")
+    owned.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(
+        slot,
+        "_read",
+        lambda timeout: (_ for _ in ()).throw(TimeoutError("postflight stdout lost")),
+    )
+    monkeypatch.setattr(
+        remote_slot_module, "terminate_process_group", lambda *args, **kwargs: None
+    )
+
+    with pytest.raises(RuntimeError, match="predates teardown completion"):
+        slot.close()
+
+    assert slot.recovered_cleanup_receipt is True
+    assert slot.cleanup_confirmed is False
+
+
+@pytest.mark.tier1
+def test_remote_slot_close_rejects_persisted_receipt_for_another_slot(
+    case, tmp_path, monkeypatch
+):
+    slot = remote_slot_for_local_command(case, tmp_path, monkeypatch)
+    slot.cleanup_receipt = None
+    slot.process = SimpleNamespace(stdin=io.BytesIO(), wait=lambda timeout: 0)
+    payload = {
+        "trial_id": "different-trial",
+        "slot_path": "/different/slot",
+        "probe": {"0": {"used_mb": 0, "pids": [], "model": "Ascend910"}},
+        "errors": [],
+        "slot_vacated": True,
+        "slot_removed": True,
+        "trash_deferred": False,
+        "teardown_complete": True,
+    }
+    owned = Path(slot.path + ".final.json")
+    owned.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(
+        slot,
+        "_read",
+        lambda timeout: (_ for _ in ()).throw(TimeoutError("postflight stdout lost")),
+    )
+    monkeypatch.setattr(
+        remote_slot_module, "terminate_process_group", lambda *args, **kwargs: None
+    )
+
+    with pytest.raises(RuntimeError, match="no remote cleanup receipt"):
+        slot.close()
+
+    assert slot.recovered_cleanup_receipt is False
+    assert slot.cleanup_confirmed is False
+    assert slot.cleanup_warning and "reconciliation" in slot.cleanup_warning
+    assert slot.cleanup_warning and "exit status 4" in slot.cleanup_warning
+    assert owned.exists()
+    assert not (tmp_path / "remote_cleanup.json").exists()
 
 
 @pytest.mark.tier1

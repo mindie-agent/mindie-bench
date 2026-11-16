@@ -90,7 +90,13 @@ def test_postflight_process_disappearance_preserves_cleanup_receipt(
     final, killed, closed, probe_calls = postflight_with_process_race(
         tmp_path, monkeypatch, stage=stage, error=error_type("process disappeared")
     )
-    assert final == {"probe": {"0": {"used_mb": 1, "pids": []}}, "errors": []}
+    assert final["probe"] == {"0": {"used_mb": 1, "pids": []}}
+    assert final["errors"] == []
+    assert final["trial_id"] == "owned-slot"
+    assert final["slot_path"] == str(tmp_path / "owned-slot")
+    assert final["slot_removed"] is True
+    assert final["trash_deferred"] is False
+    assert final["teardown_complete"] is True
     assert killed == [(41102, signal.SIGKILL)]
     assert closed == [41102]
     assert probe_calls == [["owned-probe"]]

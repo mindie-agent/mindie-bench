@@ -1,21 +1,26 @@
 # [Role] Tear down one allocated remote slot and extract its final patch/inventory.
 # [Invariants] Only processes carrying this slot's exact environment token are killed;
 #   the final artifact is written before teardown and remains valid even when teardown
-#   times out. Only this slot's worktree and its exact `.git/worktrees/<slot>` admin
-#   directory are removed; shared metadata is never swept globally.
+#   times out. A failed worktree removal first renames the slot to an owned `.trash-*`
+#   sibling, so the slot path is vacated before any unbounded filesystem work begins.
+#   Only this slot's worktree and its exact `.git/worktrees/<slot>` admin directory
+#   are removed; shared metadata is never swept globally.
 # [Timeouts & Locks] One monotonic postflight deadline splits into diff/status,
-#   a bounded 10s teardown, and a 5s artifact reserve. Git/probe subprocesses are
-#   capped by the current phase deadline; artifact writes are atomic.
+#   a bounded teardown, and a final-artifact reserve. Every fallback unlink/rmdir
+#   checks the deadline first and raises TimeoutError instead of overrunning it.
+#   The script emits its stdout receipt before the caller's SSH wait can expire;
+#   artifact writes are atomic.
 # [Side-Effect Policy] Kills only this slot's owned processes, always writes
-#   `<slot>.final.json`, removes this slot's worktree plus exact admin entry and
-#   `.bench-home` cache, and never mutates a sibling slot's metadata.
+#   `<slot>.final.json`, removes this slot's worktree plus exact admin entry,
+#   atomically parks leftover tree bytes under `.trash-*`, and never mutates a
+#   sibling slot's metadata.
 
 import base64
 import json
 import os
 import pathlib
-import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -28,10 +33,18 @@ diff_paths=["--",".",*[":(exclude)"+name for name in cfg["source_projection"]]]
 token=("MINDIE_BENCH_SLOT_ID="+path.name).encode()
 win_kw={"creationflags":subprocess.CREATE_NO_WINDOW} if os.name=="nt" else {}
 started=time.monotonic()
-budget=max(.1,float(cfg.get("postflight_budget_s",30.0)))
-artifact_reserve=max(0.0,float(cfg.get("postflight_artifact_reserve_s",5.0)))
+# The caller waits POSTFLIGHT_OUTER_WAIT_SEC for this process. Keep teardown and
+# receipt emission inside that outer budget even if a caller raises the plain
+# postflight budget: the SSH waiter must never outlive our stdout by construction.
+budget=max(.1,min(float(cfg.get("postflight_budget_s",30.0)),40.0))
+outer_wait=max(.1,float(cfg.get("postflight_outer_wait_s",budget+15.0)))
+artifact_reserve=min(
+    max(0.0,float(cfg.get("postflight_artifact_reserve_s",5.0))),
+    max(0.0,budget-.1),
+)
+finish_span=max(.1,min(budget,outer_wait-5.0))
+artifact_deadline=started+max(.001,finish_span-artifact_reserve)
 teardown_budget=max(0.0,float(cfg.get("postflight_teardown_s",10.0)))
-artifact_deadline=started+max(.001,budget-artifact_reserve)
 teardown_budget=min(teardown_budget,max(0.0,artifact_deadline-started))
 extract_deadline=max(started,artifact_deadline-teardown_budget)
 if extract_deadline<=started:
@@ -43,6 +56,11 @@ def phase_timeout(limit,until):
     if remaining<=0:
         raise TimeoutError("postflight phase deadline exhausted")
     return min(limit,remaining)
+
+
+def check_deadline(until):
+    if time.monotonic()>=until:
+        raise TimeoutError("postflight teardown deadline exhausted")
 
 
 def write_artifact(payload):
@@ -90,23 +108,187 @@ def worktree_metadata(until):
     return common,matches
 
 
+def _make_writable(target,mode):
+    """Clear read-only bits without turning a failed chmod into a timeout."""
+    try:
+        os.chmod(target,mode)
+    except TimeoutError:
+        raise
+    except OSError:
+        pass
+
+
+def _bounded_unlink(target,until):
+    check_deadline(until)
+    try:
+        os.unlink(target)
+        return
+    except FileNotFoundError:
+        return
+    except TimeoutError:
+        raise
+    except OSError:
+        pass
+    _make_writable(target,stat.S_IRUSR|stat.S_IWUSR)
+    _make_writable(os.path.dirname(os.fspath(target)),0o700)
+    check_deadline(until)
+    try:
+        os.unlink(target)
+    except FileNotFoundError:
+        pass
+
+
+def _bounded_rmdir(target,until):
+    check_deadline(until)
+    try:
+        os.rmdir(target)
+        return
+    except FileNotFoundError:
+        return
+    except TimeoutError:
+        raise
+    except OSError:
+        pass
+    _make_writable(target,0o700)
+    _make_writable(os.path.dirname(os.fspath(target)),0o700)
+    check_deadline(until)
+    try:
+        os.rmdir(target)
+    except FileNotFoundError:
+        pass
+
+
+def _bounded_remove_tree(root,until):
+    """Delete `root` iteratively, checking the monotonic deadline before every I/O.
+
+    A deadline hit raises TimeoutError and deliberately leaves the remaining bytes
+    parked under `.trash-*`; callers record that state instead of pretending the
+    filesystem is clean. Read-only files/directories get one retry after chmod.
+    """
+    pending=[(pathlib.Path(root),None)]
+    while pending:
+        check_deadline(until)
+        current,iterator=pending[-1]
+        if not os.path.lexists(current):
+            pending.pop()
+            continue
+        if os.path.islink(current) or not os.path.isdir(current):
+            pending.pop()
+            _bounded_unlink(current,until)
+            continue
+        if iterator is None:
+            try:
+                iterator=os.scandir(current)
+            except FileNotFoundError:
+                pending.pop()
+                continue
+            except TimeoutError:
+                raise
+            except OSError:
+                _make_writable(current,0o700)
+                check_deadline(until)
+                try:
+                    iterator=os.scandir(current)
+                except FileNotFoundError:
+                    pending.pop()
+                    continue
+            pending[-1]=(current,iterator)
+        try:
+            entry=next(iterator)
+        except StopIteration:
+            iterator.close()
+            pending.pop()
+            _bounded_rmdir(current,until)
+        else:
+            pending.append((pathlib.Path(entry.path),None))
+
+
+def _try_remove_tree(target,until,label,problems):
+    try:
+        _bounded_remove_tree(target,until)
+    except TimeoutError:
+        raise
+    except OSError as exc:
+        problems.append(label+": "+type(exc).__name__+": "+str(exc))
+
+
+def _try_remove_path(target,until,label,problems):
+    try:
+        if target.is_symlink() or not target.is_dir():
+            _bounded_unlink(target,until)
+        else:
+            _bounded_remove_tree(target,until)
+    except TimeoutError:
+        raise
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        problems.append(label+": "+type(exc).__name__+": "+str(exc))
+
+
+def _trash_path():
+    candidate=path.parent/(".trash-"+path.name+"-"+str(os.getpid()))
+    if os.path.lexists(candidate):
+        candidate=path.parent/(candidate.name+"-"+str(time.time_ns()))
+    return candidate
+
+
+def _sweep_old_trash(until,keep):
+    """Reclaim older retired trees only while this postflight still has budget."""
+    problems=[]
+    if time.monotonic()>=until:
+        return problems
+    try:
+        entries=list(os.scandir(path.parent))
+    except FileNotFoundError:
+        return problems
+    except TimeoutError:
+        raise
+    except OSError as exc:
+        problems.append("stale trash sweep: "+type(exc).__name__+": "+str(exc))
+        return problems
+    for entry in entries:
+        if time.monotonic()>=until:
+            break
+        if not entry.name.startswith(".trash-"):
+            continue
+        candidate=pathlib.Path(entry.path)
+        if keep is not None and os.path.abspath(candidate)==os.path.abspath(keep):
+            continue
+        try:
+            _try_remove_path(candidate,until,"stale trash sweep",problems)
+        except TimeoutError:
+            break
+    return problems
+
+
+def _slot_status(trash):
+    slot_gone=not os.path.lexists(path)
+    trash_present=trash is not None and os.path.lexists(trash)
+    return {
+        "slot_vacated":slot_gone,
+        "slot_removed":slot_gone and not trash_present,
+        "trash_deferred":slot_gone and trash_present,
+    }
+
+
 def remove_worktree(until,admin=None):
     """Remove this slot's tree and exact admin entry; never sweep shared metadata."""
     problems=[]
+    trash=None
     try:
         if path.is_symlink():
             path.unlink()
-    except Exception as exc:
+    except TimeoutError:
+        raise
+    except OSError as exc:
         problems.append("slot symlink removal: "+type(exc).__name__+": "+str(exc))
     gitfile=path/".git"
-    try:
-        if gitfile.is_symlink() or gitfile.is_file():
-            gitfile.unlink()
-        elif gitfile.is_dir():
-            # The agent may have turned the hidden pointer into a real repository.
-            shutil.rmtree(gitfile)
-    except Exception as exc:
-        problems.append("agent-created .git removal: "+type(exc).__name__+": "+str(exc))
+    if os.path.lexists(gitfile):
+        try:
+            _try_remove_path(gitfile,until,"agent-created .git removal",problems)
+        except TimeoutError as exc:
+            problems.append("agent-created .git removal: TimeoutError: "+str(exc))
     if admin is not None and admin.parent.name!="worktrees":
         problems.append("refusing to remove metadata outside this slot's admin entry")
         admin=None
@@ -117,6 +299,8 @@ def remove_worktree(until,admin=None):
                 admin=matches[0].resolve()
             elif matches:
                 raise RuntimeError("cannot identify this slot's exact worktree metadata")
+        except TimeoutError as exc:
+            problems.append("worktree metadata removal: TimeoutError: "+str(exc))
         except Exception as exc:
             problems.append("worktree metadata removal: "+type(exc).__name__+": "+str(exc))
     if admin is not None and path.is_dir():
@@ -126,20 +310,37 @@ def remove_worktree(until,admin=None):
             gitfile.write_text("gitdir: "+str(admin)+"\n",encoding="utf-8",newline="\n")
             subprocess.run(["git","-C",cfg["repo_path"],"worktree","remove","--force",str(path)],
                 check=True,capture_output=True,timeout=phase_timeout(10,until),**win_kw)
+        except TimeoutError as exc:
+            problems.append("worktree metadata removal: TimeoutError: "+str(exc))
         except Exception as exc:
             problems.append("worktree metadata removal: "+type(exc).__name__+": "+str(exc))
-    if path.exists():
+    # Once Git has failed, O(1) rename the slot out of its public path before any
+    # recursive deletion. The slot path is then safe to reuse or inspect even if
+    # the trash tree is too large to finish within this postflight budget.
+    if os.path.lexists(path):
+        candidate=_trash_path()
         try:
-            shutil.rmtree(path)
-        except Exception as exc:
-            problems.append("slot tree removal: "+type(exc).__name__+": "+str(exc))
-    if admin is not None:
+            os.replace(path,candidate)
+            trash=candidate
+        except FileNotFoundError:
+            pass
+        except TimeoutError:
+            raise
+        except OSError as exc:
+            problems.append("slot tree retirement: "+type(exc).__name__+": "+str(exc))
+    if trash is not None and os.path.lexists(trash):
         try:
-            if admin.exists():
-                shutil.rmtree(admin)
-        except Exception as exc:
-            problems.append("slot worktree admin removal: "+type(exc).__name__+": "+str(exc))
-    return problems
+            _try_remove_tree(trash,until,"slot tree removal",problems)
+        except TimeoutError as exc:
+            problems.append("slot tree removal deferred: TimeoutError: "+str(exc))
+    status=_slot_status(trash)
+    if admin is not None and os.path.lexists(admin):
+        try:
+            _try_remove_tree(admin,until,"slot worktree admin removal",problems)
+        except TimeoutError as exc:
+            problems.append("slot worktree admin removal: TimeoutError: "+str(exc))
+    status["trash_sweep_errors"]=_sweep_old_trash(until,trash)
+    return problems,status
 
 
 # Record the exact admin entry while metadata is still cheap to resolve. This
@@ -188,7 +389,9 @@ for attempt in range(20):
     if time.monotonic()+.5>=extract_deadline:
         break
     time.sleep(.5)
-final={"probe":probe,"errors":errors}
+final={"probe":probe,"errors":errors,"trial_id":path.name,"slot_path":str(path),
+    "slot_vacated":not os.path.lexists(path),"slot_removed":False,
+    "trash_deferred":False,"teardown_complete":False}
 if probe_errors:
     final["probe_errors"]=probe_errors
 if path.is_dir():
@@ -241,13 +444,31 @@ if path.is_dir():
         final["errors"].append(type(exc).__name__+": "+str(exc))
 # Publish before teardown: a hanging filesystem unlink or Git removal can then
 # never prevent the outer SSH caller from receiving a complete receipt.
-write_artifact(final)
+try:
+    write_artifact(final)
+except Exception as exc:
+    final["errors"].append("artifact publish: "+type(exc).__name__+": "+str(exc))
 teardown_deadline=min(artifact_deadline,time.monotonic()+teardown_budget)
-if path.exists() or path.is_symlink() or pathlib.Path(cfg["repo_path"]).exists():
-    try:
-        final["errors"].extend(remove_worktree(teardown_deadline,slot_admin))
-    except Exception as exc:
-        final["errors"].append("worktree teardown: "+type(exc).__name__+": "+str(exc))
+teardown_complete=False
+try:
+    if os.path.lexists(path) or pathlib.Path(cfg["repo_path"]).exists():
+        problems,status=remove_worktree(teardown_deadline,slot_admin)
+        final["errors"].extend(problems)
+        final.update(status)
+    else:
+        final.update({"slot_vacated":True,"slot_removed":True,"trash_deferred":False})
+    teardown_complete=True
+except TimeoutError as exc:
+    final["errors"].append("worktree teardown: TimeoutError: "+str(exc))
+    final.update(_slot_status(None))
+except Exception as exc:
+    final["errors"].append("worktree teardown: "+type(exc).__name__+": "+str(exc))
+    final.update(_slot_status(None))
+finally:
+    final["teardown_complete"]=teardown_complete
     if time.monotonic()<artifact_deadline:
-        write_artifact(final)
-print(json.dumps({"cleanup":final,"remote_artifact":str(artifact)}),flush=True)
+        try:
+            write_artifact(final)
+        except Exception as exc:
+            final["errors"].append("artifact rewrite: "+type(exc).__name__+": "+str(exc))
+    print(json.dumps({"cleanup":final,"remote_artifact":str(artifact)}),flush=True)
