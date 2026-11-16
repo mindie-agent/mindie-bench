@@ -1,8 +1,10 @@
 # [Role] Reuse a verified KDA build package keyed by exact source/command identity.
 # [Invariants] A cached package is copied only when its manifest SHA-256 matches;
-#   generated build directories are excluded from the source identity.
+#   generated build directories are excluded from the source identity. The shared
+#   cache keeps at most 16 keyed entries, evicting the least recently written.
 # [Timeouts & Locks] The wrapped build subprocess is bounded at 60s; cache writes
-#   use a PID-suffixed temporary directory and atomic rename.
+#   use a PID-suffixed temporary directory and atomic rename, and every failed
+#   write removes its temporary directory.
 # [Side-Effect Policy] Writes only under `$HOME/cache/kda_build_out` and the slot's
 #   own `csrc/build_out`; no network or host-state mutation.
 
@@ -15,15 +17,36 @@ import subprocess
 import sys
 
 GENERATED = {"build", "build_out", "output"}
+MAX_CACHE_ENTRIES = 16
+
+
 def sha256(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def current_sources(root):
     return {
         p.relative_to(root).as_posix(): sha256(p)
         for p in sorted(root.rglob("*"))
         if p.relative_to(root).parts[0] not in GENERATED and not p.is_symlink() and p.is_file()
     }
+
+
+def prune_cache(root, current):
+    entries = []
+    for path in root.iterdir():
+        if path == current or not path.is_dir():
+            continue
+        try:
+            entries.append((path.stat().st_mtime, path))
+        except OSError:
+            continue
+    entries.sort(reverse=True)
+    for _, path in entries[MAX_CACHE_ENTRIES - 1:]:
+        shutil.rmtree(path, ignore_errors=True)
+
+
 receipt_path, csrc, cache_dir = pathlib.Path("../build-receipt.json"), pathlib.Path("csrc"), None
 if receipt_path.is_file() and csrc.is_dir():
     try:
@@ -48,12 +71,15 @@ if receipt_path.is_file() and csrc.is_dir():
                     raise SystemExit(0)
     except SystemExit:
         raise
+    except TimeoutError:
+        raise
     except Exception:
         cache_dir = None
 bash_bin = "/bin/bash" if pathlib.Path("/bin/bash").is_file() else (shutil.which("bash") or "bash")
 win_kw = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 res = subprocess.run([bash_bin, *sys.argv[1:]], timeout=60, **win_kw)
 if res.returncode == 0 and cache_dir is not None:
+    tmp_dir = None
     try:
         pkgs = list((csrc / "build_out").glob("*.run"))
         if len(pkgs) == 1:
@@ -69,6 +95,12 @@ if res.returncode == 0 and cache_dir is not None:
                 tmp_dir.rename(cache_dir)
             else:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
+            prune_cache(cache_dir.parent, cache_dir)
+    except TimeoutError:
+        if tmp_dir is not None:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
     except Exception:
-        pass
+        if tmp_dir is not None:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 raise SystemExit(res.returncode)

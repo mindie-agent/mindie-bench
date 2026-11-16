@@ -25,8 +25,10 @@ classification, run-receipt usage feedback, and sequential cross-session learnin
 
 [Side-Effect Policy]
 - Never mutates the selected source corpus. Distractor injection copies into a
-  caller-owned temporary workspace. Writes are isolated SQLite stores and test
-  workspaces; no remote publication, model call, or corpus rewrite.
+  caller-owned temporary workspace. A workspace created here is removed in
+  `finally` after every SQLite store closes; a caller-supplied workspace is
+  preserved. Writes are isolated SQLite stores and test workspaces; no remote
+  publication, model call, or corpus rewrite.
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ from mindie_bench.evaluation.knowledge_tiered_support import (
     record_usage_event,
     summarize_usage_events,
 )
+from mindie_bench.runner.host_platform import rmtree_force
 
 
 # ------------------------------------------------------- L1/L2 applicability
@@ -74,20 +77,22 @@ def evaluate_applicability_and_distractors(
         raise ValueError(f"conditions must be drawn from {CONDITIONS}")
     if not cases:
         raise ValueError("at least one applicability case is required")
+    owned_workspace = workspace is None
     root = Path(workspace) if workspace else Path(tempfile.mkdtemp(prefix="mindie-tiered-"))
     root.mkdir(parents=True, exist_ok=True)
-    source_before = _support._source_hash(source)
-    source_index = RoutingIndex.from_root(source)
-    base_corpus = _support._copy_corpus(source, root / "normal-corpus")
-    distractor_corpus = _support._copy_corpus(source, root / "distractor-corpus")
-    injected = _support._inject_distractors(distractor_corpus, distractors)
-    stores = {
-        "oracle": _support._repository(root / "oracle-store", base_corpus),
-        "normal_retrieval": _support._repository(root / "normal-store", base_corpus),
-        "with_distractors": _support._repository(root / "distractor-store", distractor_corpus),
-    }
-    report = {}
+    stores = {}
     try:
+        source_before = _support._source_hash(source)
+        source_index = RoutingIndex.from_root(source)
+        base_corpus = _support._copy_corpus(source, root / "normal-corpus")
+        distractor_corpus = _support._copy_corpus(source, root / "distractor-corpus")
+        injected = _support._inject_distractors(distractor_corpus, distractors)
+        stores["oracle"] = _support._repository(root / "oracle-store", base_corpus)
+        stores["normal_retrieval"] = _support._repository(root / "normal-store", base_corpus)
+        stores["with_distractors"] = _support._repository(
+            root / "distractor-store", distractor_corpus
+        )
+        report = {}
         for condition in selected:
             report[condition] = _evaluate_condition(
                 condition,
@@ -99,38 +104,28 @@ def evaluate_applicability_and_distractors(
                 nav_budget=nav_budget,
                 body_budget=body_budget,
             )
+        source_after = _support._source_hash(source)
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "evaluator": "applicability_and_distractors",
+            "corpus_root": str(source),
+            "corpus_sha256_before": source_before,
+            "corpus_sha256_after": source_after,
+            "source_corpus_mutated": source_before != source_after,
+            "unit_count": len(source_index.units),
+            "k": k,
+            "distractors": injected,
+            "annotation_errors": _support._annotation_errors(injected),
+            "conditions": report,
+        }
     finally:
-        for store, _repository_object in stores.values():
-            store.close()
-    source_after = _support._source_hash(source)
-    annotation_errors = []
-    for item in injected:
-        if not item["observed"]:
-            continue
-        actual = _support._status(
-            match_conditions(item["unit_conditions"], item["observed"]).status
-        )
-        if actual != item["expected_status"]:
-            annotation_errors.append(
-                {
-                    "unit_id": item["unit_id"],
-                    "expected_status": item["expected_status"],
-                    "actual_status": actual,
-                }
-            )
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "evaluator": "applicability_and_distractors",
-        "corpus_root": str(source),
-        "corpus_sha256_before": source_before,
-        "corpus_sha256_after": source_after,
-        "source_corpus_mutated": source_before != source_after,
-        "unit_count": len(source_index.units),
-        "k": k,
-        "distractors": injected,
-        "annotation_errors": annotation_errors,
-        "conditions": report,
-    }
+        # SQLite handles must close before Windows releases the owned `.sqlite3`
+        # files for unlinking; caller-owned workspaces stay untouched.
+        try:
+            _support._close_stores(stores)
+        finally:
+            if owned_workspace:
+                rmtree_force(root)
 
 
 def _evaluate_condition(

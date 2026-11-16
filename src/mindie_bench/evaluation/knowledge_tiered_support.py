@@ -267,8 +267,41 @@ def _inject_distractors(corpus: Path, distractors: Sequence[Mapping]) -> list[di
 
 def _repository(workspace: Path, corpus: Path, domain: str | None = None):
     store = Store(workspace / "store", domain or _domain(corpus))
-    store.graded.install_root(corpus)
+    try:
+        store.graded.install_root(corpus)
+    except BaseException:
+        store.close()
+        raise
     return store, store.graded
+
+
+def _close_stores(stores: Mapping[str, Sequence]) -> None:
+    """Close every SQLite store, reporting the first failure without skipping later ones."""
+    error = None
+    for store, _repository_object in stores.values():
+        try:
+            store.close()
+        except Exception as exc:
+            error = error or exc
+    if error is not None:
+        raise error
+
+
+def _annotation_errors(injected: Sequence[Mapping]) -> list[dict]:
+    errors = []
+    for item in injected:
+        if not item["observed"]:
+            continue
+        actual = _status(match_conditions(item["unit_conditions"], item["observed"]).status)
+        if actual != item["expected_status"]:
+            errors.append(
+                {
+                    "unit_id": item["unit_id"],
+                    "expected_status": item["expected_status"],
+                    "actual_status": actual,
+                }
+            )
+    return errors
 
 
 def _pin(repository: GradedRepository, ref: Any) -> str:

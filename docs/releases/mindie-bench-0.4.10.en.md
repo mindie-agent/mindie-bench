@@ -1,0 +1,13 @@
+# mindie-bench 0.4.10: local & remote NPU storage/worktree lifecycle hardening
+
+[中文](mindie-bench-0.4.10.md)
+
+This release completes the Wave 1 storage and worktree lifecycle leak fixes. Temporary workspaces, remote Git worktrees, large container artifacts, and test corpus snapshots created by the harness now have explicit ownership, close ordering, and forced-reclamation paths instead of being skipped on error or after an expired deadline.
+
+- **Tiered-knowledge temporary workspace**: `evaluate_applicability_and_distractors(..., workspace=None)` installs graded corpora and opens three SQLite `Store`s under its own `mindie-tiered-*` directory. All stores now close first (mandatory before unlinking `.sqlite3` files on Windows), and the owned directory is force-removed in `finally` on both success and exception paths. A caller-supplied `workspace` is preserved.
+- **Remote NPU worktree and `.bench-home` cache**: `POSTFLIGHT` now wraps patch/untracked inspection in `try/finally`. Even when the agent created an unexpected `.git` directory, the patch exceeds `32 MiB`, or the untracked inventory exceeds its bound, it removes the `<slot>` worktree and `.bench-home` cache and runs `git worktree prune` for `<repo>/.git/worktrees/<slot>`. Cleanup errors are returned alongside the primary inspection error, so multi-GB remote directories no longer leak silently.
+- **Remote `<slot>.final.json` artifact**: after the local `remote_cleanup.json` is durable, `RemoteSlot.close()` removes the remote `<slot>.final.json` (about 85 MiB with base64 patches) within a 15-second cleanup grace. It also sweeps this user's `<slots_root>/*.final.json` files older than 48 hours when no slot is active. A removal failure records `cleanup_warning` and never rewrites the primary trial verdict.
+- **Local worktree cleanup under an expired deadline**: `WorktreeSlot.cleanup()` reserves a `CLEANUP_GRACE_S = 15.0` minimum cleanup grace. Even after the trial deadline is exhausted, it removes an agent-created rogue `.git` directory, reattaches metadata, and runs `git worktree remove --force`; on failure it removes the owned tree and runs `git worktree prune`, so `<repo>/.git/worktrees/<name>` never leaks. The continuation executor accounts for this grace in its outer budget.
+- **Bounded cache and test fixture**: the KDA build cache removes its PID-suffixed temporary directory when `copy2`/hashing fails and caps `kda_build_out` at 16 LRU entries. The test operators snapshot now lives under an isolated temporary directory and is deleted at process exit, with stale snapshots owned by the current user pruned.
+
+This is an independent release: it does not update the historical product channel, component dependency versions, or frozen benchmark task assets.

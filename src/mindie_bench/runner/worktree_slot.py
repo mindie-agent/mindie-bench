@@ -5,8 +5,10 @@
 directory; task execution and independent repositories remain concurrent.
 [Timeouts & Locks] Git metadata commands have 30 seconds; lock acquisition has
 35 seconds. An optional phase deadline caps every Git and metadata-lock wait.
-Process-local locks do not coordinate independent runner processes.
-[Side-Effect Policy] Remove only owned worktrees; expose Git failures to callers.
+`cleanup()` reserves a fresh `CLEANUP_GRACE_S` minimum even when the trial budget
+already expired. Process-local locks do not coordinate independent runner processes.
+[Side-Effect Policy] Remove only owned worktrees and their Git admin entries; expose
+Git failures to callers.
 """
 
 from __future__ import annotations
@@ -24,16 +26,21 @@ from mindie_bench.io import is_ignored_cache_path
 from mindie_bench.models import SourceEnvironment
 from mindie_bench.runner.host_platform import (
     is_wsl_interop_path,
+    rmtree_force,
     subprocess_window_kwargs,
     which_native,
 )
 from mindie_bench.runner.source_projection import HARNESS_CONFIG_PATHS, diff_paths, project_source
+
+CLEANUP_GRACE_S = 15.0
 
 _METADATA_LOCKS = {}
 _LOCK_REGISTRY = threading.Lock()
 
 
 class WorktreeSlot:
+    CLEANUP_GRACE_S = CLEANUP_GRACE_S
+
     def __init__(
         self, environment: SourceEnvironment, destination: Path, task_root: Path,
         *, deadline: float | None = None,
@@ -164,19 +171,26 @@ class WorktreeSlot:
                 raise ValueError(f"source contains reserved evaluation/configuration path: {reserved}")
         return self.destination
 
+    def _matching_admin_entries(self):
+        expected_git = os.path.normcase(str((self.destination / ".git").resolve()))
+        worktrees = self.admin_path / "worktrees"
+        if not worktrees.is_dir():
+            return []
+        matches = []
+        for entry in worktrees.iterdir():
+            self.remaining_timeout(30)
+            try:
+                target = (entry / "gitdir").read_text(encoding="utf-8").strip()
+            except FileNotFoundError:
+                # Other Git processes do not participate in this runner's lock.
+                continue
+            if os.path.normcase(str(Path(target).resolve())) == expected_git:
+                matches.append(entry)
+        return matches
+
     def reattach_metadata(self):
         with self.metadata_edit():
-            matches = []
-            expected_git = os.path.normcase(str((self.destination / ".git").resolve()))
-            for entry in (self.admin_path / "worktrees").iterdir():
-                self.remaining_timeout(30)
-                try:
-                    target = (entry / "gitdir").read_text(encoding="utf-8").strip()
-                except FileNotFoundError:
-                    # Other Git processes do not participate in this runner's lock.
-                    continue
-                if os.path.normcase(str(Path(target).resolve())) == expected_git:
-                    matches.append(entry)
+            matches = self._matching_admin_entries()
             if len(matches) != 1:
                 raise RuntimeError("cannot identify owned worktree metadata for cleanup")
             gitfile = self.destination / ".git"
@@ -262,8 +276,45 @@ class WorktreeSlot:
         finally:
             (self.destination / ".git").unlink()
 
+    def _remove_agent_git(self):
+        gitfile = self.destination / ".git"
+        if gitfile.is_symlink():
+            gitfile.unlink()
+        elif gitfile.is_dir():
+            # The agent may have replaced Git's pointer file with a real repository.
+            rmtree_force(gitfile)
+
+    def _discard_worktree(self):
+        """Remove the owned tree and its admin entry after a failed Git remove."""
+        rmtree_force(self.destination)
+        try:
+            self.worktree_command("prune", "--expire=now")
+        except (TimeoutError, subprocess.TimeoutExpired):
+            raise
+        except RuntimeError:
+            # Another Git process may hold the metadata lock that `prune` reads.
+            # Deleting this slot's exact entry still guarantees no registration leak.
+            for entry in self._matching_admin_entries():
+                rmtree_force(entry)
+
     def cleanup(self):
-        if self.created:
+        if not self.created:
+            return
+        original_deadline = self.deadline
+        # A trial that exhausted its phase deadline still owns this worktree and
+        # its `<repo>/.git/worktrees/<name>` entry. Reserve a fresh bounded grace
+        # for reattach -> remove/prune instead of failing before any Git command.
+        if original_deadline is not None:
+            self.deadline = max(original_deadline, time.monotonic() + self.CLEANUP_GRACE_S)
+        try:
             with self.metadata_edit():
-                self.reattach_metadata()
-                self.worktree_command("remove", "--force", str(self.destination))
+                self._remove_agent_git()
+                try:
+                    self.reattach_metadata()
+                    self.worktree_command("remove", "--force", str(self.destination))
+                except Exception as exc:
+                    self._discard_worktree()
+                    if self.destination.exists():
+                        raise RuntimeError(f"owned worktree cleanup failed: {exc}") from exc
+        finally:
+            self.deadline = original_deadline

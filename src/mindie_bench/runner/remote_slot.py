@@ -18,6 +18,8 @@ PID/network/IPC namespaces.
   for SIGTERM (2s) then SIGKILL drain, so worker outer = `limit + 20s`.
 - Host-side `_request` pipe wait: `limit + 25.0s` (`kill_grace 20s + flush_grace 5s`).
 - Slot startup readiness wait: `40.0s`; slot teardown (`POSTFLIGHT` + NPU HBM/PID drain) wait: `40.0s`.
+- Final-artifact removal and the stale-artifact sweep share one `15.0s` SSH grace after
+  `remote_cleanup.json` is durably written locally.
 - Confirmed pre-start worker errors (`started: False`) raise `RemotePreStartError` and do
   not set `operation_unknown`. Sticky unknown is only a lost pipe or a missing receipt.
 
@@ -26,6 +28,8 @@ PID/network/IPC namespaces.
   coordinator leases) before creating the worktree; `trap POSTFLIGHT EXIT` kills remaining slot
   processes via `pidfd_send_signal`, verifies NPU HBM/PID drain, extracts `patch_b64`, and removes
   the worktree.
+- After `remote_cleanup.json` is saved locally, removes `<slot>.final.json` and opportunistically
+  sweeps `<slots_root>/*.final.json` older than 48h that this user owns and no live slot holds.
 """
 
 from __future__ import annotations
@@ -66,6 +70,55 @@ POSTFLIGHT = Path(__file__).with_name("remote_postflight.py").read_text(encoding
 
 KDA_BUILD_CACHE_HELPER = Path(__file__).with_name("kda_build_cache.py").read_text(encoding="utf-8")
 
+FINAL_ARTIFACT_CLEANUP_GRACE_SEC = 15.0
+STALE_FINAL_ARTIFACT_SEC = 48 * 60 * 60
+
+# Runs inside the remote container. The owned artifact is removed unconditionally;
+# other candidates must be this user's, older than the age bound, and not backed by
+# a live slot worktree or `MINDIE_BENCH_SLOT_ID` process.
+REMOTE_FINAL_ARTIFACT_SWEEP = r"""
+import json, os, pathlib, sys, time
+root = pathlib.Path(sys.argv[1])
+owned = sys.argv[2]
+cutoff = time.time() - float(sys.argv[3])
+uid = getattr(os, "getuid", lambda: None)()
+proc_root = pathlib.Path("/proc")
+def active(trial):
+    if (root / trial).exists():
+        return True
+    if not proc_root.is_dir():
+        return False
+    token = b"MINDIE_BENCH_SLOT_ID=" + os.fsencode(trial)
+    for proc in proc_root.iterdir():
+        if not proc.name.isdigit():
+            continue
+        try:
+            if uid is not None and proc.stat().st_uid != uid:
+                continue
+            if token in (proc / "environ").read_bytes().split(b"\0"):
+                return True
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+    return False
+removed, warnings = [], []
+for artifact in sorted(root.glob("*.final.json")):
+    try:
+        stat = artifact.stat()
+    except OSError:
+        continue
+    if uid is not None and stat.st_uid != uid:
+        continue
+    is_owned = artifact.name == owned
+    if not is_owned and (stat.st_mtime > cutoff or active(artifact.name[:-len(".final.json")])):
+        continue
+    try:
+        artifact.unlink()
+        removed.append(artifact.name)
+    except OSError as exc:
+        warnings.append(artifact.name + ": " + type(exc).__name__ + ": " + str(exc))
+print(json.dumps({"removed": removed, "warnings": warnings}))
+"""
+
 
 class RemoteSlot:
     def __init__(
@@ -87,6 +140,8 @@ class RemoteSlot:
         self.component_runtime = self.slot_environment = self.tmpdir_backing = None
         self.created = self.closed = self.operation_unknown = False
         self.cleanup_confirmed = False
+        self.cleanup_warning = None
+        self.removed_remote_artifacts: list[str] = []
         self.public_files: dict[str, str] = {}
         self.read_buffer = b""
         self._stdout_reader: PipeReader | None = None
@@ -459,6 +514,45 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             return self.execute(command, base64.b64encode(script).decode())
         return self.execute(command, base64.b64encode(script).decode(), timeout=timeout)
 
+    def _remove_remote_artifact(self):
+        """Best-effort removal of the owned remote artifact plus stale-slots sweep."""
+        name = PurePosixPath(self.path).name + ".final.json"
+        try:
+            result = subprocess.run(
+                self.command(
+                    [
+                        "python3",
+                        "-I",
+                        "-c",
+                        REMOTE_FINAL_ARTIFACT_SWEEP,
+                        self.config.slots_root,
+                        name,
+                        str(STALE_FINAL_ARTIFACT_SEC),
+                    ]
+                ),
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=FINAL_ARTIFACT_CLEANUP_GRACE_SEC,
+                **subprocess_window_kwargs(),
+            )
+            payload = json.loads(result.stdout)
+        except subprocess.TimeoutExpired as exc:
+            self.cleanup_warning = f"remote final artifact cleanup timed out: {exc}"
+            return
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            self.cleanup_warning = (
+                f"remote final artifact cleanup: {type(exc).__name__}: {exc}"
+            )
+            return
+        warnings = payload.get("warnings") if isinstance(payload, dict) else None
+        removed = payload.get("removed") if isinstance(payload, dict) else None
+        if isinstance(warnings, list) and warnings:
+            self.cleanup_warning = "; ".join(str(item) for item in warnings)
+        if isinstance(removed, list):
+            self.removed_remote_artifacts = [str(item) for item in removed]
+
     def close(self):
         self.closed = True
         errors = []
@@ -536,10 +630,12 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
             except Exception as exc:
                 errors.append(f"postflight: {type(exc).__name__}: {exc}")
             if self.artifact_dir:
+                cleanup_saved = False
                 try:
                     (self.artifact_dir / "remote_cleanup.json").write_text(
                         json.dumps(self.cleanup_receipt), encoding="utf-8", newline="\n"
                     )
+                    cleanup_saved = True
                     if "patch_b64" in final:
                         (self.artifact_dir / "remote_final.patch").write_bytes(
                             base64.b64decode(final["patch_b64"])
@@ -548,6 +644,11 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
                     raise
                 except (OSError, ValueError) as exc:
                     errors.append(f"local cleanup evidence: {type(exc).__name__}: {exc}")
+                # The remote artifact is up to ~85 MiB with base64 patches. Delete
+                # it only after the local receipt is durable; a failure is a
+                # cleanup warning, never a reason to rewrite the trial verdict.
+                if cleanup_saved and self.created:
+                    self._remove_remote_artifact()
         else:
             errors.append(
                 "no remote cleanup receipt; do not reuse this slot without read-only reconciliation"
