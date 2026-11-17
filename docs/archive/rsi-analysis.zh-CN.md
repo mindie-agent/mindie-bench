@@ -1,3 +1,7 @@
+> **Archived Historical Document** — Moved from `docs/rsi-analysis.zh-CN.md` at baseline `efe782f541ed`.
+> Preserved unchanged for provenance and historical auditability; non-normative for active development.
+> Active living specification: [`../rsi-inference.md`](../rsi-inference.md).
+
 # RSI-Inference Bench、MindIE-Agent 与 MindIE-Bench：源码分析与集成
 
 分析日期：2026-10-20。本文分析已克隆的真实源码，而不是仅复述项目介绍。

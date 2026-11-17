@@ -16,6 +16,10 @@ from pathlib import Path
 
 from release_transport import GitHub
 
+BIRTH_COMPONENTS = {
+    "mindie-harness": "mindie-agent/harness",
+}
+
 
 def load_consumer(source):
     sys.path.insert(0, str(Path(source).resolve()))
@@ -32,6 +36,13 @@ def load_consumer(source):
 def validate_release(consumer, repository, version, revision, release, read, fetch):
     Catalog, components = load_consumer(consumer)
     name = next((key for key, repo in components.items() if repo == repository), None)
+    injected_birth_component = False
+    if name is None:
+        birth_name = next((key for key, repo in BIRTH_COMPONENTS.items() if repo == repository), None)
+        if birth_name is not None:
+            name = birth_name
+            components[birth_name] = repository
+            injected_birth_component = True
     if name is None:
         from mindie_knowledge.releases import REPOSITORIES
         from mindie_knowledge.releases_io import verify_release_source
@@ -48,10 +59,14 @@ def validate_release(consumer, repository, version, revision, release, read, fet
                 return release
             return fetch(path.removeprefix("/"))
 
-        def asset(self, component, tag, filename):
+        def asset(self, component, tag, filename, **_kwargs):
             return read(filename)
 
-    actual = ExactRelease().latest(name)
+    try:
+        actual = ExactRelease().latest(name)
+    finally:
+        if injected_birth_component:
+            components.pop(name, None)
     if actual != dict(repository=repository, version=version, revision=revision):
         raise ValueError("published consumer selected a different source")
     return actual

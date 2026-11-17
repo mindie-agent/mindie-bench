@@ -1,3 +1,7 @@
+> **Archived Historical Document** — Moved from `docs/product-value-suite-v2.md` at baseline `efe782f541ed`.
+> Preserved unchanged for provenance and historical auditability; non-normative for active development.
+> Active living specification: [`../release-benchmarks.md`](../release-benchmarks.md).
+
 # Product value suite v2
 
 `mindie-value-suite/2` is the product-matrix publication protocol. It is

@@ -4,7 +4,6 @@ from dataclasses import replace
 
 import pytest
 
-from mindie_bench.runner.compaction_injector import SemanticEvent
 from mindie_bench.runner.mechanism_ablation import (
     MECHANISM_ABLATION_PROTOCOL,
     MECHANISM_FIELDS,
@@ -21,6 +20,7 @@ from mindie_bench.runner.mechanism_ablation import (
     execute_mechanism_ablation,
     plan_mechanism_ablation,
 )
+from mindie_bench.runner.mechanism_contracts import SemanticEvent
 
 
 def controls(task_id: str = "task-a", **overrides) -> FixedControls:

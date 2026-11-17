@@ -212,6 +212,14 @@ def isolate_host_user_directories(tmp_path, monkeypatch):
     monkeypatch.setenv("MINDIE_DATA_HOME", str(data / "mindie"))
     monkeypatch.setenv("MINDIE_DIAGNOSTICS_ROOT", str(diagnostics))
     monkeypatch.setenv("MINDIE_DIAGNOSTICS_CONFIG", str(config / "diagnostics.json"))
+    monkeypatch.setenv("REMOTE_DEV_AUTH_DIR", str(config / "ssh-auth"))
+    monkeypatch.setenv("REMOTE_DEV_CREDENTIAL_FILE", str(config / "ssh-credentials.json"))
+    monkeypatch.setenv("UV_CACHE_DIR", str(cache / "uv"))
+    tmp_dir = root / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("TMPDIR", str(tmp_dir))
+    monkeypatch.setenv("TEMP", str(tmp_dir))
+    monkeypatch.setenv("TMP", str(tmp_dir))
     return {
         "home": home,
         "config": config,

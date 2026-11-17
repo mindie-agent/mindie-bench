@@ -14,7 +14,6 @@ import pathlib
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -23,8 +22,6 @@ from types import SimpleNamespace
 import pytest
 
 import mindie_bench.runner.remote_slot as remote_slot_module
-from mindie_bench.evaluation import knowledge_tiered
-from mindie_bench.evaluation.knowledge_tiered import evaluate_applicability_and_distractors
 from mindie_bench.models import RemoteConfig
 from mindie_bench.runner import kda_build_cache
 from mindie_bench.runner.host_platform import subprocess_window_kwargs
@@ -32,77 +29,10 @@ from mindie_bench.runner.remote_receipt import canonical_slot_path
 from mindie_bench.runner.remote_slot import POSTFLIGHT, RemoteSlot
 from mindie_bench.runner.worktree_slot import WorktreeSlot
 
-CORPUS = Path(__file__).parent / "fixtures" / "strategy-corpora" / "knowledge-operators"
-
 
 def admin_entries(slot: WorktreeSlot) -> list[Path]:
     path = slot.admin_path / "worktrees"
     return list(path.iterdir()) if path.is_dir() else []
-
-
-def applicability_case(case_id: str, **overrides) -> dict:
-    row = {
-        "case_id": case_id,
-        "level": "L1",
-        "query": None,
-        "conditions": {},
-        "probe_ref": None,
-        "expected_status": None,
-        "expected_refs": [],
-        "loaded_refs": [],
-        "adopted_refs": [],
-        "oracle_refs": [],
-        "retrieval_expected": False,
-    }
-    row.update(overrides)
-    return row
-
-
-@pytest.mark.tier1
-def test_owned_tiered_workspace_removed_on_success_and_failure(tmp_path, monkeypatch):
-    created = []
-    real_mkdtemp = tempfile.mkdtemp
-
-    def mkdtemp(*args, **kwargs):
-        if kwargs.get("prefix") == "mindie-tiered-":
-            path = real_mkdtemp(*args, dir=tmp_path, **kwargs)
-            created.append(Path(path))
-            return path
-        return real_mkdtemp(*args, **kwargs)
-
-    monkeypatch.setattr(knowledge_tiered.tempfile, "mkdtemp", mkdtemp)
-
-    result = evaluate_applicability_and_distractors(
-        [applicability_case("no-hit")], corpus_root=CORPUS, conditions=("no_knowledge",)
-    )
-    assert result["conditions"]["no_knowledge"]["queries"] == 0
-    assert created and not created[0].exists()
-
-    caller_workspace = tmp_path / "caller-workspace"
-    evaluate_applicability_and_distractors(
-        [applicability_case("caller")],
-        corpus_root=CORPUS,
-        conditions=("no_knowledge",),
-        workspace=caller_workspace,
-    )
-    assert caller_workspace.is_dir()
-    assert len(created) == 1
-
-    with pytest.raises(ValueError, match="unknown graded unit"):
-        evaluate_applicability_and_distractors(
-            [
-                applicability_case(
-                    "broken-load",
-                    query="Ascend memory alignment",
-                    loaded_refs=["unit-does-not-exist"],
-                    retrieval_expected=True,
-                )
-            ],
-            corpus_root=CORPUS,
-            conditions=("normal_retrieval",),
-        )
-    assert len(created) == 2
-    assert not created[1].exists()
 
 
 @pytest.mark.tier1

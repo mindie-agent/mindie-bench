@@ -494,11 +494,12 @@ def remote_verifier(
     workspace = getattr(remote, "path", None)
     if workspace:
         verifier_env["MINDIE_BENCH_WORKSPACE"] = str(workspace)
+    outer_timeout = float(timeout) + 20.0
     try:
         result = remote.verify(
             _private_remote_script(oracle_manifest, oracle_contract, timeout),
             env=verifier_env,
-            timeout=timeout,
+            timeout=outer_timeout,
         )
         write_json(trial_dir / "verifier.remote.json", result)
         transport_stdout = base64.b64decode(result["stdout_b64"], validate=True)

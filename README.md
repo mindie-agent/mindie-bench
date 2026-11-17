@@ -250,9 +250,9 @@ mindie-bench/
 | 评测系统架构与防作弊边界设计 | [docs/design.md](./docs/design.md) |
 | 实测验收结果与原始证据索引 | [docs/acceptance.md](./docs/acceptance.md) |
 | 组件与产品每次发布的基准门禁规范 | [docs/release-benchmarks.md](./docs/release-benchmarks.md) |
-| 产品价值评测套件 v2 设计说明 | [docs/product-value-suite-v2.md](./docs/product-value-suite-v2.md) |
-| 推理全生命周期评测设计（English / 中文） | [docs/rsi-inference.md](./docs/rsi-inference.md) · [docs/rsi-analysis.zh-CN.md](./docs/rsi-analysis.zh-CN.md) |
-| DSH 无头宿主接入与实测验收 | [docs/dsh-harness-acceptance.md](./docs/dsh-harness-acceptance.md) |
+| 产品价值评测套件 v2 设计说明（历史归档） | [docs/archive/product-value-suite-v2.md](./docs/archive/product-value-suite-v2.md) |
+| 推理全生命周期评测设计（English / 中文归档） | [docs/rsi-inference.md](./docs/rsi-inference.md) · [docs/archive/rsi-analysis.zh-CN.md](./docs/archive/rsi-analysis.zh-CN.md) |
+| DSH 无头宿主接入与实测验收（历史归档） | [docs/archive/dsh-harness-acceptance.md](./docs/archive/dsh-harness-acceptance.md) |
 | 本仓库 Agent 架构与不变量指南 | [AGENTS.md](./AGENTS.md) |
 
 ---

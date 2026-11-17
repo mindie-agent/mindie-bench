@@ -14,7 +14,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from consumer_contract import load_consumer
+from consumer_contract import BIRTH_COMPONENTS, load_consumer
 
 
 def git(source, *arguments):
@@ -27,7 +27,7 @@ def git(source, *arguments):
 def prepare(*, consumer, repository, version, revision, source, assets):
     """Generate an omitted asset or validate a repository's existing output."""
     _, components = load_consumer(consumer)
-    if repository in components.values():
+    if repository in components.values() or repository in BIRTH_COMPONENTS.values():
         return None
     from mindie_knowledge.releases import RELEASE_SCHEMA, REPOSITORIES, validate_release_metadata
     from mindie_knowledge.releases_io import _COMPATIBILITY_PATHS, ASSET_NAME

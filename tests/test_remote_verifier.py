@@ -170,7 +170,7 @@ def test_remote_limits_this_judge_request_without_changing_agent_budget(task):
     remote.timeout = 1200
     value, _ = remote_verifier(root, remote, trial, 10, freeze_oracle(root, contract), contract, None)
     assert value.reward == 1
-    assert remote.calls[0][2] == 10
+    assert remote.calls[0][2] == 30.0
     assert remote.timeout == 1200
 
 

@@ -19,10 +19,11 @@ import tomllib
 from pathlib import Path
 from urllib.parse import quote
 
-from consumer_contract import load_consumer
+from consumer_contract import BIRTH_COMPONENTS, load_consumer, validate_release
 from release_transport import GitHub
 
 MODULES = {
+    "mindie-harness": "mindie_harness",
     "mindie-knowledge": "mindie_knowledge.loop.cli",
     "remote-dev": "remote_dev",
     "mindie-diagnostics": "mindie_diagnostics.cli",
@@ -111,24 +112,55 @@ def accept(args):
     overrides = root / "baseline-overrides.txt"
     overrides.write_text("".join(
         baseline_requirement(repo, row) + "\n"
-        for repo, row in policy["repositories"].items() if row["package"] in components),
+        for repo, row in policy["repositories"].items()
+        if row["package"] in components and row.get("revision")),
         encoding="utf-8", newline="\n")
     native_tree = entry.get("kind") == "native_tree"
-    requirements = [] if native_tree else [baseline_requirement(args.repository, entry)]
+    birth_release = entry.get("revision") is None and entry.get("prior_revision") is None
+    requirements = (
+        [] if (native_tree or birth_release)
+        else [baseline_requirement(args.repository, entry)]
+    )
     requirements.extend(
         baseline_requirement(repo, row)
         for repo, row in policy["repositories"].items()
-        if row["package"] in components and row["package"] not in {"mindie-bench", package})
+        if row["package"] in components
+        and row.get("revision")
+        and row["package"] not in {"mindie-bench", package})
     run(baseline_install_command(python, overrides, requirements), timeout=180)
     installed = read_inventory(python)
-    required = set(components) - {"mindie-bench"}
-    if package in components:
+    required = {
+        name for name, repo in components.items()
+        if name != "mindie-bench"
+        and policy["repositories"].get(repo, {}).get("revision") is not None
+    }
+    if package in components and not birth_release:
         required.add(package)
     if not required <= installed.keys():
         raise ValueError("the released baseline omits shared components: "
                          + ", ".join(sorted(required - installed.keys())))
     catalog = CandidateCatalog(cache=root / "release-cache", budget=120)
     selected = discover(python, {}, catalog=catalog, force=True)
+    if args.repository in BIRTH_COMPONENTS.values():
+        if assets is not None and release is not None:
+            validate_release(
+                args.consumer, args.repository, args.version, args.revision,
+                release, lambda filename: (assets / filename).read_bytes(),
+                lambda path: (
+                    {"object": {"type": "commit", "sha": args.revision}}
+                    if path == f"{api.prefix}/git/ref/tags/v{args.version}"
+                    else api.api(path)
+                ),
+            )
+        else:
+            pub_release = api.release("v" + args.version)
+            if pub_release is None:
+                raise ValueError(f"birth component release is not published: {args.repository} v{args.version}")
+            pub_assets = {row["name"]: row for row in pub_release["assets"]}
+            validate_release(
+                args.consumer, args.repository, args.version, args.revision,
+                pub_release, lambda filename: api.asset(pub_assets[filename]), api.api,
+            )
     distribution = package if package not in components and not native_tree else None
     if package in components:
         if selected["runtime"][package]["revision"] != args.revision:
@@ -166,6 +198,8 @@ def accept(args):
         project = tomllib.loads((seed / "pyproject.toml").read_text(encoding="utf-8"))
         if project["project"]["version"] != args.version:
             raise ValueError("candidate project version differs")
+        if distribution in BIRTH_COMPONENTS:
+            run([artifact["python"], "-I", "-c", f"import {MODULES[distribution]}"], timeout=15, cwd=root)
     consumer_revision = run(["git", "-C", args.consumer, "rev-parse", "HEAD"],
                             timeout=10).decode().strip()
     if consumer_revision != policy["consumer_revision"]:

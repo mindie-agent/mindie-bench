@@ -125,6 +125,8 @@ def run_matrix(
     receipts = []
     blocked_cells = []
     receipt_lock = threading.Lock()
+    runtime_import_lock = threading.Lock()
+    runtime_import_cache: dict = {}
     device_condition = threading.Condition()
     cancelled = threading.Event()
     available_devices = set(config.remote.devices) if tier == "l3" else set()
@@ -156,6 +158,9 @@ def run_matrix(
                 devices=devices or None,
                 corpus_override=corpus_override,
                 cancelled=cancelled,
+                expected_task_digest=task_digests[path],
+                runtime_import_cache=runtime_import_cache,
+                runtime_import_lock=runtime_import_lock,
             )
             # Retain completed cells even when a later capture in this lineage fails.
             with receipt_lock:

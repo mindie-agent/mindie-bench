@@ -16,8 +16,7 @@ from pathlib import Path
 import pytest
 
 from mindie_bench.cli import main as cli_main
-from mindie_bench.evaluation.knowledge_tiered import distill_selected
-from mindie_bench.evaluation.knowledge_tiered_support import Engine, GradedUnit, Store
+from mindie_bench.evaluation.knowledge_tiered_support import Engine, GradedUnit, Store, distill_selected
 from mindie_bench.evaluation.mechanism_replay import (
     CASES,
     DECISION_SCHEMA,

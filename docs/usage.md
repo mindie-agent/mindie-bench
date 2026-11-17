@@ -497,5 +497,5 @@ upload anything or restore a private value removed by the redactor.
 The installed component redactor runs with Python `-I`; export does not import
 modules from the invocation directory. The actual shadow-directory export
 preflight and its six real input rows are recorded in
-`docs/acceptance-pre-g-history.md`; that checkpoint is not relabeled as G
+`docs/archive/acceptance-pre-g-history.md`; that checkpoint is not relabeled as G
 runtime acceptance.

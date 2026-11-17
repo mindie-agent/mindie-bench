@@ -700,3 +700,28 @@ def summarize_arm_pareto_and_cop(
         "cost_of_pass_by_arm": cop_by_arm,
         "pareto_selection": pareto,
     }
+
+
+def distill_selected(
+    *,
+    store,
+    inputs,
+    session_digest: str,
+    task_state: str,
+    proposal: Mapping,
+    redactor_executable: str | None = None,
+    timeout_sec: float | None = None,
+) -> dict:
+    """Call the production organizer (`Engine.distill_selected`); never synthesize a decision locally."""
+    executable = redactor_executable or _find_redactor()
+    engine = Engine(store, redactor_executable=executable)
+    started = time.monotonic()
+    value = engine.distill_selected(
+        list(inputs),
+        session_digest=session_digest,
+        task_state=task_state,
+        proposal=dict(proposal),
+    )
+    if timeout_sec is not None and time.monotonic() - started >= timeout_sec:
+        raise TimeoutError("distillation exceeded its declared budget")
+    return value

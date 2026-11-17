@@ -20,6 +20,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     defaults:
       run:
         shell: bash
@@ -61,11 +62,32 @@ jobs:
           name: synthetic-failure-${{ matrix.os }}
           path: reports/ci-synthetic/
 
+  wheel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - run: uv build --out-dir "$RUNNER_TEMP/dist"
+      - name: Installed-wheel smoke check outside checkout
+        run: |
+          mkdir -p "$RUNNER_TEMP/smoke-cwd" "$RUNNER_TEMP/smoke-home"
+          uv venv "$RUNNER_TEMP/wheel-venv"
+          uv pip install --python "$RUNNER_TEMP/wheel-venv/bin/python" "$RUNNER_TEMP"/dist/*.whl
+          cd "$RUNNER_TEMP/smoke-cwd"
+          HOME="$RUNNER_TEMP/smoke-home" "$RUNNER_TEMP/wheel-venv/bin/python" -c \
+            "import mindie_bench; from mindie_bench.runner import evaluate_rsi_candidate_gates; assert 'site-packages' in mindie_bench.__file__"
+          HOME="$RUNNER_TEMP/smoke-home" "$RUNNER_TEMP/wheel-venv/bin/mindie-bench" --help >/dev/null
+          HOME="$RUNNER_TEMP/smoke-home" "$RUNNER_TEMP/wheel-venv/bin/mindie-bench" demo --output "$RUNNER_TEMP/smoke-demo"
+
   release-ready:
     name: release-ready
-    needs: contracts
+    needs: [contracts, wheel]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - env:
           RESULTS: ${{ toJSON(needs) }}

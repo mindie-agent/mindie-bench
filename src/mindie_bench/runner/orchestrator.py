@@ -33,6 +33,8 @@ from __future__ import annotations
 import platform
 import shutil
 import subprocess as subprocess
+import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor as ThreadPoolExecutor
 from concurrent.futures import as_completed as as_completed
@@ -118,6 +120,8 @@ from mindie_bench.runner.worktree_slot import WorktreeSlot
 from mindie_bench.scorer.comparator import grouped_summaries as grouped_summaries  # noqa: F401
 from mindie_bench.scorer.metrics import trajectory_metrics as trajectory_metrics  # noqa: F401
 
+_DEFAULT_PROBE_RUNTIME_IMPORT = probe_runtime_import
+
 
 def run_trial(
     task_root: Path,
@@ -133,6 +137,8 @@ def run_trial(
     experiment_context: dict | None = None,
     expected_task_digest: str | None = None,
     expected_oracle_sha256: str | None = None,
+    runtime_import_cache: dict | None = None,
+    runtime_import_lock: threading.Lock | None = None,
 ) -> TrialReceipt:
     # Keep moved phase helpers patch-compatible with callers that replace
     # orchestrator.native_command/time/stream_process at runtime.
@@ -199,9 +205,42 @@ def run_trial(
         if task.mindie_knowledge.corpus_id in config.corpora:
             protected.append(Path(config.corpora[task.mindie_knowledge.corpus_id].path))
         check_read_boundaries(paths, protected)
-        fingerprint["runtime_preflight"] = probe_runtime_import(
-            profile, paths, trial_dir, fingerprint["benchmark_source_sha256"]
+        cache_key = (
+            sys.executable,
+            tuple(str(p.resolve()) for p in paths),
+            fingerprint["benchmark_source_sha256"],
+            profile.env.get("PYTHONPATH"),
+            profile.env.get("PYTHONHOME"),
         )
+        cached_runtime = None
+        if runtime_import_cache is not None and probe_runtime_import is _DEFAULT_PROBE_RUNTIME_IMPORT:
+            if runtime_import_lock is not None:
+                with runtime_import_lock:
+                    cached_runtime = runtime_import_cache.get(cache_key)
+            else:
+                cached_runtime = runtime_import_cache.get(cache_key)
+        if cached_runtime is not None:
+            write_json(
+                trial_dir / "runtime-preflight.json",
+                dict(
+                    status="completed",
+                    reused_matrix_boundary=True,
+                    expected_source_sha256=fingerprint["benchmark_source_sha256"],
+                    observed=cached_runtime,
+                ),
+            )
+            fingerprint["runtime_preflight"] = cached_runtime
+        else:
+            observed_runtime = probe_runtime_import(
+                profile, paths, trial_dir, fingerprint["benchmark_source_sha256"]
+            )
+            fingerprint["runtime_preflight"] = observed_runtime
+            if runtime_import_cache is not None and probe_runtime_import is _DEFAULT_PROBE_RUNTIME_IMPORT:
+                if runtime_import_lock is not None:
+                    with runtime_import_lock:
+                        runtime_import_cache[cache_key] = observed_runtime
+                else:
+                    runtime_import_cache[cache_key] = observed_runtime
         harness_probe = probe_harness_version(config, profile, paths, trial_dir)
         fingerprint["harness_binary_sha256"] = harness_probe["binary_sha256"]
         capture_enabled = group == Group.G3 or (
@@ -550,6 +589,10 @@ def run_trial(
                 else f"{phase}: {type(exc).__name__}: {exc}"
             )
     finally:
+        settled_verdict = primary_verdict or (
+            status if status in {TerminalStatus.PASS, TerminalStatus.FAIL} else None
+        )
+        cleanup_warnings: list[str] = []
         if native_service_instance is not None:
             try:
                 native_service_instance.close()
@@ -559,11 +602,9 @@ def run_trial(
                     dict(stage="native_service_cleanup", type=type(exc).__name__, message=str(exc))
                 )
                 auxiliary["native_knowledge_service_cleanup"] = "failed"
-                if primary_verdict is not None:
-                    auxiliary.setdefault("business_terminal_status", primary_verdict.value)
-                elif status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
-                    auxiliary["business_terminal_status"] = status.value
-                    status, reason = TerminalStatus.INFRA, "native knowledge service cleanup failed"
+                cleanup_warnings.append(f"native_service_cleanup: {type(exc).__name__}: {exc}")
+                if settled_verdict is not None:
+                    auxiliary.setdefault("business_terminal_status", settled_verdict.value)
         auxiliary["capture_wall_clock_sec"] = (
             time.monotonic() - capture_started if capture_started is not None else None
         )
@@ -584,12 +625,17 @@ def run_trial(
                 errors=errors,
                 primary=primary,
                 auxiliary=auxiliary,
-                primary_verdict=primary_verdict,
+                primary_verdict=settled_verdict,
                 status=status,
                 reason=reason,
             )
         except Exception as exc:
             errors.append(dict(stage="scoring", type=type(exc).__name__, message=str(exc)))
+            auxiliary["metrics_incomplete"] = True
+            if settled_verdict is not None:
+                auxiliary.setdefault("business_terminal_status", settled_verdict.value)
+            elif status != TerminalStatus.UNKNOWN:
+                status, reason = TerminalStatus.INFRA, "trajectory scoring failed"
             scored = dict(
                 trajectory=trajectory,
                 primary=primary,
@@ -618,15 +664,14 @@ def run_trial(
             except Exception as exc:
                 errors.append(dict(stage="remote_cleanup", type=type(exc).__name__, message=str(exc)))
                 auxiliary["post_flight_npu_clean"] = False
-                if primary_verdict is not None:
-                    auxiliary.setdefault("business_terminal_status", primary_verdict.value)
-                else:
-                    auxiliary["business_terminal_status"] = status.value
-                    if status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
-                        status, reason = (
-                            TerminalStatus.INFRA,
-                            "remote postflight failed; preserve separate business verdict",
-                        )
+                cleanup_warnings.append(f"remote_cleanup: {type(exc).__name__}: {exc}")
+                if settled_verdict is not None:
+                    auxiliary.setdefault("business_terminal_status", settled_verdict.value)
+                elif status != TerminalStatus.UNKNOWN:
+                    status, reason = (
+                        TerminalStatus.INFRA,
+                        "remote postflight failed before any business verdict",
+                    )
             auxiliary["owned_namespace_cleanup_confirmed"] = getattr(remote, "cleanup_confirmed", None)
             if getattr(remote, "cleanup_warning", None):
                 auxiliary["remote_cleanup_warning"] = remote.cleanup_warning
@@ -648,11 +693,9 @@ def run_trial(
                     errors.append(
                         dict(stage="component_metrics", type=type(exc).__name__, message=str(exc))
                     )
-                    if primary_verdict is not None:
-                        auxiliary.setdefault("business_terminal_status", primary_verdict.value)
-                    elif status in {TerminalStatus.PASS, TerminalStatus.FAIL}:
-                        auxiliary["business_terminal_status"] = status.value
-                        status, reason = TerminalStatus.INFRA, "component metric extraction failed"
+                    auxiliary["metrics_incomplete"] = True
+                    if settled_verdict is not None:
+                        auxiliary.setdefault("business_terminal_status", settled_verdict.value)
         if slot:
             try:
                 if slot.created:
@@ -661,12 +704,11 @@ def run_trial(
                         auxiliary["files_modified"] = auxiliary["local_files_modified"]
                         auxiliary["files_modified_scope"] = "local_judged_workspace"
                         auxiliary["files_modified_reason"] = None
-                    # Preserve the final files as a private artifact before
-                    # deleting only this runner-owned worktree.
                     shutil.make_archive(str(trial_dir / "final_workspace"), "gztar", slot.destination)
                 slot.cleanup()
             except Exception as exc:
                 errors.append(dict(stage="workspace_cleanup", type=type(exc).__name__, message=str(exc)))
+                cleanup_warnings.append(f"workspace_cleanup: {type(exc).__name__}: {exc}")
         elif workspace is not None and workspace.exists():
             try:
                 auxiliary["local_files_modified"] = sorted(
@@ -675,11 +717,14 @@ def run_trial(
                 shutil.make_archive(str(trial_dir / "final_workspace"), "gztar", workspace)
             except Exception as exc:
                 errors.append(dict(stage="workspace_cleanup", type=type(exc).__name__, message=str(exc)))
+                cleanup_warnings.append(f"workspace_cleanup: {type(exc).__name__}: {exc}")
+        if cleanup_warnings:
+            auxiliary["cleanup_warning"] = "; ".join(cleanup_warnings)
         receipt = finalize_trial_receipt(
             gateway=gateway,
             status=status,
             reason=reason,
-            primary_verdict=primary_verdict,
+            primary_verdict=settled_verdict,
             primary=primary,
             auxiliary=auxiliary,
             trial_started=trial_started,
