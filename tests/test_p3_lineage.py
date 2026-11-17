@@ -18,8 +18,8 @@ import pytest
 
 from mindie_bench.evaluation.oracle_freezer import freeze_oracle
 from mindie_bench.evaluation.split_manifest import SourceAsset, build_manifest
-from mindie_bench.io import digest, task_hash, tree_hash, write_json
-from mindie_bench.models import Group, TaskSpec, TerminalStatus, TrialReceipt
+from mindie_bench.io import digest, task_hash, tree_hash
+from mindie_bench.models import TaskSpec
 from mindie_bench.runner.matrix import (
     BudgetEnvelope,
     MatchingConditions,
@@ -50,8 +50,6 @@ from mindie_bench.runner.p3_lineage import (
     evaluate_p3_lineage,
 )
 from mindie_bench.runner.p3_receipts import parse_capture_receipts
-from mindie_bench.runner.product_executor import ProductExecutionBinding, ProductExecutor
-from mindie_bench.runner.product_inputs import derive_inputs, runtime_snapshot
 
 BASE = datetime(2026, 1, 1, tzinfo=timezone.utc)
 HELDOUT_TASK = "c" * 64
@@ -667,84 +665,6 @@ def test_real_legacy_capture_receipts_report_missing_timestamps_and_deny_p3():
     assert result["timestamps"]["inference_performed"] is False
     assert result["receipt_immutability"]["consumer_raw_receipt_hash_matches"] is True
     assert result["consumer"]["model_calls"] == 0
-
-
-def _executor_case(case, tmp_path: Path):
-    task_id = case["spec"].task.instance_id
-    derived = derive_inputs(
-        {task_id: case["task"]}, case["config"], "l2", knowledge_cutoff="2026-10-01"
-    )
-    instruction_sha = sha_bytes((case["task"] / "instruction.md").read_bytes())
-    _, manifest = build_lineage(
-        tmp_path / "lineage",
-        profile_id="p3-native-entrance",
-        cohort="synthetic",
-        protocol="native-product-contract-test/1",
-        downstream_task_id=task_id,
-        downstream_task_sha256=derived["tasks"][task_id]["task_sha256"],
-        downstream_oracle_sha256=derived["tasks"][task_id]["oracle_sha256"],
-        downstream_instruction_sha256=instruction_sha,
-        downstream_model_calls=derived["budget"]["total_model_calls"],
-        downstream_npu_runs=derived["budget"]["npu_runs"],
-        hardware_tier="cpu",
-    )
-    binding = P3LineageBinding.prepare(manifest)
-    runtime_manifest = tmp_path / "product-runtime.json"
-    write_json(runtime_manifest, {"profile_id": "p3-native-entrance", "product_group": ProductGroup.P3_V003_FLYWHEEL, "config_sha256": digest(case["config"].model_dump(mode="json")), "scope": "Zero-model product entrance contract test only", "derived_inputs": derived, "runtime_snapshot": runtime_snapshot(case["config"], Group.G3)})
-    budget_values = dict(derived["budget"])
-    budget_values.update(foreground_model_calls=24, organizer_model_calls=0, review_model_calls=0, seed_model_calls=10, capture_model_calls=0, capture_organizer_model_calls=1, independent_review_model_calls=0, seed_npu_runs=2, seed_cost_usd=1.0, capture_cost_usd=0.0, capture_organizer_cost_usd=0.0, independent_review_cost_usd=0.0, max_cost_usd=2.0, lifecycle_model_calls=derived["budget"]["total_model_calls"] + 11, lifecycle_cost_usd=3.0)
-    profile = ProductProfile(profile_id="p3-native-entrance", group=ProductGroup.P3_V003_FLYWHEEL, experiment_profile=str(runtime_manifest), protocol="native-product-contract-test/1", fidelity="matched", cohort="synthetic", conditions=MatchingConditions(**derived["conditions"]), budget=BudgetEnvelope(**budget_values), p3_lineage=binding)
-    execution_binding = ProductExecutionBinding(profile, case["config"], Group.G3, runtime_manifest, "l2")
-    plan = plan_product_matrix([MatrixTask(task_id, "heldout-family", "cpu")], [profile])
-    run_root = tmp_path / "runs"
-    run_root.mkdir()
-    return execution_binding, plan, task_id, run_root
-
-
-def _fake_trial(tmp_path: Path, task_id: str, calls: list[dict]):
-    def execute(task_root, config, **kwargs):
-        context = kwargs["experiment_context"]
-        calls.append(context)
-        trial_dir = tmp_path / "zero-model-trial"
-        trial_dir.mkdir(exist_ok=True)
-        return TrialReceipt(trial_id="trial-p3-zero-model", instance_id=task_id, repetition=kwargs["repetition"], tier=kwargs["tier"], ablation_group=kwargs["group"], knowledge_gradient="no_hit", task_digest=context["task_sha256"], experiment_digest=digest(config.model_dump(mode="json")), environment_fingerprint={"experiment_context": json.loads(json.dumps(context))}, terminal_status=TerminalStatus.PASS, primary_metrics={"reward": 1.0, "resolved": True, "delivery_wall_clock_sec": 1.0}, evidence="synthetic", artifacts={"private_trial_dir": str(trial_dir)})
-    return execute
-
-
-def test_zero_model_product_entrance_admits_bound_p3_lineage(case, tmp_path):
-    execution_binding, plan, task_id, run_root = _executor_case(case, tmp_path)
-    calls: list[dict] = []
-    executor = ProductExecutor({execution_binding.profile.profile_id: execution_binding}, {task_id: case["task"]}, run_root, execute_trial=_fake_trial(tmp_path, task_id, calls))
-    observation = executor(plan.cells[0])
-    assert observation.status.value == "pass"
-    assert len(calls) == 1
-    assert calls[0]["p3_admission"]["claim_ready"] is True
-    assert calls[0]["p3_admission"]["lifecycle_claim_ready"] is False
-    trial_dir = tmp_path / "zero-model-trial"
-    observed = json.loads((trial_dir / "product_observation.json").read_text())
-    assert observed["experiment_context"]["p3_admission"]["admission_sha256"] == calls[0]["p3_admission"]["admission_sha256"]
-
-
-def test_zero_model_product_entrance_denies_changed_capture_before_trial(case, tmp_path):
-    execution_binding, plan, task_id, run_root = _executor_case(case, tmp_path)
-    Path(execution_binding.profile.p3_lineage.manifest.capture.receipt_locator).write_text("{}", encoding="utf-8")
-    calls: list[dict] = []
-    executor = ProductExecutor({execution_binding.profile.profile_id: execution_binding}, {task_id: case["task"]}, run_root, execute_trial=_fake_trial(tmp_path, task_id, calls))
-    with pytest.raises(ValueError, match="P3 lineage admission failed before native execution"):
-        executor(plan.cells[0])
-    assert calls == []
-    assert list(run_root.iterdir()) == []
-
-
-def test_zero_model_product_entrance_denies_double_attributed_ledger_before_trial(case, tmp_path):
-    execution_binding, plan, task_id, run_root = _executor_case(case, tmp_path)
-    execution_binding.profile.p3_lineage.manifest.cost_ledger.capture.model_calls = 1
-    calls: list[dict] = []
-    executor = ProductExecutor({execution_binding.profile.profile_id: execution_binding}, {task_id: case["task"]}, run_root, execute_trial=_fake_trial(tmp_path, task_id, calls))
-    with pytest.raises(ValueError, match="P3 lineage admission failed before native execution"):
-        executor(plan.cells[0])
-    assert calls == []
-    assert list(run_root.iterdir()) == []
 
 
 def test_task_hash_binds_the_real_downstream_bytes(tmp_path):

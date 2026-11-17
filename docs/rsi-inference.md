@@ -6,7 +6,7 @@ Harbor receipt import or additional runtime dependency. Use the existing
 `validate`, `soundness`, `run`, `score`, `audit-report`, `compare` and `export-hf`
 commands. The previously proposed external `rsi-*` adapter is removed from PR #6.
 
-The [Chinese source analysis](rsi-analysis.zh-CN.md) explains the original systems,
+The [archived Chinese source analysis](archive/rsi-analysis.zh-CN.md) explains the original systems,
 the gaps, the native implementation and the deliberate differences from RSI.
 
 ## A backwards-compatible task contract

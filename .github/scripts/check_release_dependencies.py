@@ -17,6 +17,7 @@ from importlib import metadata
 from pathlib import Path
 
 COMPONENTS = {
+    "mindie-harness": "mindie-agent/harness",
     "mindie-diagnostics": "mindie-agent/diagnostics",
     "mindie-debugger": "mindie-agent/debugger",
     "mindie-knowledge": "mindie-agent/knowledge",
@@ -62,13 +63,24 @@ def main() -> None:
         parser.error("dependency validation requires --python and --consumer")
     from consumer_contract import load_consumer, verify_dependency
 
-    load_consumer(args.consumer)
+    _, consumer_components = load_consumer(args.consumer)
     from mindie_knowledge.component_runtime import read_versions
 
+    flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
     candidate = next((name for name, repo in COMPONENTS.items() if repo == args.repository),
                      "mindie-knowledge")
-    read_versions(args.python, [candidate])
-    flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+    if candidate in consumer_components:
+        read_versions(args.python, [candidate])
+    else:
+        probe = subprocess.run(
+            [args.python, "-I", "-c", "import importlib.metadata as m, sys; print(m.version(sys.argv[1]))", candidate],
+            capture_output=True, check=False, timeout=15, **flags,
+        )
+        if probe.returncode:
+            raise RuntimeError(
+                f"candidate distribution {candidate} is not importable:\n"
+                + probe.stderr.decode("utf-8", errors="replace")[-2000:]
+            )
     result = subprocess.run([
         args.python, "-I", str(Path(__file__).resolve()),
         "--repository", args.repository, "--inventory",

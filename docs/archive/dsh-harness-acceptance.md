@@ -1,3 +1,7 @@
+> **Archived Historical Document** — Moved from `docs/dsh-harness-acceptance.md` at baseline `efe782f541ed`.
+> Preserved unchanged for provenance and historical auditability; non-normative for active development.
+> Active living specification: [`../acceptance.md`](../acceptance.md).
+
 # DSH native-harness acceptance (2026-10-18)
 
 Host: macOS arm64, local OpenAI-compatible model relay. Harness: DeepSeek

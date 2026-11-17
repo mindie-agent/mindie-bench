@@ -1,3 +1,7 @@
+> **Archived Historical Document** — Moved from `docs/strategy-continuation-v2.md` at baseline `efe782f541ed`.
+> Preserved unchanged for provenance and historical auditability; non-normative for active development.
+> Active living specification: [`../design.md`](../design.md).
+
 # Strategy Continuation & Independent Local Verifier
 
 By default, strategy selection evaluation runs only the selector step (`continuation="not_executed"`), leaving continuation outcomes and unmeasured continuation metrics as `None`. When you want to verify whether a selected strategy card actually leads to a working fix in a local workspace, pass `StrategyContinuationExecutor` to `run_strategy_selection_pilot`.

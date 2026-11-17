@@ -3,8 +3,10 @@
 # [Invariants] Files are staged read-only, SHA-256 inventory is checked before and
 #   after, negative controls must match exact exit/stdout, and the judge outcome is
 #   preserved even if post-judge cleanup fails.
-# [Timeouts & Locks] Overall deadline is the caller timeout; probes/judge reserve
-#   `inventory_grace = 5.0` seconds for the final inventory instead of resetting it.
+# [Timeouts & Locks] Inner probes and judge share `payload["timeout"]` after pre-run
+#   inventory completes; the caller's outer transport timeout (`inner + 20s`) covers
+#   staging, pre/post SHA-256 inventories, and `EXIT` trap cleanup without stealing
+#   inner judge time.
 # [Side-Effect Policy] Writes only inside `MINDIE_BENCH_ORACLE_ROOT`; the caller's
 #   EXIT trap removes that owned directory.
 
@@ -20,11 +22,8 @@ import time
 
 payload=json.loads(base64.b64decode(sys.argv[1], validate=True))
 root=pathlib.Path(os.environ["MINDIE_BENCH_ORACLE_ROOT"])
-overall_deadline=time.monotonic()+max(.001, float(payload["timeout"]))
-# The post-run inventory must always run. Reserve a fixed slice of the outer
-# worker budget for it instead of granting probes and judge a fresh deadline.
-inventory_grace=min(5.0, max(.001, float(payload["timeout"]) / 2.0))
-deadline=overall_deadline
+inner_budget=max(.001, float(payload["timeout"]))
+deadline=time.monotonic()+inner_budget
 receipt=dict(schema_version="mindie-bench-private-oracle/1",
     nonce=os.environ["MINDIE_BENCH_PERFORMANCE_NONCE"],
     manifest_sha256=os.environ["MINDIE_BENCH_ORACLE_SHA256"],
@@ -64,7 +63,7 @@ try:
         directory.chmod(0o555)
     root.chmod(0o555)
     receipt["before"]=inventory()
-    deadline=max(time.monotonic()+.001, overall_deadline-inventory_grace)
+    deadline=time.monotonic()+inner_budget
     for probe in payload["probes"]:
         command=[part.replace("{oracle}", str(root)) for part in probe["command"]]
         observed=execute(command)

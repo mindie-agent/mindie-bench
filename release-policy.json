@@ -2,6 +2,12 @@
   "schema": "mindie-release-policy/1",
   "consumer_revision": "3c478a19b5542b38520c7f98b87a07f37e305021",
   "repositories": {
+    "mindie-agent/harness": {
+      "package": "mindie-harness",
+      "version": null,
+      "revision": null,
+      "prior_revision": null
+    },
     "mindie-agent/diagnostics": {
       "package": "mindie-diagnostics",
       "version": "0.5.8",

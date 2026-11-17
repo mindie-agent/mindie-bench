@@ -1,3 +1,7 @@
+> **Archived Historical Document** — Moved from `docs/acceptance-pre-g-history.md` at baseline `efe782f541ed`.
+> Preserved unchanged for provenance and historical auditability; non-normative for active development.
+> Active living specification: [`../acceptance.md`](../acceptance.md).
+
 # Acceptance evidence - 2026-10-17
 
 This is development version `0.1.0`, not a published component or plugin Release.
@@ -549,5 +553,5 @@ produced 12 candidate dossiers; those dossiers are not verified executable tasks
 
 Parent design principles revision:
 `240248b18996904490cca1e1ecceb8d9ecd83e03`. The final implementation review
-belongs in `docs/design-principles-review.md` with its actual source revision
+belongs in `docs/archive/design-principles-review.md` with its actual source revision
 and remaining evidence gaps.

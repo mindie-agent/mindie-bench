@@ -223,8 +223,12 @@ def score_trial_trajectory(
             primary["cost_complete"] = primary["cost_complete"] and metering["complete"]
     except Exception as exc:
         errors.append(dict(stage="scoring", type=type(exc).__name__, message=str(exc)))
-        if primary_verdict is not None:
-            auxiliary.setdefault("business_terminal_status", primary_verdict.value)
+        auxiliary["metrics_incomplete"] = True
+        settled = primary_verdict or (
+            status if status in {TerminalStatus.PASS, TerminalStatus.FAIL} else None
+        )
+        if settled is not None:
+            auxiliary.setdefault("business_terminal_status", settled.value)
         elif status != TerminalStatus.UNKNOWN:
             status, reason = TerminalStatus.INFRA, "trajectory scoring failed"
     return dict(

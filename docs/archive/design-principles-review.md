@@ -1,3 +1,7 @@
+> **Archived Historical Document** — Moved from `docs/design-principles-review.md` at baseline `efe782f541ed`.
+> Preserved unchanged for provenance and historical auditability; non-normative for active development.
+> Active living specification: [`../design.md`](../design.md).
+
 # Design-principles review
 
 ## Preserve verified results and budget observations (2026-10-20)

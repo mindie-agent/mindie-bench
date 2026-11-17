@@ -22,6 +22,7 @@ terminal failures, and builds native capture payloads before a trial starts.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -105,14 +106,19 @@ def runtime_paths(config: ExperimentConfig, profile) -> list[Path]:
     ]
 
 
-def implementation_digest() -> str:
-    root = Path(__file__).resolve().parents[1]
+@functools.lru_cache(maxsize=4)
+def _implementation_digest_for_root(root_str: str) -> str:
+    root = Path(root_str)
     return digest(
         {
             p.relative_to(root).as_posix(): sha256_file(p)
             for p in sorted(root.rglob("*.py"))
         }
     )
+
+
+def implementation_digest() -> str:
+    return _implementation_digest_for_root(str(Path(__file__).resolve().parents[1]))
 
 
 RUNTIME_HELPER_MODULES = (

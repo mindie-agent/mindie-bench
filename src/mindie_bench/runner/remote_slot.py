@@ -525,9 +525,18 @@ bwrap --die-with-parent --unshare-pid --unshare-net --unshare-ipc --unshare-uts 
         if self.component_runtime:
             self.component_runtime.assert_healthy()
             self.component_runtime.observe("verifier_before", idle=False)
+        encoded = base64.b64encode(script).decode()
         if timeout is None:
-            return self.execute(command, base64.b64encode(script).decode())
-        return self.execute(command, base64.b64encode(script).decode(), timeout=timeout)
+            return self.execute(command, encoded)
+        if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
+            raise ValueError("verifier timeout must be a positive number")
+        if timeout <= self.timeout:
+            return self.execute(command, encoded, timeout=timeout)
+        with self.lock:
+            return self._request(
+                dict(command=command, stdin_b64=encoded, timeout=timeout),
+                timeout + 25,
+            )
 
     def _recover_cleanup_receipt(self) -> bool:
         """Read the persisted postflight receipt after stdout was lost (read-only)."""

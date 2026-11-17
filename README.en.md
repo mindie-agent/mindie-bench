@@ -250,9 +250,9 @@ mindie-bench/
 | Architecture & Evaluation Boundary Design | [docs/design.md](./docs/design.md) |
 | Measured Acceptance Results & Raw Evidence | [docs/acceptance.md](./docs/acceptance.md) |
 | Per-Release Component & Product Benchmark Contracts | [docs/release-benchmarks.md](./docs/release-benchmarks.md) |
-| Product Value Suite v2 Specification | [docs/product-value-suite-v2.md](./docs/product-value-suite-v2.md) |
-| Native Inference Lifecycle Evaluation (English / 中文) | [docs/rsi-inference.md](./docs/rsi-inference.md) · [docs/rsi-analysis.zh-CN.md](./docs/rsi-analysis.zh-CN.md) |
-| DSH Headless Harness Acceptance | [docs/dsh-harness-acceptance.md](./docs/dsh-harness-acceptance.md) |
+| Product Value Suite v2 Specification (Archive) | [docs/archive/product-value-suite-v2.md](./docs/archive/product-value-suite-v2.md) |
+| Native Inference Lifecycle Evaluation (English / 中文 Archive) | [docs/rsi-inference.md](./docs/rsi-inference.md) · [docs/archive/rsi-analysis.zh-CN.md](./docs/archive/rsi-analysis.zh-CN.md) |
+| DSH Headless Harness Acceptance (Archive) | [docs/archive/dsh-harness-acceptance.md](./docs/archive/dsh-harness-acceptance.md) |
 | Agent Architecture & Invariants Guide | [AGENTS.md](./AGENTS.md) |
 
 ---

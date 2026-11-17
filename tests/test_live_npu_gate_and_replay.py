@@ -22,8 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from mindie_bench.evaluation.knowledge_tiered import distill_selected
-from mindie_bench.evaluation.knowledge_tiered_support import GradedUnit, Store
+from mindie_bench.evaluation.knowledge_tiered_support import GradedUnit, Store, distill_selected
 from mindie_bench.evaluation.mechanism_replay import (
     DECISION_SCHEMA,
     MAX_MERGED_BODY_BYTES,

@@ -1,3 +1,7 @@
+> **Archived Historical Document** — Moved from `docs/benchmark-gap-analysis.md` at baseline `efe782f541ed`.
+> Preserved unchanged for provenance and historical auditability; non-normative for active development.
+> Active living specification: [`../design.md`](../design.md).
+
 # 原始方案差距分析与后续实现
 
 本文保留 G/H/I 阶段的差距诊断。其后已落实的改动见
