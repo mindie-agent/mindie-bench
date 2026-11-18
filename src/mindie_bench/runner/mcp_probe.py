@@ -35,6 +35,22 @@ from mindie_bench.runner.sandbox import native_command
 from mindie_bench.runner.termination import spawn_owned_popen, terminate_process_group
 
 _STEP_TIMEOUT_SECONDS = float(os.environ.get("MINDIE_BENCH_MCP_PROBE_TIMEOUT_SECONDS", "15.0"))
+DEFAULT_CAPABILITIES = {
+    "remote-dev": {
+        "remote_bash",
+        "remote_Bash",
+        "remote_exec_command",
+        "remote_run_command",
+        "bash",
+    },
+    "knowledge": {"knowledge_query", "query"},
+}
+
+
+def supports_default_capability(component: str, available) -> bool:
+    names = set(available)
+    aliases = DEFAULT_CAPABILITIES.get(component, names)
+    return bool(aliases & names)
 
 
 def close_probe(process, timeout: float | None = None, *, reader: PipeReader | None = None):
@@ -178,11 +194,7 @@ def probe_servers(profile, group_config, read_paths, trial_dir, gateway):
                 tools = {tool["name"]: tool for tool in catalog["tools"]}
                 required = set(spec.required_tools)
                 if not required:
-                    aliases = {
-                        "remote-dev": {"remote_bash", "bash"},
-                        "knowledge": {"knowledge_query", "query"},
-                    }.get(spec.component, set(tools))
-                    if not (aliases & tools.keys()):
+                    if not supports_default_capability(spec.component, tools):
                         raise ValueError(
                             f"MCP server {name} lacks its declared {spec.component} capability"
                         )

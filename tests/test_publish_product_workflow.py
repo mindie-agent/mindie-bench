@@ -131,14 +131,15 @@ def test_workflow_passes_the_selected_suite_via_env_not_shell_interpolation():
     assert attach["env"]["VALUE_SUITE"] == "${{ steps.public-suite.outputs.value_suite }}"
 
 
-@pytest.mark.parametrize(("tag", "accepted"), [("v0.1.1", True), ("v0.2.0", False)])
-def test_patch_publication_keeps_milestone_value_acceptance_mandatory(tmp_path, tag, accepted):
-    """Run the actual source/tag gate; patch mode cannot bypass a milestone."""
+def run_product_gate(tmp_path: Path, tag: str, *, kind: str = "patch", tracks=()):
     version = tag[1:]
     docs = tmp_path / "docs/releases"
     (docs / version).mkdir(parents=True)
     (docs / (version + ".md")).write_text("Release fixture\n")
     (docs / version / "benchmark-manifest.json").write_text("{}\n")
+    (tmp_path / "channels").mkdir()
+    for track in tracks:
+        (tmp_path / "channels" / f"{track}.json").write_text("{}\n")
     def git(*args):
         return subprocess.check_output(
             ["git", "-C", str(tmp_path), *args],
@@ -151,20 +152,20 @@ def test_patch_publication_keeps_milestone_value_acceptance_mandatory(tmp_path, 
     git("init", "-q")
     git("config", "user.email", "test@example.invalid")
     git("config", "user.name", "Release test")
-    git("add", "docs")
+    git("add", "docs", "channels")
     git("commit", "-qm", "release inputs")
     git("tag", tag)
     revision = git("rev-parse", "HEAD")
     steps = workflow()["jobs"]["publish"]["steps"]
     gate = next(step for step in steps if step.get("id") == "product")
-    output = tmp_path.parent / (tag + "-outputs")
+    output = tmp_path.parent / (tmp_path.name + "-outputs")
     env = _bash_env(
         {
             "GITHUB_REF_NAME": tag,
             "GITHUB_REF_TYPE": "tag",
             "GITHUB_SHA": revision,
             "BENCHMARK_REF": revision,
-            "RELEASE_KIND": "patch",
+            "RELEASE_KIND": kind,
             "VALUE_SUITE_PATH": "",
             "GITHUB_OUTPUT": str(output),
         }
@@ -180,9 +181,53 @@ def test_patch_publication_keeps_milestone_value_acceptance_mandatory(tmp_path, 
         timeout=10,
         **subprocess_window_kwargs(),
     )
+    return result, output
+
+
+@pytest.mark.parametrize(("tag", "accepted"), [("v0.1.1", True), ("v0.2.0", False)])
+def test_patch_publication_keeps_milestone_value_acceptance_mandatory(tmp_path, tag, accepted):
+    """Run the actual source/tag gate; patch mode cannot bypass a milestone."""
+    result, output = run_product_gate(
+        tmp_path, tag, kind="patch", tracks=("0.1", "0.2")
+    )
     assert (result.returncode == 0) is accepted, result.stderr
     if accepted:
-        assert output.read_text().strip() == "version=" + version
+        assert output.read_text().strip().splitlines() == [
+            "version=" + tag[1:],
+            "channel=product/channels/" + ".".join(tag[1:].split(".")[:2]) + ".json",
+        ]
         assert not list(tmp_path.rglob("*value-evidence*"))
     else:
         assert "milestones require product value acceptance" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("tag", "kind", "track"),
+    [("v0.1.1", "patch", "0.1"), ("v0.2.0", "milestone", "0.2")],
+    ids=["patch", "milestone"],
+)
+def test_missing_release_channel_fails_the_early_product_gate(tmp_path, tag, kind, track):
+    result, output = run_product_gate(tmp_path, tag, kind=kind)
+    assert result.returncode != 0
+    assert f"missing channels/{track}.json" in result.stderr
+    assert not output.exists() or output.read_text() == ""
+
+
+def test_workflow_channels_bundle_and_installer_are_common_release_assets():
+    steps = workflow()["jobs"]["publish"]["steps"]
+    download = next(
+        step for step in steps if step.get("name") == "Download and validate formal component evidence"
+    )
+    run = download["run"]
+    assert download["env"]["CHANNEL_PATH"] == "${{ steps.product.outputs.channel }}"
+    assert '--channel "$CHANNEL_PATH"' in run
+    assert "channel_args" not in run
+    assert run.index("build_wheels_bundle.py") < run.index("SHA256SUMS")
+    assert run.index('cp "product/install.py"') < run.index("SHA256SUMS")
+    final = next(step for step in steps if step.get("name") == "Recheck product tag and create formal release")
+    release = final["run"]
+    assert release.count('"$RUNNER_TEMP/product-benchmarks/release-channel.json"') == 1
+    assert release.count('"$RUNNER_TEMP/product-benchmarks/mindie-wheels-bundle.tar.gz"') == 1
+    assert "else" not in release
+    assert 'assets+=("$RUNNER_TEMP/product-benchmarks/install.py")' in release
+    assert release.index('assets+=("$RUNNER_TEMP/product-benchmarks/install.py")') > release.index("assets=(")

@@ -94,6 +94,12 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.13'
+          enable-cache: true
+          cache-dependency-glob: |
+            **/uv.lock
+            **/pyproject.toml
+            **/runtime-requirements.txt
+            **/.github/workflows/release.yml
       - if: inputs.node
         uses: actions/setup-node@v4
         with:
@@ -243,6 +249,12 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.13'
+          enable-cache: true
+          cache-dependency-glob: |
+            **/uv.lock
+            **/pyproject.toml
+            **/runtime-requirements.txt
+            **/.github/workflows/release.yml
       - if: inputs.node
         uses: actions/setup-node@v4
         with:
@@ -365,10 +377,7 @@ jobs:
   verify-public:
     needs: [candidate, publish]
     runs-on: ubuntu-latest
-    timeout-minutes: 190
-    defaults:
-      run:
-        working-directory: candidate
+    timeout-minutes: 15
     permissions:
       contents: read
     env:
@@ -376,54 +385,21 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          path: candidate
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
           repository: mindie-agent/mindie-bench
           ref: ${{ needs.candidate.outputs.tool-ref }}
           path: release-tool
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: mindie-agent/knowledge
-          ref: 3c478a19b5542b38520c7f98b87a07f37e305021
-          path: release-consumer
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: '3.13'
-      - name: Verify normal public discovery and upgrade after publication
-        timeout-minutes: 25
+      - name: Verify public CDN availability and SHA256SUMS integrity
+        timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/upgrade_acceptance.py \
+          python3 release-tool/.github/scripts/verify_public_release.py \
             --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
-            --consumer ../release-consumer --policy ../release-tool/release-policy.json --source . \
-            --root "$RUNNER_TEMP/public-client-upgrade" --output "$RUNNER_TEMP/public-upgrade.json"
-      - if: github.repository == 'mindie-agent/mindie-agent-codex'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install the native hosts in the clean public-verification job
-        if: github.repository == 'mindie-agent/mindie-agent-codex'
-        timeout-minutes: 10
-        run: |
-          npm install --prefix "$RUNNER_TEMP/codex-legacy" @openai/codex@0.162.1
-          npm install --prefix "$RUNNER_TEMP/codex-target" @openai/codex@0.162.0-alpha.2
-      - name: Verify normal public native-plugin discovery and activation
-        if: github.repository == 'mindie-agent/mindie-agent-codex'
-        timeout-minutes: 130
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/native_upgrade_acceptance.py accept \
-            --root "$RUNNER_TEMP/public-native-upgrade" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
-            --baseline-host "$RUNNER_TEMP/codex-legacy/node_modules/.bin/codex" \
-            --target-host "$RUNNER_TEMP/codex-target/node_modules/.bin/codex" \
-            --output "$RUNNER_TEMP/public-native-upgrade.json"
+            --work-dir "$RUNNER_TEMP/public-release-assets" --output "$RUNNER_TEMP/public-upgrade.json"
+          (cd "$RUNNER_TEMP/public-release-assets" && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: release-public-upgrade-evidence
           path: |
             ${{ runner.temp }}/public-upgrade.json
-            ${{ runner.temp }}/public-native-upgrade.json

@@ -68,6 +68,13 @@ def accept(args):
         path = root / "profile" / name
         path.mkdir(parents=True, exist_ok=True)
         os.environ[name] = str(path)
+    uv_cache = Path(
+        os.environ.get("UV_CACHE_DIR")
+        or (Path(os.environ["RUNNER_TEMP"]) / "uv-cache"
+            if os.environ.get("RUNNER_TEMP") else root / "uv-cache")
+    )
+    uv_cache.mkdir(parents=True, exist_ok=True)
+    os.environ["UV_CACHE_DIR"] = str(uv_cache)
     os.environ["MINDIE_DIAGNOSTICS_CONFIG"] = str(root / "diagnostics-disabled.json")
     os.environ["MINDIE_DISABLE_FSYNC"] = "1"
     (root / "diagnostics-disabled.json").write_text(json.dumps({
@@ -115,7 +122,11 @@ def accept(args):
         for repo, row in policy["repositories"].items()
         if row["package"] in components and row.get("revision")),
         encoding="utf-8", newline="\n")
-    native_tree = entry.get("kind") == "native_tree"
+    native_tree = (
+        entry.get("kind") == "native_tree"
+        or (package not in components
+            and not (source / entry.get("project", ".") / "pyproject.toml").is_file())
+    )
     birth_release = entry.get("revision") is None and entry.get("prior_revision") is None
     requirements = (
         [] if (native_tree or birth_release)
