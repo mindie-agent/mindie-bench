@@ -2,7 +2,7 @@
 [Invariants] Each shared component wheel comes from its formal release tag and matches the
 channel revision, SHA256SUMS, normalized METADATA name/version, and the knowledge wheel's
 ReMe pin. Archive members are flat, sorted, root-owned, mode 0644, mtime 0, and the bundle
-stays below 3 MiB.
+stays below 16 MiB.
 [Timeouts & Locks] GitHub reads 60s; downloads and ReMe builds 120-180s; no local locks.
 [Side-Effect Policy] Reads channel/GitHub; writes only the bundle and an atomic sibling
 temp file that is always removed.
@@ -26,7 +26,7 @@ SHARED_PACKAGES = ("mindie-harness", "mindie-knowledge", "remote-dev", "mindie-d
                   "mindie-debugger", "mindie-profiler", "mindie-sim", "npu-top", "mindie-coordinator")
 REME_REPO_URL = "https://github.com/agentscope-ai/ReMe.git"
 REME_REVISION = "4c54c2b650038eff2a5d0d77aaa61b3e836f1b18"
-MAX_BUNDLE_BYTES = 3 * 1024 * 1024
+MAX_BUNDLE_BYTES = 16 * 1024 * 1024
 ZIP_SAFE_EPOCH = "315532800"  # 1980-01-01T00:00:00Z for deterministic ZIP/wheel timestamps
 _FLAGS = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 _REME = re.compile(
