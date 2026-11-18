@@ -260,3 +260,34 @@ def test_astra_catches_numeric_codex_poll_kill_exclusion_empty_mcp_and_wb_image(
         sub.mkdir()
         with pytest.raises(ValueError, match="ReMe pin drift"):
             _build(sub, download_fn=bad_dl)
+
+
+@pytest.mark.tier0
+def test_upgrade_acceptance_birth_component_override_prevents_uv_direct_url_conflict(tmp_path):
+    upg = _load("upgrade_acceptance")
+    base_toml = (
+        '[project]\nname = "mindie-component-runtime"\nversion = "0.0.0"\n'
+        'requires-python = ">=3.11"\n'
+        'dependencies = ["mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@' + "a" * 40 + '", '
+        '"mindie-harness @ file:///tmp/candidate"]\n\n'
+        '[tool.uv]\npackage = false\n'
+        'override-dependencies = ["mindie-knowledge @ git+https://github.com/mindie-agent/knowledge@' + "a" * 40 + '"]\n'
+    )
+    cand = tmp_path / "harness-cand"
+    cand.mkdir()
+    patched = upg._with_birth_overrides(base_toml, cand, "mindie-harness")
+    import tomllib
+    overrides = tomllib.loads(patched)["tool"]["uv"]["override-dependencies"]
+    assert f"mindie-harness @ {cand.resolve().as_uri()}" in overrides
+
+    adapter_dir = tmp_path / "cc-cand"
+    adapter_dir.mkdir()
+    rev = "b" * 40
+    (adapter_dir / "pyproject.toml").write_text(
+        f'[project]\nname = "mindie-agent-cc"\nversion = "0.1.30"\n'
+        f'[tool.uv]\noverride-dependencies = ["mindie-harness @ git+https://github.com/mindie-agent/harness@{rev}"]\n',
+        encoding="utf-8",
+    )
+    patched_adapter = upg._with_birth_overrides(base_toml, adapter_dir, "mindie-agent-cc")
+    overrides_adapter = tomllib.loads(patched_adapter)["tool"]["uv"]["override-dependencies"]
+    assert f"mindie-harness @ git+https://github.com/mindie-agent/harness@{rev}" in overrides_adapter
