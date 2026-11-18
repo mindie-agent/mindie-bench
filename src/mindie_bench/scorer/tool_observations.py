@@ -27,7 +27,15 @@ _LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}\Z")
 _PENDING = {"created", "starting", "queued", "prepared", "running", "stopping", "cancelling"}
 _TERMINAL = {"succeeded", "failed", "timeout", "cancelled", "completed"}
 _UNKNOWN = {"unknown", "uncertain", "lost", "lost_outcome", "absent"}
-_EXECUTION = {"remote_bash", "remote_job_start", "remote_exec", "remote_command"}
+_EXECUTION = {
+    "remote_bash",
+    "remote_Bash",
+    "remote_exec_command",
+    "remote_run_command",
+    "remote_job_start",
+    "remote_exec",
+    "remote_command",
+}
 _DOMAINS = {
     "connection_unavailable": "transport",
     "rpc_disconnected": "transport",
@@ -59,17 +67,25 @@ def _dict(value):
 
 
 def operation_kind(call: ToolCall) -> str:
-    if call.name in _EXECUTION or call.name.lower() in {"bash", "exec_command", "shell"}:
+    name = tool_name(call.name)
+    if name in _EXECUTION or name.lower() in {"bash", "exec_command", "shell"}:
         return "execution"
-    if call.name == "remote_job_stdin":
+    if name in {"remote_job_stdin", "remote_write_stdin"}:
         return "control" if call.arguments.get("chars") or call.arguments.get("eof") else "observation"
-    if call.name in {"remote_job_status", "remote_job_tail", "remote_job_output"}:
+    if name == "remote_manage_task":
+        action = call.arguments.get("Action")
+        if action == "status":
+            return "observation"
+        if action in {"kill", "send_input"}:
+            return "control"
+        return "other"
+    if name in {"remote_job_status", "remote_job_tail", "remote_job_output", "remote_TaskOutput"}:
         return "observation"
-    if call.name in {"remote_job_stop", "remote_job_cancel"}:
+    if name in {"remote_job_stop", "remote_job_cancel", "remote_job_kill", "remote_TaskStop"}:
         return "control"
     if call.component == "knowledge":
         return "knowledge"
-    if call.name in {
+    if name in {
         "Read",
         "Edit",
         "Grep",
@@ -79,6 +95,25 @@ def operation_kind(call: ToolCall) -> str:
         "remote_write",
         "remote_multi_edit",
         "remote_apply_patch",
+        "remote_Read",
+        "remote_Write",
+        "remote_Edit",
+        "remote_MultiEdit",
+        "remote_NotebookEdit",
+        "remote_Grep",
+        "remote_Glob",
+        "remote_glob",
+        "remote_list",
+        "remote_read_file",
+        "remote_write_file",
+        "remote_edit_file",
+        "remote_grep_search",
+        "remote_find_by_name",
+        "remote_list_dir",
+        "remote_view_image",
+        "remote_ViewImage",
+        "remote_read_image",
+        "remote_ReadMediaFile",
     }:
         return "file"
     return "other"
@@ -205,7 +240,7 @@ def _observation(call, payload, *, source, native_status=None, error=None):
         elif (
             observed.remote_outcome in {"success", "cancelled"}
             and observed.operation_kind != "execution"
-            and call.name != "remote_job_stdin"
+            and tool_name(call.name) not in {"remote_job_stdin", "remote_write_stdin"}
         ):
             observed.classification = "success"
             observed.classification_reason = "explicit_component_success"

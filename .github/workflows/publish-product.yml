@@ -38,6 +38,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           path: product
+          persist-credentials: false
       - name: Verify formal product tag and publication inputs
         id: product
         working-directory: product
@@ -63,19 +64,30 @@ jobs:
               assert not os.environ.get("VALUE_SUITE_PATH"), "patches do not consume historical value suites"
           manifest = pathlib.Path("docs/releases", version, "benchmark-manifest.json")
           notes = pathlib.Path("docs/releases", version + ".md")
-          assert manifest.is_file(), f"missing {manifest}"
-          assert notes.is_file(), f"missing {notes}"
+          assert manifest.is_file(), f"missing {manifest.as_posix()}"
+          assert notes.is_file(), f"missing {notes.as_posix()}"
+          track = ".".join(version.split(".")[:2])
+          channel = pathlib.Path("channels", track + ".json")
+          assert channel.is_file(), f"missing {channel.as_posix()}"
           with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
               stream.write(f"version={version}\n")
+              stream.write(f"channel=product/{channel.as_posix()}\n")
           PY
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: mindie-agent/mindie-bench
           ref: ${{ inputs.benchmark-ref }}
           path: release-tool
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.13'
+          enable-cache: true
+          cache-dependency-glob: |
+            **/uv.lock
+            **/pyproject.toml
+            **/runtime-requirements.txt
+            **/.github/workflows/release.yml
       - name: Install fixed benchmark collector
         run: uv sync --project release-tool --locked
       - name: Select the value suite inside the product tag
@@ -201,19 +213,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCT_VERSION: ${{ steps.product.outputs.version }}
+          CHANNEL_PATH: ${{ steps.product.outputs.channel }}
           VALUE_SUITE_SCHEMA: ${{ steps.suite.outputs.value_suite_schema }}
           RELEASE_KIND: ${{ inputs.release-kind }}
         run: |
-          channel_args=()
-          if [ "$RELEASE_KIND" = "patch" ]; then
-            channel_args=(--channel product/channels/0.1.json)
-          fi
           uv run --project release-tool --no-sync python \
             release-tool/.github/scripts/collect_product_benchmarks.py \
             --repository "$GITHUB_REPOSITORY" --version "$PRODUCT_VERSION" \
             --revision "$GITHUB_SHA" \
             --manifest "product/docs/releases/$PRODUCT_VERSION/benchmark-manifest.json" \
-            --output "$RUNNER_TEMP/product-benchmarks" "${channel_args[@]}"
+            --output "$RUNNER_TEMP/product-benchmarks" --channel "$CHANNEL_PATH"
           if [ "$RELEASE_KIND" = "milestone" ]; then
             cp "product/docs/releases/$PRODUCT_VERSION/value-evidence.json" \
                "$RUNNER_TEMP/product-value/value-results.json" \
@@ -229,6 +238,13 @@ jobs:
             fi
             tar -C "$RUNNER_TEMP/product-value" -czf \
               "$RUNNER_TEMP/product-benchmarks/component-value-results.tar.gz" components
+          fi
+          uv run --project release-tool --no-sync python \
+            release-tool/.github/scripts/build_wheels_bundle.py \
+            --channel "$CHANNEL_PATH" \
+            --output "$RUNNER_TEMP/product-benchmarks/mindie-wheels-bundle.tar.gz"
+          if [ -f "product/install.py" ]; then
+            cp "product/install.py" "$RUNNER_TEMP/product-benchmarks/install.py"
           fi
           python - <<'PY'
           import hashlib, os
@@ -263,6 +279,8 @@ jobs:
             "$RUNNER_TEMP/product-benchmarks/benchmark-SHA256SUMS"
             "$RUNNER_TEMP/product-benchmarks/benchmark-manifest.json"
             "$RUNNER_TEMP/product-benchmarks/product-release-provenance.json"
+            "$RUNNER_TEMP/product-benchmarks/release-channel.json"
+            "$RUNNER_TEMP/product-benchmarks/mindie-wheels-bundle.tar.gz"
             "$RUNNER_TEMP/product-benchmarks/SHA256SUMS"
           )
           if [ "$RELEASE_KIND" = "milestone" ]; then
@@ -277,8 +295,9 @@ jobs:
             if [ "$VALUE_SUITE_SCHEMA" = "mindie-value-suite/1" ]; then
               assets+=("$RUNNER_TEMP/product-benchmarks/product-value-v1.json")
             fi
-          else
-            assets+=("$RUNNER_TEMP/product-benchmarks/release-channel.json")
+          fi
+          if [ -f "$RUNNER_TEMP/product-benchmarks/install.py" ]; then
+            assets+=("$RUNNER_TEMP/product-benchmarks/install.py")
           fi
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --verify-tag --target "$GITHUB_SHA" --title "$GITHUB_REF_NAME" \

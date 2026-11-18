@@ -26,6 +26,6 @@ reasoning_effort = "medium"
 # command = "/absolute/component/runtime/bin/python"
 # args = ["/absolute/component/mcp_adapter.py", "--profile", "{profile}"]
 # component = "remote-dev"
-# required_tools = ["remote_bash"]
+# required_tools = ["remote_exec_command", "remote_probe"]
 #
 # Configure G2/G3 explicitly; each must include remote-dev and knowledge.

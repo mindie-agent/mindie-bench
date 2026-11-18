@@ -1,3 +1,3 @@
 """MindIE's standalone evaluation component."""
 
-__version__ = "0.4.12"
+__version__ = "0.4.13"

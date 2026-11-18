@@ -57,11 +57,25 @@ def _normalize_observation_path(raw: str) -> str:
     cleaned = _WIN_DRIVE_PREFIX_RE.sub("", cleaned, count=1)
     return posixpath.normpath(cleaned)
 
-REMOTE = {"remote_bash", "remote_job_start", "remote_exec", "remote_command"}
+REMOTE = {
+    "remote_bash", "remote_Bash", "remote_exec_command", "remote_run_command",
+    "remote_job_start", "remote_exec", "remote_command",
+}
+EDIT = {
+    "remote_edit", "remote_multi_edit", "Edit", "MultiEdit", "Write", "edit_file",
+    "remote_apply_patch", "apply_patch", "remote_write", "write_file",
+    "remote_Write", "remote_Edit", "remote_MultiEdit", "remote_NotebookEdit",
+    "remote_write_file", "remote_edit_file", "NotebookEdit",
+}
 READ_EDIT = {
-    "remote_read", "Read", "remote_edit", "remote_multi_edit", "Edit", "MultiEdit",
-    "Write", "remote_grep", "Grep", "read_file", "edit_file", "remote_apply_patch",
-    "apply_patch", "remote_write", "write_file",
+    "remote_read", "Read", "remote_grep", "Grep", "read_file",
+    "remote_Read", "remote_Grep", "remote_Glob", "remote_glob", "remote_list",
+    "remote_read_file", "remote_grep_search", "remote_find_by_name", "remote_list_dir",
+    "remote_view_image", "remote_ViewImage", "remote_read_image", "remote_ReadMediaFile",
+} | EDIT
+_JOB_OBSERVATION_TOOLS = {
+    "remote_job_status", "remote_job_tail", "remote_job_output", "remote_job_stdin",
+    "remote_write_stdin", "remote_TaskOutput", "remote_manage_task",
 }
 
 
@@ -69,9 +83,15 @@ def tool_name(name: str) -> str:
     return name.rsplit("__", 1)[-1].rsplit(".", 1)[-1]
 
 
+def _command_text(call: ToolCall):
+    return call.arguments.get(
+        "command", call.arguments.get("cmd", call.arguments.get("CommandLine", ""))
+    )
+
+
 def remote_execution(call: ToolCall) -> bool:
     name = tool_name(call.name)
-    command = call.arguments.get("command", call.arguments.get("cmd", ""))
+    command = _command_text(call)
     return name in REMOTE or (
         name.lower() in {"bash", "exec_command", "shell"}
         and isinstance(command, str)
@@ -85,7 +105,7 @@ def npu_test_runs(trajectory: Trajectory) -> int:
 
 
 def _npu_test_call(call):
-    command = call.arguments.get("command", call.arguments.get("cmd", ""))
+    command = _command_text(call)
     return remote_execution(call) and is_recognized_npu_command(command)
 
 
@@ -119,9 +139,24 @@ def _call_outcome(call):
     return "unknown"
 
 
+_JOB_ID_KEYS = ("job_id", "session_id", "task_id", "TaskId")
+
+
 def _job_argument_identity(call: ToolCall) -> str | None:
-    values = [call.arguments[key] for key in ("job_id", "session_id") if key in call.arguments]
-    if not values or any(not isinstance(value, str) or not value for value in values):
+    values = []
+    for key in _JOB_ID_KEYS:
+        if key not in call.arguments:
+            continue
+        raw = call.arguments[key]
+        if type(raw) is int and raw >= 0:
+            values.append(str(raw))
+        elif type(raw) is float and raw.is_integer() and raw >= 0:
+            values.append(str(int(raw)))
+        elif isinstance(raw, str) and raw:
+            values.append(raw)
+        else:
+            return None
+    if not values:
         return None
     return values[0] if all(value == values[0] for value in values) else None
 
@@ -168,11 +203,12 @@ def _pending_job_outcomes(trajectory: Trajectory) -> dict[int, tuple[str, dict]]
         ):
             evidence["reason"] = "uncertain_job_result"
         elif any(
-            tool_name(other.name) in {"remote_job_status", "remote_job_tail", "remote_job_output", "remote_job_stdin"}
+            tool_name(other.name) in _JOB_OBSERVATION_TOOLS
             and other.result_observation.operation_kind == "observation"
             and other.result_observation.source == result.source
             and other.result_observation.result_schema == result.result_schema
-            and any(key in other.arguments for key in ("job_id", "session_id"))
+            and any(key in other.arguments
+                    for key in ("job_id", "session_id", "task_id", "TaskId"))
             and _job_argument_identity(other) != result.job_id
             for _, other in rows
         ):
@@ -182,7 +218,7 @@ def _pending_job_outcomes(trajectory: Trajectory) -> dict[int, tuple[str, dict]]
             for other_index, other in rows:
                 observed = other.result_observation
                 if (
-                    tool_name(other.name) in {"remote_job_status", "remote_job_tail", "remote_job_output", "remote_job_stdin"}
+                    tool_name(other.name) in _JOB_OBSERVATION_TOOLS
                     and _job_argument_identity(other) == result.job_id
                     and observed.operation_kind == "observation"
                     and observed.source == result.source
@@ -228,24 +264,14 @@ def target_access_observations(
         name = tool_name(call.name)
         paths = []
         if name in READ_EDIT:
-            kind = (
-                "edit"
-                if name
-                in {
-                    "remote_edit",
-                    "remote_multi_edit",
-                    "Edit",
-                    "MultiEdit",
-                    "Write",
-                    "edit_file",
-                    "remote_apply_patch",
-                    "apply_patch",
-                    "remote_write",
-                    "write_file",
-                }
-                else "read"
-            )
-            values = [call.arguments.get(key) for key in ("path", "file_path", "filename")]
+            kind = "edit" if name in EDIT else "read"
+            values = [
+                call.arguments.get(key)
+                for key in (
+                    "path", "file_path", "filePath", "Path", "notebook_path",
+                    "image_path", "filename", "SearchPath", "SearchDirectory",
+                )
+            ]
             values += call.arguments.get("paths", []) + call.arguments.get("matched_files", [])
             if name in {"remote_apply_patch", "apply_patch"}:
                 patch = call.arguments.get("patch", call.arguments.get("input"))
@@ -255,7 +281,7 @@ def target_access_observations(
                     )
             paths.extend((kind, path, name.startswith("remote_")) for path in values)
         elif name in REMOTE or name.lower() in {"bash", "exec_command", "shell"}:
-            command = call.arguments.get("command", call.arguments.get("cmd"))
+            command = _command_text(call)
             if isinstance(command, str):
                 paths, reasons = _shell_accesses(command, remote=name in REMOTE)
                 unresolved.extend(dict(call_id=call.id, reason=reason) for reason in reasons)
@@ -441,17 +467,22 @@ def _validation_tail(trajectory):
         if _npu_test_call(call):
             tests.append(index)
             if observed is not None and observed.job_id:
-                jobs[observed.job_id] = index
+                jobs[(observed.target_id, observed.job_id)] = index
             if _call_outcome(call) == "success":
                 successes.append(index)
         elif (
             observed is not None
-            and observed.job_id in jobs
+            and (observed.target_id, observed.job_id) in jobs
+            and observed.operation_kind == "observation"
             and observed.classification == "business_success"
+            and not (
+                any(key in call.arguments for key in _JOB_ID_KEYS)
+                and _job_argument_identity(call) != observed.job_id
+            )
         ):
             successes.append(index)
         if (
-            tool_name(call.name) == "remote_job_stdin"
+            tool_name(call.name) in {"remote_job_stdin", "remote_write_stdin"}
             and not call.arguments.get("chars")
             and not call.arguments.get("eof")
         ):
@@ -666,7 +697,7 @@ def trajectory_metrics(
                     **{
                         key: value
                         for key, value in observe_npu_command(
-                            call.arguments.get("command", call.arguments.get("cmd", ""))
+                            _command_text(call)
                         ).items()
                         if key != "scope"
                     },

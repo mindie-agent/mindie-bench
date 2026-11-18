@@ -4,7 +4,7 @@
 are production code. Staging changes only the plugin release-list transport.
 Independent component floors, external commands and explicit hook disable survive.
 [Timeouts & Locks] The workflow grants 130 minutes for baseline/native installs,
-1860s bootstrap, 180s setup, 2160s component staging, 20s inventory, 2700s
+1860s bootstrap, 180s setup, 2160s component staging, 40s inventory, 2700s
 upgrade, 180s native readback and cleanup. The profile is exclusively owned.
 [Side-Effect Policy] Writes only the supplied isolated native acceptance profile.
 """
@@ -38,6 +38,12 @@ def environment(root, host):
         path = root / name
         path.mkdir(parents=True, exist_ok=True)
         env[name] = str(path)
+    uv_cache = Path(
+        env.get("UV_CACHE_DIR")
+        or (Path(env["RUNNER_TEMP"]) / "uv-cache" if env.get("RUNNER_TEMP") else root / "uv-cache")
+    )
+    uv_cache.mkdir(parents=True, exist_ok=True)
+    env["UV_CACHE_DIR"] = str(uv_cache)
     env.update(
         MINDIE_AGENT_CONFIG=str(root / "MINDIE_CONFIG_HOME/codex.json"),
         MINDIE_DIAGNOSTICS_CONFIG=str(root / "diagnostics-disabled.json"),
@@ -60,6 +66,24 @@ def environment(root, host):
 def child(argv, env, *, python=None, timeout=1200):
     return invoke([python or sys.executable, "-I", "-X", "utf8", "-B",
                    Path(__file__).resolve(), *argv], env, timeout=timeout)
+
+
+def _read_inventory(python, *, allow_wheel_provenance=False):
+    from mindie_knowledge.component_runtime import read_inventory
+    if not allow_wheel_provenance:
+        return read_inventory(python)
+    try:
+        return read_inventory(python, allow_wheel_provenance=True)
+    except TypeError:
+        pass
+    probe = subprocess.run(
+        [str(python), "-I", "-X", "utf8", "-m", "mindie_knowledge.runtime_inventory",
+         "--allow-wheel-provenance"],
+        env=dict(os.environ), capture_output=True, timeout=10, check=False, **FLAGS,
+    )
+    if probe.returncode == 0:
+        return json.loads(probe.stdout)
+    return read_inventory(python)
 
 
 def baseline(args, env):
@@ -210,7 +234,6 @@ def verify(args):
     current = json.loads(config.read_text(encoding="utf-8"))
     sys.path.insert(0, current["runtime_scripts"])
     from mindie_knowledge.component_bindings import managed_commands
-    from mindie_knowledge.component_runtime import read_inventory
     from native_hooks import NativeHooks
 
     with NativeHooks(str(args.target_host), dict(os.environ)) as api:
@@ -226,7 +249,12 @@ def verify(args):
             "knowledge_query", "knowledge_explain", "knowledge_feedback",
             "knowledge_distill", "knowledge_sync",
         )
-        if ("remote_probe" not in remote["tools"] or "diagnostics_status" not in tools["tools"]
+        if ("remote_probe" not in remote["tools"]
+                or "remote_exec_command" not in remote["tools"]
+                or "remote_BashOutput" in remote["tools"]
+                or "remote_KillShell" in remote["tools"]
+                or "diagnostics_status" not in tools["tools"]
+                or "mindie_doctor" not in tools["tools"]
                 or any(name not in tools["tools"] for name in expected_knowledge)
                 or any("knowledge_" in name for name in remote["tools"])):
             raise ValueError("fresh native MCP discovery differs from the public contract")
@@ -235,10 +263,13 @@ def verify(args):
     manifest = json.loads((source / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
     if manifest["version"] != args.version:
         raise ValueError("native startup did not activate the candidate after stale CAS rejection")
-    for name, python, _module in managed_commands(current).values():
+    rebound = managed_commands(current)
+    if not {"sim", "profiler"} <= rebound.keys():
+        raise ValueError("seeded external component bindings disappeared")
+    for name, python, _module in rebound.values():
         if str(python) != str(current["python"]):
             raise ValueError(f"external component was not rebound into the verified generation: {name}")
-    print(json.dumps(dict(installed=read_inventory(current["python"]),
+    print(json.dumps(dict(installed=_read_inventory(current["python"], allow_wheel_provenance=True),
                           disabled_stop_preserved=True, external_components_rebound=True,
                           native_plugin=args.version, remote_tools=len(remote["tools"]),
                           component_tools=len(tools["tools"]))))
@@ -251,7 +282,7 @@ def accept(args):
     config = Path(env["MINDIE_AGENT_CONFIG"])
     before = json.loads(config.read_text(encoding="utf-8"))
     baseline_inventory = child(["inventory", "--root", args.root], env,
-                               python=before["python"], timeout=20)
+                               python=before["python"], timeout=40)
     env["CODEX_APP_RUNTIME_CLI_PATH"] = str(args.target_host)
     argv = ["upgrade", "--root", args.root, "--version", args.version]
     if args.metadata:
@@ -294,8 +325,7 @@ def main():
         print(json.dumps(dict(python=str(python), scripts=str(scripts), release=str(release))))
     elif args.mode == "inventory":
         config = json.loads(Path(os.environ["MINDIE_AGENT_CONFIG"]).read_text(encoding="utf-8"))
-        from mindie_knowledge.component_runtime import read_inventory
-        print(json.dumps(read_inventory(config["python"])))
+        print(json.dumps(_read_inventory(config["python"], allow_wheel_provenance=True)))
     else:
         {"accept": accept, "seed": seed, "stage-native": stage_native,
          "upgrade": upgrade, "verify": verify}[args.mode](args)
