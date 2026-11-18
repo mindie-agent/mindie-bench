@@ -59,6 +59,39 @@ def baseline_install_command(python, overrides, requirements):
             "--override", overrides, *requirements]
 
 
+def _with_birth_overrides(text: str, source: Path, adapter_distribution: str | None) -> str:
+    extra: list[str] = []
+    if adapter_distribution in BIRTH_COMPONENTS:
+        extra.append(f"{adapter_distribution} @ {Path(source).resolve().as_uri()}")
+    elif adapter_distribution and (Path(source) / "pyproject.toml").is_file():
+        proj = tomllib.loads((Path(source) / "pyproject.toml").read_text(encoding="utf-8"))
+        uv_cfg = (proj.get("tool") or {}).get("uv") or {}
+        for item in uv_cfg.get("override-dependencies") or ():
+            if str(item).split("@", 1)[0].strip() in BIRTH_COMPONENTS:
+                extra.append(str(item))
+        if not extra:
+            for item in (proj.get("project") or {}).get("dependencies") or ():
+                if "@" in str(item) and str(item).split("@", 1)[0].strip() in BIRTH_COMPONENTS:
+                    extra.append(str(item))
+        if not extra:
+            for pkg, src in (uv_cfg.get("sources") or {}).items():
+                if pkg in BIRTH_COMPONENTS and isinstance(src, dict) and src.get("git") and src.get("rev"):
+                    extra.append(f"{pkg} @ git+{src['git']}@{src['rev']}")
+    if not extra:
+        return text
+    parsed = tomllib.loads(text)
+    current = list(((parsed.get("tool") or {}).get("uv") or {}).get("override-dependencies") or ())
+    seen = {row.split("@", 1)[0].strip() for row in current}
+    merged = current + [row for row in extra if row.split("@", 1)[0].strip() not in seen]
+    if merged == current:
+        return text
+    return text.replace(
+        "override-dependencies = " + json.dumps(current),
+        "override-dependencies = " + json.dumps(merged),
+        1,
+    )
+
+
 def accept(args):
     root = Path(args.root).resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -186,10 +219,19 @@ def accept(args):
             encoding="utf-8", newline="\n")
     else:
         seed = source / entry.get("project", ".")
+    import mindie_knowledge.component_runtime as cr
+
     baseline = dict(source_sha256=source_identity(seed),
                     runtime={name: row["revision"] for name, row in installed.items()})
-    artifact = build(seed, root / "generations", baseline, selected["runtime"],
-                     python=python, adapter_distribution=distribution, timeout=600)
+    orig_project_text = cr.project_text
+    cr.project_text = lambda src, targets, **kw: _with_birth_overrides(
+        orig_project_text(src, targets, **kw), Path(src), kw.get("adapter_distribution")
+    )
+    try:
+        artifact = build(seed, root / "generations", baseline, selected["runtime"],
+                         python=python, adapter_distribution=distribution, timeout=600)
+    finally:
+        cr.project_text = orig_project_text
     actual = read_inventory(artifact["python"])
     if actual != selected["runtime"]:
         raise ValueError("prepared runtime differs from the old client's latest selection")
