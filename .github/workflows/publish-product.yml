@@ -64,11 +64,11 @@ jobs:
               assert not os.environ.get("VALUE_SUITE_PATH"), "patches do not consume historical value suites"
           manifest = pathlib.Path("docs/releases", version, "benchmark-manifest.json")
           notes = pathlib.Path("docs/releases", version + ".md")
-          assert manifest.is_file(), f"missing {manifest}"
-          assert notes.is_file(), f"missing {notes}"
+          assert manifest.is_file(), f"missing {manifest.as_posix()}"
+          assert notes.is_file(), f"missing {notes.as_posix()}"
           track = ".".join(version.split(".")[:2])
           channel = pathlib.Path("channels", track + ".json")
-          assert channel.is_file(), f"missing {channel}"
+          assert channel.is_file(), f"missing {channel.as_posix()}"
           with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
               stream.write(f"version={version}\n")
               stream.write(f"channel=product/{channel.as_posix()}\n")
