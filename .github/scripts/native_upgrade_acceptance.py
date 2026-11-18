@@ -222,8 +222,13 @@ def verify(args):
         rows = api.call("mcpServerStatus/list", dict(threadId=thread))["data"]
         remote = next(row for row in rows if "mindie-remote-dev" in row["name"])
         tools = next(row for row in rows if "mindie-tools" in row["name"])
+        expected_knowledge = (
+            "knowledge_query", "knowledge_explain", "knowledge_feedback",
+            "knowledge_distill", "knowledge_sync",
+        )
         if ("remote_probe" not in remote["tools"] or "diagnostics_status" not in tools["tools"]
-                or any("knowledge_" in name for row in rows for name in row["tools"])):
+                or any(name not in tools["tools"] for name in expected_knowledge)
+                or any("knowledge_" in name for name in remote["tools"])):
             raise ValueError("fresh native MCP discovery differs from the public contract")
     current = json.loads(config.read_text(encoding="utf-8"))
     source = Path(current["runtime_scripts"]).parent
