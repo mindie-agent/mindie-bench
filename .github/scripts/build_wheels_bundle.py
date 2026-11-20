@@ -33,7 +33,7 @@ _REME = re.compile(
     r"reme-ai(?:\[[^\]]+\])?\s*@\s*git\+(https://github\.com/[\w.-]+/[\w.-]+?)(?:\.git)?@([0-9a-f]{40})(?=$|\s|;)"
 )
 def _run(argv, timeout, *, env=None):
-    return subprocess.run([str(value) for value in argv], check=True, capture_output=True, text=True, timeout=timeout, env=env, **_FLAGS).stdout
+    return subprocess.run([str(value) for value in argv], check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, env=env, **_FLAGS).stdout
 def _require(ok, message):
     if not ok:
         raise ValueError(message)

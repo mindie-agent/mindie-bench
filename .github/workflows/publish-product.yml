@@ -21,6 +21,9 @@ on:
         required: false
         default: ""
 
+env:
+  PYTHONUTF8: '1'
+
 permissions:
   contents: read
 

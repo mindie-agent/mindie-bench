@@ -9,6 +9,9 @@ on:
         required: false
         default: "3.13"
 
+env:
+  PYTHONUTF8: '1'
+
 permissions:
   contents: read
 
