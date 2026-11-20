@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import sys
 import tempfile
 import time
@@ -130,42 +131,47 @@ def _run_one_scenario(
         cleanup_warnings=cleanup_warnings,
     )
     try:
-        if scenario == "cold_native_launch":
-            details = run_scenario_cold_native_launch(host, plugin_dir, **common)
-        elif scenario == "public_install_py":
-            details = run_scenario_public_install_py(host, plugin_dir, install_script=install_script, **common)
-        elif scenario == "hooks_and_capture":
-            details = run_scenario_hooks_and_capture(host, plugin_dir, **common)
-        elif scenario == "upgrade_cutover":
-            details = run_scenario_upgrade_cutover(
-                host,
-                plugin_dir,
-                baseline_wheelhouse_stage=baseline_wheelhouse_stage,
-                baseline_plugin_dir=baseline_plugin_dir,
-                **common,
-            )
-        else:
-            raise ValueError(f"Unknown host acceptance scenario: {scenario!r}")
-        terminal_status = "completed_pass"
-    except HostAcceptanceError as exc:
-        terminal_status = "completed_fail"
-        error_info = {"type": type(exc).__name__, "message": str(exc)}
-    except Exception as exc:
-        terminal_status = "infra_failed"
-        error_info = {"type": type(exc).__name__, "message": str(exc)}
-
-    # Post-verdict cleanup: NEVER mutate `terminal_status` (`BENCH-VERDICT`).
-    for step_name, fn in (
-        ("cleanup_hook", (lambda: cleanup_hook(host, scenario, sandbox_dir)) if cleanup_hook else None),
-        ("stop_services", lambda: stop_sandbox_knowledge_services(sandbox_dir)),
-        ("rmtree_sandbox", lambda: rmtree_force(sandbox_dir)),
-    ):
-        if fn is None:
-            continue
         try:
-            fn()
+            if scenario == "cold_native_launch":
+                details = run_scenario_cold_native_launch(host, plugin_dir, **common)
+            elif scenario == "public_install_py":
+                details = run_scenario_public_install_py(host, plugin_dir, install_script=install_script, **common)
+            elif scenario == "hooks_and_capture":
+                details = run_scenario_hooks_and_capture(host, plugin_dir, **common)
+            elif scenario == "upgrade_cutover":
+                details = run_scenario_upgrade_cutover(
+                    host,
+                    plugin_dir,
+                    baseline_wheelhouse_stage=baseline_wheelhouse_stage,
+                    baseline_plugin_dir=baseline_plugin_dir,
+                    **common,
+                )
+            else:
+                raise ValueError(f"Unknown host acceptance scenario: {scenario!r}")
+            terminal_status = "completed_pass"
+        except HostAcceptanceError as exc:
+            terminal_status = "completed_fail"
+            error_info = {"type": type(exc).__name__, "message": str(exc)}
         except Exception as exc:
-            cleanup_warnings.append(f"{step_name}: {type(exc).__name__}: {exc}")
+            terminal_status = "infra_failed"
+            error_info = {"type": type(exc).__name__, "message": str(exc)}
+    finally:
+        # Post-verdict cleanup: NEVER mutate `terminal_status` (`BENCH-VERDICT`).
+        if cleanup_hook is not None:
+            try:
+                cleanup_hook(host, scenario, sandbox_dir)
+            except Exception as exc:
+                cleanup_warnings.append(f"cleanup_hook: {type(exc).__name__}: {exc}")
+        try:
+            stop_sandbox_knowledge_services(sandbox_dir)
+        except Exception as exc:
+            cleanup_warnings.append(f"stop_services: {type(exc).__name__}: {exc}")
+        try:
+            rmtree_force(sandbox_dir)
+            if sandbox_dir.exists():
+                shutil.rmtree(sandbox_dir, ignore_errors=True)
+        except Exception as exc:
+            cleanup_warnings.append(f"rmtree_sandbox: {type(exc).__name__}: {exc}")
 
     row: dict[str, Any] = {
         "scenario": scenario,
