@@ -120,7 +120,7 @@ def _install_uv_sync_guard(guard_dir: Path, env: Mapping[str, str]) -> dict[str,
 
 
 def _write_host_transcript(host: str, ws: Path, env: Mapping[str, str]) -> tuple[str, Path, dict[str, Any]]:
-    t0 = time.time() + 120.0
+    t0 = time.time() - 30.0
     iso = [time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t0 + i)) for i in (1, 2, 3)]
     ms = [int((t0 + i) * 1000) for i in (1, 2, 3)]
     u_txt = f"Fix Ascend stream hang in vllm-ascend (token {SECRET_GHP}, key {SECRET_AWS})."
@@ -165,9 +165,9 @@ def _write_host_transcript(host: str, ws: Path, env: Mapping[str, str]) -> tuple
         sid, tp = "dsh-accept-session-01", Path(env["DSH_HOME"]) / "sessions/proj/dsh-accept-session-01/session.v4.jsonl.zstd"
         tp.parent.mkdir(parents=True, exist_ok=True)
         rows = [
-            {"v": 4, "seq": 1, "ts": iso[0], "type": "turn/start", "turn": 1, "data": {}},
-            {"v": 4, "seq": 2, "ts": iso[1], "type": "user/message", "turn": 1, "data": {"source": {"kind": "user"}, "message": {"role": "user", "content": u_txt}}},
-            {"v": 4, "seq": 3, "ts": iso[2], "type": "assistant/message", "turn": 1, "data": {"message": {"role": "assistant", "content": [{"type": "text", "text": a_txt}]}}},
+            {"type": "session", "time": ms[0], "createdAt": ms[0], "cwd": str(ws)},
+            {"v": 4, "seq": 1, "time": ms[1], "type": "user/message", "turn": 1, "data": {"source": {"kind": "user"}, "content": [{"type": "text", "text": u_txt}]}},
+            {"v": 4, "seq": 2, "time": ms[2], "type": "assistant/message", "turn": 1, "data": {"message": {"role": "assistant", "content": [{"type": "text", "text": a_txt}]}}},
         ]
         tp.write_bytes(_zstd_uncompressed_frame("".join(json.dumps(r) + "\n" for r in rows).encode("utf-8")))
         return sid, tp, {"session_id": sid, "turn": 1, "transcript_path": str(tp)}
@@ -188,8 +188,8 @@ def _write_host_transcript(host: str, ws: Path, env: Mapping[str, str]) -> tuple
         tp = Path(env["WORKBUDDY_CONFIG_DIR"]) / f"projects/mindie/{sid}.jsonl"
         tp.parent.mkdir(parents=True, exist_ok=True)
         rows = [
-            {"type": "message", "role": "user", "timestamp": iso[1], "content": [{"type": "text", "text": u_txt}]},
-            {"type": "message", "role": "assistant", "timestamp": iso[2], "content": [{"type": "text", "text": a_txt}]},
+            {"type": "message", "sessionId": sid, "timestamp": ms[1], "message": {"role": "user", "content": [{"type": "text", "text": u_txt}]}},
+            {"type": "message", "sessionId": sid, "timestamp": ms[2], "message": {"role": "assistant", "content": [{"type": "text", "text": a_txt}]}},
         ]
         tp.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
         return sid, tp, {"hook_event_name": "Stop", "session_id": sid, "turn_id": "wb-1", "transcript_path": str(tp)}
@@ -198,15 +198,15 @@ def _write_host_transcript(host: str, ws: Path, env: Mapping[str, str]) -> tuple
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(db_path)) as conn, conn:
         conn.executescript(
-            "CREATE TABLE IF NOT EXISTS session_v2(id TEXT PRIMARY KEY, directory TEXT, parent_id TEXT, fork_session_id TEXT, time_created INTEGER);"
-            "CREATE TABLE IF NOT EXISTS session_message(id TEXT PRIMARY KEY, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT);"
-            "CREATE TABLE IF NOT EXISTS session_part(id TEXT PRIMARY KEY, session_id TEXT, message_id TEXT, ordinal INTEGER, type TEXT, data TEXT);"
+            "CREATE TABLE IF NOT EXISTS session_v2(id TEXT PRIMARY KEY, directory TEXT, parent_id TEXT, fork_session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);"
+            "CREATE TABLE IF NOT EXISTS session_message(id TEXT PRIMARY KEY, session_id TEXT, seq INTEGER, type TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);"
+            "CREATE TABLE IF NOT EXISTS session_part(message_id TEXT, session_id TEXT, ordinal INTEGER, type TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);"
         )
-        conn.execute("INSERT OR REPLACE INTO session_v2 VALUES (?, ?, NULL, NULL, ?)", (sid, str(ws), ms[0]))
-        conn.execute("INSERT OR REPLACE INTO session_message VALUES ('m1', ?, 'user', 1, ?, ?)", (sid, ms[1], json.dumps({"time": {"created": ms[1]}})))
-        conn.execute("INSERT OR REPLACE INTO session_part VALUES ('p1', ?, 'm1', 0, 'text', ?)", (sid, json.dumps({"type": "text", "text": u_txt})))
-        conn.execute("INSERT OR REPLACE INTO session_message VALUES ('m2', ?, 'assistant', 2, ?, ?)", (sid, ms[2], json.dumps({"time": {"created": ms[2]}})))
-        conn.execute("INSERT OR REPLACE INTO session_part VALUES ('p2', ?, 'm2', 0, 'text', ?)", (sid, json.dumps({"type": "text", "text": a_txt})))
+        conn.execute("INSERT OR REPLACE INTO session_v2 VALUES (?, ?, NULL, NULL, ?, ?, '{}')", (sid, str(ws), ms[0], ms[0]))
+        conn.execute("INSERT OR REPLACE INTO session_message VALUES ('m1', ?, 1, 'user', ?, ?, ?)", (sid, ms[1], ms[1], json.dumps({"time": {"created": ms[1]}, "text": u_txt})))
+        conn.execute("INSERT OR REPLACE INTO session_part VALUES ('m1', ?, 0, 'text', ?, ?, ?)", (sid, ms[1], ms[1], json.dumps({"type": "text", "text": u_txt})))
+        conn.execute("INSERT OR REPLACE INTO session_message VALUES ('m2', ?, 2, 'assistant', ?, ?, ?)", (sid, ms[2], ms[2], json.dumps({"time": {"created": ms[2], "completed": ms[2]}, "content": [{"type": "text", "text": a_txt}]})))
+        conn.execute("INSERT OR REPLACE INTO session_part VALUES ('m2', ?, 0, 'text', ?, ?, ?)", (sid, ms[2], ms[2], json.dumps({"type": "text", "text": a_txt})))
     return sid, db_path, {"session_id": sid}
 
 
@@ -405,7 +405,7 @@ def run_scenario_hooks_and_capture(
             "from mindie_knowledge.loop.activation import Admission\nfrom mindie_knowledge.loop.cli import config_at, load_transcript_adapter\n"
             "from mindie_knowledge.loop.engine import Engine\nfrom mindie_knowledge.loop.store import Store\n"
             "ecfg = config_at(Path(json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))['engine_config']))\n"
-            "store = Store(Path(ecfg['root']) / ecfg['domain'], domain=ecfg['domain'])\n"
+            "store = Store(Path(ecfg['root']), domain=ecfg['domain'])\n"
             "try:\n"
             "    eng = Engine(store, settings_path=ecfg.get('community_config'), admission=Admission(ecfg['admission_path']),\n"
             "      transcript_adapter=load_transcript_adapter(ecfg),\n"

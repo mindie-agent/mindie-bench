@@ -347,7 +347,16 @@ def parse_host_manifest(
             if not resolved_py3 or is_windows_store_stub(resolved_py3):
                 raise ManifestValidationError(f"Kimi command {srv.command!r} resolved to stub/missing")
         py3 = which_native("python3", path=env.get("PATH")) or str(resolve_base_python())
-        hooks = {str(it["event"]): HookCommandSpec(str(it["event"]), str(it["command"]), (py3, *str(it["command"]).split()[1:]), repo_root, dict(env)) for it in (kdoc.get("hooks") or [])}
+        hooks: dict[str, HookCommandSpec] = {}
+        for it in kdoc.get("hooks") or []:
+            raw_cmd = str(it["command"])
+            toks = raw_cmd.split()
+            h_argv = (
+                (py3, "-B", "-X", "utf8", *toks[toks.index("./scripts/mindie_launch.py") :])
+                if "./scripts/mindie_launch.py" in toks
+                else (py3, *toks[1:])
+            )
+            hooks[str(it["event"])] = HookCommandSpec(str(it["event"]), raw_cmd, h_argv, repo_root, dict(env))
         hooks.setdefault("SessionStart", HookCommandSpec("SessionStart", "python3 ./scripts/mindie_launch.py hook session-start", (py3, "./scripts/mindie_launch.py", "hook", "session-start"), repo_root, dict(env)))
         return HostManifestSpec("kimi", repo_root, repo_root, servers, hooks)
 

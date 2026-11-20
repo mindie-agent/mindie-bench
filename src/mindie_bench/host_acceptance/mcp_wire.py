@@ -217,7 +217,7 @@ class MCPWireSession:
     def initialize(self, deadline: float) -> dict[str, Any]:
         res = self.request(
             "initialize",
-            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mindie-host-accept", "version": "0.4.15"}},
+            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mindie-host-accept", "version": "0.4.16"}},
             deadline,
             framing="content-length",
         )
@@ -377,7 +377,7 @@ def run_scenario_cold_native_launch(
         kq = find_server_for_tool(sessions, listed, "knowledge_query").call_tool("knowledge_query", {"query": "aclgraph", "domain": "vllm-ascend"}, deadline)
         if kq.get("isError") is not False or list(sandbox_root.rglob("*admission*.sqlite*")):
             raise HostAcceptanceError(f"{host} knowledge_query failed or leaked admission SQLite: {kq}")
-        for tname, targs in (("mindie_doctor", {"probe_remote": False}), ("diagnostics_status", {}), ("sim", {"argv": ["doctor", "--no-compile"]}), ("remote_auth", {"action": "status"})):
+        for tname, targs in (("mindie_doctor", {"probe_remote": False}), ("diagnostics_status", {}), ("sim", {"argv": ["catalog"]}), ("remote_auth", {"action": "status"})):
             res = find_server_for_tool(sessions, listed, tname).call_tool(tname, targs, deadline)
             if res.get("isError") is not False:
                 raise HostAcceptanceError(f"{host} {tname} failed: {res}")
@@ -436,7 +436,7 @@ def run_scenario_public_install_py(
     sessions: dict[str, MCPWireSession] = {}
     try:
         sessions, listed = boot_all_servers(spec, deadline)
-        for tname, targs in (("knowledge_query", {"query": "aclgraph", "domain": "vllm-ascend"}), ("mindie_doctor", {"probe_remote": False}), ("sim", {"argv": ["doctor", "--no-compile"]})):
+        for tname, targs in (("knowledge_query", {"query": "aclgraph", "domain": "vllm-ascend"}), ("mindie_doctor", {"probe_remote": False}), ("sim", {"argv": ["catalog"]})):
             res = find_server_for_tool(sessions, listed, tname).call_tool(tname, targs, deadline)
             if res.get("isError") is not False:
                 raise HostAcceptanceError(f"Post-install.py Turn-1 {tname} failed on {host}: {res}")

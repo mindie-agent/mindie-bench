@@ -178,7 +178,7 @@ def _handle_call(profile, name: str, args: dict) -> dict:
         dom = str(args.get("domain") or "vllm-ascend")
         ep = (cfg.get("domain_configs") or {}).get(dom) or cfg.get("engine_config")
         kroot = Path(json.loads(Path(ep).read_text(encoding="utf-8"))["root"]) if ep and Path(ep).is_file() else (profile.data_dir / "knowledge")
-        st = Store(kroot / dom, domain=dom)
+        st = Store(kroot, domain=dom)
         try:
             units = st.graded.query(str(args.get("query") or ""))
         finally:
@@ -492,8 +492,8 @@ class _GradedRepo:
         return json.loads(row[0])
 
 class Store:
-    def __init__(self, root: Path, *, domain: str = "vllm-ascend") -> None:
-        self.root = Path(root)
+    def __init__(self, root: Path, domain: str = "vllm-ascend") -> None:
+        self.root = Path(root) / domain
         self.domain = domain
         self.root.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.root / "state-v4.sqlite3")
@@ -559,7 +559,7 @@ from mindie_knowledge.loop.store import Store
 
 def accept_stop(engine_path: str | Path, event: dict, **_kw) -> dict:
     ecfg = config_at(engine_path)
-    st = Store(Path(ecfg["root"]) / ecfg["domain"], domain=ecfg["domain"])
+    st = Store(Path(ecfg["root"]), domain=ecfg["domain"])
     try:
         cid = st.enqueue_capture(event)
     finally:
