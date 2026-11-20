@@ -410,7 +410,18 @@ jobs:
               timeout=2100, check=False, **flags,
           )
           if l2_proc.returncode != 0:
-              raise RuntimeError(f"host-accept --all-hosts failed ({l2_proc.returncode}): {(l2_proc.stderr or l2_proc.stdout)[-4000:]}")
+              err_summary = ""
+              if l2_out.is_file():
+                  try:
+                      doc = json.loads(l2_out.read_text(encoding="utf-8"))
+                      err_summary = json.dumps({
+                          h: r.get("error") or {s: sr.get("error") for s, sr in (r.get("scenarios") or {}).items() if sr.get("error")}
+                          for h, r in (doc.get("hosts") or {}).items()
+                          if r.get("status") != "passed"
+                      }, ensure_ascii=False) + " | "
+                  except Exception:
+                      pass
+              raise RuntimeError(f"host-accept --all-hosts failed ({l2_proc.returncode}): {err_summary}{(l2_proc.stderr or l2_proc.stdout)[-3000:]}")
           l2_report = json.loads(l2_out.read_text(encoding="utf-8"))
           assert l2_report.get("status") == "passed", l2_report
           raw_hosts = l2_report.get("hosts") or {}

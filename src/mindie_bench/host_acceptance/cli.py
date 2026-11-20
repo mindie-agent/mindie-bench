@@ -13,9 +13,9 @@ native MindIE host plugins (`codex`, `cc`, `kimi`, `dsh`, `agy`, `wb`, `oc`).
 - Enforces `outer_timeout >= setup(2s) + inner_budget + cleanup_grace(5s)`.
 
 [Timeouts & Locks]
-- Default per-host outer budget is `600.0s`; scenarios run sequentially on Windows (`1`
-  worker) and with bounded concurrency (`<= 2`) on POSIX while sharing one isolated
-  run-scoped `uv` wheel cache.
+- Default per-host outer budget is `600.0s`; scenarios run sequentially per host (`1`
+  worker) with bounded host concurrency (`<= 2`) across all platforms so 3–4 vCPU CI
+  runners never starve 6s `Stop` hook budgets while sharing one run-scoped `uv` cache.
 
 [Side-Effect Policy]
 - Uses isolated `TemporaryDirectory` sandboxes and writes `--output` JSON atomically.
@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import shutil
 import sys
 import tempfile
@@ -269,28 +268,21 @@ def _run_one_host(
         }
 
     scenario_rows: dict[str, dict[str, Any]] = {}
-    scen_workers = 1 if os.name == "nt" else min(2, max(1, len(scenarios)))
-    with ThreadPoolExecutor(max_workers=scen_workers) as pool:
-        futs = {
-            scen: pool.submit(
-                _run_one_scenario,
-                host,
-                scen,
-                plugin_dir,
-                wheelhouse_stage=wheelhouse_stage,
-                baseline_wheelhouse_stage=baseline_wheelhouse_stage,
-                baseline_plugin_dir=baseline_plugin_dir,
-                install_script=install_script,
-                redactor=redactor,
-                prepacked_dir=prepacked_dir,
-                inner_deadline=inner_deadline,
-                uv_cache_dir=uv_cache_dir,
-                cleanup_hook=cleanup_hook,
-            )
-            for scen in scenarios
-        }
-        for scen in scenarios:
-            scenario_rows[scen] = futs[scen].result()
+    for scen in scenarios:
+        scenario_rows[scen] = _run_one_scenario(
+            host,
+            scen,
+            plugin_dir,
+            wheelhouse_stage=wheelhouse_stage,
+            baseline_wheelhouse_stage=baseline_wheelhouse_stage,
+            baseline_plugin_dir=baseline_plugin_dir,
+            install_script=install_script,
+            redactor=redactor,
+            prepacked_dir=prepacked_dir,
+            inner_deadline=inner_deadline,
+            uv_cache_dir=uv_cache_dir,
+            cleanup_hook=cleanup_hook,
+        )
 
     if pack_sandbox is not None:
         try:
@@ -345,7 +337,7 @@ def run_host_acceptance(
     shared_uv_cache = Path(tempfile.mkdtemp(prefix="mindie-ha-uvcache-")).resolve()
     run_warnings: list[str] = []
     host_reports: dict[str, dict[str, Any]] = {}
-    host_workers = min(2 if os.name == "nt" else 7, len(clean_hosts))
+    host_workers = min(2, len(clean_hosts))
     try:
         with ThreadPoolExecutor(max_workers=host_workers) as pool:
             futs = {

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="./docs/releases/mindie-bench-0.4.21.en.md"><img src="https://img.shields.io/badge/release-v0.4.21-7045F5.svg" alt="Release v0.4.21"></a>
+  <a href="./docs/releases/mindie-bench-0.4.22.en.md"><img src="https://img.shields.io/badge/release-v0.4.22-7045F5.svg" alt="Release v0.4.22"></a>
   <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/Interface-CLI%20%7C%20Python%20API%20%7C%20HF%20Parquet-00ADD8" alt="CLI | Python API | HF Parquet">
   <img src="https://img.shields.io/badge/Target-Ascend%20NPU%20(A2%20910B%20%7C%20A3%20910C%20%7C%20A5%20950DT)-FF6B00" alt="Ascend NPU A2/A3/A5">
@@ -26,7 +26,7 @@
 
 Evaluating AI coding agents on Ascend NPU infrastructure is notoriously easy to get wrong: agents can accidentally read test answers from a shared checkout, leak personal CLI credentials, claim fake kernel speedups that break FP32 numerical accuracy, or have infrastructure/SSH hiccups silently counted as task failures.
 
-`mindie-bench` (`mindie_bench`, current formal release [`v0.4.21`](./docs/releases/mindie-bench-0.4.21.en.md)) is the **standalone, evidence-preserving evaluation harness and live Ascend NPU benchmark suite** for the MindIE Agent ecosystem. It holds the native host harness (Claude Code, Codex, Kimi Code, DSH, AGY, OpenClaw), model deployment, source snapshot, and execution budget constant while measuring the exact impact of remote tools, domain knowledge, cross-task experience reuse, and de-biased exploration:
+`mindie-bench` (`mindie_bench`, current formal release [`v0.4.22`](./docs/releases/mindie-bench-0.4.22.en.md)) is the **standalone, evidence-preserving evaluation harness and live Ascend NPU benchmark suite** for the MindIE Agent ecosystem. It holds the native host harness (Claude Code, Codex, Kimi Code, DSH, AGY, OpenClaw), model deployment, source snapshot, and execution budget constant while measuring the exact impact of remote tools, domain knowledge, cross-task experience reuse, and de-biased exploration:
 
 - **Isolated Host Runner**: Launches fresh native Claude Code, OpenAI Codex, Kimi Code, or DSH profiles inside isolated `HOME` / `XDG` / shell temporary directories and OS sandboxes (macOS Seatbelt / Linux `bubblewrap`). Oracle test suites (`oracle_tests/`) are sealed into an external host bundle (`oracle.bundle` + SHA-256 manifest) before the agent starts, and real model API keys stay inside the parent `MeteringGateway` proxy.
 - **20 Behavioral-Oracle Tasks & Accuracy/Performance Speedup Gates**: All 20 benchmark task oracles execute candidate code in real subprocesses and verify dynamic runtime behavior across **109 verified three-state and helper controls** (`base` must fail, `negative_control` must fail, `gold` must pass). Performance tasks must pass **independent FP32 numerical verification, `ACLGraph` capture, memory bounds, leave-one-out ablation, warm-service latency, and Roofline-anchored HAP (Hardware Achievable Performance) speedup gates** — isolated speedup without numerical correctness never earns a pass.
@@ -60,19 +60,19 @@ Please install https://github.com/mindie-agent/mindie-bench for me
 <details>
 <summary>🤖 <b>Instructions for AI Agents (Auto-Install & Usage Protocol)</b></summary>
 
-If you are an AI Agent receiving the prompt above, follow these steps to install and verify `mindie-bench` (current formal release `v0.4.21`):
+If you are an AI Agent receiving the prompt above, follow these steps to install and verify `mindie-bench` (current formal release `v0.4.22`):
 
 1. **Check Prerequisites**: Confirm Python `>= 3.11` and `uv` are installed.
 2. **Install the CLI and Environment**:
    - Clone and sync the locked workspace environment (recommended for running benchmark tasks):
      ```bash
-     git clone --branch v0.4.21 https://github.com/mindie-agent/mindie-bench.git
+     git clone --branch v0.4.22 https://github.com/mindie-agent/mindie-bench.git
      cd mindie-bench
      uv sync --locked --all-extras
      ```
    - Or install the `mindie-bench` CLI globally:
      ```bash
-     uv tool install "git+https://github.com/mindie-agent/mindie-bench@v0.4.21"
+     uv tool install "git+https://github.com/mindie-agent/mindie-bench@v0.4.22"
      ```
 3. **Run the Zero-Model Smoke Demo & Scorer**:
    ```bash
@@ -80,7 +80,7 @@ If you are an AI Agent receiving the prompt above, follow these steps to install
    uv run mindie-bench demo --output /tmp/mindie-bench-demo
    uv run mindie-bench score --input /tmp/mindie-bench-demo/run
    ```
-4. **Notify the User**: Let the user know `mindie-bench v0.4.21` is ready, and always run `mindie-bench validate` and `mindie-bench soundness` before launching paid model or live NPU matrix runs.
+4. **Notify the User**: Let the user know `mindie-bench v0.4.22` is ready, and always run `mindie-bench validate` and `mindie-bench soundness` before launching paid model or live NPU matrix runs.
 
 </details>
 
@@ -239,6 +239,7 @@ mindie-bench/
 
 | Topic | Link |
 | --- | --- |
+| **`v0.4.22` Release Notes (`host-accept --all-hosts` Bounded 2-Host Concurrency & Structured Workflow Error Surfacing)** | [docs/releases/mindie-bench-0.4.22.en.md](./docs/releases/mindie-bench-0.4.22.en.md) · [中文](./docs/releases/mindie-bench-0.4.22.md) |
 | **`v0.4.21` Release Notes (`host-accept` Domain Store Path, 7-Host Transcript Schemas & Cross-OS Budget Calibration)** | [docs/releases/mindie-bench-0.4.21.en.md](./docs/releases/mindie-bench-0.4.21.en.md) · [中文](./docs/releases/mindie-bench-0.4.21.md) |
 | **`v0.4.15` Release Notes (Universal 7-Host Native Wire Verifier `host-accept` & 3-OS Release Usability Gates)** | [docs/releases/mindie-bench-0.4.15.en.md](./docs/releases/mindie-bench-0.4.15.en.md) · [中文](./docs/releases/mindie-bench-0.4.15.md) |
 | **`v0.4.13` Release Notes (Zero-Git Prebuilt Wheelhouse Bundle, Unified Release-Channel Publication, and 1:1 Native `remote-dev` Tool-Surface Scoring)** | [docs/releases/mindie-bench-0.4.13.en.md](./docs/releases/mindie-bench-0.4.13.en.md) · [中文](./docs/releases/mindie-bench-0.4.13.md) |
