@@ -10,9 +10,9 @@
      accepts `timeout > slot.timeout`.
   3. `run_matrix` reuses verified runtime-import provenance across identical cells in one run
      while persisting `runtime-preflight.json` in every trial directory.
-  4. `mindie-agent/harness` (`v0.1.0` initial birth release with `prior_revision: null`)
-     passes `prepare_plugin_metadata`, `validate_release`, and `release-policy.json` baseline
-     construction without requiring a prior GitHub tag.
+  4. `mindie-agent/harness` formal `0.1.17` baseline (`v0.1.4`) in `release-policy.json` and
+     `BIRTH_COMPONENTS` consumer compatibility (`prepare_plugin_metadata`, `validate_release`)
+     pass against `knowledge@3c478a19`.
 
 [Invariants]
   * Runs under sandboxed `tmp_path` isolation (`conftest.py`).
@@ -163,10 +163,14 @@ def test_mindie_harness_birth_release_gate_and_pr_checklist_bench_profile(tmp_pa
         harness_entry = policy["repositories"]["mindie-agent/harness"]
         assert harness_entry == {
             "package": "mindie-harness",
-            "version": None,
-            "revision": None,
-            "prior_revision": None,
+            "version": "0.1.4",
+            "revision": "14313b8ba58c888b20c9c216ec41d14f5e62f4f7",
         }
+        assert len(policy["repositories"]) == 17
+        assert all(
+            row.get("version") and len(str(row.get("revision") or "")) == 40
+            for row in policy["repositories"].values()
+        )
 
         spec_mk = importlib.util.find_spec("mindie_knowledge")
         consumer_src = (

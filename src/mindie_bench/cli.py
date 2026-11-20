@@ -168,12 +168,19 @@ def parser():
     strategy_pilot.add_argument("--repetitions", type=int, default=2)
     strategy_pilot.add_argument("--selector-mode", choices=["reference", "claude"], default="reference")
     strategy_pilot.add_argument("--output", type=Path, required=True)
+    from mindie_bench.host_acceptance.cli import add_host_accept_subparser
+
+    add_host_accept_subparser(commands)
     return root
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
+        if args.command == "host-accept":
+            from mindie_bench.host_acceptance.cli import dispatch_host_accept
+
+            return dispatch_host_accept(args)
         if args.command in {"ablation-evaluate", "gate-check"}:
             from mindie_bench.evaluation.ablation import AblationRequest
             from mindie_bench.evaluation.gates import GateRequest

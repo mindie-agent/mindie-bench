@@ -1,0 +1,88 @@
+name: reusable-verify-host-plugin
+
+on:
+  workflow_call:
+    inputs:
+      host:
+        description: Canonical host identifier (codex|cc|kimi|dsh|agy|wb|oc)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify-host-plugin:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Validate host input
+        env:
+          HOST_ID: ${{ inputs.host }}
+        run: |
+          case "$HOST_ID" in
+            codex|cc|kimi|dsh|agy|wb|oc) ;;
+            *) echo "Unsupported host input: $HOST_ID" >&2; exit 1 ;;
+          esac
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: plugin
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: main
+          path: release-tool
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-agent
+          ref: main
+          path: hub
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+          enable-cache: true
+          cache-dependency-glob: |
+            **/uv.lock
+            **/pyproject.toml
+            **/runtime-requirements.txt
+            **/.github/workflows/release.yml
+      - if: inputs.host == 'dsh' || inputs.host == 'oc'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install host acceptance verifier
+        run: uv sync --project release-tool --locked
+      - name: Stage formal sibling wheelhouse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --project release-tool --no-sync python \
+            release-tool/.github/scripts/assemble_candidate_wheelhouse.py \
+            --output-stage "$RUNNER_TEMP/wheelhouse-stage"
+      - name: Run 4-scenario native host plugin wire and capture acceptance
+        env:
+          HOST_ID: ${{ inputs.host }}
+          MATRIX_OS: ${{ matrix.os }}
+        run: |
+          uv run --project release-tool --no-sync mindie-bench host-accept \
+            --host "$HOST_ID" \
+            --plugin-dir "$PWD/plugin" \
+            --wheelhouse-stage "$RUNNER_TEMP/wheelhouse-stage" \
+            --install-script "$PWD/hub/install.py" \
+            --output "$RUNNER_TEMP/host-accept-${MATRIX_OS}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: host-accept-${{ matrix.os }}
+          if-no-files-found: ignore
+          path: ${{ runner.temp }}/host-accept-${{ matrix.os }}.json

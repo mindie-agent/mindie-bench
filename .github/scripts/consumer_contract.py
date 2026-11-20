@@ -99,6 +99,16 @@ def validate_evidence(repository, version, revision, assets, read):
     for filename in required - {"SHA256SUMS"}:
         if hashlib.sha256(read(filename)).hexdigest() != sums[filename]:
             raise ValueError(f"release evidence digest mismatch: {filename}")
+    if "usability-acceptance.json" in names:
+        if hashlib.sha256(read("usability-acceptance.json")).hexdigest() != sums["usability-acceptance.json"]:
+            raise ValueError("release evidence digest mismatch: usability-acceptance.json")
+        usability = json.loads(read("usability-acceptance.json"))
+        if (usability.get("schema") != "mindie-usability-acceptance/1"
+                or usability.get("status") != "passed"
+                or usability.get("repository") != repository
+                or usability.get("version") != version
+                or usability.get("revision") != revision):
+            raise ValueError("usability gate evidence does not authorize this publication")
     report = json.loads(read("benchmark-results.json"))
     if (report.get("schema_version") != "mindie-release-benchmark/2"
             or report.get("repository") != repository or report.get("version") != version
@@ -125,7 +135,8 @@ def validate_evidence(repository, version, revision, assets, read):
                 or native.get("external_components_rebound") is not True
                 or native.get("disabled_stop_preserved") is not True
                 or native.get("stale_snapshot_rejected") is not True
-                or native.get("native_startup_recovered") is not True):
+                or native.get("native_startup_recovered") is not True
+                or native.get("mcp_tool_calls_verified") is not True):
             raise ValueError("real native old-client upgrade evidence is required")
     return sums
 

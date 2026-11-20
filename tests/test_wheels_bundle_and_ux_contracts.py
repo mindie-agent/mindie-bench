@@ -1,7 +1,22 @@
+"""Wheel bundle determinism, trajectory remote tool classification, and native MCP acceptance tests.
+
+[Role]
+  Verify deterministic prebuilt wheel bundle assembly, cross-host remote tool observation
+  scoring, and `native_upgrade_acceptance.verify()` contract checks including real
+  `mcpServer/tool/call` verification on `mindie_doctor` and `knowledge_query`.
+[Invariants]
+  * Pure Tier 0 in-memory and `tmp_path` fixtures with zero network I/O.
+[Timeouts & Locks]
+  * Completes under 5s; acquires no global locks.
+[Side-Effect Policy]
+  * Writes only inside pytest `tmp_path`.
+"""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import sys
 import tarfile
@@ -239,15 +254,16 @@ def test_manage_task_only_matching_status_confirms_command(name, arguments, oper
         assert row["outcome_evidence"]["confirmed_exit_code"] == 0
 
 def _verify(tmp_path, monkeypatch, *, components, managed=("sim", "profiler"),
-            remote=("remote_probe", "remote_exec_command")):
+            remote=("remote_probe", "remote_exec_command"), tool_responses=None):
     root, scripts = tmp_path / "runtime", tmp_path / "runtime/scripts"
-    scripts.mkdir(parents=True)
-    (root / ".codex-plugin").mkdir()
+    scripts.mkdir(parents=True, exist_ok=True)
+    (root / ".codex-plugin").mkdir(exist_ok=True)
     (root / ".codex-plugin/plugin.json").write_text('{"version": "0.1.38"}', encoding="utf-8")
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps(
         {"runtime_scripts": str(scripts), "python": str(tmp_path / "python")}), encoding="utf-8")
     monkeypatch.setenv("MINDIE_AGENT_CONFIG", str(config_path))
+    tool_calls = []
     class Hooks:
         def __init__(self, *args): pass
         def __enter__(self): return self
@@ -256,9 +272,17 @@ def _verify(tmp_path, monkeypatch, *, components, managed=("sim", "profiler"),
             return [{"eventName": "stop", "enabled": False},
                     *[{"eventName": str(index)} for index in range(4)]]
         def call(self, method, params):
-            return ({"thread": {"id": "thread"}} if method == "thread/start" else
-                    {"data": [{"name": "mindie-remote-dev", "tools": list(remote)},
-                              {"name": "mindie-tools", "tools": list(components)}]})
+            if method == "thread/start":
+                return {"thread": {"id": "thread"}}
+            if method == "mcpServerStatus/list":
+                return {"data": [{"name": "mindie-remote-dev", "tools": list(remote)},
+                                 {"name": "mindie-tools", "tools": list(components)}]}
+            if method == "mcpServer/tool/call":
+                tool_calls.append((params["server"], params["tool"], params["arguments"]))
+                if tool_responses and params["tool"] in tool_responses:
+                    return tool_responses[params["tool"]]
+                return {"isError": False, "content": [{"type": "text", "text": f"{params['tool']} ok"}]}
+            raise AssertionError(f"unexpected RPC method: {method}")
     hooks = types.ModuleType("native_hooks")
     hooks.NativeHooks = Hooks
     bindings = types.ModuleType("mindie_knowledge.component_bindings")
@@ -270,14 +294,33 @@ def _verify(tmp_path, monkeypatch, *, components, managed=("sim", "profiler"),
     monkeypatch.setitem(sys.modules, "mindie_knowledge", package)
     monkeypatch.setitem(sys.modules, "mindie_knowledge.component_bindings", bindings)
     monkeypatch.setattr(acceptance, "_read_inventory", lambda python, **kwargs: {"ok": True})
-    acceptance.verify(SimpleNamespace(root=tmp_path, target_host=tmp_path / "host",
-                                      version="0.1.38"))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        acceptance.verify(SimpleNamespace(root=tmp_path, target_host=tmp_path / "host",
+                                          version="0.1.38"))
+    return json.loads(buf.getvalue()), tool_calls
 
 BASE = ["diagnostics_status", "mindie_doctor", "knowledge_query", "knowledge_explain",
         "knowledge_feedback", "knowledge_distill", "knowledge_sync"]
 @pytest.mark.tier0
 def test_verify_accepts_mindie_doctor_wheel_inventory_and_rebound_components(tmp_path, monkeypatch):
-    _verify(tmp_path, monkeypatch, components=BASE)
+    report, tool_calls = _verify(tmp_path, monkeypatch, components=BASE)
+    assert report["mcp_tool_calls_verified"] is True
+    assert tool_calls == [
+        ("mindie-tools", "mindie_doctor", {"probe_remote": False}),
+        ("mindie-tools", "knowledge_query", {"query": "aclgraph", "domain": "vllm-ascend"}),
+    ]
+
+
+@pytest.mark.tier0
+@pytest.mark.parametrize(("tool_responses", "expected_tool"), [
+    ({"mindie_doctor": {"isError": True, "content": [{"type": "text", "text": "err"}]}}, "mindie_doctor"),
+    ({"knowledge_query": {"isError": True, "content": [{"type": "text", "text": "knowledge_unavailable"}]}}, "knowledge_query"),
+    ({"knowledge_query": {"isError": False, "content": []}}, "knowledge_query"),
+])
+def test_verify_rejects_failed_or_empty_mcp_tool_calls(tmp_path, monkeypatch, tool_responses, expected_tool):
+    with pytest.raises(ValueError, match=f"native MCP tool call failed: {expected_tool}"):
+        _verify(tmp_path, monkeypatch, components=BASE, tool_responses=tool_responses)
 @pytest.mark.tier0
 @pytest.mark.parametrize(("components", "managed", "remote", "message"), [
     ([name for name in BASE if name != "mindie_doctor"], ("sim", "profiler"), None, "public contract"),

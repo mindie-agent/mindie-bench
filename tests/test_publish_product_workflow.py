@@ -1,3 +1,16 @@
+"""Behavioral and topological contracts for `.github/workflows/publish-product.yml`.
+
+[Role]
+  Verify that the 3-job `stage-product -> qualify-product -> publish` product workflow
+  enforces early tag/channel validation, confined value-suite selection, 21-cell 3-OS × 7-host
+  usability gating before write access, and deterministic release asset lists.
+[Invariants]
+  * Executes actual embedded workflow bash/Python gates inside isolated `tmp_path` directories.
+[Timeouts & Locks]
+  * Each subprocess step completes within 10-30s; acquires no global locks.
+[Side-Effect Policy]
+  * Writes only inside pytest `tmp_path`.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -25,22 +38,27 @@ def _bash_env(extra: dict[str, str]) -> dict[str, str]:
 
 
 def workflow():
-    return yaml.safe_load((ROOT / ".github/workflows/publish-product.yml").read_text())
+    return yaml.safe_load((ROOT / ".github/workflows/publish-product.yml").read_text(encoding="utf-8"))
+
+
+def stage_steps():
+    return workflow()["jobs"]["stage-product"]["steps"]
 
 
 def suite_step():
-    steps = workflow()["jobs"]["publish"]["steps"]
-    return next(step for step in steps if step.get("id") == "suite")
+    return next(step for step in stage_steps() if step.get("id") == "suite")
 
 
 def workspace(tmp_path: Path) -> Path:
     (tmp_path / "release-tool/benchmarks").mkdir(parents=True)
     (tmp_path / "product/docs/releases/0.0.3").mkdir(parents=True)
     (tmp_path / "release-tool/benchmarks/product-value-v1.json").write_text(
-        '{"schema_version": "mindie-value-suite/1", "id": "legacy", "studies": []}\n'
+        '{"schema_version": "mindie-value-suite/1", "id": "legacy", "studies": []}\n',
+        encoding="utf-8",
     )
     (tmp_path / "product/docs/releases/0.0.3/value-suite.json").write_text(
-        '{"schema_version": "mindie-value-suite/2", "id": "v2", "studies": []}\n'
+        '{"schema_version": "mindie-value-suite/2", "id": "v2", "studies": []}\n',
+        encoding="utf-8",
     )
     return tmp_path
 
@@ -86,7 +104,7 @@ def test_workflow_input_is_optional_and_keeps_the_legacy_suite(tmp_path):
     assert Path(outputs["value_suite"]) == (
         tmp_path / "release-tool/benchmarks/product-value-v1.json"
     ).resolve()
-    identity = (tmp_path / "runner/product-value/value-suite-identity.json").read_text()
+    identity = (tmp_path / "runner/product-value/value-suite-identity.json").read_text(encoding="utf-8")
     assert "release-tool/benchmarks/product-value-v1.json" in identity
     assert '"selected_from_input": false' in identity
     assert outputs["value_suite_schema"] == "mindie-value-suite/1"
@@ -100,7 +118,7 @@ def test_workflow_uses_the_exact_selected_product_tag_path_and_rejects_escape(tm
     assert result.returncode == 0, result.stderr
     selected = tmp_path / "product/docs/releases/0.0.3/value-suite.json"
     assert Path(outputs["value_suite"]) == selected.resolve()
-    identity = (tmp_path / "runner/product-value/value-suite-identity.json").read_text()
+    identity = (tmp_path / "runner/product-value/value-suite-identity.json").read_text(encoding="utf-8")
     assert "docs/releases/0.0.3/value-suite.json" in identity
     assert '"selected_from_input": true' in identity
     assert outputs["value_suite_schema"] == "mindie-value-suite/2"
@@ -117,7 +135,7 @@ def test_workflow_passes_the_selected_suite_via_env_not_shell_interpolation():
     step = suite_step()
     assert "${{ inputs.value-suite-path }}" in step["env"]["VALUE_SUITE_PATH"]
     assert "inputs.value-suite-path" not in step["run"]
-    steps = workflow()["jobs"]["publish"]["steps"]
+    steps = stage_steps()
     public = next(step for step in steps if step.get("id") == "public-suite")
     assert public["env"]["VALUE_SUITE"] == "${{ steps.suite.outputs.value_suite }}"
     assert "public_suite" in public["run"]
@@ -135,11 +153,12 @@ def run_product_gate(tmp_path: Path, tag: str, *, kind: str = "patch", tracks=()
     version = tag[1:]
     docs = tmp_path / "docs/releases"
     (docs / version).mkdir(parents=True)
-    (docs / (version + ".md")).write_text("Release fixture\n")
-    (docs / version / "benchmark-manifest.json").write_text("{}\n")
+    (docs / (version + ".md")).write_text("Release fixture\n", encoding="utf-8")
+    (docs / version / "benchmark-manifest.json").write_text("{}\n", encoding="utf-8")
     (tmp_path / "channels").mkdir()
     for track in tracks:
-        (tmp_path / "channels" / f"{track}.json").write_text("{}\n")
+        (tmp_path / "channels" / f"{track}.json").write_text("{}\n", encoding="utf-8")
+
     def git(*args):
         return subprocess.check_output(
             ["git", "-C", str(tmp_path), *args],
@@ -156,8 +175,7 @@ def run_product_gate(tmp_path: Path, tag: str, *, kind: str = "patch", tracks=()
     git("commit", "-qm", "release inputs")
     git("tag", tag)
     revision = git("rev-parse", "HEAD")
-    steps = workflow()["jobs"]["publish"]["steps"]
-    gate = next(step for step in steps if step.get("id") == "product")
+    gate = next(step for step in stage_steps() if step.get("id") == "product")
     output = tmp_path.parent / (tmp_path.name + "-outputs")
     env = _bash_env(
         {
@@ -192,7 +210,7 @@ def test_patch_publication_keeps_milestone_value_acceptance_mandatory(tmp_path, 
     )
     assert (result.returncode == 0) is accepted, result.stderr
     if accepted:
-        assert output.read_text().strip().splitlines() == [
+        assert output.read_text(encoding="utf-8").strip().splitlines() == [
             "version=" + tag[1:],
             "channel=product/channels/" + ".".join(tag[1:].split(".")[:2]) + ".json",
         ]
@@ -210,13 +228,31 @@ def test_missing_release_channel_fails_the_early_product_gate(tmp_path, tag, kin
     result, output = run_product_gate(tmp_path, tag, kind=kind)
     assert result.returncode != 0
     assert f"missing channels/{track}.json" in result.stderr
-    assert not output.exists() or output.read_text() == ""
+    assert not output.exists() or output.read_text(encoding="utf-8") == ""
 
 
-def test_workflow_channels_bundle_and_installer_are_common_release_assets():
-    steps = workflow()["jobs"]["publish"]["steps"]
+def test_workflow_topology_and_channels_bundle_installer_usability_assets():
+    wf = workflow()
+    jobs = wf["jobs"]
+    assert list(jobs) == ["stage-product", "qualify-product", "publish"]
+    assert jobs["stage-product"]["permissions"] == {"contents": "read"}
+    assert jobs["qualify-product"]["permissions"] == {"contents": "read"}
+    assert jobs["qualify-product"]["needs"] == "stage-product"
+    assert jobs["qualify-product"]["strategy"]["matrix"]["os"] == [
+        "ubuntu-latest", "macos-latest", "windows-latest",
+    ]
+    assert jobs["publish"]["needs"] == ["stage-product", "qualify-product"]
+    assert jobs["publish"]["permissions"] == {"contents": "write"}
+
+    for job_name, job in jobs.items():
+        checkouts = [
+            s for s in job.get("steps", []) if str(s.get("uses", "")).startswith("actions/checkout@")
+        ]
+        assert checkouts, f"{job_name} missing checkout"
+        assert all(s["with"].get("persist-credentials") is False for s in checkouts)
+
     download = next(
-        step for step in steps if step.get("name") == "Download and validate formal component evidence"
+        step for step in stage_steps() if step.get("name") == "Download and validate formal component evidence"
     )
     run = download["run"]
     assert download["env"]["CHANNEL_PATH"] == "${{ steps.product.outputs.channel }}"
@@ -224,10 +260,13 @@ def test_workflow_channels_bundle_and_installer_are_common_release_assets():
     assert "channel_args" not in run
     assert run.index("build_wheels_bundle.py") < run.index("SHA256SUMS")
     assert run.index('cp "product/install.py"') < run.index("SHA256SUMS")
-    final = next(step for step in steps if step.get("name") == "Recheck product tag and create formal release")
+
+    pub_steps = jobs["publish"]["steps"]
+    final = next(step for step in pub_steps if step.get("name") == "Recheck product tag and create formal release")
     release = final["run"]
     assert release.count('"$RUNNER_TEMP/product-benchmarks/release-channel.json"') == 1
     assert release.count('"$RUNNER_TEMP/product-benchmarks/mindie-wheels-bundle.tar.gz"') == 1
+    assert release.count('"$RUNNER_TEMP/product-benchmarks/product-usability-acceptance.json"') == 1
     assert "else" not in release
     assert 'assets+=("$RUNNER_TEMP/product-benchmarks/install.py")' in release
     assert release.index('assets+=("$RUNNER_TEMP/product-benchmarks/install.py")') > release.index("assets=(")

@@ -205,6 +205,38 @@ jobs:
         env:
           TEST_COMMAND: ${{ inputs.test-command }}
         run: bash -e -o pipefail -c "$TEST_COMMAND"
+      - name: Build candidate release deliverables and plugin metadata
+        timeout-minutes: 15
+        env:
+          BUILD_COMMAND: ${{ inputs.build-command }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          export RELEASE_ASSETS_DIR="$RUNNER_TEMP/candidate-release-assets"
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+          mkdir -p "$RELEASE_ASSETS_DIR"
+          bash -e -o pipefail -c "$BUILD_COMMAND"
+          test -n "$(find "$RELEASE_ASSETS_DIR" -maxdepth 1 -type f ! -name '.*' -print -quit)"
+          uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/prepare_plugin_metadata.py \
+            --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
+            --consumer ../release-consumer --source . --assets "$RELEASE_ASSETS_DIR"
+          python - <<'PY'
+          import hashlib, os, pathlib, subprocess
+          assets = pathlib.Path(os.environ["RUNNER_TEMP"]) / "candidate-release-assets"
+          for hidden in list(assets.glob(".*")):
+              if hidden.is_file():
+                  hidden.unlink()
+          files = sorted(p for p in assets.iterdir() if p.is_file() and p.name != "candidate-SHA256SUMS")
+          assert files, "no candidate deliverables built"
+          sums = "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in files)
+          (assets / "candidate-SHA256SUMS").write_text(sums, encoding="utf-8", newline="\n")
+          assert not subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"]), "build changed candidate source"
+          PY
+      - name: Upload staged candidate release deliverables
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-release-assets
+          if-no-files-found: error
+          path: ${{ runner.temp }}/candidate-release-assets/
 
   benchmark:
     needs: candidate
@@ -215,8 +247,218 @@ jobs:
       setup-command: ${{ inputs.setup-command }}
       python: ${{ inputs.python }}
 
+  usability-gate:
+    needs: [candidate]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_VERSION: ${{ needs.candidate.outputs.version }}
+      TOOL_REF: ${{ needs.candidate.outputs.tool-ref }}
+      MATRIX_OS: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: candidate
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: ${{ needs.candidate.outputs.tool-ref }}
+          path: release-tool
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-agent
+          ref: main
+          path: hub
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+          enable-cache: true
+          cache-dependency-glob: |
+            **/uv.lock
+            **/pyproject.toml
+            **/runtime-requirements.txt
+            **/.github/workflows/release.yml
+      - if: >-
+          inputs.node
+          || github.repository == 'mindie-agent/harness'
+          || github.repository == 'mindie-agent/knowledge'
+          || github.repository == 'mindie-agent/remote-dev'
+          || github.repository == 'mindie-agent/mindie-agent-dsh'
+          || github.repository == 'mindie-agent/mindie-agent-oc'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-release-assets
+          path: ${{ runner.temp }}/candidate-assets
+      - name: Install usability verifier
+        run: uv sync --project release-tool --locked
+      - name: Run 3-OS usability qualification gate
+        timeout-minutes: 35
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --project release-tool --no-sync python - <<'PY'
+          import hashlib, json, os, shutil, subprocess, sys, tarfile
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path("release-tool/.github/scripts").resolve()))
+          import assemble_candidate_wheelhouse as acw
+          import upgrade_acceptance as upg
+
+          flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+          tmp = Path(os.environ["RUNNER_TEMP"]).resolve()
+          cand_assets = tmp / "candidate-assets"
+          expected_sums = {}
+          for line in (cand_assets / "candidate-SHA256SUMS").read_text(encoding="utf-8").splitlines():
+              if line.strip():
+                  sha, name = line.split(None, 1)
+                  expected_sums[name.strip()] = sha.strip().lower()
+          actual_files = {
+              p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in sorted(cand_assets.iterdir())
+              if p.is_file() and not p.name.startswith(".") and p.name != "candidate-SHA256SUMS"
+          }
+          assert actual_files == expected_sums, (actual_files, expected_sums)
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          rev = os.environ["GITHUB_SHA"]
+          ver = os.environ["RELEASE_VERSION"]
+          os_name = os.environ["MATRIX_OS"]
+          hub_root = Path("hub").resolve()
+          details = {}
+
+          if repo in acw.REPOSITORY_PACKAGES:
+              base_stage = tmp / "usability-baseline-stage"
+              cand_stage = tmp / "usability-candidate-stage"
+              acw.assemble_wheelhouse(base_stage)
+              reme_cache = tmp / "reme-cache"
+              reme_cache.mkdir(parents=True, exist_ok=True)
+              with tarfile.open(base_stage / "mindie-wheels-bundle.tar.gz", "r:gz") as tar:
+                  for m in tar.getmembers():
+                      if m.isfile() and m.name.startswith("reme_ai-") and m.name.endswith(".whl"):
+                          (reme_cache / m.name).write_bytes(tar.extractfile(m).read())
+              acw.assemble_wheelhouse(
+                  cand_stage,
+                  candidate_repo=repo,
+                  candidate_wheel=cand_assets,
+                  candidate_revision=rev,
+                  reme_wheel=reme_cache,
+              )
+              l1 = upg.verify_wheelhouse_upgrade_and_selftest(
+                  baseline_stage=base_stage,
+                  candidate_stage=cand_stage,
+                  work_dir=tmp / "usability-l1",
+                  repository=repo,
+              )
+              details["l1_wheelhouse_upgrade"] = l1
+              if repo in {"mindie-agent/harness", "mindie-agent/knowledge", "mindie-agent/remote-dev"}:
+                  channel = json.loads((hub_root / "channels/0.1.json").read_text(encoding="utf-8"))
+                  plugins_root = tmp / "plugins-root"
+                  plugins_root.mkdir(parents=True, exist_ok=True)
+                  for item in (channel.get("components") or {}).values():
+                      if isinstance(item, dict) and item.get("role") == "harness_plugin":
+                          p_repo = item["repository"]
+                          p_rev = item["revision"]
+                          slug = p_repo.split("/", 1)[1]
+                          dest = plugins_root / slug
+                          subprocess.run(
+                              ["git", "clone", "--filter=blob:none", "--no-checkout", f"https://github.com/{p_repo}.git", str(dest)],
+                              check=True, timeout=120, **flags,
+                          )
+                          subprocess.run(["git", "-C", str(dest), "checkout", "-q", p_rev], check=True, timeout=60, **flags)
+                  l2_out = tmp / "usability-l2-all-hosts.json"
+                  proc = subprocess.run(
+                      [
+                          sys.executable, "-I", "-m", "mindie_bench.cli", "host-accept", "--all-hosts",
+                          "--plugins-root", str(plugins_root),
+                          "--wheelhouse-stage", str(cand_stage),
+                          "--baseline-wheelhouse-stage", str(base_stage),
+                          "--install-script", str(hub_root / "install.py"),
+                          "--output", str(l2_out),
+                      ],
+                      capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600, check=False, **flags,
+                  )
+                  if proc.returncode != 0:
+                      raise RuntimeError(f"host-accept --all-hosts failed ({proc.returncode}): {(proc.stderr or proc.stdout)[-4000:]}")
+                  l2 = json.loads(l2_out.read_text(encoding="utf-8"))
+                  assert l2.get("status") == "passed", l2
+                  details["l2_all_hosts"] = {"status": l2["status"]}
+          elif repo.startswith("mindie-agent/mindie-agent-"):
+              host_id = repo.rsplit("mindie-agent-", 1)[1]
+              wh_stage = tmp / "usability-plugin-wheelhouse"
+              acw.assemble_wheelhouse(wh_stage)
+              l2_out = tmp / f"usability-l2-{host_id}.json"
+              proc = subprocess.run(
+                  [
+                      sys.executable, "-I", "-m", "mindie_bench.cli", "host-accept",
+                      "--host", host_id,
+                      "--plugin-dir", str(Path("candidate").resolve()),
+                      "--wheelhouse-stage", str(wh_stage),
+                      "--install-script", str(hub_root / "install.py"),
+                      "--output", str(l2_out),
+                  ],
+                  capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=240, check=False, **flags,
+              )
+              if proc.returncode != 0:
+                  raise RuntimeError(f"host-accept --host {host_id} failed ({proc.returncode}): {(proc.stderr or proc.stdout)[-4000:]}")
+              l2 = json.loads(l2_out.read_text(encoding="utf-8"))
+              assert l2.get("status") == "passed", l2
+              details["l2_host_plugin"] = {"host": host_id, "status": l2["status"]}
+          elif repo == "mindie-agent/mindie-bench":
+              whls = sorted(cand_assets.glob("mindie_bench-*-py3-none-any.whl"))
+              assert len(whls) == 1, whls
+              venv_dir = tmp / "bench-wheel-venv"
+              subprocess.run(["uv", "venv", "--python", sys.executable, str(venv_dir)], check=True, timeout=60, **flags)
+              vpy = venv_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+              subprocess.run(["uv", "pip", "install", "--python", str(vpy), str(whls[0])], check=True, timeout=180, **flags)
+              for cmd in (
+                  [str(vpy), "-I", "-m", "mindie_bench.cli", "--help"],
+                  [str(vpy), "-I", "-m", "mindie_bench.cli", "host-accept", "--help"],
+                  [str(vpy), "-I", "-m", "mindie_bench.cli", "demo", "--output", str(tmp / "bench-demo")],
+              ):
+                  subprocess.run(cmd, cwd=str(tmp), check=True, timeout=60, **flags)
+              details["bench_wheel_smoke"] = "passed"
+          else:
+              raise RuntimeError(f"unclassified repository for usability-gate: {repo}")
+
+          out_dir = tmp / "usability-out"
+          out_dir.mkdir(parents=True, exist_ok=True)
+          report = {
+              "schema": "mindie-usability-acceptance-cell/1",
+              "status": "passed",
+              "os": os_name,
+              "repository": repo,
+              "version": ver,
+              "revision": rev,
+              "asset_sha256": actual_files,
+              "details": details,
+          }
+          (out_dir / f"usability-acceptance-{os_name}.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
+          )
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: usability-acceptance-${{ matrix.os }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/usability-out/usability-acceptance-${{ matrix.os }}.json
+
   publish:
-    needs: [candidate, benchmark]
+    needs: [candidate, benchmark, usability-gate]
     runs-on: ubuntu-latest
     environment: mindie-release
     timeout-minutes: 240
@@ -259,39 +501,68 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install the candidate runtime
-        timeout-minutes: 10
-        env:
-          SETUP_COMMAND: ${{ inputs.setup-command }}
-        run: bash -e -o pipefail -c "$SETUP_COMMAND"
-      - name: Build release deliverables
-        timeout-minutes: 10
-        env:
-          BUILD_COMMAND: ${{ inputs.build-command }}
-        run: |
-          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
-          mkdir -p "$RELEASE_ASSETS_DIR"
-          bash -e -o pipefail -c "$BUILD_COMMAND"
-          test -n "$(find "$RELEASE_ASSETS_DIR" -maxdepth 1 -type f -print -quit)"
-      - name: Automatically prepare native plugin release metadata
-        timeout-minutes: 6
-        run: |
-          uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/prepare_plugin_metadata.py \
-            --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
-            --consumer ../release-consumer --source . --assets "$RELEASE_ASSETS_DIR"
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-release-assets
+          path: ${{ env.RELEASE_ASSETS_DIR }}
       - uses: actions/download-artifact@v4
         with:
           name: release-benchmarks
           path: ${{ env.RELEASE_ASSETS_DIR }}
-      - name: Verify benchmark provenance and prepare complete checksums
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: usability-acceptance-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/usability-reports
+      - name: Verify usability reports, benchmark provenance, and prepare complete checksums
         env:
           RELEASE_NOTES_PATH: ${{ inputs.release-notes-path }}
           BENCHMARK_REF: ${{ needs.candidate.outputs.tool-ref }}
         run: |
+          (cd "$RELEASE_ASSETS_DIR" && sha256sum -c candidate-SHA256SUMS)
           (cd "$RELEASE_ASSETS_DIR" && sha256sum -c benchmark-SHA256SUMS)
           python - <<'PY'
           import hashlib, json, os, pathlib, subprocess
+
           assets = pathlib.Path(os.environ["RELEASE_ASSETS_DIR"])
+          cand_sums_path = assets / "candidate-SHA256SUMS"
+          cand_sums = {}
+          for line in cand_sums_path.read_text(encoding="utf-8").splitlines():
+              if line.strip():
+                  sha, name = line.split(None, 1)
+                  cand_sums[name.strip()] = sha.strip().lower()
+          cand_sums_path.unlink()
+
+          usability_dir = pathlib.Path(os.environ["RUNNER_TEMP"]) / "usability-reports"
+          expected_oses = ("ubuntu-latest", "macos-latest", "windows-latest")
+          cells = {}
+          for os_name in expected_oses:
+              cell_path = usability_dir / f"usability-acceptance-{os_name}.json"
+              assert cell_path.is_file(), f"missing usability report for {os_name}"
+              cell = json.loads(cell_path.read_text(encoding="utf-8"))
+              assert cell.get("schema") == "mindie-usability-acceptance-cell/1", cell
+              assert cell.get("status") == "passed", cell
+              assert cell.get("os") == os_name, cell
+              assert cell.get("repository") == os.environ["GITHUB_REPOSITORY"], cell
+              assert cell.get("version") == os.environ["RELEASE_VERSION"], cell
+              assert cell.get("revision") == os.environ["GITHUB_SHA"], cell
+              assert cell.get("asset_sha256") == cand_sums, (cell.get("asset_sha256"), cand_sums)
+              cells[os_name] = cell
+
+          merged_usability = {
+              "schema": "mindie-usability-acceptance/1",
+              "status": "passed",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "version": os.environ["RELEASE_VERSION"],
+              "revision": os.environ["GITHUB_SHA"],
+              "os_matrix": list(expected_oses),
+              "asset_sha256": cand_sums,
+              "cells": cells,
+          }
+          (assets / "usability-acceptance.json").write_text(
+              json.dumps(merged_usability, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
+          )
+
           report = json.loads((assets / "benchmark-results.json").read_text())
           assert report["schema_version"] == "mindie-release-benchmark/2"
           assert report["repository"] == os.environ["GITHUB_REPOSITORY"]
@@ -313,24 +584,38 @@ jobs:
               source = relative.resolve()
               source.relative_to(pathlib.Path.cwd().resolve())
               (assets / "release-notes.md").write_bytes(source.read_bytes())
-          # Match the public upload glob; uv build also creates a private .gitignore.
           files = sorted(path for path in assets.iterdir()
                          if path.is_file() and not path.name.startswith(".") and path.name != "SHA256SUMS")
           sums = []
           for path in files:
               with path.open("rb") as stream:
                   sums.append(f"{hashlib.file_digest(stream, 'sha256').hexdigest()}  {path.name}\n")
-          (assets / "SHA256SUMS").write_text("".join(sums))
+          (assets / "SHA256SUMS").write_text("".join(sums), encoding="utf-8", newline="\n")
           PY
-      - name: Upgrade from a released runtime with the unmodified old updater
-        timeout-minutes: 25
+      - name: Upgrade from a released runtime with the unmodified old updater and wheelhouse stage
+        timeout-minutes: 30
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          stage_args=()
+          if python -c "import os, sys; sys.path.insert(0, '../release-tool/.github/scripts'); import assemble_candidate_wheelhouse as a; raise SystemExit(0 if os.environ['GITHUB_REPOSITORY'] in a.REPOSITORY_PACKAGES else 1)"; then
+            python ../release-tool/.github/scripts/assemble_candidate_wheelhouse.py \
+              --output-stage "$RUNNER_TEMP/pub-baseline-stage"
+            python ../release-tool/.github/scripts/assemble_candidate_wheelhouse.py \
+              --candidate-repo "$GITHUB_REPOSITORY" \
+              --candidate-wheel "$RELEASE_ASSETS_DIR" \
+              --candidate-revision "$GITHUB_SHA" \
+              --output-stage "$RUNNER_TEMP/pub-candidate-stage"
+            stage_args=(
+              --baseline-stage "$RUNNER_TEMP/pub-baseline-stage"
+              --candidate-stage "$RUNNER_TEMP/pub-candidate-stage"
+            )
+          fi
           uv run --no-project --with ../release-consumer python ../release-tool/.github/scripts/upgrade_acceptance.py \
             --repository "$GITHUB_REPOSITORY" --version "$RELEASE_VERSION" --revision "$GITHUB_SHA" \
             --consumer ../release-consumer --policy ../release-tool/release-policy.json \
             --source . --root "$RUNNER_TEMP/old-client-upgrade" --assets "$RELEASE_ASSETS_DIR" \
+            "${stage_args[@]}" \
             --output "$RELEASE_ASSETS_DIR/upgrade-acceptance.json"
           (cd "$RELEASE_ASSETS_DIR" && sha256sum upgrade-acceptance.json >> SHA256SUMS)
       - if: github.repository == 'mindie-agent/mindie-agent-codex'
@@ -342,7 +627,7 @@ jobs:
         timeout-minutes: 10
         run: |
           npm install --prefix "$RUNNER_TEMP/codex-legacy" @openai/codex@0.162.1
-          npm install --prefix "$RUNNER_TEMP/codex-target" @openai/codex@0.162.0-alpha.2
+          npm install --prefix "$RUNNER_TEMP/codex-target" @openai/codex@0.169.0
       - name: Upgrade the old native plugin after independent and external component updates
         if: github.repository == 'mindie-agent/mindie-agent-codex'
         timeout-minutes: 130
@@ -371,6 +656,7 @@ jobs:
         with:
           name: release-upgrade-evidence
           path: |
+            ${{ env.RELEASE_ASSETS_DIR }}/usability-acceptance.json
             ${{ env.RELEASE_ASSETS_DIR }}/upgrade-acceptance.json
             ${{ env.RELEASE_ASSETS_DIR }}/native-upgrade-acceptance.json
 
