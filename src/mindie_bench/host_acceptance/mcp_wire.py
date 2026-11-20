@@ -217,7 +217,7 @@ class MCPWireSession:
     def initialize(self, deadline: float) -> dict[str, Any]:
         res = self.request(
             "initialize",
-            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mindie-host-accept", "version": "0.4.22"}},
+            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mindie-host-accept", "version": "0.4.23"}},
             deadline,
             framing="content-length",
         )

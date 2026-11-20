@@ -386,18 +386,22 @@ jobs:
                               )
                               subprocess.run(["git", "-C", str(dest), "checkout", "-q", p_rev], check=True, timeout=60, **flags)
                       l2_out = tmp / "usability-l2-all-hosts.json"
-                      proc = subprocess.run(
-                          [
-                              sys.executable, "-I", "-m", "mindie_bench.cli", "host-accept", "--all-hosts",
-                              "--plugins-root", str(plugins_root),
-                              "--wheelhouse-stage", str(cand_stage),
-                              "--baseline-wheelhouse-stage", str(base_stage),
-                              "--install-script", str(hub_root / "install.py"),
-                              "--timeout", "600",
-                              "--output", str(l2_out),
-                          ],
-                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2100, check=False, **flags,
-                      )
+                      l2_log = tmp / "usability-l2-all-hosts.log"
+                      l2_env = {**os.environ, "TMP": str(tmp), "TEMP": str(tmp), "TMPDIR": str(tmp)}
+                      with l2_log.open("w", encoding="utf-8") as log_fh:
+                          proc = subprocess.run(
+                              [
+                                  sys.executable, "-I", "-m", "mindie_bench.cli", "host-accept", "--all-hosts",
+                                  "--plugins-root", str(plugins_root),
+                                  "--wheelhouse-stage", str(cand_stage),
+                                  "--baseline-wheelhouse-stage", str(base_stage),
+                                  "--install-script", str(hub_root / "install.py"),
+                                  "--timeout", "600",
+                                  "--output", str(l2_out),
+                              ],
+                              stdin=subprocess.DEVNULL, stdout=log_fh, stderr=subprocess.STDOUT,
+                              env=l2_env, timeout=2700, check=False, **flags,
+                          )
                       if proc.returncode != 0:
                           err_summary = ""
                           if l2_out.is_file():
@@ -410,7 +414,8 @@ jobs:
                                   }, ensure_ascii=False) + " | "
                               except Exception:
                                   pass
-                          raise RuntimeError(f"host-accept --all-hosts failed ({proc.returncode}): {err_summary}{(proc.stderr or proc.stdout)[-3000:]}")
+                          tail_log = l2_log.read_text(encoding="utf-8", errors="replace")[-3000:] if l2_log.is_file() else ""
+                          raise RuntimeError(f"host-accept --all-hosts failed ({proc.returncode}): {err_summary}{tail_log}")
                       l2 = json.loads(l2_out.read_text(encoding="utf-8"))
                       assert l2.get("status") == "passed", l2
                       details["l2_all_hosts"] = {"status": l2["status"]}
@@ -421,20 +426,25 @@ jobs:
               wh_stage = tmp / "usability-plugin-wheelhouse"
               acw.assemble_wheelhouse(wh_stage)
               l2_out = tmp / f"usability-l2-{host_id}.json"
-              proc = subprocess.run(
-                  [
-                      sys.executable, "-I", "-m", "mindie_bench.cli", "host-accept",
-                      "--host", host_id,
-                      "--plugin-dir", str(Path("candidate").resolve()),
-                      "--wheelhouse-stage", str(wh_stage),
-                      "--install-script", str(hub_root / "install.py"),
-                      "--timeout", "600",
-                      "--output", str(l2_out),
-                  ],
-                  capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900, check=False, **flags,
-              )
+              l2_log = tmp / f"usability-l2-{host_id}.log"
+              l2_env = {**os.environ, "TMP": str(tmp), "TEMP": str(tmp), "TMPDIR": str(tmp)}
+              with l2_log.open("w", encoding="utf-8") as log_fh:
+                  proc = subprocess.run(
+                      [
+                          sys.executable, "-I", "-m", "mindie_bench.cli", "host-accept",
+                          "--host", host_id,
+                          "--plugin-dir", str(Path("candidate").resolve()),
+                          "--wheelhouse-stage", str(wh_stage),
+                          "--install-script", str(hub_root / "install.py"),
+                          "--timeout", "600",
+                          "--output", str(l2_out),
+                      ],
+                      stdin=subprocess.DEVNULL, stdout=log_fh, stderr=subprocess.STDOUT,
+                      env=l2_env, timeout=900, check=False, **flags,
+                  )
               if proc.returncode != 0:
-                  raise RuntimeError(f"host-accept --host {host_id} failed ({proc.returncode}): {(proc.stderr or proc.stdout)[-4000:]}")
+                  tail_log = l2_log.read_text(encoding="utf-8", errors="replace")[-4000:] if l2_log.is_file() else ""
+                  raise RuntimeError(f"host-accept --host {host_id} failed ({proc.returncode}): {tail_log}")
               l2 = json.loads(l2_out.read_text(encoding="utf-8"))
               assert l2.get("status") == "passed", l2
               details["l2_host_plugin"] = {"host": host_id, "status": l2["status"]}

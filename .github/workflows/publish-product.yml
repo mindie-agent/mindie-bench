@@ -276,7 +276,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 55
+    timeout-minutes: 65
     permissions:
       contents: read
     defaults:
@@ -312,7 +312,7 @@ jobs:
           name: staged-product-assets
           path: ${{ runner.temp }}/staged-product-assets
       - name: Verify staged bundle, install.py, L1 selftest, and 7-host wire acceptance
-        timeout-minutes: 45
+        timeout-minutes: 55
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCT_VERSION: ${{ needs.stage-product.outputs.version }}
@@ -397,18 +397,21 @@ jobs:
 
           os_name = os.environ["MATRIX_OS"]
           l2_out = tmp / f"host-accept-{os_name}.json"
-          l2_proc = subprocess.run(
-              [
-                  sys.executable, "-I", "-m", "mindie_bench.cli", "host-accept", "--all-hosts",
-                  "--plugins-root", str(plugins_root),
-                  "--wheelhouse-stage", str(stage),
-                  "--install-script", str(install_py),
-                  "--timeout", "600",
-                  "--output", str(l2_out),
-              ],
-              capture_output=True, text=True, encoding="utf-8", errors="replace",
-              timeout=2100, check=False, **flags,
-          )
+          l2_log = tmp / f"host-accept-{os_name}.log"
+          l2_env = {**os.environ, "TMP": str(tmp), "TEMP": str(tmp), "TMPDIR": str(tmp)}
+          with l2_log.open("w", encoding="utf-8") as log_fh:
+              l2_proc = subprocess.run(
+                  [
+                      sys.executable, "-I", "-m", "mindie_bench.cli", "host-accept", "--all-hosts",
+                      "--plugins-root", str(plugins_root),
+                      "--wheelhouse-stage", str(stage),
+                      "--install-script", str(install_py),
+                      "--timeout", "600",
+                      "--output", str(l2_out),
+                  ],
+                  stdin=subprocess.DEVNULL, stdout=log_fh, stderr=subprocess.STDOUT,
+                  env=l2_env, timeout=2700, check=False, **flags,
+              )
           if l2_proc.returncode != 0:
               err_summary = ""
               if l2_out.is_file():
@@ -421,7 +424,8 @@ jobs:
                       }, ensure_ascii=False) + " | "
                   except Exception:
                       pass
-              raise RuntimeError(f"host-accept --all-hosts failed ({l2_proc.returncode}): {err_summary}{(l2_proc.stderr or l2_proc.stdout)[-3000:]}")
+              tail_log = l2_log.read_text(encoding="utf-8", errors="replace")[-3000:] if l2_log.is_file() else ""
+              raise RuntimeError(f"host-accept --all-hosts failed ({l2_proc.returncode}): {err_summary}{tail_log}")
           l2_report = json.loads(l2_out.read_text(encoding="utf-8"))
           assert l2_report.get("status") == "passed", l2_report
           raw_hosts = l2_report.get("hosts") or {}

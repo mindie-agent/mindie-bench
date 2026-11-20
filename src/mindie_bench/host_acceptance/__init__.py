@@ -211,11 +211,16 @@ def build_sandbox_env(
     elif base_py.parent.parent.name.startswith("cpython-") and base_py.parent.parents[1].is_dir():
         env.setdefault("UV_PYTHON_INSTALL_DIR", str(base_py.parent.parents[1]))
 
+    uv_cache = os.environ.get("UV_CACHE_DIR") or str(
+        uv_cache_dir.resolve() if uv_cache_dir is not None else (dirs["xcache"] / "uv")
+    )
+    same_drive = os.name != "nt" or (
+        Path(uv_cache).resolve().drive.lower() == sandbox_root.resolve().drive.lower()
+    )
     env.update(
         {
-            "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR")
-            or str(uv_cache_dir.resolve() if uv_cache_dir is not None else (dirs["xcache"] / "uv")),
-            "UV_LINK_MODE": os.environ.get("UV_LINK_MODE", "copy" if os.name == "nt" else "hardlink"),
+            "UV_CACHE_DIR": uv_cache,
+            "UV_LINK_MODE": os.environ.get("UV_LINK_MODE", "hardlink" if same_drive else "copy"),
             "UV_NO_CONFIG": "1",
             "UV_PYTHON_DOWNLOADS": "never",
             "PYTHONUTF8": "1",
