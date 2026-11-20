@@ -29,11 +29,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  stage-product:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      version: ${{ steps.product.outputs.version }}
+      channel: ${{ steps.product.outputs.channel }}
+      value-suite-schema: ${{ steps.suite.outputs.value_suite_schema }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -255,6 +259,272 @@ jobs:
               f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in files
           ))
           PY
+      - name: Upload staged product assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: staged-product-assets
+          if-no-files-found: error
+          path: ${{ runner.temp }}/product-benchmarks/
+
+  qualify-product:
+    needs: stage-product
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: product
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: ${{ inputs.benchmark-ref }}
+          path: release-tool
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+          enable-cache: true
+          cache-dependency-glob: |
+            **/uv.lock
+            **/pyproject.toml
+            **/runtime-requirements.txt
+            **/.github/workflows/release.yml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install fixed benchmark collector and host verifier
+        run: uv sync --project release-tool --locked
+      - uses: actions/download-artifact@v4
+        with:
+          name: staged-product-assets
+          path: ${{ runner.temp }}/staged-product-assets
+      - name: Verify staged bundle, install.py, L1 selftest, and 7-host wire acceptance
+        timeout-minutes: 35
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT_VERSION: ${{ needs.stage-product.outputs.version }}
+          MATRIX_OS: ${{ matrix.os }}
+        run: |
+          (cd "$RUNNER_TEMP/staged-product-assets" && sha256sum -c SHA256SUMS)
+          uv run --project release-tool --no-sync python - <<'PY'
+          import hashlib, json, os, subprocess, sys
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path("release-tool/.github/scripts").resolve()))
+          import upgrade_acceptance as upg
+
+          flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+          tmp = Path(os.environ["RUNNER_TEMP"]).resolve()
+          stage = tmp / "staged-product-assets"
+          bundle_sha = hashlib.sha256((stage / "mindie-wheels-bundle.tar.gz").read_bytes()).hexdigest()
+          channel_sha = hashlib.sha256((stage / "release-channel.json").read_bytes()).hexdigest()
+          install_py = stage / "install.py"
+          if not install_py.is_file():
+              install_py = Path("product/install.py").resolve()
+          assert install_py.is_file(), "install.py is missing from staged product assets"
+
+          # 1. Run install.py --host codex with fail-closed git trap on PATH
+          install_box = tmp / "product-install-sandbox"
+          base_env = upg._sandbox_env(install_box)
+          trap_dir = install_box / "git-trap"
+          upg.write_git_trap(trap_dir)
+          trap_env = {**base_env, "PATH": f"{trap_dir}{os.pathsep}{base_env.get('PATH', '')}"}
+          inst_proc = subprocess.run(
+              [sys.executable, "-I", str(install_py), "--host", "codex", "--channel-base-url", stage.as_uri(), "--json"],
+              capture_output=True, text=True, encoding="utf-8", errors="replace",
+              timeout=300, check=False, env=trap_env, **flags,
+          )
+          if inst_proc.returncode != 0:
+              raise RuntimeError(f"install.py failed ({inst_proc.returncode}): {(inst_proc.stderr or inst_proc.stdout)[-4000:]}")
+          inst_payload = json.loads(inst_proc.stdout)
+          assert inst_payload.get("status") == "installed", inst_payload
+          assert "codex" in (inst_payload.get("configured_hosts") or []), inst_payload
+
+          # 2. Run Gate Layer 1 (mindie-harness selftest --mode full) on the installed bundle runtime
+          cfg_path = Path(base_env["MINDIE_CONFIG_HOME"]) / "codex.json"
+          data_dir = Path(base_env["MINDIE_DATA_HOME"])
+          cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+          codex_py = Path(cfg["python"])
+          assert codex_py.is_file(), cfg
+          st_proc = subprocess.run(
+              [
+                  str(codex_py), "-I", "-X", "utf8", "-m", "mindie_harness.cli",
+                  "--host", "codex", "--config", str(cfg_path), "--data-dir", str(data_dir),
+                  "selftest", "--mode", "full", "--json",
+              ],
+              capture_output=True, text=True, encoding="utf-8", errors="replace",
+              timeout=90, check=False, env=base_env, **flags,
+          )
+          if st_proc.returncode != 0:
+              raise RuntimeError(f"mindie-harness selftest --mode full failed ({st_proc.returncode}): {(st_proc.stderr or st_proc.stdout)[-4000:]}")
+          st_payload = json.loads(st_proc.stdout)
+          assert st_payload.get("status") == "passed", st_payload
+
+          # 3. Checkout exact 7 harness_plugin commits from release-channel.json and run Gate Layer 2
+          channel = json.loads((stage / "release-channel.json").read_text(encoding="utf-8"))
+          plugins_root = tmp / "plugins-root"
+          plugins_root.mkdir(parents=True, exist_ok=True)
+          plugin_commits = {}
+          for item in (channel.get("components") or {}).values():
+              if isinstance(item, dict) and item.get("role") == "harness_plugin":
+                  p_repo = item["repository"]
+                  p_rev = item["revision"]
+                  slug = p_repo.split("/", 1)[1]
+                  dest = plugins_root / slug
+                  subprocess.run(
+                      ["git", "clone", "--filter=blob:none", "--no-checkout", f"https://github.com/{p_repo}.git", str(dest)],
+                      check=True, timeout=120, **flags,
+                  )
+                  subprocess.run(["git", "-C", str(dest), "checkout", "-q", p_rev], check=True, timeout=60, **flags)
+                  head = subprocess.check_output(["git", "-C", str(dest), "rev-parse", "HEAD"], text=True, timeout=15, **flags).strip()
+                  assert head == p_rev, (p_repo, head, p_rev)
+                  plugin_commits[slug] = p_rev
+          expected_slugs = {f"mindie-agent-{h}" for h in ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc")}
+          assert set(plugin_commits) == expected_slugs, plugin_commits
+
+          os_name = os.environ["MATRIX_OS"]
+          l2_out = tmp / f"host-accept-{os_name}.json"
+          l2_proc = subprocess.run(
+              [
+                  sys.executable, "-I", "-m", "mindie_bench.cli", "host-accept", "--all-hosts",
+                  "--plugins-root", str(plugins_root),
+                  "--wheelhouse-stage", str(stage),
+                  "--install-script", str(install_py),
+                  "--output", str(l2_out),
+              ],
+              capture_output=True, text=True, encoding="utf-8", errors="replace",
+              timeout=600, check=False, **flags,
+          )
+          if l2_proc.returncode != 0:
+              raise RuntimeError(f"host-accept --all-hosts failed ({l2_proc.returncode}): {(l2_proc.stderr or l2_proc.stdout)[-4000:]}")
+          l2_report = json.loads(l2_out.read_text(encoding="utf-8"))
+          assert l2_report.get("status") == "passed", l2_report
+          raw_hosts = l2_report.get("hosts") or {}
+          host_verdicts = {}
+          for h in ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc"):
+              h_entry = raw_hosts.get(h) if isinstance(raw_hosts, dict) else None
+              t_status = h_entry.get("terminal_status") if isinstance(h_entry, dict) else None
+              assert t_status == "completed_pass", (h, h_entry)
+              host_verdicts[h] = t_status
+
+          out_dir = tmp / "product-usability-out"
+          out_dir.mkdir(parents=True, exist_ok=True)
+          cell_report = {
+              "schema": "mindie-product-usability-cell/1",
+              "status": "passed",
+              "os": os_name,
+              "version": os.environ["PRODUCT_VERSION"],
+              "revision": os.environ["GITHUB_SHA"],
+              "bundle_sha256": bundle_sha,
+              "channel_sha256": channel_sha,
+              "install_py_verified": True,
+              "selftest_verified": True,
+              "plugin_commits": plugin_commits,
+              "hosts": host_verdicts,
+          }
+          (out_dir / f"product-usability-{os_name}.json").write_text(
+              json.dumps(cell_report, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
+          )
+          PY
+      - name: Upload OS product usability report
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-usability-${{ matrix.os }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/product-usability-out/product-usability-${{ matrix.os }}.json
+
+  publish:
+    needs: [stage-product, qualify-product]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: product
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: staged-product-assets
+          path: ${{ runner.temp }}/product-benchmarks
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: product-usability-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/product-usability
+      - name: Verify 21/21 host-OS qualification cells and bind product-usability-acceptance.json
+        env:
+          PRODUCT_VERSION: ${{ needs.stage-product.outputs.version }}
+        run: |
+          (cd "$RUNNER_TEMP/product-benchmarks" && sha256sum -c SHA256SUMS)
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          tmp = Path(os.environ["RUNNER_TEMP"])
+          bench_root = tmp / "product-benchmarks"
+          usability_root = tmp / "product-usability"
+          bundle_sha = hashlib.sha256((bench_root / "mindie-wheels-bundle.tar.gz").read_bytes()).hexdigest()
+          channel_sha = hashlib.sha256((bench_root / "release-channel.json").read_bytes()).hexdigest()
+          expected_oses = ("ubuntu-latest", "macos-latest", "windows-latest")
+          expected_hosts = ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc")
+          cells = {}
+          passed_cells = 0
+          for os_name in expected_oses:
+              p = usability_root / f"product-usability-{os_name}.json"
+              assert p.is_file(), f"missing product usability report for {os_name}"
+              cell = json.loads(p.read_text(encoding="utf-8"))
+              assert cell.get("schema") == "mindie-product-usability-cell/1", cell
+              assert cell.get("status") == "passed", cell
+              assert cell.get("os") == os_name, cell
+              assert cell.get("version") == os.environ["PRODUCT_VERSION"], cell
+              assert cell.get("revision") == os.environ["GITHUB_SHA"], cell
+              assert cell.get("bundle_sha256") == bundle_sha, cell
+              assert cell.get("channel_sha256") == channel_sha, cell
+              assert cell.get("install_py_verified") is True, cell
+              assert cell.get("selftest_verified") is True, cell
+              hosts = cell.get("hosts") or {}
+              assert set(hosts) == set(expected_hosts), hosts
+              for h in expected_hosts:
+                  assert hosts[h] == "completed_pass", (os_name, h, hosts[h])
+                  passed_cells += 1
+              cells[os_name] = cell
+          assert passed_cells == 21, passed_cells
+          merged = {
+              "schema": "mindie-product-usability-acceptance/1",
+              "status": "passed",
+              "version": os.environ["PRODUCT_VERSION"],
+              "revision": os.environ["GITHUB_SHA"],
+              "bundle_sha256": bundle_sha,
+              "channel_sha256": channel_sha,
+              "total_cells": 21,
+              "passed_cells": 21,
+              "os_matrix": list(expected_oses),
+              "hosts": list(expected_hosts),
+              "cells": cells,
+          }
+          (bench_root / "product-usability-acceptance.json").write_text(
+              json.dumps(merged, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
+          )
+          excluded_staging = {"SHA256SUMS", "value-homepage.md", "value-homepage.en.md"}
+          files = [path for path in sorted(bench_root.iterdir()) if path.is_file() and path.name not in excluded_staging]
+          (bench_root / "SHA256SUMS").write_text(
+              "".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in files),
+              encoding="utf-8",
+              newline="\n",
+          )
+          PY
       - name: Preserve verified public product evidence
         uses: actions/upload-artifact@v4
         with:
@@ -265,8 +535,8 @@ jobs:
         working-directory: product
         env:
           GH_TOKEN: ${{ github.token }}
-          PRODUCT_VERSION: ${{ steps.product.outputs.version }}
-          VALUE_SUITE_SCHEMA: ${{ steps.suite.outputs.value_suite_schema }}
+          PRODUCT_VERSION: ${{ needs.stage-product.outputs.version }}
+          VALUE_SUITE_SCHEMA: ${{ needs.stage-product.outputs.value-suite-schema }}
           RELEASE_KIND: ${{ inputs.release-kind }}
         run: |
           git fetch --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/release-check/product"
@@ -279,6 +549,7 @@ jobs:
             "$RUNNER_TEMP/product-benchmarks/benchmark-SHA256SUMS"
             "$RUNNER_TEMP/product-benchmarks/benchmark-manifest.json"
             "$RUNNER_TEMP/product-benchmarks/product-release-provenance.json"
+            "$RUNNER_TEMP/product-benchmarks/product-usability-acceptance.json"
             "$RUNNER_TEMP/product-benchmarks/release-channel.json"
             "$RUNNER_TEMP/product-benchmarks/mindie-wheels-bundle.tar.gz"
             "$RUNNER_TEMP/product-benchmarks/SHA256SUMS"

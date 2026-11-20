@@ -1,0 +1,75 @@
+name: reusable-fullstack-smoke
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Python version used to provision and test the full-stack wheelhouse
+        type: string
+        required: false
+        default: "3.13"
+
+permissions:
+  contents: read
+
+jobs:
+  fullstack-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: candidate
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: mindie-agent/mindie-bench
+          ref: main
+          path: release-tool
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          enable-cache: true
+          cache-dependency-glob: |
+            **/uv.lock
+            **/pyproject.toml
+            **/runtime-requirements.txt
+            **/.github/workflows/release.yml
+      - name: Build caller wheel and assemble candidate wheelhouse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv build --wheel --out-dir "$RUNNER_TEMP/candidate-wheel" candidate
+          python release-tool/.github/scripts/assemble_candidate_wheelhouse.py \
+            --candidate-repo "$GITHUB_REPOSITORY" \
+            --candidate-wheel "$RUNNER_TEMP/candidate-wheel" \
+            --candidate-revision "$GITHUB_SHA" \
+            --output-stage "$RUNNER_TEMP/wheelhouse-stage"
+      - name: Provision wheelhouse with git trap and run mindie-harness selftest --mode full
+        run: |
+          python release-tool/.github/scripts/upgrade_acceptance.py \
+            --wheelhouse-only \
+            --repository "$GITHUB_REPOSITORY" \
+            --candidate-stage "$RUNNER_TEMP/wheelhouse-stage" \
+            --root "$RUNNER_TEMP/fullstack-smoke-sandbox" \
+            --output "$RUNNER_TEMP/fullstack-smoke-${{ matrix.os }}.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          report = json.loads(
+              (Path(os.environ["RUNNER_TEMP"]) / f"fullstack-smoke-{os.environ['MATRIX_OS']}.json").read_text(encoding="utf-8")
+          )
+          assert report.get("status") == "passed", report
+          assert report.get("wheelhouse_upgrade_verified") is True, report
+          assert report.get("selftest_verified") is True, report
+          PY
+        env:
+          MATRIX_OS: ${{ matrix.os }}

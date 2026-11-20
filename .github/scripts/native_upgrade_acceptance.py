@@ -258,6 +258,33 @@ def verify(args):
                 or any(name not in tools["tools"] for name in expected_knowledge)
                 or any("knowledge_" in name for name in remote["tools"])):
             raise ValueError("fresh native MCP discovery differs from the public contract")
+        for tool_name, tool_args in (
+            ("mindie_doctor", {"probe_remote": False}),
+            ("knowledge_query", {"query": "aclgraph", "domain": "vllm-ascend"}),
+        ):
+            raw_res = api.call(
+                "mcpServer/tool/call",
+                dict(threadId=thread, server=tools["name"], tool=tool_name, arguments=tool_args),
+            )
+            res = (
+                raw_res["result"]
+                if isinstance(raw_res, dict)
+                and isinstance(raw_res.get("result"), dict)
+                and "content" not in raw_res
+                else raw_res
+            )
+            content = res.get("content") if isinstance(res, dict) else None
+            if (
+                not isinstance(res, dict)
+                or res.get("isError") is True
+                or not isinstance(content, list)
+                or not content
+                or not any(
+                    isinstance(item, dict) and str(item.get("text") or "").strip()
+                    for item in content
+                )
+            ):
+                raise ValueError(f"native MCP tool call failed: {tool_name}")
     current = json.loads(config.read_text(encoding="utf-8"))
     source = Path(current["runtime_scripts"]).parent
     manifest = json.loads((source / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
@@ -271,6 +298,7 @@ def verify(args):
             raise ValueError(f"external component was not rebound into the verified generation: {name}")
     print(json.dumps(dict(installed=_read_inventory(current["python"], allow_wheel_provenance=True),
                           disabled_stop_preserved=True, external_components_rebound=True,
+                          mcp_tool_calls_verified=True,
                           native_plugin=args.version, remote_tools=len(remote["tools"]),
                           component_tools=len(tools["tools"]))))
 
