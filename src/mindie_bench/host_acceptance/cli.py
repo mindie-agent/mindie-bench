@@ -388,15 +388,19 @@ def run_host_acceptance(
             for h in clean_hosts:
                 host_reports[h] = futs[h].result()
     finally:
-        for extra_dir, label in ((shared_hook_stage, "rmtree_hookstage"), (shared_uv_cache, "rmtree_uvcache")):
-            if extra_dir is None:
-                continue
+        if shared_hook_stage is not None:
             try:
-                rmtree_force(extra_dir)
-                if extra_dir.exists():
-                    shutil.rmtree(extra_dir, ignore_errors=True)
+                rmtree_force(shared_hook_stage)
+                if shared_hook_stage.exists():
+                    shutil.rmtree(shared_hook_stage, ignore_errors=True)
             except Exception as exc:
-                run_warnings.append(f"{label}: {type(exc).__name__}: {exc}")
+                run_warnings.append(f"rmtree_hookstage: {type(exc).__name__}: {exc}")
+        try:
+            rmtree_force(shared_uv_cache)
+            if shared_uv_cache.exists():
+                shutil.rmtree(shared_uv_cache, ignore_errors=True)
+        except Exception as exc:
+            run_warnings.append(f"rmtree_uvcache: {type(exc).__name__}: {exc}")
 
     overall_term = _aggregate_terminal([r["terminal_status"] for r in host_reports.values()])
     bundle_sha = _sha256_if_exists((wheelhouse_stage / "mindie-wheels-bundle.tar.gz") if wheelhouse_stage else None)
