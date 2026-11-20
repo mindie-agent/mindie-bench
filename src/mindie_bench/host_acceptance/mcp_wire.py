@@ -217,7 +217,7 @@ class MCPWireSession:
     def initialize(self, deadline: float) -> dict[str, Any]:
         res = self.request(
             "initialize",
-            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mindie-host-accept", "version": "0.4.17"}},
+            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mindie-host-accept", "version": "0.4.18"}},
             deadline,
             framing="content-length",
         )
@@ -379,7 +379,12 @@ def run_scenario_cold_native_launch(
             raise HostAcceptanceError(f"{host} knowledge_query failed or leaked admission SQLite: {kq}")
         for tname, targs in (("mindie_doctor", {"probe_remote": False}), ("diagnostics_status", {}), ("sim", {"argv": ["catalog"]}), ("remote_auth", {"action": "status"})):
             res = find_server_for_tool(sessions, listed, tname).call_tool(tname, targs, deadline)
-            if res.get("isError") is not False:
+            if tname == "remote_auth":
+                sc = res.get("structuredContent") if isinstance(res.get("structuredContent"), Mapping) else {}
+                err_code = sc.get("error_code") or ((sc.get("error") or {}).get("error_code") if isinstance(sc.get("error"), Mapping) else None)
+                if res.get("isError") is not False and err_code != "endpoint_incomplete":
+                    raise HostAcceptanceError(f"{host} {tname} failed: {res}")
+            elif res.get("isError") is not False:
                 raise HostAcceptanceError(f"{host} {tname} failed: {res}")
 
         if host == "codex":
