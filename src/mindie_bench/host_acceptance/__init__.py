@@ -12,7 +12,7 @@ isolation (`build_sandbox_env`, `unpack_wheelhouse_links`, `install_git_trap`,
   `cleanup_warning` and never overwrite settled `completed_pass`/`completed_fail` states.
 
 [Timeouts & Locks]
-- Default per-host outer budget is `240.0s` (`setup + inner_budget + cleanup_grace`).
+- Default per-host outer budget is `600.0s` (`setup + inner_budget + cleanup_grace`).
 - Zero process-global locks or `os.environ` mutations; child envs are explicit dicts.
 
 [Side-Effect Policy]
@@ -147,6 +147,7 @@ def build_sandbox_env(
     wheelhouse_stage: Path | None = None,
     redactor: Path | None = None,
     offline_override: bool | None = None,
+    uv_cache_dir: Path | None = None,
 ) -> tuple[dict[str, str], bool]:
     """Build an isolated environment dictionary without mutating `os.environ`."""
     base_py = resolve_base_python()
@@ -212,7 +213,8 @@ def build_sandbox_env(
 
     env.update(
         {
-            "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR") or str(dirs["xcache"] / "uv"),
+            "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR")
+            or str(uv_cache_dir.resolve() if uv_cache_dir is not None else (dirs["xcache"] / "uv")),
             "UV_LINK_MODE": os.environ.get("UV_LINK_MODE", "copy" if os.name == "nt" else "hardlink"),
             "UV_NO_CONFIG": "1",
             "UV_PYTHON_DOWNLOADS": "never",

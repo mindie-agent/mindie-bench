@@ -257,7 +257,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 55
     permissions:
       contents: read
     defaults:
@@ -310,7 +310,7 @@ jobs:
       - name: Install usability verifier
         run: uv sync --project release-tool --locked
       - name: Run 3-OS usability qualification gate
-        timeout-minutes: 35
+        timeout-minutes: 45
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -393,10 +393,10 @@ jobs:
                               "--wheelhouse-stage", str(cand_stage),
                               "--baseline-wheelhouse-stage", str(base_stage),
                               "--install-script", str(hub_root / "install.py"),
-                              "--timeout", "240",
+                              "--timeout", "600",
                               "--output", str(l2_out),
                           ],
-                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1500, check=False, **flags,
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2100, check=False, **flags,
                       )
                       if proc.returncode != 0:
                           raise RuntimeError(f"host-accept --all-hosts failed ({proc.returncode}): {(proc.stderr or proc.stdout)[-4000:]}")
@@ -417,10 +417,10 @@ jobs:
                       "--plugin-dir", str(Path("candidate").resolve()),
                       "--wheelhouse-stage", str(wh_stage),
                       "--install-script", str(hub_root / "install.py"),
-                      "--timeout", "300",
+                      "--timeout", "600",
                       "--output", str(l2_out),
                   ],
-                  capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=540, check=False, **flags,
+                  capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900, check=False, **flags,
               )
               if proc.returncode != 0:
                   raise RuntimeError(f"host-accept --host {host_id} failed ({proc.returncode}): {(proc.stderr or proc.stdout)[-4000:]}")

@@ -13,7 +13,9 @@ native MindIE host plugins (`codex`, `cc`, `kimi`, `dsh`, `agy`, `wb`, `oc`).
 - Enforces `outer_timeout >= setup(2s) + inner_budget + cleanup_grace(5s)`.
 
 [Timeouts & Locks]
-- Default per-host outer budget is `240.0s`; scenarios run with bounded concurrency (`<= 2`).
+- Default per-host outer budget is `600.0s`; scenarios run sequentially on Windows (`1`
+  worker) and with bounded concurrency (`<= 2`) on POSIX while sharing one isolated
+  run-scoped `uv` wheel cache.
 
 [Side-Effect Policy]
 - Uses isolated `TemporaryDirectory` sandboxes and writes `--output` JSON atomically.
@@ -24,6 +26,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -113,6 +116,7 @@ def _run_one_scenario(
     redactor: Path | None,
     prepacked_dir: Path | None,
     inner_deadline: float,
+    uv_cache_dir: Path | None = None,
     cleanup_hook: Callable[[str, str, Path], None] | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
@@ -129,6 +133,7 @@ def _run_one_scenario(
         prepacked_dir=prepacked_dir,
         deadline=inner_deadline,
         cleanup_warnings=cleanup_warnings,
+        uv_cache_dir=uv_cache_dir,
     )
     try:
         try:
@@ -197,6 +202,7 @@ def _run_one_host(
     install_script: Path | None,
     redactor: Path | None,
     timeout_sec: float,
+    uv_cache_dir: Path | None = None,
     cleanup_hook: Callable[[str, str, Path], None] | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
@@ -222,7 +228,7 @@ def _run_one_host(
     try:
         if host in {"dsh", "oc"}:
             pack_sandbox = Path(tempfile.mkdtemp(prefix=f"mindie-ha-pack-{host}-")).resolve()
-            pack_env, _ = build_sandbox_env(pack_sandbox)
+            pack_env, _ = build_sandbox_env(pack_sandbox, uv_cache_dir=uv_cache_dir)
             prepacked_dir = stage_npm_package(
                 plugin_dir.resolve(),
                 pack_sandbox / "shared-pack",
@@ -263,7 +269,8 @@ def _run_one_host(
         }
 
     scenario_rows: dict[str, dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=min(2, max(1, len(scenarios)))) as pool:
+    scen_workers = 1 if os.name == "nt" else min(2, max(1, len(scenarios)))
+    with ThreadPoolExecutor(max_workers=scen_workers) as pool:
         futs = {
             scen: pool.submit(
                 _run_one_scenario,
@@ -277,6 +284,7 @@ def _run_one_host(
                 redactor=redactor,
                 prepacked_dir=prepacked_dir,
                 inner_deadline=inner_deadline,
+                uv_cache_dir=uv_cache_dir,
                 cleanup_hook=cleanup_hook,
             )
             for scen in scenarios
@@ -315,7 +323,7 @@ def run_host_acceptance(
     install_script: Path | None = None,
     redactor: Path | None = None,
     scenarios: Sequence[str] = ALL_SCENARIOS,
-    timeout_sec: float = 240.0,
+    timeout_sec: float = 600.0,
     cleanup_hook: Callable[[str, str, Path], None] | None = None,
 ) -> dict[str, Any]:
     """Run Gate Layer 2 host acceptance across `hosts` and return the structured report."""
@@ -334,26 +342,38 @@ def run_host_acceptance(
     if install_script is None and not eff_install.is_file():
         eff_install = None
 
+    shared_uv_cache = Path(tempfile.mkdtemp(prefix="mindie-ha-uvcache-")).resolve()
+    run_warnings: list[str] = []
     host_reports: dict[str, dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=min(7, len(clean_hosts))) as pool:
-        futs = {
-            h: pool.submit(
-                _run_one_host,
-                h,
-                plugin_dir.resolve() if plugin_dir is not None else (eff_root / f"mindie-agent-{h}"),
-                scenarios=clean_scenarios,
-                wheelhouse_stage=wheelhouse_stage.resolve() if wheelhouse_stage else None,
-                baseline_wheelhouse_stage=baseline_wheelhouse_stage.resolve() if baseline_wheelhouse_stage else None,
-                baseline_plugin_dir=baseline_plugin_dir.resolve() if baseline_plugin_dir else None,
-                install_script=eff_install,
-                redactor=redactor.resolve() if redactor else None,
-                timeout_sec=timeout_sec,
-                cleanup_hook=cleanup_hook,
-            )
-            for h in clean_hosts
-        }
-        for h in clean_hosts:
-            host_reports[h] = futs[h].result()
+    host_workers = min(2 if os.name == "nt" else 7, len(clean_hosts))
+    try:
+        with ThreadPoolExecutor(max_workers=host_workers) as pool:
+            futs = {
+                h: pool.submit(
+                    _run_one_host,
+                    h,
+                    plugin_dir.resolve() if plugin_dir is not None else (eff_root / f"mindie-agent-{h}"),
+                    scenarios=clean_scenarios,
+                    wheelhouse_stage=wheelhouse_stage.resolve() if wheelhouse_stage else None,
+                    baseline_wheelhouse_stage=baseline_wheelhouse_stage.resolve() if baseline_wheelhouse_stage else None,
+                    baseline_plugin_dir=baseline_plugin_dir.resolve() if baseline_plugin_dir else None,
+                    install_script=eff_install,
+                    redactor=redactor.resolve() if redactor else None,
+                    timeout_sec=timeout_sec,
+                    uv_cache_dir=shared_uv_cache,
+                    cleanup_hook=cleanup_hook,
+                )
+                for h in clean_hosts
+            }
+            for h in clean_hosts:
+                host_reports[h] = futs[h].result()
+    finally:
+        try:
+            rmtree_force(shared_uv_cache)
+            if shared_uv_cache.exists():
+                shutil.rmtree(shared_uv_cache, ignore_errors=True)
+        except Exception as exc:
+            run_warnings.append(f"rmtree_uvcache: {type(exc).__name__}: {exc}")
 
     overall_term = _aggregate_terminal([r["terminal_status"] for r in host_reports.values()])
     bundle_sha = _sha256_if_exists((wheelhouse_stage / "mindie-wheels-bundle.tar.gz") if wheelhouse_stage else None)
@@ -377,7 +397,10 @@ def run_host_acceptance(
                 1 for r in host_reports.values() if r["terminal_status"] in {"infra_failed", "unknown"}
             ),
         },
-        "cleanup_warning": [w for r in host_reports.values() for w in r.get("cleanup_warning", ())],
+        "cleanup_warning": [
+            *[w for r in host_reports.values() for w in r.get("cleanup_warning", ())],
+            *run_warnings,
+        ],
     }
 
 
@@ -397,7 +420,7 @@ def add_host_accept_subparser(commands: Any) -> argparse.ArgumentParser:
     sub.add_argument("--install-script", type=Path, default=None)
     sub.add_argument("--redactor", type=Path, default=None)
     sub.add_argument("--scenarios", type=str, default=",".join(ALL_SCENARIOS))
-    sub.add_argument("--timeout", type=float, default=240.0)
+    sub.add_argument("--timeout", type=float, default=600.0)
     sub.add_argument("--output", type=Path, default=None)
     return sub
 
