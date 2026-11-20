@@ -600,14 +600,14 @@ def test_consumer_contract_validates_usability_and_native_mcp_tool_calls() -> No
 
 @pytest.mark.tier0
 def test_reusable_workflows_and_release_controller_contracts() -> None:
-    # 1. Version & lock synchronization at 0.4.18
+    # 1. Version & lock synchronization at 0.4.19
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert pyproject["project"]["version"] == "0.4.18"
+    assert pyproject["project"]["version"] == "0.4.19"
     uv_lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
     bench_pkg = next(p for p in uv_lock["package"] if p["name"] == "mindie-bench")
-    assert bench_pkg["version"] == "0.4.18"
+    assert bench_pkg["version"] == "0.4.19"
     rel_wf = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))
-    assert rel_wf["jobs"]["release"]["with"]["release-notes-path"] == "docs/releases/mindie-bench-0.4.18.md"
+    assert rel_wf["jobs"]["release"]["with"]["release-notes-path"] == "docs/releases/mindie-bench-0.4.19.md"
 
     # 2. fullstack-smoke.yml contract
     fs_wf = yaml.safe_load((ROOT / ".github/workflows/fullstack-smoke.yml").read_text(encoding="utf-8"))

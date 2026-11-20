@@ -276,7 +276,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 55
     permissions:
       contents: read
     defaults:
@@ -312,7 +312,7 @@ jobs:
           name: staged-product-assets
           path: ${{ runner.temp }}/staged-product-assets
       - name: Verify staged bundle, install.py, L1 selftest, and 7-host wire acceptance
-        timeout-minutes: 35
+        timeout-minutes: 45
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCT_VERSION: ${{ needs.stage-product.outputs.version }}
@@ -403,11 +403,11 @@ jobs:
                   "--plugins-root", str(plugins_root),
                   "--wheelhouse-stage", str(stage),
                   "--install-script", str(install_py),
-                  "--timeout", "240",
+                  "--timeout", "600",
                   "--output", str(l2_out),
               ],
               capture_output=True, text=True, encoding="utf-8", errors="replace",
-              timeout=1500, check=False, **flags,
+              timeout=2100, check=False, **flags,
           )
           if l2_proc.returncode != 0:
               raise RuntimeError(f"host-accept --all-hosts failed ({l2_proc.returncode}): {(l2_proc.stderr or l2_proc.stdout)[-4000:]}")

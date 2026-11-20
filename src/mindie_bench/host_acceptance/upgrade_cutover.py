@@ -158,12 +158,15 @@ def run_scenario_upgrade_cutover(
     prepacked_dir: Path | None,
     deadline: float,
     cleanup_warnings: list[str],
+    uv_cache_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Scenario 4: Baseline `n-1` (+ `n-2`) -> candidate wheelhouse cutover & Turn-1 query."""
     if wheelhouse_stage is None or not wheelhouse_stage.is_dir():
         raise FileNotFoundError("Scenario `upgrade_cutover` requires `--wheelhouse-stage`")
 
-    raw_env, is_offline = build_sandbox_env(sandbox_root, wheelhouse_stage=wheelhouse_stage, redactor=redactor)
+    raw_env, is_offline = build_sandbox_env(
+        sandbox_root, wheelhouse_stage=wheelhouse_stage, redactor=redactor, uv_cache_dir=uv_cache_dir
+    )
     env = install_git_trap(sandbox_root / "git-trap", raw_env)
     cand_links = Path(env["UV_FIND_LINKS"])
     if baseline_wheelhouse_stage is not None and baseline_wheelhouse_stage.is_dir():

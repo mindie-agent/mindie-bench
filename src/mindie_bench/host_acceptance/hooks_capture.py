@@ -309,12 +309,15 @@ def run_scenario_hooks_and_capture(
     prepacked_dir: Path | None,
     deadline: float,
     cleanup_warnings: list[str],
+    uv_cache_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Scenario 3: Part 3A (`SessionStart`), Part 3B (3 negative 0-SQLite `Stop` states), Part 3C (`Stop` capture)."""
     if wheelhouse_stage is None or not wheelhouse_stage.is_dir():
         raise FileNotFoundError("Scenario `hooks_and_capture` requires `--wheelhouse-stage`")
     sandbox_root = sandbox_root.resolve()
-    base_env, is_offline = build_sandbox_env(sandbox_root, wheelhouse_stage=wheelhouse_stage, redactor=redactor)
+    base_env, is_offline = build_sandbox_env(
+        sandbox_root, wheelhouse_stage=wheelhouse_stage, redactor=redactor, uv_cache_dir=uv_cache_dir
+    )
     ws = (sandbox_root / "ws").resolve()
     ws_other = Path(str(ws) + "-other")
     ws_other.mkdir(parents=True, exist_ok=True)

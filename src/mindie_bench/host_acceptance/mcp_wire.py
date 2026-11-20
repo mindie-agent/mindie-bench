@@ -217,7 +217,7 @@ class MCPWireSession:
     def initialize(self, deadline: float) -> dict[str, Any]:
         res = self.request(
             "initialize",
-            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mindie-host-accept", "version": "0.4.18"}},
+            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mindie-host-accept", "version": "0.4.19"}},
             deadline,
             framing="content-length",
         )
@@ -346,9 +346,12 @@ def find_server_for_tool(sessions: Mapping[str, MCPWireSession], listed: Mapping
 def run_scenario_cold_native_launch(
     host: str, plugin_dir: Path, *, sandbox_root: Path, wheelhouse_stage: Path | None,
     redactor: Path | None, prepacked_dir: Path | None, deadline: float, cleanup_warnings: list[str],
+    uv_cache_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Scenario 1: Cold native launch, byte-0 stdout cleanliness, 1:1 parity & zero-`_meta` calls."""
-    env, _ = build_sandbox_env(sandbox_root, wheelhouse_stage=wheelhouse_stage, redactor=redactor)
+    env, _ = build_sandbox_env(
+        sandbox_root, wheelhouse_stage=wheelhouse_stage, redactor=redactor, uv_cache_dir=uv_cache_dir
+    )
     if (Path(env["MINDIE_CONFIG_HOME"]) / f"{host}.json").exists():
         raise HostAcceptanceError(f"Sandbox was not cold for {host}")
     spec = parse_host_manifest(host, plugin_dir, sandbox_root=sandbox_root, env=env, prepacked_dir=prepacked_dir, timeout=max(2.0, deadline - time.monotonic()))
@@ -407,7 +410,7 @@ def run_scenario_cold_native_launch(
 def run_scenario_public_install_py(
     host: str, plugin_dir: Path, *, sandbox_root: Path, wheelhouse_stage: Path | None,
     install_script: Path | None, redactor: Path | None, prepacked_dir: Path | None,
-    deadline: float, cleanup_warnings: list[str],
+    deadline: float, cleanup_warnings: list[str], uv_cache_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Scenario 2: Public `install.py` with fail-closed `git` `exit 99` trap -> Turn-1 MCP usability."""
     if wheelhouse_stage is None or not wheelhouse_stage.is_dir():
@@ -415,7 +418,9 @@ def run_scenario_public_install_py(
     if install_script is None or not install_script.is_file():
         raise FileNotFoundError("Scenario `public_install_py` requires `--install-script` (`install.py`)")
 
-    base_env, is_offline = build_sandbox_env(sandbox_root, wheelhouse_stage=wheelhouse_stage, redactor=redactor)
+    base_env, is_offline = build_sandbox_env(
+        sandbox_root, wheelhouse_stage=wheelhouse_stage, redactor=redactor, uv_cache_dir=uv_cache_dir
+    )
     env = install_git_trap(sandbox_root / "git-trap", base_env)
     cmd = [str(resolve_base_python()), "-I", str(install_script.resolve()), "--host", host, "--channel-base-url", wheelhouse_stage.resolve().as_uri(), *(["--offline"] if is_offline else []), "--json"]
     proc = subprocess.run(
