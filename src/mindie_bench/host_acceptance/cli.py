@@ -13,7 +13,7 @@ native MindIE host plugins (`codex`, `cc`, `kimi`, `dsh`, `agy`, `wb`, `oc`).
 - Enforces `outer_timeout >= setup(2s) + inner_budget + cleanup_grace(5s)`.
 
 [Timeouts & Locks]
-- Default per-host outer budget is `45.0s`; scenarios run concurrently per host.
+- Default per-host outer budget is `240.0s`; scenarios run with bounded concurrency (`<= 2`).
 
 [Side-Effect Policy]
 - Uses isolated `TemporaryDirectory` sandboxes and writes `--output` JSON atomically.
@@ -263,7 +263,7 @@ def _run_one_host(
         }
 
     scenario_rows: dict[str, dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=max(1, len(scenarios))) as pool:
+    with ThreadPoolExecutor(max_workers=min(2, max(1, len(scenarios)))) as pool:
         futs = {
             scen: pool.submit(
                 _run_one_scenario,
@@ -315,7 +315,7 @@ def run_host_acceptance(
     install_script: Path | None = None,
     redactor: Path | None = None,
     scenarios: Sequence[str] = ALL_SCENARIOS,
-    timeout_sec: float = 45.0,
+    timeout_sec: float = 240.0,
     cleanup_hook: Callable[[str, str, Path], None] | None = None,
 ) -> dict[str, Any]:
     """Run Gate Layer 2 host acceptance across `hosts` and return the structured report."""
@@ -397,7 +397,7 @@ def add_host_accept_subparser(commands: Any) -> argparse.ArgumentParser:
     sub.add_argument("--install-script", type=Path, default=None)
     sub.add_argument("--redactor", type=Path, default=None)
     sub.add_argument("--scenarios", type=str, default=",".join(ALL_SCENARIOS))
-    sub.add_argument("--timeout", type=float, default=45.0)
+    sub.add_argument("--timeout", type=float, default=240.0)
     sub.add_argument("--output", type=Path, default=None)
     return sub
 

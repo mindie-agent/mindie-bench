@@ -12,7 +12,7 @@ isolation (`build_sandbox_env`, `unpack_wheelhouse_links`, `install_git_trap`,
   `cleanup_warning` and never overwrite settled `completed_pass`/`completed_fail` states.
 
 [Timeouts & Locks]
-- Default per-host outer budget is `45.0s` (`setup + inner_budget + cleanup_grace`).
+- Default per-host outer budget is `240.0s` (`setup + inner_budget + cleanup_grace`).
 - Zero process-global locks or `os.environ` mutations; child envs are explicit dicts.
 
 [Side-Effect Policy]

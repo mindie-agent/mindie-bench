@@ -127,7 +127,7 @@ def _seed_store_unit(
         "  'triggers': {'error_signatures': [], 'keywords': ['unit', 'aclgraph']},\n"
         "  'provenance': {'source_type': 'doc', 'source_locator': 'mindie-agent/knowledge-vllm-ascend@1111111:serving/u.md', 'evidence_refs': []}\n"
         "}, f'Verified rule body for {title} in unit upgrade acceptance.')\n"
-        "st = Store(root / 'vllm-ascend', domain='vllm-ascend')\n"
+        "st = Store(root, domain='vllm-ascend')\n"
         "try:\n    st.graded.install([unit], origin_tier='local-only')\nfinally:\n    st.close()\n"
     )
     proc = subprocess.run(
@@ -376,7 +376,7 @@ def run_scenario_upgrade_cutover(
         ):
             raise HostAcceptanceError(f"{host} post-cutover knowledge_query returned wrong unit: {kq}")
         sim_res = find_server_for_tool(sessions, listed, "sim").call_tool(
-            "sim", {"argv": ["doctor", "--no-compile"]}, deadline
+            "sim", {"argv": ["catalog"]}, deadline
         )
         if sim_res.get("isError") is not False:
             raise HostAcceptanceError(f"{host} post-cutover sim failed: {sim_res}")

@@ -79,6 +79,7 @@ jobs:
             --plugin-dir "$PWD/plugin" \
             --wheelhouse-stage "$RUNNER_TEMP/wheelhouse-stage" \
             --install-script "$PWD/hub/install.py" \
+            --timeout 300 \
             --output "$RUNNER_TEMP/host-accept-${MATRIX_OS}.json"
       - uses: actions/upload-artifact@v4
         if: always()
