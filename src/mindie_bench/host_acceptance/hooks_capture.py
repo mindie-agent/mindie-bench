@@ -382,8 +382,36 @@ def run_scenario_hooks_and_capture(
 
         redactor_bin = _resolve_redactor(venv_py, base_env, redactor, is_offline, deadline)
         cap_env = dict(base_env, MINDIE_REDACTOR_EXECUTABLE=redactor_bin, HTTP_PROXY="http://127.0.0.1:9", HTTPS_PROXY="http://127.0.0.1:9", NO_PROXY="127.0.0.1,localhost")
-        consent_file.write_text(json.dumps({"schema": "mindie-consent/1", "choice": "local-only", "enabled": True, "choice_revision": "r2", "project_roots": [str(ws)]}), encoding="utf-8")
-        comm_file.write_text(json.dumps({"schema": "mindie-community-config/1", "enabled": True, "enabled_at": 1700000000.0, "project_roots": [str(ws)], "consent_config": str(consent_file)}), encoding="utf-8")
+        consent_file.write_text(
+            json.dumps(
+                {
+                    "schema": "mindie-consent/1",
+                    "choice": "local-only",
+                    "enabled": True,
+                    "choice_at": 1700000000.0,
+                    "choice_revision": "a" * 32,
+                    "project_roots": [str(ws)],
+                }
+            ),
+            encoding="utf-8",
+        )
+        comm_file.write_text(
+            json.dumps(
+                {
+                    "schema": "mindie-community-config/1",
+                    "enabled": True,
+                    "repository": None,
+                    "branch": "main",
+                    "project_roots": [str(ws)],
+                    "idle_seconds": 300,
+                    "local_only": True,
+                    "consent_config": str(consent_file),
+                    "generation": "b" * 32,
+                    "enabled_at": 1700000000.0,
+                }
+            ),
+            encoding="utf-8",
+        )
         bind_code = (
             "import json, sys\nfrom pathlib import Path\nfrom mindie_harness.paths import ProfileRef\n"
             "from mindie_harness.runtime.knowledge_binding import ensure_knowledge_binding\n"
@@ -423,16 +451,29 @@ def run_scenario_hooks_and_capture(
         if not adm_path.is_file():
             raise HostAcceptanceError(f"{host} positive Stop did not create {adm_path}")
 
-        tp_res = tp.resolve()
+        def _fs(p: Path) -> str:
+            s = str(p.resolve())
+            return ("\\\\?\\" + s) if os.name == "nt" and not s.startswith("\\\\?\\") else s
+
+        tp_norm = _fs(tp).lower()
+        kdom_prefix = _fs(kdomain_dir).lower() + os.sep
         committed_blobs: list[str] = []
-        for fpath in Path(cap_env["MINDIE_DATA_HOME"]).resolve().rglob("*"):
-            if not fpath.is_file() or fpath.resolve() == tp_res:
-                continue
-            raw_txt = fpath.read_bytes().decode("utf-8", errors="ignore")
-            if SECRET_GHP in raw_txt or SECRET_AWS in raw_txt:
-                raise HostAcceptanceError(f"{host} leaked unredacted secret into {fpath}")
-            if ADVICE_MARKER in raw_txt and kdomain_dir in fpath.resolve().parents:
-                committed_blobs.append(str(fpath))
+        for root_d, _dirs, files in os.walk(_fs(Path(cap_env["MINDIE_DATA_HOME"]))):
+            for fn in files:
+                if fn.endswith(".lock"):
+                    continue
+                fp = os.path.join(root_d, fn)
+                if fp.lower() == tp_norm:
+                    continue
+                try:
+                    with open(fp, "rb") as fh:
+                        raw_txt = fh.read().decode("utf-8", errors="ignore")
+                except PermissionError:
+                    continue
+                if SECRET_GHP in raw_txt or SECRET_AWS in raw_txt:
+                    raise HostAcceptanceError(f"{host} leaked unredacted secret into {fp}")
+                if ADVICE_MARKER in raw_txt and fp.lower().startswith(kdom_prefix):
+                    committed_blobs.append(fp)
         if not committed_blobs:
             raise HostAcceptanceError(f"{host} positive Stop did not commit sanitized transcript material in {kdomain_dir}")
         return {"session_id": sid, "committed_files": len(committed_blobs), "drained": drain_info["drained"]}
