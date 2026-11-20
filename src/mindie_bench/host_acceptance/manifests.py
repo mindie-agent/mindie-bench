@@ -308,7 +308,7 @@ def parse_host_manifest(
     env: Mapping[str, str],
     prepacked_dir: Path | None = None,
     pack_npm: bool = True,
-    timeout: float = 25.0,
+    timeout: float = 60.0,
 ) -> HostManifestSpec:
     """Dynamically parse and structurally validate the native manifest(s) for `host`."""
     clean = host.strip().lower()
