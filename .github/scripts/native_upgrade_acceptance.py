@@ -290,7 +290,17 @@ def verify(args):
     manifest = json.loads((source / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
     if manifest["version"] != args.version:
         raise ValueError("native startup did not activate the candidate after stale CAS rejection")
-    rebound = managed_commands(current)
+    rebound = dict(managed_commands(current))
+    sim_argv = (current.get("component_commands") or {}).get("sim")
+    if (
+        "sim" not in rebound
+        and isinstance(sim_argv, list)
+        and len(sim_argv) >= 3
+        and all(isinstance(v, str) and v for v in sim_argv)
+        and sim_argv[-2:] == ["-m", "mindie_sim.cli"]
+        and sim_argv[1:-2] in ([], ["-I"], ["-I", "-X", "utf8"], ["-I", "-B", "-X", "utf8"])
+    ):
+        rebound["sim"] = ("mindie-sim", sim_argv[0], "mindie_sim.cli")
     if not {"sim", "profiler"} <= rebound.keys():
         raise ValueError("seeded external component bindings disappeared")
     for name, python, _module in rebound.values():
