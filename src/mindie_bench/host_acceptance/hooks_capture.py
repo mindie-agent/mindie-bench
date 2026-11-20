@@ -302,6 +302,28 @@ def _resolve_redactor(venv_py: Path, env: Mapping[str, str], redactor: Path | No
     raise FileNotFoundError("No `gitleaks` redactor executable available (`--redactor` or `gitleaks` on PATH)")
 
 
+def provision_shared_hook_assets(
+    stage_root: Path,
+    *,
+    wheelhouse_stage: Path,
+    redactor: Path | None,
+    uv_cache_dir: Path | None,
+    timeout_sec: float = 300.0,
+) -> tuple[Path, Path | None]:
+    """Provision one read-only `hook-venv` and cached `gitleaks` binary for multi-host runs."""
+    deadline = time.monotonic() + max(30.0, float(timeout_sec))
+    env, is_offline = build_sandbox_env(
+        stage_root, wheelhouse_stage=wheelhouse_stage, redactor=redactor, uv_cache_dir=uv_cache_dir
+    )
+    venv_py = _provision_hook_venv(stage_root, env, is_offline, deadline)
+    resolved_red: Path | None = None
+    try:
+        resolved_red = Path(_resolve_redactor(venv_py, env, redactor, is_offline, deadline))
+    except Exception:
+        resolved_red = redactor
+    return venv_py, resolved_red
+
+
 def run_scenario_hooks_and_capture(
     host: str,
     plugin_dir: Path,
@@ -313,6 +335,7 @@ def run_scenario_hooks_and_capture(
     deadline: float,
     cleanup_warnings: list[str],
     uv_cache_dir: Path | None = None,
+    shared_hook_venv_py: Path | None = None,
 ) -> dict[str, Any]:
     """Scenario 3: Part 3A (`SessionStart`), Part 3B (3 negative 0-SQLite `Stop` states), Part 3C (`Stop` capture)."""
     if wheelhouse_stage is None or not wheelhouse_stage.is_dir():
@@ -328,7 +351,11 @@ def run_scenario_hooks_and_capture(
     spec = parse_host_manifest(
         host, plugin_dir, sandbox_root=sandbox_root, env=base_env, prepacked_dir=prepacked_dir, timeout=max(2.0, deadline - time.monotonic())
     )
-    venv_py = _provision_hook_venv(sandbox_root, base_env, is_offline, deadline)
+    venv_py = (
+        shared_hook_venv_py
+        if (shared_hook_venv_py is not None and shared_hook_venv_py.is_file())
+        else _provision_hook_venv(sandbox_root, base_env, is_offline, deadline)
+    )
     cfg_dir = Path(base_env["MINDIE_CONFIG_HOME"])
     cfg_dir.mkdir(parents=True, exist_ok=True)
     cfg_file = cfg_dir / f"{host}.json"

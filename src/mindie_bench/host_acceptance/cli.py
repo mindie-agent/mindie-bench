@@ -40,7 +40,10 @@ from mindie_bench.host_acceptance import (
     build_sandbox_env,
     stop_sandbox_knowledge_services,
 )
-from mindie_bench.host_acceptance.hooks_capture import run_scenario_hooks_and_capture
+from mindie_bench.host_acceptance.hooks_capture import (
+    provision_shared_hook_assets,
+    run_scenario_hooks_and_capture,
+)
 from mindie_bench.host_acceptance.manifests import ALL_HOSTS, stage_npm_package
 from mindie_bench.host_acceptance.mcp_wire import (
     run_scenario_cold_native_launch,
@@ -116,6 +119,7 @@ def _run_one_scenario(
     prepacked_dir: Path | None,
     inner_deadline: float,
     uv_cache_dir: Path | None = None,
+    shared_hook_venv_py: Path | None = None,
     cleanup_hook: Callable[[str, str, Path], None] | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
@@ -141,7 +145,9 @@ def _run_one_scenario(
             elif scenario == "public_install_py":
                 details = run_scenario_public_install_py(host, plugin_dir, install_script=install_script, **common)
             elif scenario == "hooks_and_capture":
-                details = run_scenario_hooks_and_capture(host, plugin_dir, **common)
+                details = run_scenario_hooks_and_capture(
+                    host, plugin_dir, shared_hook_venv_py=shared_hook_venv_py, **common
+                )
             elif scenario == "upgrade_cutover":
                 details = run_scenario_upgrade_cutover(
                     host,
@@ -202,6 +208,7 @@ def _run_one_host(
     redactor: Path | None,
     timeout_sec: float,
     uv_cache_dir: Path | None = None,
+    shared_hook_venv_py: Path | None = None,
     cleanup_hook: Callable[[str, str, Path], None] | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
@@ -281,6 +288,7 @@ def _run_one_host(
             prepacked_dir=prepacked_dir,
             inner_deadline=inner_deadline,
             uv_cache_dir=uv_cache_dir,
+            shared_hook_venv_py=shared_hook_venv_py,
             cleanup_hook=cleanup_hook,
         )
 
@@ -335,10 +343,29 @@ def run_host_acceptance(
         eff_install = None
 
     shared_uv_cache = Path(tempfile.mkdtemp(prefix="mindie-ha-uvcache-")).resolve()
+    shared_hook_stage: Path | None = None
+    shared_hook_py: Path | None = None
+    eff_redactor = redactor.resolve() if redactor else None
     run_warnings: list[str] = []
     host_reports: dict[str, dict[str, Any]] = {}
     host_workers = min(2, len(clean_hosts))
     try:
+        if len(clean_hosts) > 1 and "hooks_and_capture" in clean_scenarios and wheelhouse_stage is not None and wheelhouse_stage.is_dir():
+            shared_hook_stage = Path(tempfile.mkdtemp(prefix="mindie-ha-hookstage-")).resolve()
+            try:
+                shared_hook_py, cached_red = provision_shared_hook_assets(
+                    shared_hook_stage,
+                    wheelhouse_stage=wheelhouse_stage.resolve(),
+                    redactor=eff_redactor,
+                    uv_cache_dir=shared_uv_cache,
+                    timeout_sec=min(300.0, float(timeout_sec)),
+                )
+                if eff_redactor is None and cached_red is not None and cached_red.is_file():
+                    eff_redactor = cached_red
+            except Exception as exc:
+                run_warnings.append(f"shared_hook_stage: {type(exc).__name__}: {exc}")
+                shared_hook_py = None
+
         with ThreadPoolExecutor(max_workers=host_workers) as pool:
             futs = {
                 h: pool.submit(
@@ -350,9 +377,10 @@ def run_host_acceptance(
                     baseline_wheelhouse_stage=baseline_wheelhouse_stage.resolve() if baseline_wheelhouse_stage else None,
                     baseline_plugin_dir=baseline_plugin_dir.resolve() if baseline_plugin_dir else None,
                     install_script=eff_install,
-                    redactor=redactor.resolve() if redactor else None,
+                    redactor=eff_redactor,
                     timeout_sec=timeout_sec,
                     uv_cache_dir=shared_uv_cache,
+                    shared_hook_venv_py=shared_hook_py,
                     cleanup_hook=cleanup_hook,
                 )
                 for h in clean_hosts
@@ -360,12 +388,15 @@ def run_host_acceptance(
             for h in clean_hosts:
                 host_reports[h] = futs[h].result()
     finally:
-        try:
-            rmtree_force(shared_uv_cache)
-            if shared_uv_cache.exists():
-                shutil.rmtree(shared_uv_cache, ignore_errors=True)
-        except Exception as exc:
-            run_warnings.append(f"rmtree_uvcache: {type(exc).__name__}: {exc}")
+        for extra_dir, label in ((shared_hook_stage, "rmtree_hookstage"), (shared_uv_cache, "rmtree_uvcache")):
+            if extra_dir is None:
+                continue
+            try:
+                rmtree_force(extra_dir)
+                if extra_dir.exists():
+                    shutil.rmtree(extra_dir, ignore_errors=True)
+            except Exception as exc:
+                run_warnings.append(f"{label}: {type(exc).__name__}: {exc}")
 
     overall_term = _aggregate_terminal([r["terminal_status"] for r in host_reports.values()])
     bundle_sha = _sha256_if_exists((wheelhouse_stage / "mindie-wheels-bundle.tar.gz") if wheelhouse_stage else None)
