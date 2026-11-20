@@ -217,7 +217,7 @@ class MCPWireSession:
     def initialize(self, deadline: float) -> dict[str, Any]:
         res = self.request(
             "initialize",
-            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mindie-host-accept", "version": "0.4.19"}},
+            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mindie-host-accept", "version": "0.4.20"}},
             deadline,
             framing="content-length",
         )
@@ -246,6 +246,15 @@ class MCPWireSession:
         try:
             self.proc.wait(timeout=3.0)
         except subprocess.TimeoutExpired:
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(self.proc.pid)],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    timeout=5.0,
+                    check=False,
+                    **subprocess_window_kwargs(),
+                )
             self.proc.kill()
             self.proc.wait(timeout=2.0)
 

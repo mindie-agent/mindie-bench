@@ -112,8 +112,11 @@ def _install_uv_sync_guard(guard_dir: Path, env: Mapping[str, str]) -> dict[str,
         "if any(a in {'sync', 'pip', 'venv'} for a in sys.argv[1:4]):\n"
         "    sys.stderr.write('forbidden uv build in hook fast-path: ' + repr(sys.argv[1:]) + '\\n')\n"
         "    raise SystemExit(98)\n"
+        "def _std(s):\n"
+        "    try: return s if s is not None and s.fileno() >= 0 else subprocess.DEVNULL\n"
+        "    except Exception: return subprocess.DEVNULL\n"
         "kw = {'creationflags': 0x08000000} if sys.platform == 'win32' else {}\n"
-        "raise SystemExit(subprocess.run([real, *sys.argv[1:]], **kw).returncode)\n"
+        "raise SystemExit(subprocess.run([real, *sys.argv[1:]], stdin=_std(sys.stdin), stdout=_std(sys.stdout), stderr=_std(sys.stderr), **kw).returncode)\n"
     )
     write_executable_shim(guard_dir, "uv", body)
     return {**env, "PATH": str(guard_dir) + os.pathsep + env.get("PATH", "")}

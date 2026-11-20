@@ -1272,7 +1272,7 @@ def test_parse_all_seven_host_manifests_and_real_sibling_checkouts(
     ]
     for host, dir_names in real_candidates.items():
         found_dir = next(
-            (base / dname for base in (repo_root.parent, repo_root.parent.parent) for dname in dir_names if (base / dname).is_dir()),
+            (base / dname for base in (repo_root.parent, repo_root.parent.parent) for dname in dir_names if ((base / dname) / ".git").exists()),
             None,
         )
         if found_dir is not None:
