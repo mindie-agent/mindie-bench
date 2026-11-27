@@ -2,8 +2,8 @@
 
 [Role]
 Builds a self-contained 10-wheel pure-stdlib wheelhouse stage, `install.py`, a
-`gitleaks`-compatible secret redactor shim, and realistic 7-host native plugin trees
-(`codex`, `cc`, `kimi`, `dsh`, `agy`, `wb`, `oc`) to verify all 4 scenarios, byte-0
+`gitleaks`-compatible secret redactor shim, and realistic 8-host native plugin trees
+(`codex`, `cc`, `kimi`, `dsh`, `agy`, `wb`, `oc`, `omp`) to verify all 4 scenarios, byte-0
 stdout framing, `git` `exit 99` traps, 0-SQLite negative `Stop` states, secret
 redaction, retired/deleted engine upgrade cutover, and `BENCH-VERDICT` honesty.
 
@@ -92,7 +92,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
-HOSTS = ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc")
+HOSTS = ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc", "omp")
 
 @dataclass(frozen=True)
 class ProfileRef:
@@ -121,7 +121,7 @@ class ProfileRef:
 import json, os, sys
 from pathlib import Path
 
-REMOTE_COUNTS = {"codex": 10, "cc": 13, "kimi": 14, "dsh": 14, "agy": 12, "wb": 15, "oc": 14}
+REMOTE_COUNTS = {"codex": 10, "cc": 13, "kimi": 14, "dsh": 14, "agy": 12, "wb": 15, "oc": 14, "omp": 20}
 KNOWLEDGE_TOOLS = ("knowledge_query", "knowledge_explain", "knowledge_feedback", "knowledge_distill", "knowledge_sync")
 COMPONENT_TOOLS = (
     "mindie_status", "mindie_doctor", "profiler", "sim", "coordinator",
@@ -161,6 +161,14 @@ class ManagedMCPAdapter:
             ]
         elif self.host == "agy":
             rnames = BASE_REMOTE[:12]
+        elif self.host == "omp":
+            rnames = [
+                "remote_read", "remote_write", "remote_edit", "remote_bash", "remote_job",
+                "remote_job_status", "remote_job_output", "remote_job_tail", "remote_job_poll",
+                "remote_job_list", "remote_job_cancel", "remote_job_stop", "remote_job_kill",
+                "remote_job_stdin", "remote_cancel", "remote_ping", "remote_hosts", "remote_auth",
+                "remote_probe", "remote_list_dir",
+            ]
         else:
             rnames = [n for n in BASE_REMOTE if n != "remote_list_dir"][:cnt]
             while len(rnames) < cnt:
@@ -245,7 +253,7 @@ DOMAINS = ("vllm-ascend", "operators", "xllm", "mindie-sd", "infer-core", "infer
 ADAPTERS = {
     "codex": "scripts/codex_transcript.py", "cc": "scripts/transcript.py", "kimi": "scripts/kimi_transcript.py",
     "dsh": "scripts/dsh_transcript.py", "agy": "scripts/agy_transcript.py", "wb": "scripts/wb_transcript.py",
-    "oc": "scripts/opencode_transcript.py",
+    "oc": "scripts/opencode_transcript.py", "omp": "scripts/omp_transcript.py",
 }
 
 def _inside(cand: str, root: str) -> bool:
@@ -410,9 +418,11 @@ def update_runtime(profile, *, force=False, offline=False, channel_base_url=None
     return {"status": "active", "generation": str(gen_dir), "python": str(venv_py)}
 """
     cli_py = r"""from __future__ import annotations
-import argparse, json, os, subprocess
+import argparse, json, os, subprocess, sys
+from pathlib import Path
 from mindie_harness.paths import ProfileRef
-from mindie_harness.runtime.knowledge_binding import ensure_knowledge_binding
+from mindie_harness.runtime.activation import write_pending_update_check
+from mindie_harness.runtime.knowledge_binding import ensure_knowledge_binding, run_stop_capture
 from mindie_harness.runtime.wheelhouse import update_runtime
 
 def main(argv=None) -> int:
@@ -422,7 +432,21 @@ def main(argv=None) -> int:
     inst.add_argument("--host", required=True)
     inst.add_argument("--channel-base-url", required=True)
     inst.add_argument("--offline", action="store_true")
+    hook = sub.add_parser("hook")
+    hook.add_argument("event")
+    hook.add_argument("hook_args", nargs=argparse.REMAINDER)
     args = p.parse_args(argv)
+    if args.cmd == "hook":
+        prof = ProfileRef.resolve("omp")
+        if args.event in {"session-start", "session_start"}:
+            write_pending_update_check(prof)
+            print(json.dumps({}))
+            return 0
+        raw = sys.stdin.buffer.read(1048576)
+        event = json.loads(raw.decode("utf-8-sig")) if raw.strip() else {}
+        run_stop_capture(prof, event, plugin_root=prof.plugin_root)
+        print(json.dumps({}))
+        return 0
     if os.environ.get("MINDIE_TEST_CALL_GIT") == "1":
         rc = subprocess.run(["git", "status"], check=False).returncode
         if rc != 0:
@@ -437,6 +461,7 @@ def main(argv=None) -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 """
+
     return {
         "__init__.py": "",
         "paths.py": paths_py,
@@ -749,7 +774,7 @@ def _transcript_adapter_source(host: str) -> str:
     body = r"""from __future__ import annotations
 from contextlib import closing
 from dataclasses import dataclass
-import json, os, sqlite3, struct
+import hashlib, json, os, sqlite3, struct
 from pathlib import Path
 
 HOST = __HOST__
@@ -758,6 +783,17 @@ HOST = __HOST__
 class FileIdentity:
     path: str
     size: int
+
+    def serialize(self):
+        return json.dumps({"path": self.path, "size": self.size}, sort_keys=True)
+
+    @classmethod
+    def unserialize(cls, payload, path=None):
+        data = json.loads(payload) if isinstance(payload, str) else payload
+        if not isinstance(data, dict):
+            return None
+        selected = str(path or data.get("path") or "")
+        return cls(selected, int(data.get("size", 0)))
 
 def identify(path):
     p = Path(path)
@@ -779,6 +815,8 @@ def resolve_transcript(event: dict) -> Path:
         return Path(os.environ["DSH_HOME"]) / f"sessions/proj/{sid}/session.v4.jsonl.zstd"
     if HOST == "agy":
         return Path(os.environ["AGY_APP_DATA_DIR"]) / f"brain/{sid}/.system_generated/logs/transcript_full.jsonl"
+    if HOST == "omp":
+        return Path(event.get("transcript_path") or (Path(os.environ["OMP_HOME"]) / f"sessions/{sid}.jsonl"))
     if HOST == "oc":
         return Path(event.get("opencodeDb") or os.environ["MINDIE_OPENCODE_DB"])
     raise FileNotFoundError(f"Transcript missing for {HOST}: {event}")
@@ -793,7 +831,7 @@ def read_material(path, start: int = 0, *, session_id=None, **_kw) -> dict:
         txt = _unzstd(p.read_bytes())
     else:
         txt = p.read_text(encoding="utf-8", errors="replace")
-    return {"status": "ok", "start": 0, "end": len(txt), "text": txt, "records": 2}
+    return {"status": "ok", "start": 0, "end": len(txt), "text": txt, "records": 2, "identity": identify(p).serialize(), "digest": hashlib.sha256(txt.encode()).hexdigest()}
 """
     return body.replace("__HOST__", repr(host))
 
@@ -872,11 +910,13 @@ def main(argv=None) -> int:
             "import json, sys; from pathlib import Path; from mindie_harness.paths import ProfileRef; "
             "from mindie_harness.runtime.knowledge_binding import run_stop_capture; "
             "pr = ProfileRef.resolve(sys.argv[1], plugin_root=sys.argv[2]); "
-            "run_stop_capture(pr, json.loads(sys.argv[3]), plugin_root=Path(sys.argv[2]))"
+            "res = run_stop_capture(pr, json.loads(sys.argv[3]), plugin_root=Path(sys.argv[2])); print(json.dumps(res))"
         )
-        subprocess.run([py, "-I", "-X", "utf8", "-c", code, HOST, str(PLUGIN_ROOT), json.dumps(ev)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **KW)
+        stop_proc = subprocess.run([py, "-I", "-X", "utf8", "-c", code, HOST, str(PLUGIN_ROOT), json.dumps(ev)], check=True, stdout=subprocess.PIPE if HOST == "omp" else subprocess.DEVNULL, stderr=subprocess.DEVNULL, **KW)
+        if HOST == "omp" and stop_proc.stdout:
+            return _emit(json.loads(stop_proc.stdout.decode().splitlines()[-1]))
         return _emit({})
-    if role == "mcp" or role in {"remote-mcp", "tools-mcp", "knowledge-mcp"}:
+    if role == "mcp" or role in {"tools", "remote", "remote-mcp", "tools-mcp", "knowledge-mcp"}:
         surf = args[1] if role == "mcp" else role.replace("-mcp", "")
         inc_k = "0" if ("--no-knowledge" in args or (HOST == "wb" and surf == "tools")) else "1"
         py = _ensure_py()
@@ -894,7 +934,7 @@ def _encode_ps(script: str) -> str:
     return "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + base64.b64encode(script.encode("utf-16le")).decode("ascii")
 
 
-def _build_seven_host_plugins(plugins_root: Path) -> Path:
+def _build_eight_host_plugins(plugins_root: Path) -> Path:
     plugins_root.mkdir(parents=True, exist_ok=True)
     adapter_names = {
         "codex": "codex_transcript.py",
@@ -1185,6 +1225,24 @@ export default { id: 'mindie-agent', async setup(ctx) {
 """,
         encoding="utf-8",
     )
+    # 8. omp
+    omp_root = plugins_root / "mindie-agent-omp"
+    (omp_root / "scripts").mkdir(parents=True, exist_ok=True)
+    _make_seed_bundle(omp_root / "assets")
+    (omp_root / "scripts/mindie_launch.py").write_text(_shared_launcher_source("omp"), encoding="utf-8")
+    (omp_root / "scripts/omp_transcript.py").write_text(_transcript_adapter_source("omp"), encoding="utf-8")
+    (omp_root / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "mindie-tools": {"command": "python3", "args": ["-IB", "${OMP_PLUGIN_ROOT}/scripts/mindie_launch.py", "tools"]},
+                    "mindie-remote-dev": {"command": "python3", "args": ["-IB", "${OMP_PLUGIN_ROOT}/scripts/mindie_launch.py", "remote"]},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
     return plugins_root
 
 
@@ -1241,7 +1299,7 @@ def host_accept_fixture(tmp_path_factory: pytest.TempPathFactory) -> dict[str, P
     root = tmp_path_factory.mktemp("host-accept-suite").resolve()
     cand_stage = _build_stage(root / "candidate-stage", harness_version="0.1.5")
     base_stage = _build_stage(root / "baseline-stage", harness_version="0.1.4")
-    plugins_root = _build_seven_host_plugins(root / "plugins")
+    plugins_root = _build_eight_host_plugins(root / "plugins")
     redactor = _build_redactor_shim(root / "redactor-bin")
     install_py = _resolve_or_write_install_py(root)
     return {
@@ -1253,7 +1311,7 @@ def host_accept_fixture(tmp_path_factory: pytest.TempPathFactory) -> dict[str, P
     }
 
 
-def test_parse_all_seven_host_manifests_and_real_sibling_checkouts(
+def test_parse_all_eight_host_manifests_and_real_sibling_checkouts(
     host_accept_fixture: dict[str, Path], tmp_path: Path
 ) -> None:
     plugins_root = host_accept_fixture["plugins_root"]
@@ -1266,6 +1324,7 @@ def test_parse_all_seven_host_manifests_and_real_sibling_checkouts(
         "agy": ("agy-0.1.22", "mindie-agent-agy"),
         "wb": ("wb-0.1.20", "mindie-agent-wb"),
         "oc": ("oc-0.1.12", "mindie-agent-oc"),
+        "omp": ("omp-1.3.0", "mindie-agent-omp", "mindie-agent-omp-native-omp"),
     }
     tasks: list[tuple[str, Path, Path]] = [
         (host, plugins_root / f"mindie-agent-{host}", (tmp_path / f"fx-{host}").resolve()) for host in ALL_HOSTS
@@ -1284,13 +1343,20 @@ def test_parse_all_seven_host_manifests_and_real_sibling_checkouts(
         spec = parse_host_manifest(host, pdir, sandbox_root=sb, env=env)
         assert set(spec.servers) == set(EXPECTED_HOST_SERVERS[host])
         assert "SessionStart" in spec.hooks and "Stop" in spec.hooks
+        if host == "omp":
+            assert env["PI_SESSION_ID"] == "mindie-bench-omp-session"
+            assert env["OMP_HOME"].endswith("mindie-agent/omp")
+            assert spec.servers["mindie-tools"].args[-1:] == ("tools",)
+            assert spec.servers["mindie-remote-dev"].args[-1:] == ("remote",)
+            assert spec.hooks["SessionStart"].argv[-1] == "session-start"
+            assert spec.hooks["Stop"].argv[-1] == "stop"
 
     with ThreadPoolExecutor(max_workers=min(6, len(tasks))) as pool:
         for fut in [pool.submit(_check, t) for t in tasks]:
             fut.result()
 
 
-def test_all_seven_hosts_four_scenarios_cli_end_to_end(
+def test_all_eight_hosts_four_scenarios_cli_end_to_end(
     host_accept_fixture: dict[str, Path], tmp_path: Path
 ) -> None:
     report_path = tmp_path / "host-accept-all.json"
@@ -1317,8 +1383,8 @@ def test_all_seven_hosts_four_scenarios_cli_end_to_end(
     assert report["schema"] == "mindie-host-acceptance/1"
     assert report["status"] == "passed"
     assert report["terminal_status"] == "completed_pass"
-    assert report["summary"]["total_hosts"] == 7
-    assert report["summary"]["passed_hosts"] == 7
+    assert report["summary"]["total_hosts"] == 8
+    assert report["summary"]["passed_hosts"] == 8
     assert report["bundle_sha256"] and len(report["bundle_sha256"]) == 64
     for host in ALL_HOSTS:
         hrow = report["hosts"][host]
@@ -1326,7 +1392,7 @@ def test_all_seven_hosts_four_scenarios_cli_end_to_end(
         for scen in ("cold_native_launch", "hooks_and_capture"):
             assert hrow["scenarios"][scen]["terminal_status"] == "completed_pass"
 
-    # Exercise public_install_py and upgrade_cutover across Python/PS, Node ESM (dsh, oc), and dual-manifest (wb).
+    # Exercise public_install_py and upgrade_cutover across Python/PS, Node ESM (dsh, oc), dual-manifest (wb), and OMP.
     upg_report = tmp_path / "host-accept-install-upgrade.json"
     rc_upg = bench_main(
         [

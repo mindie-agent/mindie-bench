@@ -2,7 +2,7 @@
 
 [Role]
   Verify that the 3-job `stage-product -> qualify-product -> publish` product workflow
-  enforces early tag/channel validation, confined value-suite selection, 21-cell 3-OS × 7-host
+enforces early tag/channel validation, confined value-suite selection, 24-cell 3-OS × 8-host
   usability gating before write access, and deterministic release asset lists.
 [Invariants]
   * Executes actual embedded workflow bash/Python gates inside isolated `tmp_path` directories.

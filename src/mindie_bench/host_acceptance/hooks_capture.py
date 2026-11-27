@@ -1,11 +1,11 @@
 """Scenario 3: Hook fast-paths, 0-SQLite negative states, and redacted `Stop` capture.
 
 [Role]
-Verifies all 7 native host hook lifecycles in isolated sandboxes:
+Verifies all 8 native host hook lifecycles in isolated sandboxes:
 - Part 3A: `SessionStart` / pre-hook `< 5ms` fast-path with zero `uv sync`/`pip` and zero SQLite;
 - Part 3B: `Stop` across 3 negative states (no consent, `read-only` disabled, sibling prefix
   out-of-scope `cwd`) creating zero `.sqlite*` files;
-- Part 3C: `local-only` authorized `Stop` capture across all 7 native transcript formats
+- Part 3C: `local-only` authorized `Stop` capture across all 8 native transcript formats
   with synthetic secret redaction (`ghp_...`, `AKIA...`) and zero outbound network calls.
 
 [Invariants]
@@ -197,6 +197,17 @@ def _write_host_transcript(host: str, ws: Path, env: Mapping[str, str]) -> tuple
         tp.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
         return sid, tp, {"hook_event_name": "Stop", "session_id": sid, "turn_id": "wb-1", "transcript_path": str(tp)}
 
+    if host == "omp":
+        sid = "omp-accept-session-01"
+        tp = Path(env["OMP_HOME"]) / "sessions" / f"{sid}.jsonl"
+        tp.parent.mkdir(parents=True, exist_ok=True)
+        rows = [
+            {"role": "user", "session_id": sid, "cwd": str(ws), "content": u_txt},
+            {"role": "assistant", "session_id": sid, "cwd": str(ws), "content": a_txt},
+        ]
+        tp.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        return sid, tp, {"hook_event_name": "Stop", "identity_kind": "turn", "session_id": sid, "turn_id": "omp-1", "transcript_path": str(tp)}
+
     sid, db_path = "oc-accept-session-01", Path(env["MINDIE_OPENCODE_DB"])
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(db_path)) as conn, conn:
@@ -281,7 +292,10 @@ def _invoke_hook(
         return "{}"
 
     assert hspec.argv is not None
-    proc = _run_text(list(hspec.argv), env=h_env, timeout=rem, cwd=hspec.cwd, inp=json.dumps(payload))
+    hook_argv = list(hspec.argv)
+    if spec.host == "omp":
+        hook_argv[0] = str(venv_py)
+    proc = _run_text(hook_argv, env=h_env, timeout=rem, cwd=hspec.cwd, inp=json.dumps(payload))
     if proc.returncode != 0:
         raise HostAcceptanceError(f"{spec.host} {event_name} failed ({proc.returncode}): {proc.stderr[:300]}")
     return proc.stdout.strip()
@@ -458,7 +472,11 @@ def run_scenario_hooks_and_capture(
         if bproc.returncode != 0:
             raise HostAcceptanceError(f"{host} ensure_knowledge_binding failed: {bproc.stderr[:400]}")
 
-        _invoke_hook(spec, "Stop", {**base_stop, "cwd": str(ws), "workspaceRoot": str(ws)}, cap_env, sandbox_root, venv_py, deadline)
+        stop_output = _invoke_hook(spec, "Stop", {**base_stop, "cwd": str(ws), "workspaceRoot": str(ws)}, cap_env, sandbox_root, venv_py, deadline)
+        if host == "omp" and stop_output:
+            stop_doc = json.loads(stop_output)
+            if str(stop_doc.get("stage") or "") in {"inert", "rejected", "unavailable"}:
+                raise HostAcceptanceError(f"omp Stop handoff did not accept transcript: {stop_doc}")
         stop_sandbox_knowledge_services(sandbox_root)
 
         drain_code = (
@@ -508,7 +526,7 @@ def run_scenario_hooks_and_capture(
                 if ADVICE_MARKER in raw_txt and fp.lower().startswith(kdom_prefix):
                     committed_blobs.append(fp)
         if not committed_blobs:
-            raise HostAcceptanceError(f"{host} positive Stop did not commit sanitized transcript material in {kdomain_dir}")
+            raise HostAcceptanceError(f"{host} positive Stop did not commit sanitized transcript material in {kdomain_dir}; handoff={stop_output!r}; drain={drain_info!r}")
         return {"session_id": sid, "committed_files": len(committed_blobs), "drained": drain_info["drained"]}
     finally:
         try:

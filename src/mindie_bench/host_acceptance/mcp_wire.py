@@ -377,6 +377,8 @@ def run_scenario_cold_native_launch(
         all_names = [str(t["name"]) for tools in listed.values() for t in tools]
         if len(all_names) != len(set(all_names)) or (BANNED_LEGACY_TOOLS & set(all_names)):
             raise HostAcceptanceError(f"{host} duplicate or banned legacy tools in {all_names}")
+        if host == "omp" and not {"remote_bash", "remote_job_status"}.issubset(set(all_names)):
+            raise HostAcceptanceError("omp canonical remote catalog is missing standard job tools")
         for sname, tools in listed.items():
             for tool in tools:
                 req_fields = set((tool.get("inputSchema") or {}).get("required") or ())

@@ -1,4 +1,4 @@
-"""Universal 7-host native manifest, MCP wire, hook capture, and upgrade verifier.
+"""Universal 8-host native manifest, MCP wire, hook capture, and upgrade verifier.
 
 [Role]
 Exposes Gate Layer 2 (`mindie-bench host-accept`) and provides shared sandbox
@@ -58,6 +58,7 @@ _STRIP_ENV_PREFIXES = (
     "GH_",
     "GITHUB_",
 )
+_STRIP_ENV_KEYS = frozenset({"PI_SESSION_ID", "OMP_HOME", "OMP_PLUGIN_ROOT"})
 _NORM_PKG_RE = re.compile(r"[-_.]+")
 
 
@@ -169,6 +170,7 @@ def build_sandbox_env(
             ("codex", "codex-home"),
             ("claude", "claude-config"),
             ("kimi", "kimi-home"),
+            ("omp", "xdg-data/mindie-agent/omp"),
             ("dsh", "dsh-home"),
             ("agy", "agy-appdata"),
             ("wb", "wb-config"),
@@ -179,7 +181,7 @@ def build_sandbox_env(
             ("ws", "ws"),
         )
     }
-    for key in ("home", "appdata", "local", "xcfg", "xdata", "xstate", "xcache", "tmp", "bin", "ws", "gh"):
+    for key in ("home", "appdata", "local", "xcfg", "xdata", "xstate", "xcache", "tmp", "bin", "ws", "gh", "omp"):
         dirs[key].mkdir(parents=True, exist_ok=True)
     write_command_alias(dirs["bin"], "python", [str(base_py)])
     write_command_alias(dirs["bin"], "python3", [str(base_py)])
@@ -187,7 +189,7 @@ def build_sandbox_env(
     env = {
         k: v
         for k, v in os.environ.items()
-        if k.upper() not in {"VIRTUAL_ENV", "PYTHONPATH", "PYTHONHOME"}
+        if k.upper() not in {"VIRTUAL_ENV", "PYTHONPATH", "PYTHONHOME", *_STRIP_ENV_KEYS}
         and not any(k.upper().startswith(p) for p in _STRIP_ENV_PREFIXES)
     }
     path_parts = [
@@ -247,6 +249,8 @@ def build_sandbox_env(
             "DSH_HOME": str(dirs["dsh"]),
             "MINDIE_DSH_UPDATE_DELAY_MS": "600000",
             "AGY_APP_DATA_DIR": str(dirs["agy"]),
+            "OMP_HOME": str(dirs["omp"]),
+            "PI_SESSION_ID": "mindie-bench-omp-session",
             "WORKBUDDY_CONFIG_DIR": str(dirs["wb"]),
             "OPENCODE_TEST_HOME": str(dirs["oc"]),
             "MINDIE_OPENCODE_DB": str(dirs["oc"] / "opencode.db"),
