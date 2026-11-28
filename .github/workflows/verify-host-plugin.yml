@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       host:
-        description: Canonical host identifier (codex|cc|kimi|dsh|agy|wb|oc)
+        description: Canonical host identifier (codex|cc|kimi|dsh|agy|wb|oc|omp)
         type: string
         required: true
 
@@ -31,7 +31,7 @@ jobs:
           HOST_ID: ${{ inputs.host }}
         run: |
           case "$HOST_ID" in
-            codex|cc|kimi|dsh|agy|wb|oc) ;;
+            codex|cc|kimi|dsh|agy|wb|oc|omp) ;;
             *) echo "Unsupported host input: $HOST_ID" >&2; exit 1 ;;
           esac
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

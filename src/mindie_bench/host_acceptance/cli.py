@@ -2,8 +2,8 @@
 
 [Role]
 Implements `mindie-bench host-accept` (`schema: "mindie-host-acceptance/1"`),
-running Scenarios 1–4 in isolated per-scenario sandboxes across any subset or all 7
-native MindIE host plugins (`codex`, `cc`, `kimi`, `dsh`, `agy`, `wb`, `oc`).
+running Scenarios 1–4 in isolated per-scenario sandboxes across any subset or all 8
+native MindIE host plugins (`codex`, `cc`, `kimi`, `dsh`, `agy`, `wb`, `oc`, `omp`).
 
 [Invariants]
 - Verdict honesty (`BENCH-VERDICT`): once a scenario's business verdict settles as
@@ -434,11 +434,11 @@ def run_host_acceptance(
 def add_host_accept_subparser(commands: Any) -> argparse.ArgumentParser:
     sub = commands.add_parser(
         "host-accept",
-        help="run Gate Layer 2 native manifest, MCP wire, hook capture, and upgrade acceptance across 7 hosts",
+        help="run Gate Layer 2 native manifest, MCP wire, hook capture, and upgrade acceptance across 8 hosts",
     )
     target = sub.add_mutually_exclusive_group(required=True)
     target.add_argument("--host", choices=list(ALL_HOSTS), help="single host plugin to verify")
-    target.add_argument("--all-hosts", action="store_true", help="verify all 7 host plugins")
+    target.add_argument("--all-hosts", action="store_true", help="verify all 8 host plugins")
     sub.add_argument("--plugin-dir", type=Path, default=None)
     sub.add_argument("--plugins-root", type=Path, default=None)
     sub.add_argument("--wheelhouse-stage", type=Path, default=None)

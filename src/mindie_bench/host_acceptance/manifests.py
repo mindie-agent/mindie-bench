@@ -1,4 +1,4 @@
-"""Dynamic verbatim parsing of all 7 MindIE host plugin manifests and shims.
+"""Dynamic verbatim parsing of all 8 MindIE host plugin manifests and shims.
 
 [Role]
 Parses the live MCP server definitions and hook entrypoints from candidate plugin
@@ -38,7 +38,7 @@ from mindie_bench.runner.host_platform import (
     which_native,
 )
 
-ALL_HOSTS: tuple[str, ...] = ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc")
+ALL_HOSTS: tuple[str, ...] = ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc", "omp")
 EXPECTED_HOST_SERVERS: dict[str, dict[str, int]] = {
     "codex": {"mindie-remote-dev": 10, "mindie-tools": 16},
     "cc": {"knowledge": 5, "remote": 13, "components": 11},
@@ -47,6 +47,7 @@ EXPECTED_HOST_SERVERS: dict[str, dict[str, int]] = {
     "agy": {"mindie-remote-dev": 12, "mindie-tools": 16},
     "wb": {"mindie-remote-dev": 15, "mindie-tools": 11, "mindie-knowledge": 5},
     "oc": {"mindie-remote-dev": 14, "mindie-tools": 16},
+    "omp": {"mindie-tools": 16, "mindie-remote-dev": 20},
 }
 
 
@@ -389,6 +390,33 @@ def parse_host_manifest(
             for ev in ("SessionStart", "UserPromptSubmit", "PreToolUse", "Stop")
         }
         return HostManifestSpec("wb", repo_root, sub, dot, hooks, {"wb_install": wb_res})
+
+    if clean == "omp":
+        omp_env = dict(env, OMP_PLUGIN_ROOT=str(repo_root))
+        servers = _parse_mcp_json_servers(
+            json.loads((repo_root / ".mcp.json").read_text(encoding="utf-8")),
+            default_cwd=repo_root,
+            base_env=omp_env,
+            var_map={"OMP_PLUGIN_ROOT": str(repo_root)},
+        )
+        py3 = which_native("python3", path=env.get("PATH")) or str(resolve_base_python())
+        hooks = {
+            "SessionStart": HookCommandSpec(
+                "SessionStart",
+                "python3 -IB ${OMP_PLUGIN_ROOT}/scripts/mindie_launch.py session-start",
+                (py3, "-IB", str(repo_root / "scripts/mindie_launch.py"), "session-start"),
+                repo_root,
+                omp_env,
+            ),
+            "Stop": HookCommandSpec(
+                "Stop",
+                "python3 -IB ${OMP_PLUGIN_ROOT}/scripts/mindie_launch.py hook stop",
+                (py3, "-IB", str(repo_root / "scripts/mindie_launch.py"), "hook", "stop"),
+                repo_root,
+                omp_env,
+            ),
+        }
+        return HostManifestSpec("omp", repo_root, repo_root, servers, hooks)
 
     pkg = prepacked_dir or (stage_npm_package(repo_root, sandbox_root / "oc-pack", env, timeout=timeout) if pack_npm else repo_root)
     return _parse_oc_manifest(repo_root, pkg, sandbox_root, env, timeout=timeout)

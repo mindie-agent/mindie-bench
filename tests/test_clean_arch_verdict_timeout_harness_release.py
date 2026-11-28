@@ -166,7 +166,7 @@ def test_mindie_harness_birth_release_gate_and_pr_checklist_bench_profile(tmp_pa
             "version": "0.1.4",
             "revision": "14313b8ba58c888b20c9c216ec41d14f5e62f4f7",
         }
-        assert len(policy["repositories"]) == 17
+        assert len(policy["repositories"]) == 18
         assert all(
             row.get("version") and len(str(row.get("revision") or "")) == 40
             for row in policy["repositories"].values()

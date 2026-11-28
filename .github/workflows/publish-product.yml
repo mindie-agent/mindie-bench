@@ -311,7 +311,7 @@ jobs:
         with:
           name: staged-product-assets
           path: ${{ runner.temp }}/staged-product-assets
-      - name: Verify staged bundle, install.py, L1 selftest, and 7-host wire acceptance
+      - name: Verify staged bundle, install.py, L1 selftest, and 8-host wire acceptance
         timeout-minutes: 55
         env:
           GH_TOKEN: ${{ github.token }}
@@ -373,7 +373,7 @@ jobs:
           st_payload = json.loads(st_proc.stdout)
           assert st_payload.get("status") == "passed", st_payload
 
-          # 3. Checkout exact 7 harness_plugin commits from release-channel.json and run Gate Layer 2
+          # 3. Checkout exact 8 harness_plugin commits from release-channel.json and run Gate Layer 2
           channel = json.loads((stage / "release-channel.json").read_text(encoding="utf-8"))
           plugins_root = tmp / "plugins-root"
           plugins_root.mkdir(parents=True, exist_ok=True)
@@ -392,7 +392,7 @@ jobs:
                   head = subprocess.check_output(["git", "-C", str(dest), "rev-parse", "HEAD"], text=True, timeout=15, **flags).strip()
                   assert head == p_rev, (p_repo, head, p_rev)
                   plugin_commits[slug] = p_rev
-          expected_slugs = {f"mindie-agent-{h}" for h in ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc")}
+          expected_slugs = {f"mindie-agent-{h}" for h in ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc", "omp")}
           assert set(plugin_commits) == expected_slugs, plugin_commits
 
           os_name = os.environ["MATRIX_OS"]
@@ -430,7 +430,7 @@ jobs:
           assert l2_report.get("status") == "passed", l2_report
           raw_hosts = l2_report.get("hosts") or {}
           host_verdicts = {}
-          for h in ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc"):
+          for h in ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc", "omp"):
               h_entry = raw_hosts.get(h) if isinstance(raw_hosts, dict) else None
               t_status = h_entry.get("terminal_status") if isinstance(h_entry, dict) else None
               assert t_status == "completed_pass", (h, h_entry)
@@ -497,7 +497,7 @@ jobs:
           bundle_sha = hashlib.sha256((bench_root / "mindie-wheels-bundle.tar.gz").read_bytes()).hexdigest()
           channel_sha = hashlib.sha256((bench_root / "release-channel.json").read_bytes()).hexdigest()
           expected_oses = ("ubuntu-latest", "macos-latest", "windows-latest")
-          expected_hosts = ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc")
+          expected_hosts = ("codex", "cc", "kimi", "dsh", "agy", "wb", "oc", "omp")
           cells = {}
           passed_cells = 0
           for os_name in expected_oses:
@@ -519,7 +519,7 @@ jobs:
                   assert hosts[h] == "completed_pass", (os_name, h, hosts[h])
                   passed_cells += 1
               cells[os_name] = cell
-          assert passed_cells == 21, passed_cells
+          assert passed_cells == 24, passed_cells
           merged = {
               "schema": "mindie-product-usability-acceptance/1",
               "status": "passed",
@@ -527,8 +527,8 @@ jobs:
               "revision": os.environ["GITHUB_SHA"],
               "bundle_sha256": bundle_sha,
               "channel_sha256": channel_sha,
-              "total_cells": 21,
-              "passed_cells": 21,
+              "total_cells": 24,
+              "passed_cells": 24,
               "os_matrix": list(expected_oses),
               "hosts": list(expected_hosts),
               "cells": cells,

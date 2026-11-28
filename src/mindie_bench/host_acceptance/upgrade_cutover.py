@@ -2,7 +2,7 @@
 
 [Role]
 Verifies live generation upgrade cutover (`update_runtime` + `ensure_knowledge_binding` +
-`maintain_generations`) across all 7 native host plugins:
+`maintain_generations`) across all 8 native host plugins.
 - Preserves `mindie-consent.json` byte-for-byte;
 - Preserves custom `component_commands` wrappers while rebinding standard `-m mindie_sim`;
 - Retires `gen-n1` knowledge engine & heals deleted `domain_configs` entries so Turn-1
