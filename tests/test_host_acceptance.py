@@ -1345,7 +1345,7 @@ def test_parse_all_eight_host_manifests_and_real_sibling_checkouts(
         assert "SessionStart" in spec.hooks and "Stop" in spec.hooks
         if host == "omp":
             assert env["PI_SESSION_ID"] == "mindie-bench-omp-session"
-            assert env["OMP_HOME"].endswith("mindie-agent/omp")
+            assert env["OMP_HOME"].replace("\\", "/").endswith("mindie-agent/omp")
             assert spec.servers["mindie-tools"].args[-1:] == ("tools",)
             assert spec.servers["mindie-remote-dev"].args[-1:] == ("remote",)
             assert spec.hooks["SessionStart"].argv[-1] == "session-start"
